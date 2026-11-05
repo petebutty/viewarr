@@ -78,7 +78,7 @@ private class Choice(override val label: String, val value: Any) : io.github.pet
     override fun hashCode() = value.hashCode()
 }
 
-private val MainColourNames = listOf("Charcoal", "Navy", "Graphite", "Deep teal", "Plum", "Oxblood", "Forest", "Slate", "Aubergine")
+private val MainColourNames = listOf("Charcoal", "Navy", "Graphite", "Deep teal", "Plum", "Oxblood", "Forest", "Slate", "Aubergine", "OLED black")
 private val HighlightNames = listOf("Cyan", "Pink", "Sky blue", "Blue", "Teal", "Lilac", "Orange", "Green", "Yellow", "Rose")
 
 /** Settings → Appearance, full screen like the other settings pages. */

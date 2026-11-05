@@ -1,5 +1,6 @@
 package io.github.petebutty.viewarr.ui.home
 
+import io.github.petebutty.viewarr.ui.common.slideInFromLeft
 import android.app.Activity
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -458,7 +459,7 @@ fun HomeScreen(
                         true
                     },
             )
-            if (channelListOpen && channel != null) {
+            if (channelListOpen && channel != null) Box(Modifier.fillMaxSize().slideInFromLeft()) {
                 ChannelListOverlay(
                     vm = vm,
                     serverUrl = session?.serverUrl.orEmpty(),
@@ -500,7 +501,7 @@ fun HomeScreen(
             }
         }
 
-        if (menuOpen) {
+        if (menuOpen) Box(Modifier.fillMaxSize().slideInFromLeft()) {
             MenuOverlay(
                 // See-through only over full-screen video; over the guide and other pages it's solid (tidier).
                 seeThrough = fullscreen,

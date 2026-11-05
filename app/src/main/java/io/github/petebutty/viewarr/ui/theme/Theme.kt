@@ -36,11 +36,13 @@ val ThemePresets = listOf(
     ThemePreset("Ocean", Color(0xFF0D3640), Color(0xFF2DD4BF)),
     ThemePreset("Royal purple", Color(0xFF2A1B4D), Color(0xFFC084FC)),
     ThemePreset("Ember", Color(0xFF2B1515), Color(0xFFF97316)),
+    // True black: OLED TVs switch those pixels off (deeper blacks, no glow around menus).
+    ThemePreset("OLED black", Color(0xFF000000), Color(0xFF00E5FF)),
 )
 
 val MainColourChoices = listOf(
     Color(0xFF0E1016), Color(0xFF1B2766), Color(0xFF121418), Color(0xFF0D3640), Color(0xFF2A1B4D),
-    Color(0xFF2B1515), Color(0xFF10301F), Color(0xFF2E2E36), Color(0xFF3A1D33),
+    Color(0xFF2B1515), Color(0xFF10301F), Color(0xFF2E2E36), Color(0xFF3A1D33), Color(0xFF000000),
 )
 
 val HighlightChoices = listOf(
