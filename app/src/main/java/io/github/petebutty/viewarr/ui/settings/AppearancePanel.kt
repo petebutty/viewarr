@@ -60,6 +60,10 @@ class AppearanceViewModel @Inject constructor(private val store: ThemeStore) : V
         viewModelScope.launch { store.save(main, highlight) }
     }
 
+    fun setHideMedia(on: Boolean) {
+        viewModelScope.launch { store.saveHideMedia(on) }
+    }
+
     fun setSquareCorners(on: Boolean) {
         viewModelScope.launch { store.saveSquareCorners(on) }
     }
@@ -120,6 +124,13 @@ fun AppearanceSettingsScreen(onBack: () -> Unit, vm: AppearanceViewModel = hiltV
                     if (palette.showNumbers) onOff[0] else onOff[1]) { c -> vm.setShowNumbers((c as Choice).value == true) },
                 SettingItem("Corners", "Rounded or square corners on the guide's programmes and channel names.", corners,
                     if (palette.squareCorners) corners[1] else corners[0]) { c -> vm.setSquareCorners((c as Choice).value == true) },
+            ),
+        ),
+        SettingCategory(
+            "Menu", "What the side menu offers.",
+            listOf(
+                SettingItem("Movies & Shows", "Turn off to use Viewarr for live TV only: Movies and Shows leave the menu.", onOff,
+                    if (palette.hideMedia) onOff[1] else onOff[0]) { c -> vm.setHideMedia((c as Choice).value != true) },
             ),
         ),
     )

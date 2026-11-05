@@ -123,6 +123,10 @@ fun HomeScreen(
     var showAccounts by rememberSaveable { mutableStateOf(false) }
     val remote = LocalRemote.current
     var page by rememberSaveable { mutableStateOf(Page.Tv) }
+    // Movies & Shows switched off (live TV only): don't leave a hidden page on screen.
+    LaunchedEffect(AppColors.palette.hideMedia) {
+        if (AppColors.palette.hideMedia && (page == Page.Movies || page == Page.Shows)) page = Page.Tv
+    }
     val mediaFocus = remember { FocusRequester() }
     // Channel number typed on the remote's number keys.
     var digits by remember { mutableStateOf("") }
@@ -682,7 +686,8 @@ private fun MenuOverlay(
                     style = androidx.compose.ui.text.TextStyle(platformStyle = androidx.compose.ui.text.PlatformTextStyle(includeFontPadding = false)),
                 )
             }
-            Section.entries.forEach { s ->
+            // Settings → Appearance → Movies & Shows off: a live-TV-only menu.
+            Section.entries.filter { !(AppColors.palette.hideMedia && (it == Section.Movies || it == Section.Shows)) }.forEach { s ->
                 MenuItem(
                     text = s.label,
                     selected = s == section,

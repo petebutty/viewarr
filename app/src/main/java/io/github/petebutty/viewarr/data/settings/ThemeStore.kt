@@ -27,6 +27,7 @@ class ThemeStore @Inject constructor(@ApplicationContext private val context: Co
             transparency = prefs[TRANSPARENCY] ?: 0f,
             showNumbers = prefs[NUMBERS] ?: true,
             squareCorners = prefs[SQUARE] ?: true,
+            hideMedia = prefs[HIDE_MEDIA] ?: false,
         )
     }
 
@@ -41,6 +42,10 @@ class ThemeStore @Inject constructor(@ApplicationContext private val context: Co
         context.appearanceStore.edit { it[TRANSPARENCY] = value }
     }
 
+    suspend fun saveHideMedia(on: Boolean) {
+        context.appearanceStore.edit { it[HIDE_MEDIA] = on }
+    }
+
     suspend fun saveSquareCorners(on: Boolean) {
         context.appearanceStore.edit { it[SQUARE] = on }
     }
@@ -52,6 +57,7 @@ class ThemeStore @Inject constructor(@ApplicationContext private val context: Co
     private companion object {
         val NUMBERS = androidx.datastore.preferences.core.booleanPreferencesKey("show_numbers")
         val SQUARE = androidx.datastore.preferences.core.booleanPreferencesKey("square_corners")
+        val HIDE_MEDIA = androidx.datastore.preferences.core.booleanPreferencesKey("hide_media")
         val MAIN = intPreferencesKey("main")
         val HIGHLIGHT = intPreferencesKey("highlight")
         val TRANSPARENCY = floatPreferencesKey("menu_transparency")
