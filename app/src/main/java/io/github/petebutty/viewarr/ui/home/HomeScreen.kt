@@ -625,8 +625,13 @@ private fun MenuOverlay(
         awaitFrame()
         // From Movies/Shows the menu opens on that page's catalogue list; Left from there reaches the main list.
         runCatching {
-            if ((page == Page.Movies || page == Page.Shows) && remote.menuOpensOn == MenuOpensOn.PageList) catalogueFocus.requestFocus()
-            else navFocus.getValue(section).requestFocus()
+            when {
+                remote.menuOpensOn != MenuOpensOn.PageList -> navFocus.getValue(section).requestFocus()
+                page == Page.Movies || page == Page.Shows -> catalogueFocus.requestFocus()
+                // From the guide: the channel groups (on the group being shown); Left again reaches the main list.
+                page == Page.Tv && session != null -> groupsFocus.requestFocus()
+                else -> navFocus.getValue(section).requestFocus()
+            }
         }
     }
     fun enter(s: Section) {
