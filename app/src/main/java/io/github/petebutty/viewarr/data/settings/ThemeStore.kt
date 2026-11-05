@@ -26,7 +26,7 @@ class ThemeStore @Inject constructor(@ApplicationContext private val context: Co
             highlight = prefs[HIGHLIGHT]?.let { Color(it) } ?: ThemePresets[0].highlight,
             transparency = prefs[TRANSPARENCY] ?: 0f,
             showNumbers = prefs[NUMBERS] ?: true,
-            squareCorners = prefs[SQUARE] ?: false,
+            squareCorners = prefs[SQUARE] ?: true,
         )
     }
 
