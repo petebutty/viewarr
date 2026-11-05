@@ -169,6 +169,23 @@ class SetupViewModel @Inject constructor(
         advance()
     }
 
+    /** Removes one service from this TV (it can be connected again any time). */
+    fun disconnect(item: SetupItem) {
+        _state.update { it.copy(lastItem = item) }
+        viewModelScope.launch {
+            when (item) {
+                SetupItem.LiveTv -> auth.signOut()
+                SetupItem.Tmdb -> store.update { it.copy(tmdbKey = null) }
+                SetupItem.Trakt -> store.update { it.copy(trakt = null) }
+                SetupItem.Plex -> store.update { it.copy(plex = null) }
+                SetupItem.Stremio -> store.update { it.copy(addons = emptyList()) }
+                SetupItem.Jellyfin -> store.update { it.copy(jellyfin = null) }
+                SetupItem.Emby -> store.update { it.copy(emby = null) }
+                SetupItem.Vod -> store.update { it.copy(vodEnabled = false) }
+            }
+        }
+    }
+
     fun advance() {
         val next = queue.firstOrNull()
         queue = queue.drop(1)

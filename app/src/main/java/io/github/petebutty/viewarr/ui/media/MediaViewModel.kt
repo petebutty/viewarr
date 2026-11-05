@@ -39,6 +39,8 @@ data class DetailUi(
     /** null while loading. */
     val episodes: List<io.github.petebutty.viewarr.data.media.EpisodeInfo>? = null,
     val plexEpisodes: Map<Pair<Int, Int>, io.github.petebutty.viewarr.data.media.PlexEpisode> = emptyMap(),
+    /** Jellyfin / Emby series: (season, episode) → episode id, resume point, watched. */
+    val serverEpisodes: Map<Pair<Int, Int>, io.github.petebutty.viewarr.data.media.PlexEpisode> = emptyMap(),
     /** IPTV provider series: (season, episode) → stream address. */
     val providerEpisodes: Map<Pair<Int, Int>, String> = emptyMap(),
     /** The episode whose play options are open. */
@@ -173,15 +175,17 @@ class MediaViewModel @Inject constructor(
                 val plexEps = showKey?.let { runCatching { repo.plexEpisodes(it) }.getOrDefault(emptyMap()) }.orEmpty()
                 val providerRef = copies.firstOrNull { it.source == io.github.petebutty.viewarr.data.media.PROVIDER }?.ref
                 val providerEps = providerRef?.let { repo.providerEpisodes(it) }.orEmpty()
+                val serverCopy = copies.firstOrNull { (it.source == "Jellyfin" || it.source == "Emby") && it.ref != null }
+                val serverEps = serverCopy?.let { repo.serverEpisodes(it.source, it.ref!!) }.orEmpty()
                 // A provider-only series (no TMDB match) gets its seasons from the provider's own episode list.
                 val seasons = full.seasons
                     .ifEmpty { showKey?.let { runCatching { repo.plexSeasons(it) }.getOrDefault(emptyList()) }.orEmpty() }
                     .ifEmpty {
-                        providerEps.keys.groupBy { it.first }.toSortedMap().map { (n, eps) ->
+                        (providerEps.keys + serverEps.keys).groupBy { it.first }.toSortedMap().map { (n, eps) ->
                             io.github.petebutty.viewarr.data.media.SeasonInfo(n, "Season $n", eps.size, null)
                         }
                     }
-                _detail.update { it?.copy(plexEpisodes = plexEps, providerEpisodes = providerEps, seasons = seasons) }
+                _detail.update { it?.copy(plexEpisodes = plexEps, providerEpisodes = providerEps, serverEpisodes = serverEps, seasons = seasons) }
             }
         }
     }
@@ -216,7 +220,7 @@ class MediaViewModel @Inject constructor(
             val eps = runCatching { repo.seasonEpisodes(d.detail.item, n, d.plexShowKey) }.getOrDefault(emptyList())
                 .ifEmpty {
                     // Provider-only series: list the provider's episodes for this season.
-                    (_detail.value?.providerEpisodes ?: d.providerEpisodes).keys.filter { it.first == n }.sortedBy { it.second }.map { (s, e) ->
+                    ((_detail.value?.providerEpisodes ?: d.providerEpisodes).keys + (_detail.value?.serverEpisodes ?: d.serverEpisodes).keys).toSet().filter { it.first == n }.sortedBy { it.second }.map { (s, e) ->
                         io.github.petebutty.viewarr.data.media.EpisodeInfo(s, e, "Episode $e", null, null, null, null)
                     }
                 }
@@ -246,6 +250,39 @@ class MediaViewModel @Inject constructor(
                 _detail.update { it?.copy(message = null, episode = null) }
                 _playing.value = stream.copy(title = "${d.detail.item.title} · S$season E$episode")
             }
+        }
+    }
+
+    /** The Jellyfin / Emby copy of the open title, if any: (source, item id). */
+    private fun serverCopy(d: DetailUi) = d.copies?.firstOrNull { (it.source == "Jellyfin" || it.source == "Emby") && it.ref != null }
+
+    /** A film from Jellyfin / Emby (resuming where you left off). */
+    fun playServer() {
+        val d = _detail.value ?: return
+        if (d.detail.item.type == MediaType.Show) return openEpisodes()
+        val copy = serverCopy(d) ?: return
+        viewModelScope.launch {
+            _detail.update { it?.copy(message = "Opening on ${copy.source}…") }
+            val stream = runCatching { repo.serverStream(copy.source, copy.ref!!, d.detail.item.title, watchTarget(d.detail.item, null, null)) }.getOrNull()
+            if (stream == null) _detail.update { it?.copy(message = "Couldn't open this on ${copy.source}.") }
+            else { _detail.update { it?.copy(message = null) }; _playing.value = stream }
+        }
+    }
+
+    /** One episode from Jellyfin / Emby. */
+    fun playServerEpisode(season: Int, episode: Int) {
+        val d = _detail.value ?: return
+        val source = serverCopy(d)?.source ?: return
+        val id = d.serverEpisodes[season to episode]?.ratingKey ?: run {
+            _detail.update { it?.copy(message = "S$season E$episode isn't on $source.") }
+            return
+        }
+        viewModelScope.launch {
+            val stream = runCatching {
+                repo.serverStream(source, id, "${d.detail.item.title} · S$season E$episode", watchTarget(d.detail.item, season, episode))
+            }.getOrNull()
+            if (stream == null) _detail.update { it?.copy(message = "Couldn't open this on $source.") }
+            else { _detail.update { it?.copy(message = null, episode = null) }; _playing.value = stream }
         }
     }
 
@@ -395,6 +432,7 @@ class MediaViewModel @Inject constructor(
         if (state == "stopped" && durationMs > 0 && positionMs >= durationMs * 0.95) endedNearEnd = target
         viewModelScope.launch {
             target.plexRatingKey?.let { repo.reportPlex(it, state, positionMs, durationMs) }
+            if (target.serverSource != null && target.serverItemId != null) repo.reportServer(target.serverSource, target.serverItemId, state, positionMs)
             if (state != lastState) {
                 lastState = state
                 val action = when (state) { "playing" -> "start"; "paused" -> "pause"; else -> "stop" }
@@ -434,6 +472,7 @@ class MediaViewModel @Inject constructor(
             val d = _detail.value ?: return@launch
             when {
                 d.copies?.any { it.source == "Plex" && it.ref != null } == true -> playPlex()
+                serverCopy(d) != null -> playServer()
                 d.copies?.any { it.source == io.github.petebutty.viewarr.data.media.PROVIDER } == true -> playProvider()
                 d.hasAddons -> searchAddons()
             }

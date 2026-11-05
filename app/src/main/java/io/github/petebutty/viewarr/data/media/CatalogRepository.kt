@@ -529,7 +529,12 @@ class CatalogRepository @Inject constructor(
             }.getOrNull()?.takeIf { it.ok } ?: return@forEach
             r.body.array("Items").forEach { j ->
                 val type = if (j.str("Type") == "Series") MediaType.Show else MediaType.Movie
-                add(type, j.child("ProviderIds").str("Tmdb")?.toIntOrNull(), j.child("ProviderIds").str("Imdb"), LibraryCopy(if (emby) "Emby" else "Jellyfin"))
+                val source = if (emby) "Emby" else "Jellyfin"
+                val id = j.str("Id") ?: return@forEach
+                val copy = LibraryCopy(source, null, id)
+                add(type, j.child("ProviderIds").str("Tmdb")?.toIntOrNull(), j.child("ProviderIds").str("Imdb"), copy)
+                // Titles without TMDB / IMDb ids are found by their own key (as used on the server's rows).
+                out.getOrPut("${source.lowercase()}:$id") { ArrayList() }.add(copy)
             }
         }
         xcSession()?.let { s ->
@@ -594,6 +599,62 @@ class CatalogRepository @Inject constructor(
     // ------------------------------------------------------------------ watch progress
 
     /** Tells Plex where you are (so Continue watching and "watched" stay in sync); marks it watched near the end. */
+    // ------------------------------------------------------------------ Jellyfin / Emby playback
+
+    private suspend fun serverFor(source: String): Pair<MediaServerAuth, Boolean>? {
+        val a = store.current()
+        return when (source) {
+            "Jellyfin" -> a.jellyfin?.let { it to false }
+            "Emby" -> a.emby?.let { it to true }
+            else -> null
+        }
+    }
+
+    /** A Jellyfin / Emby film or episode: the file itself (mpv plays almost anything), resuming where you left off. */
+    suspend fun serverStream(source: String, itemId: String, title: String, watch: WatchTarget?): VodStream? {
+        val (s, emby) = serverFor(source) ?: return null
+        val a = store.current()
+        val info = runCatching { http.get("${s.serverUrl}/Users/${s.userId}/Items/$itemId", mediaServers.headers(emby, a.deviceId, s.token)) }
+            .getOrNull()?.takeIf { it.ok }?.body
+        val resumeMs = (info.child("UserData").long("PlaybackPositionTicks") ?: 0L) / 10_000
+        return VodStream(
+            url = "${s.serverUrl}/Videos/$itemId/stream?static=true&api_key=${enc(s.token)}",
+            title = title,
+            resumeMs = resumeMs,
+            watch = (watch ?: WatchTarget(MediaType.Movie)).copy(serverSource = source, serverItemId = itemId),
+        )
+    }
+
+    /** A Jellyfin / Emby series' episodes as (season, episode) → id, resume point and watched. */
+    suspend fun serverEpisodes(source: String, seriesId: String): Map<Pair<Int, Int>, PlexEpisode> {
+        val (s, emby) = serverFor(source) ?: return emptyMap()
+        val a = store.current()
+        val r = runCatching {
+            http.get("${s.serverUrl}/Shows/$seriesId/Episodes?UserId=${s.userId}&Fields=UserData", mediaServers.headers(emby, a.deviceId, s.token))
+        }.getOrNull()?.takeIf { it.ok } ?: return emptyMap()
+        return r.body.array("Items").mapNotNull { e ->
+            val season = e.int("ParentIndexNumber") ?: return@mapNotNull null
+            val number = e.int("IndexNumber") ?: return@mapNotNull null
+            val id = e.str("Id") ?: return@mapNotNull null
+            val ud = e.child("UserData")
+            (season to number) to PlexEpisode(id, (ud.long("PlaybackPositionTicks") ?: 0L) / 10_000, ud.str("Played") == "true")
+        }.toMap()
+    }
+
+    /** Tells Jellyfin / Emby what's playing and where, so your place is saved and finished items are marked watched. */
+    suspend fun reportServer(source: String, itemId: String, state: String, positionMs: Long) {
+        val (s, emby) = serverFor(source) ?: return
+        val a = store.current()
+        val path = when (state) { "stopped" -> "/Sessions/Playing/Stopped"; "playing", "paused" -> "/Sessions/Playing/Progress"; else -> return }
+        val body = buildJsonObject {
+            put("ItemId", itemId)
+            put("PositionTicks", positionMs * 10_000)
+            put("IsPaused", state == "paused")
+            put("CanSeek", true)
+        }
+        runCatching { http.post(s.serverUrl + path, body, mediaServers.headers(emby, a.deviceId, s.token)) }
+    }
+
     suspend fun reportPlex(ratingKey: String, state: String, positionMs: Long, durationMs: Long) {
         val a = store.current()
         val p = a.plex ?: return

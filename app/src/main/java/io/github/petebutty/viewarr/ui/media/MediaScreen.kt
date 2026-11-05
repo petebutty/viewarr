@@ -455,6 +455,8 @@ private fun DetailScreen(
     val playFocus = remember { FocusRequester() }
     val onPlex = ui.copies?.any { it.source == "Plex" && it.ref != null } == true
     val onProvider = ui.copies?.any { it.source == io.github.petebutty.viewarr.data.media.PROVIDER } == true
+    val serverName = ui.copies?.firstOrNull { (it.source == "Jellyfin" || it.source == "Emby") && it.ref != null }?.source
+    val onServer = serverName != null
     val show = item.type == MediaType.Show
     val trailerId by produceState<String?>(null, item.key) { value = vm.trailers.youtubeId(item) }
     var trailerOpen by remember { mutableStateOf(false) }
@@ -531,16 +533,20 @@ private fun DetailScreen(
                         Button(onClick = onPlayPlex, modifier = (Modifier.focusRequester(playFocus)).free()) {
                             Text(if (item.progress != null) "Resume on Plex" else "Play on Plex")
                         }
+                        if (onServer) OutlinedButton(onClick = vm::playServer, modifier = Modifier.free()) { Text("Play on $serverName") }
+                        if (onProvider) OutlinedButton(onClick = vm::playProvider, modifier = Modifier.free()) { Text("Play from provider") }
+                    } else if (onServer) {
+                        Button(onClick = vm::playServer, modifier = (Modifier.focusRequester(playFocus)).free()) { Text("Play on $serverName") }
                         if (onProvider) OutlinedButton(onClick = vm::playProvider, modifier = Modifier.free()) { Text("Play from provider") }
                     } else if (onProvider) {
                         Button(onClick = vm::playProvider, modifier = (Modifier.focusRequester(playFocus)).free()) { Text("Play from provider") }
                     }
                     if (ui.hasAddons && !show) {
-                        val m = (if (onPlex || onProvider) Modifier else Modifier.focusRequester(playFocus)).free()
-                        if (onPlex || onProvider) OutlinedButton(onClick = onSearch, modifier = m) { Text(if (ui.searching) "Searching…" else "Search addons") }
+                        val m = (if (onPlex || onProvider || onServer) Modifier else Modifier.focusRequester(playFocus)).free()
+                        if (onPlex || onProvider || onServer) OutlinedButton(onClick = onSearch, modifier = m) { Text(if (ui.searching) "Searching…" else "Search addons") }
                         else Button(onClick = onSearch, modifier = m) { Text(if (ui.searching) "Searching…" else "Search addons") }
                     }
-                    if (!show && !onPlex && !onProvider && !ui.hasAddons && ui.copies != null) {
+                    if (!show && !onPlex && !onProvider && !onServer && !ui.hasAddons && ui.copies != null) {
                         OutlinedButton(onClick = onClose, modifier = (Modifier.focusRequester(playFocus)).free()) { Text("Back") }
                     }
                     if (trailerId != null) {
@@ -552,7 +558,7 @@ private fun DetailScreen(
                 }
                 }
                 if (!ui.episodesOpen) ui.message?.let { Text(it, fontSize = 14.sp, color = AppColors.Accent) }
-                if (!onPlex && !onProvider && !ui.hasAddons && ui.copies != null) {
+                if (!onPlex && !onProvider && !onServer && !ui.hasAddons && ui.copies != null) {
                     Text("Connect Plex or a Stremio addon in Settings → Accounts & sources to play this.", fontSize = 13.sp, color = AppColors.TextSecondary)
                 }
             }
@@ -696,6 +702,11 @@ private fun EpisodesPanel(ui: DetailUi, vm: MediaViewModel, onPlex: Boolean) {
                 title = "S${ep.season} E${ep.number} · ${ep.name}",
                 plexLabel = plex?.let { if (it.viewOffsetMs > 0 && !it.watched) "Resume on Plex" else "Play on Plex" },
                 onProvider = if ((ep.season to ep.number) in ui.providerEpisodes) ({ vm.playProviderEpisode(ep.season, ep.number) }) else null,
+                serverLabel = ui.serverEpisodes[ep.season to ep.number]?.let { se ->
+                    val name = ui.copies?.firstOrNull { it.source == "Jellyfin" || it.source == "Emby" }?.source ?: "server"
+                    if (se.viewOffsetMs > 0 && !se.watched) "Resume on $name" else "Play on $name"
+                },
+                onServer = { vm.playServerEpisode(ep.season, ep.number) },
                 hasAddons = ui.hasAddons,
                 searching = ui.searching,
                 message = ui.message,
@@ -712,6 +723,8 @@ private fun EpisodeActions(
     title: String,
     plexLabel: String?,
     onProvider: (() -> Unit)? = null,
+    serverLabel: String? = null,
+    onServer: () -> Unit = {},
     hasAddons: Boolean,
     searching: Boolean,
     message: String?,
@@ -727,9 +740,10 @@ private fun EpisodeActions(
             var firstUsed = false
             fun m(): Modifier = if (!firstUsed) { firstUsed = true; Modifier.focusRequester(first) } else Modifier
             plexLabel?.let { io.github.petebutty.viewarr.ui.common.MenuItem(text = it, selected = false, onClick = onPlex, modifier = m()) }
+            serverLabel?.let { io.github.petebutty.viewarr.ui.common.MenuItem(text = it, selected = false, onClick = onServer, modifier = m()) }
             onProvider?.let { io.github.petebutty.viewarr.ui.common.MenuItem(text = "Play from provider", selected = false, onClick = it, modifier = m()) }
             if (hasAddons) io.github.petebutty.viewarr.ui.common.MenuItem(text = if (searching) "Searching…" else "Search addons", selected = false, onClick = onSearch, modifier = m())
-            if (plexLabel == null && onProvider == null && !hasAddons) Text("This episode isn't in Plex or from your provider, and no Stremio addon is connected.", fontSize = 13.sp, color = AppColors.TextSecondary)
+            if (plexLabel == null && serverLabel == null && onProvider == null && !hasAddons) Text("This episode isn't in Plex or from your provider, and no Stremio addon is connected.", fontSize = 13.sp, color = AppColors.TextSecondary)
             io.github.petebutty.viewarr.ui.common.MenuItem(text = "Close", selected = false, onClick = onClose, modifier = m())
             message?.let { Text(it, fontSize = 13.sp, color = AppColors.Accent, modifier = Modifier.padding(top = 8.dp)) }
         }

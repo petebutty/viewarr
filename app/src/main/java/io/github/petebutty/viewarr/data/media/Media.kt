@@ -59,6 +59,9 @@ data class VodStream(
 data class WatchTarget(
     val type: MediaType,
     val plexRatingKey: String? = null,
+    /** Jellyfin / Emby: which server ("Jellyfin" or "Emby") and the item's id there, for saving your place. */
+    val serverSource: String? = null,
+    val serverItemId: String? = null,
     val tmdbId: Int? = null,
     val imdbId: String? = null,
     val season: Int? = null,

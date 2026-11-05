@@ -1,5 +1,8 @@
 package io.github.petebutty.viewarr.ui.setup
 
+import androidx.compose.foundation.focusGroup
+
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.focus.focusProperties
@@ -228,6 +231,8 @@ private fun ColumnScope.ChooseStep(
     // The hub: one row per service. OK runs that service's steps and comes back here. Buttons stay on top.
     val itemFocus = remember { HashMap<SetupItem, FocusRequester>() }
     val doneFocus = remember { FocusRequester() }
+    // OK on a connected service: change it, or disconnect it (asks twice).
+    var options by remember { mutableStateOf<SetupItem?>(null) }
     LaunchedEffect(state.lastItem) {
         // Back from a service: focus returns to it. First visit: Live TV (first run) or the phone button.
         kotlinx.coroutines.android.awaitFrame()
@@ -247,11 +252,46 @@ private fun ColumnScope.ChooseStep(
                 text = item.label,
                 selected = false,
                 trailing = status ?: "Set up",
-                onClick = { vm.open(item) },
+                onClick = { if (status != null) options = item else vm.open(item) },
                 modifier = Modifier.focusRequester(itemFocus.getOrPut(item) { FocusRequester() })
                     .then(if (i == 0) Modifier.focusProperties { up = firstFocus } else Modifier),
             )
             Text(item.description, fontSize = 12.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(start = 12.dp, bottom = 6.dp))
+        }
+    }
+    options?.let { item ->
+        ServiceOptions(
+            item = item,
+            status = statusFor(item, accounts, session).orEmpty(),
+            onChange = { options = null; vm.open(item) },
+            onDisconnect = { options = null; vm.disconnect(item) },
+            onClose = { options = null; runCatching { itemFocus[item]?.requestFocus() } },
+        )
+    }
+}
+
+/** A connected service's choices. Disconnect needs a second press so it can't happen by accident. */
+@Composable
+private fun ServiceOptions(item: SetupItem, status: String, onChange: () -> Unit, onDisconnect: () -> Unit, onClose: () -> Unit) {
+    val first = remember { FocusRequester() }
+    var confirm by remember { mutableStateOf(false) }
+    androidx.activity.compose.BackHandler(onBack = onClose)
+    LaunchedEffect(Unit) { kotlinx.coroutines.android.awaitFrame(); runCatching { first.requestFocus() } }
+    androidx.compose.ui.window.Dialog(onDismissRequest = onClose) {
+        Column(
+            Modifier.width(460.dp).background(AppColors.Panel, androidx.compose.foundation.shape.RoundedCornerShape(14.dp)).padding(22.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(item.label, fontSize = 20.sp, color = AppColors.TextPrimary)
+            Text(status, fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(bottom = 10.dp))
+            MenuItem(text = if (item == SetupItem.Stremio) "Add or remove addons" else "Change", selected = false, onClick = onChange, modifier = Modifier.focusRequester(first))
+            MenuItem(
+                text = if (confirm) "Press OK again to disconnect" else "Disconnect",
+                selected = false,
+                onClick = { if (confirm) onDisconnect() else confirm = true },
+                modifier = Modifier.onFocusChanged { if (!it.isFocused) confirm = false },
+            )
+            MenuItem(text = "Back", selected = false, onClick = onClose)
         }
     }
 }
@@ -301,12 +341,17 @@ private fun PhoneStep(
     }
 }
 
+@OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
 private fun TextStep(qrUrl: String?, qrCaption: String = "Or scan with your phone to type it there", fields: @Composable () -> Unit, actions: @Composable () -> Unit) {
     Row(horizontalArrangement = Arrangement.spacedBy(28.dp)) {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             fields()
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) { actions() }
+            // Moving down onto the buttons always lands on the first (main) one, not whichever is nearest.
+            val primary = remember { FocusRequester() }
+            Row(Modifier.focusProperties { enter = { primary } }.focusGroup()) {
+                Row(Modifier.focusRequester(primary), horizontalArrangement = Arrangement.spacedBy(12.dp)) { actions() }
+            }
         }
         if (qrUrl != null) {
             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(190.dp)) {
@@ -382,6 +427,7 @@ private fun WizardField(
     val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
     val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
     var editing by remember { mutableStateOf(false) }
+    val kbScope = androidx.compose.runtime.rememberCoroutineScope()
     // Keys, codes and addresses: a "password"-type keyboard has no suggestions or autocorrect (the TV keyboard
     // ignores the autocorrect flag on ordinary text). Shown as plain text unless it really is a password.
     val noSuggestions = keyboardType == KeyboardType.Text || keyboardType == KeyboardType.Uri
@@ -390,6 +436,9 @@ private fun WizardField(
         onValueChange = onValueChange,
         label = { M3Text(label) },
         singleLine = true,
+        // Read-only until OK is pressed on it: landing on a box (e.g. moving Down from the one above) must not
+        // bring the keyboard up, or the next OK types a letter instead of opening it.
+        readOnly = !editing,
         modifier = (if (focus != null) Modifier.focusRequester(focus) else Modifier)
             .fillMaxWidth()
             .onFocusChanged { f ->
@@ -401,7 +450,10 @@ private fun WizardField(
                 when (e.key) {
                     Key.DirectionDown -> { keyboard?.hide(); editing = false; focusManager.moveFocus(androidx.compose.ui.focus.FocusDirection.Down); true }
                     Key.DirectionUp -> { keyboard?.hide(); editing = false; focusManager.moveFocus(androidx.compose.ui.focus.FocusDirection.Up); true }
-                    Key.DirectionCenter, Key.Enter, Key.NumPadEnter -> if (!editing) { editing = true; keyboard?.show(); true } else false
+                    Key.DirectionCenter, Key.Enter, Key.NumPadEnter -> if (!editing) {
+                        if (e.type == KeyEventType.KeyDown) { editing = true; kbScope.launch { kotlinx.coroutines.android.awaitFrame(); keyboard?.show() } }
+                        true
+                    } else false
                     else -> false
                 }
             },
