@@ -63,7 +63,6 @@ import io.github.petebutty.viewarr.data.session.Session
 import io.github.petebutty.viewarr.ui.common.MenuItem
 import io.github.petebutty.viewarr.ui.common.trapFocus
 import io.github.petebutty.viewarr.ui.guide.GuideScreen
-import io.github.petebutty.viewarr.ui.settings.AppearancePanel
 import io.github.petebutty.viewarr.ui.setup.SetupMode
 import io.github.petebutty.viewarr.ui.setup.SetupWizard
 import io.github.petebutty.viewarr.ui.guide.GuideViewModel
@@ -601,6 +600,7 @@ private fun MenuOverlay(
     var showAddons by remember { mutableStateOf(false) }
     val addonsItem = remember { FocusRequester() }
     val remoteItem = remember { FocusRequester() }
+    val appearanceItem = remember { FocusRequester() }
     var showUpdates by remember { mutableStateOf(false) }
     val updatesItem = remember { FocusRequester() }
     var returnTo by remember { mutableStateOf<FocusRequester?>(null) }
@@ -727,9 +727,7 @@ private fun MenuOverlay(
                         onOpenPage(Page.Tv)
                     },
                 )
-                Section.Settings -> if (showAppearance) {
-                    AppearancePanel(onBack = { showAppearance = false })
-                } else SettingsPanel(
+                Section.Settings -> SettingsPanel(
                     playbackItem = playbackItem,
                     onPlayback = {
                         runCatching { navFocus.getValue(Section.Settings).requestFocus() }
@@ -754,6 +752,7 @@ private fun MenuOverlay(
                     session = session,
                     sync = sync,
                     firstItem = settingsFirst,
+                    appearanceItem = appearanceItem,
                     onAppearance = {
                         runCatching { navFocus.getValue(Section.Settings).requestFocus() }
                         showAppearance = true
@@ -800,6 +799,13 @@ private fun MenuOverlay(
             runCatching { playbackItem.requestFocus() }
             showPlayback = false
             returnTo = playbackItem
+        })
+    }
+    if (showAppearance) {
+        io.github.petebutty.viewarr.ui.settings.AppearanceSettingsScreen(onBack = {
+            runCatching { appearanceItem.requestFocus() }
+            showAppearance = false
+            returnTo = appearanceItem
         })
     }
     if (showRemote) {
@@ -870,7 +876,7 @@ private fun Modifier.rightDoes(action: () -> Unit): Modifier = onPreviewKeyEvent
 private fun Modifier.rightIgnored(): Modifier = onPreviewKeyEvent { e -> e.key == Key.DirectionRight }
 
 @Composable
-private fun SettingsPanel(playbackItem: FocusRequester, onPlayback: () -> Unit, addonsItem: FocusRequester, onAddons: () -> Unit, remoteItem: FocusRequester, onRemote: () -> Unit, updatesItem: FocusRequester, onUpdates: () -> Unit, session: Session?, sync: SyncState, firstItem: FocusRequester, onAppearance: () -> Unit, onAccounts: () -> Unit, onRefresh: () -> Unit, onSignOut: () -> Unit) {
+private fun SettingsPanel(playbackItem: FocusRequester, onPlayback: () -> Unit, addonsItem: FocusRequester, onAddons: () -> Unit, remoteItem: FocusRequester, onRemote: () -> Unit, updatesItem: FocusRequester, onUpdates: () -> Unit, session: Session?, sync: SyncState, firstItem: FocusRequester, appearanceItem: FocusRequester, onAppearance: () -> Unit, onAccounts: () -> Unit, onRefresh: () -> Unit, onSignOut: () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(session?.let { "Signed in as ${it.username}" } ?: "Live TV not set up", fontSize = 15.sp, color = AppColors.TextPrimary, modifier = Modifier.padding(horizontal = 12.dp))
         session?.let { Text(it.serverUrl, fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(horizontal = 12.dp)) }
@@ -883,7 +889,7 @@ private fun SettingsPanel(playbackItem: FocusRequester, onPlayback: () -> Unit, 
         }
         Spacer(Modifier.height(12.dp))
         MenuItem(text = "Accounts & sources", selected = false, onClick = onAccounts, modifier = Modifier.focusRequester(firstItem).rightDoes(onAccounts))
-        MenuItem(text = "Appearance", selected = false, onClick = onAppearance, modifier = Modifier.rightDoes(onAppearance))
+        MenuItem(text = "Appearance", selected = false, onClick = onAppearance, modifier = Modifier.focusRequester(appearanceItem).rightDoes(onAppearance))
         MenuItem(text = "Playback", selected = false, onClick = onPlayback, modifier = Modifier.focusRequester(playbackItem).rightDoes(onPlayback))
         MenuItem(text = "Addons", selected = false, onClick = onAddons, modifier = Modifier.focusRequester(addonsItem).rightDoes(onAddons))
         MenuItem(text = "Remote & navigation", selected = false, onClick = onRemote, modifier = Modifier.focusRequester(remoteItem).rightDoes(onRemote))

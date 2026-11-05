@@ -75,7 +75,20 @@ fun SettingsPage(
     var category by remember { mutableIntStateOf(0) }
     var choosing by remember { mutableStateOf<SettingItem?>(null) }
     val catFocus = remember { categories.map { FocusRequester() } }
-    BackHandler { if (choosing != null) choosing = null else onBack() }
+    // After a choice list closes, focus goes back to the setting it was opened from (it used to vanish).
+    val rowFocus = remember { HashMap<String, FocusRequester>() }
+    var returnTo by remember { mutableStateOf<String?>(null) }
+    fun closeChoices() {
+        returnTo = choosing?.title
+        choosing = null
+    }
+    LaunchedEffect(returnTo) {
+        val key = returnTo ?: return@LaunchedEffect
+        awaitFrame(); awaitFrame()
+        runCatching { rowFocus[key]?.requestFocus() }
+        returnTo = null
+    }
+    BackHandler { if (choosing != null) closeChoices() else onBack() }
     LaunchedEffect(Unit) {
         awaitFrame()
         runCatching { catFocus[0].requestFocus() }
@@ -113,7 +126,7 @@ fun SettingsPage(
                 Text(c.blurb, fontSize = 14.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(top = 26.dp, bottom = 14.dp, start = 4.dp))
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp), contentPadding = PaddingValues(bottom = 40.dp)) {
                     itemsIndexed(c.items, key = { _, it -> c.name + it.title }) { _, item ->
-                        SettingRow(item, enabled = choosing == null) {
+                        SettingRow(item, enabled = choosing == null, focus = rowFocus.getOrPut(item.title) { FocusRequester() }) {
                             if (item.action != null) item.action.invoke()
                             else if (item.isToggle) item.onSelect(item.choices.first { it != item.current })
                             else choosing = item
@@ -122,15 +135,15 @@ fun SettingsPage(
                 }
             }
         }
-        choosing?.let { item -> ChoiceList(item, onDone = { choosing = null }) }
+        choosing?.let { item -> ChoiceList(item, onDone = ::closeChoices) }
     }
 }
 
 @Composable
-private fun SettingRow(item: SettingItem, enabled: Boolean, onClick: () -> Unit) {
+private fun SettingRow(item: SettingItem, enabled: Boolean, focus: FocusRequester, onClick: () -> Unit) {
     Surface(
         onClick = onClick,
-        modifier = Modifier.fillMaxWidth().focusProperties { canFocus = enabled },
+        modifier = Modifier.fillMaxWidth().focusRequester(focus).focusProperties { canFocus = enabled },
         scale = ClickableSurfaceDefaults.scale(scale = 1f, focusedScale = 1f, pressedScale = 1f),
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
         colors = ClickableSurfaceDefaults.colors(

@@ -65,6 +65,50 @@ class AppearanceViewModel @Inject constructor(private val store: ThemeStore) : V
     }
 }
 
+private class Choice(override val label: String, val value: Any) : io.github.petebutty.viewarr.data.settings.RemoteChoice {
+    override fun equals(other: Any?) = other is Choice && other.value == value
+    override fun hashCode() = value.hashCode()
+}
+
+private val MainColourNames = listOf("Charcoal", "Navy", "Graphite", "Deep teal", "Plum", "Oxblood", "Forest", "Slate", "Aubergine")
+private val HighlightNames = listOf("Cyan", "Pink", "Sky blue", "Blue", "Teal", "Lilac", "Orange", "Green", "Yellow", "Rose")
+
+/** Settings → Appearance, full screen like the other settings pages. */
+@Composable
+fun AppearanceSettingsScreen(onBack: () -> Unit, vm: AppearanceViewModel = hiltViewModel()) {
+    val palette = AppColors.palette
+    val presets = ThemePresets.map { Choice(it.name, it.name) }
+    val currentPreset = ThemePresets.firstOrNull { it.main == palette.main && it.highlight == palette.highlight }
+    val mains = MainColourChoices.mapIndexed { i, c -> Choice(MainColourNames.getOrElse(i) { "Colour ${i + 1}" }, c) }
+    val highs = HighlightChoices.mapIndexed { i, c -> Choice(HighlightNames.getOrElse(i) { "Colour ${i + 1}" }, c) }
+    val transparencies = (0..70 step 10).map { Choice(if (it == 0) "Solid" else "$it%", it) }
+    val currentT = ((palette.transparency * 100).roundToInt() / 10 * 10).coerceIn(0, 70)
+    val categories = listOf(
+        SettingCategory(
+            "Colours", "How Viewarr looks. Changes show straight away.",
+            listOf(
+                SettingItem("Theme", "A ready-made pair of background and highlight colours.", presets,
+                    presets.firstOrNull { it.value == currentPreset?.name } ?: Choice("Custom", "custom")) { c ->
+                    ThemePresets.firstOrNull { it.name == (c as Choice).value }?.let { vm.apply(it.main, it.highlight) }
+                },
+                SettingItem("Background colour", "The main colour behind menus and pages.", mains,
+                    mains.firstOrNull { it.value == palette.main } ?: Choice("Custom", palette.main)) { c ->
+                    vm.apply((c as Choice).value as androidx.compose.ui.graphics.Color, palette.highlight)
+                },
+                SettingItem("Highlight colour", "The colour of whatever is selected.", highs,
+                    highs.firstOrNull { it.value == palette.highlight } ?: Choice("Custom", palette.highlight)) { c ->
+                    vm.apply(palette.main, (c as Choice).value as androidx.compose.ui.graphics.Color)
+                },
+                SettingItem("Menu transparency", "How much of the page shows through the side menu.", transparencies,
+                    transparencies.first { it.value == currentT }) { c -> vm.setTransparency(((c as Choice).value as Int) / 100f) }
+            ),
+        ),
+    )
+    SettingsPage(title = "Appearance", categories = categories, onBack = onBack, onReset = {
+        vm.apply(ThemePresets[0].main, ThemePresets[0].highlight); vm.setTransparency(0f)
+    })
+}
+
 @Composable
 fun AppearancePanel(onBack: () -> Unit, vm: AppearanceViewModel = hiltViewModel()) {
     val palette = AppColors.palette
