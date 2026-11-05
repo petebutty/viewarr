@@ -88,6 +88,7 @@ import io.github.petebutty.viewarr.data.settings.StartPage
 import io.github.petebutty.viewarr.ui.theme.AppColors
 import kotlinx.coroutines.android.awaitFrame
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 private const val SEEK_MS = 30_000L
 
@@ -137,6 +138,7 @@ fun HomeScreen(
     var bannerToken by remember { mutableLongStateOf(0L) }
     var bannerVisible by remember { mutableStateOf(false) }
     var osdVisible by remember { mutableStateOf(false) }
+    var osdAudio by remember { mutableStateOf(false) }
     var osdToken by remember { mutableLongStateOf(0L) }
     val guideFocus = remember { FocusRequester() }
     val playerFocus = remember { FocusRequester() }
@@ -151,7 +153,8 @@ fun HomeScreen(
         bannerToken = System.nanoTime()
     }
 
-    fun showOsd() {
+    fun showOsd(audio: Boolean = false) {
+        osdAudio = audio
         bannerVisible = false
         osdVisible = true
         osdToken = System.nanoTime()
@@ -318,6 +321,7 @@ fun HomeScreen(
                 guide = vm,
                 focusEnabled = !menuOpen && !showAccounts,
                 onOpenMenu = { menuOpen = true },
+                onExit = ::backOnPage,
                 onChannel = { ch ->
                     vm.reveal(ch) {
                         page = Page.Tv
@@ -335,6 +339,7 @@ fun HomeScreen(
                 focusEnabled = !menuOpen && !showAccounts && recordingPlayback == null,
                 onBack = ::backOnPage,
                 onPlay = { recordingPlayback = it },
+                onOpenMenu = { menuOpen = true },
             )
         } else if (page != Page.Tv) {
             MediaScreen(
@@ -429,7 +434,8 @@ fun HomeScreen(
                             }
                             Key.ChannelDown -> zap(-1)
                             Key.ChannelUp -> zap(1)
-                            Key.Menu -> if (playState is PlaybackState.Error) playback.retry() else showOsd()
+                            // Menu = audio & subtitles, as in the film players.
+                            Key.Menu -> if (playState is PlaybackState.Error) playback.retry() else showOsd(audio = true)
                             Key.DirectionCenter, Key.Enter, Key.NumPadEnter -> when {
                                 playState is PlaybackState.Error -> playback.retry()
                                 remote.playerOk == PlayerOk.Banner -> showBanner()
@@ -483,6 +489,7 @@ fun HomeScreen(
                     },
                     onClose = { osdVisible = false },
                     onActivity = { osdToken = System.nanoTime() },
+                    openAudio = osdAudio,
                     onRecord = current?.takeIf { catchup == null }?.let { prog ->
                         {
                             osdVisible = false
@@ -947,7 +954,9 @@ private fun CatalogueList(type: MediaType, focusRequester: FocusRequester, onPic
 
 /** Search: a text box (the TV keyboard), then channel matches and poster rows of results. */
 @Composable
-private fun SearchPage(guide: GuideViewModel, focusEnabled: Boolean, onOpenMenu: () -> Unit, onChannel: (ChannelListItem) -> Unit) {
+private fun SearchPage(guide: GuideViewModel, focusEnabled: Boolean, onOpenMenu: () -> Unit, onExit: () -> Unit, onChannel: (ChannelListItem) -> Unit) {
+    var fieldFocused by remember { mutableStateOf(false) }
+    val searchScope = androidx.compose.runtime.rememberCoroutineScope()
     val media: MediaViewModel = hiltViewModel(key = "media-search")
     var query by rememberSaveable { mutableStateOf("") }
     val fieldFocus = remember { FocusRequester() }
@@ -975,6 +984,15 @@ private fun SearchPage(guide: GuideViewModel, focusEnabled: Boolean, onOpenMenu:
         focusRequester = rowsFocus,
         focusEnabled = focusEnabled,
         onOpenMenu = onOpenMenu,
+        // Back: from the results to the search box; from the box, "press Back again to exit".
+        onBack = {
+            if (fieldFocused) onExit()
+            else {
+                runCatching { fieldFocus.requestFocus() }
+                // Back to the box without the keyboard popping up (OK on the box opens it).
+                searchScope.launch { kotlinx.coroutines.android.awaitFrame(); keyboard?.hide(); kotlinx.coroutines.android.awaitFrame(); keyboard?.hide() }
+            }
+        },
         searchHeader = {
             Column(Modifier.padding(start = 48.dp, end = 48.dp, top = 32.dp, bottom = 12.dp)) {
                 Text("Search", fontSize = 14.sp, color = AppColors.Accent)
@@ -993,9 +1011,14 @@ private fun SearchPage(guide: GuideViewModel, focusEnabled: Boolean, onOpenMenu:
                         .fillMaxWidth(0.6f)
                         .focusRequester(fieldFocus)
                         .focusProperties { canFocus = fieldFree && focusEnabled }
-                        .onFocusChanged { if (!it.isFocused) keyboard?.hide() }
+                        .onFocusChanged { fieldFocused = it.isFocused; if (!it.isFocused) keyboard?.hide() }
                         // The text box would keep the remote: Down always leaves it for the results.
                         .onPreviewKeyEvent { e ->
+                            // Left in an empty box opens the menu (with text, Left moves the cursor).
+                            if (e.key == Key.DirectionLeft && query.isEmpty()) {
+                                if (e.type == KeyEventType.KeyDown) onOpenMenu()
+                                return@onPreviewKeyEvent true
+                            }
                             if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionDown) {
                                 if (!focusManager.moveFocus(androidx.compose.ui.focus.FocusDirection.Down)) runCatching { rowsFocus.requestFocus() }
                                 true

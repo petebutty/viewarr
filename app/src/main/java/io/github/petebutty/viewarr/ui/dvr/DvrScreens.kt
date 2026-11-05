@@ -2,6 +2,9 @@ package io.github.petebutty.viewarr.ui.dvr
 
 import io.github.petebutty.viewarr.ui.common.trapFocus
 import androidx.activity.compose.BackHandler
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.type
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -233,6 +236,7 @@ fun RecordingsScreen(
     focusEnabled: Boolean,
     onBack: () -> Unit,
     onPlay: (VodStream) -> Unit,
+    onOpenMenu: () -> Unit = {},
 ) {
     val recordings by vm.recordings.collectAsStateWithLifecycle()
     val rules by vm.rules.collectAsStateWithLifecycle()
@@ -263,9 +267,20 @@ fun RecordingsScreen(
     }
 
     Box(Modifier.fillMaxSize().background(AppColors.Background)) {
-        Column(Modifier.fillMaxSize().padding(horizontal = 56.dp, vertical = 32.dp)) {
+        Column(
+            Modifier
+                .fillMaxSize()
+                // Left (the list has nothing to its left) opens the menu, as on every page.
+                .onPreviewKeyEvent { e ->
+                    if (picked == null && e.key == androidx.compose.ui.input.key.Key.DirectionLeft) {
+                        if (e.type == androidx.compose.ui.input.key.KeyEventType.KeyDown) onOpenMenu()
+                        true
+                    } else false
+                }
+                .padding(horizontal = 56.dp, vertical = 32.dp),
+        ) {
             Text("Recordings", fontSize = 28.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary)
-            Text("Recorded and scheduled on your Dispatcharr server", fontSize = 13.sp, color = AppColors.TextSecondary)
+            Text("Recorded and scheduled on your Dispatcharr server  ·  OK plays  ·  Hold OK for options", fontSize = 13.sp, color = AppColors.TextSecondary)
             Spacer(Modifier.height(16.dp))
             when {
                 allowed == false -> Text(
@@ -286,7 +301,13 @@ fun RecordingsScreen(
                                 detail = "${channels[row.rec.channelId]?.name ?: "Channel"}  ·  ${span(row.rec.start, row.rec.end)}",
                                 live = row.rec.state == DvrState.Recording,
                                 modifier = if (i == firstItem) Modifier.focusRequester(focusRequester) else Modifier,
-                            ) { picked = row; confirmDelete = 0L; vm.clearMessage() }
+                                // Hold OK: the options (stop, cancel, delete…).
+                                onLongClick = { picked = row; confirmDelete = 0L; vm.clearMessage() },
+                            ) {
+                                // OK plays a finished recording straight away; anything else shows its options.
+                                if (row.rec.state == DvrState.Recorded && row.rec.hasFile) scope.launch { vm.playback(row.rec)?.let(onPlay) }
+                                else { picked = row; confirmDelete = 0L; vm.clearMessage() }
+                            }
                             is DvrRow.Rule -> ItemRow(
                                 title = row.rule.label,
                                 detail = (if (row.rule.mode == "new") "New episodes" else "Every episode") +
@@ -352,9 +373,10 @@ fun RecordingsScreen(
 }
 
 @Composable
-private fun ItemRow(title: String, detail: String, live: Boolean, modifier: Modifier, onClick: () -> Unit) {
+private fun ItemRow(title: String, detail: String, live: Boolean, modifier: Modifier, onLongClick: (() -> Unit)? = null, onClick: () -> Unit) {
     Surface(
         onClick = onClick,
+        onLongClick = onLongClick,
         modifier = modifier.fillMaxWidth(),
         scale = ClickableSurfaceDefaults.scale(scale = 1f, focusedScale = 1f, pressedScale = 1f),
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),

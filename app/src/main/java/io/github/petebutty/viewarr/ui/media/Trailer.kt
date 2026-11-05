@@ -119,7 +119,7 @@ fun TrailerPreview(item: MediaItem?, active: Boolean, trailers: TrailerRepositor
     }
 }
 
-/** Full-screen trailer with sound. OK pauses, Left / Right skip 10 s, Back closes. */
+/** Full-screen trailer with sound. OK pauses, Left / Right skip (Settings → Remote), Back closes. */
 @OptIn(UnstableApi::class)
 @Composable
 fun TrailerPlayer(item: MediaItem, trailers: TrailerRepository, onClose: () -> Unit) {
@@ -130,6 +130,7 @@ fun TrailerPlayer(item: MediaItem, trailers: TrailerRepository, onClose: () -> U
     var aspect by remember { mutableFloatStateOf(16f / 9f) }
     var paused by remember { mutableStateOf(false) }
     val focus = remember { FocusRequester() }
+    val seekMs = io.github.petebutty.viewarr.data.settings.LocalRemote.current.seek.ms
     BackHandler(onBack = onClose)
     DisposableEffect(player) {
         val listener = object : Player.Listener {
@@ -167,8 +168,8 @@ fun TrailerPlayer(item: MediaItem, trailers: TrailerRepository, onClose: () -> U
                     Key.DirectionCenter, Key.Enter, Key.NumPadEnter, Key.MediaPlayPause, Key.Spacebar -> { player.playWhenReady = !player.playWhenReady; true }
                     Key.MediaPlay -> { player.playWhenReady = true; true }
                     Key.MediaPause -> { player.playWhenReady = false; true }
-                    Key.DirectionRight, Key.MediaFastForward -> { player.seekTo(player.currentPosition + 10_000); true }
-                    Key.DirectionLeft, Key.MediaRewind -> { player.seekTo((player.currentPosition - 10_000).coerceAtLeast(0)); true }
+                    Key.DirectionRight, Key.MediaFastForward -> { player.seekTo(player.currentPosition + seekMs); true }
+                    Key.DirectionLeft, Key.MediaRewind -> { player.seekTo((player.currentPosition - seekMs).coerceAtLeast(0)); true }
                     Key.DirectionUp, Key.DirectionDown -> true
                     else -> false
                 }

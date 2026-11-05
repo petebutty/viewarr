@@ -17,6 +17,7 @@ import javax.inject.Singleton
 interface RemoteChoice { val label: String }
 
 enum class GuideLeft(override val label: String) : RemoteChoice {
+    NowMenu("Earlier programmes; at \"now\" opens the menu · Hold: catch-up"),
     PastTapMenuHold("Tap: earlier programmes · Hold: menu"),
     MenuTapPastHold("Tap: menu · Hold: earlier programmes"),
     AlwaysPast("Always earlier programmes"),
@@ -157,7 +158,7 @@ class RemoteStore @Inject constructor(@ApplicationContext private val context: C
         this[stringPreferencesKey(key)]?.let { name -> enumValues<E>().firstOrNull { it.name == name } } ?: enumValues<E>().first()
 
     companion object {
-        const val GUIDE_LEFT = "guide_left"
+        const val GUIDE_LEFT = "guide_left_v2" // v2: "at now opens the menu" became the default (2026-11-05)
         const val GUIDE_BACK = "guide_back_v2" // v2: "ask to exit" became the default (2026-11-05)
         const val CHANNEL_KEYS = "channel_keys"
         const val ZAP = "zap_v2" // v2: "Show the channel list" became the default (2026-11-05)

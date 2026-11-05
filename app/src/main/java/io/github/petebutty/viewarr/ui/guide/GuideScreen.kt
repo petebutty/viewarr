@@ -124,6 +124,21 @@ fun GuideScreen(
             .focusRequester(focusRequester)
             .focusable(enabled = focusEnabled)
             .onPreviewKeyEvent { e ->
+                if (e.key == Key.DirectionLeft && remote.guideLeft == GuideLeft.NowMenu) {
+                    // Tap: back one programme, or the menu when already on what's on now. Hold: back into catch-up.
+                    when {
+                        e.type == KeyEventType.KeyDown && e.nativeKeyEvent.repeatCount == 0 -> leftPending.value = true
+                        e.type == KeyEventType.KeyDown -> {
+                            leftPending.value = false
+                            vm.moveLeft()
+                        }
+                        e.type == KeyEventType.KeyUp && leftPending.value -> {
+                            leftPending.value = false
+                            if (vm.isAtNow()) onOpenMenu() else vm.moveLeft()
+                        }
+                    }
+                    return@onPreviewKeyEvent true
+                }
                 if (e.key == Key.DirectionLeft && remote.guideLeft == GuideLeft.AlwaysPast) {
                     if (e.type == KeyEventType.KeyDown) vm.moveLeft()
                     return@onPreviewKeyEvent true
@@ -179,7 +194,8 @@ fun GuideScreen(
                     Key.DirectionDown -> vm.moveVertical(1)
                     Key.ChannelUp, Key.PageUp -> vm.moveVertical(if (remote.channelKeys == ChannelKeys.Reversed) PAGE else -PAGE)
                     Key.ChannelDown, Key.PageDown -> vm.moveVertical(if (remote.channelKeys == ChannelKeys.Reversed) -PAGE else PAGE)
-                    Key.DirectionRight -> vm.moveRight()
+                    Key.DirectionRight, Key.MediaFastForward -> vm.moveRight()
+                    Key.MediaRewind -> vm.moveLeft()
                     else -> return@onPreviewKeyEvent false
                 }
                 true

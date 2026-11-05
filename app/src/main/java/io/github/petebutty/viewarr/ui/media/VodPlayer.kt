@@ -183,7 +183,15 @@ fun VodPlayer(
             player.release()
         }
     }
-    BackHandler { if (tracksOpen) tracksOpen = false else onClose() }
+    // Back: closes audio & subtitles, then hides the controls, then stops (resume point saved). As Netflix / Plex.
+    BackHandler {
+        val v = view
+        when {
+            tracksOpen -> tracksOpen = false
+            v != null && v.isControllerFullyVisible && player.isPlaying -> v.hideController()
+            else -> onClose()
+        }
+    }
     // The player must hold focus itself, or the remote keeps driving the screen underneath (the controls never respond).
     LaunchedEffect(Unit) {
         repeat(3) {

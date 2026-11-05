@@ -120,7 +120,6 @@ fun MediaScreen(
         awaitFrame()
         runCatching { focusRequester.requestFocus() }
     }
-    BackHandler(enabled = focusEnabled && detail == null) { onBack() }
 
     // One scroll per move: the list itself puts the focused row (title included) at the top. Previously a second,
     // manual scroll ran after the built-in one and the rows jumped up and down.
@@ -150,6 +149,24 @@ fun MediaScreen(
     }
 
     val rows = state.rows
+    // Where focus is in the rows, for Back (Netflix): first back to the top row's first poster, then leave.
+    var focusedRow by remember { androidx.compose.runtime.mutableIntStateOf(0) }
+    var focusedIndex by remember { androidx.compose.runtime.mutableIntStateOf(0) }
+    var quick by remember { mutableStateOf<MediaItem?>(null) }
+    var quickTrailer by remember { mutableStateOf<MediaItem?>(null) }
+    BackHandler(enabled = focusEnabled && detail == null && quick == null && quickTrailer == null) {
+        val top = rows.firstOrNull()
+        if (searchHeader == null && hasFocus && top != null && (focusedRow > 0 || focusedIndex > 0)) {
+            rowPos[top.id] = 0
+            top.items.firstOrNull()?.let { lastCard = cardId(top, it) }
+            scope.launch {
+                listState.scrollToItem(0)
+                rowStates[top.id]?.scrollToItem(0)
+                awaitFrame(); awaitFrame()
+                runCatching { focusRequester.requestFocus() }
+            }
+        } else onBack()
+    }
     LaunchedEffect(jump, rows.size) {
         val (rowId, _) = jump ?: return@LaunchedEffect
         val index = if (rowId == null) 0 else rows.indexOfFirst { it.id == rowId }
@@ -200,8 +217,11 @@ fun MediaScreen(
                             resetOnLeave = remote.rowMemory == RowMemory.First,
                             onFocusIndex = {
                                 rowPos[row.id] = it
+                                focusedRow = index
+                                focusedIndex = it
                                 vm.setCurrentRow(row.id)
                             },
+                            onLongOpen = { quick = it },
                             onLeftEdge = if (remote.rowLeft == RowLeft.Menu) onOpenMenu else null,
                             entryCard = entryCard,
                             entryFocus = focusRequester,
@@ -230,6 +250,33 @@ fun MediaScreen(
                     vm.close()
                     runCatching { focusRequester.requestFocus() }
                 },
+            )
+        }
+        if (playing == null && detail == null) quick?.let { item ->
+            QuickOptions(
+                item = item,
+                vm = vm,
+                onTrailer = { quick = null; quickTrailer = item },
+                onClose = {
+                    quick = null
+                    scope.launch { awaitFrame(); runCatching { focusRequester.requestFocus() } }
+                },
+            )
+        }
+        quickTrailer?.let { item ->
+            TrailerPlayer(item = item, trailers = vm.trailers, onClose = {
+                quickTrailer = null
+                scope.launch { awaitFrame(); runCatching { focusRequester.requestFocus() } }
+            })
+        }
+        val notice by vm.notice.collectAsStateWithLifecycle()
+        notice?.let { text ->
+            LaunchedEffect(text) { delay(3_000); vm.clearNotice() }
+            Text(
+                text, fontSize = 16.sp, color = AppColors.TextPrimary,
+                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 40.dp)
+                    .background(AppColors.Panel.copy(alpha = 0.95f), RoundedCornerShape(24.dp))
+                    .padding(horizontal = 24.dp, vertical = 10.dp),
             )
         }
         playing?.let { PlayerHost(stream = it, onClose = vm::stopPlaying, onProgress = vm::reportProgress) }
@@ -312,6 +359,7 @@ private fun PosterRow(
     entryFocus: FocusRequester,
     onFocus: (MediaItem, String) -> Unit,
     onOpen: (MediaItem) -> Unit,
+    onLongOpen: (MediaItem) -> Unit = {},
 ) {
     Column {
         Text(row.title, fontSize = 16.sp, fontWeight = FontWeight.Medium, color = AppColors.TextPrimary, modifier = Modifier.padding(start = 48.dp, bottom = 6.dp))
@@ -356,6 +404,7 @@ private fun PosterRow(
                             }
                         },
                     onClick = { onOpen(item) },
+                    onLongClick = { onLongOpen(item) },
                 )
             }
         } }
@@ -363,9 +412,10 @@ private fun PosterRow(
 }
 
 @Composable
-private fun PosterCard(item: MediaItem, modifier: Modifier, onClick: () -> Unit) {
+private fun PosterCard(item: MediaItem, modifier: Modifier, onClick: () -> Unit, onLongClick: () -> Unit = {}) {
     Surface(
         onClick = onClick,
+        onLongClick = onLongClick,
         modifier = modifier.free().size(width = 100.dp, height = 150.dp),
         scale = ClickableSurfaceDefaults.scale(scale = 1f, focusedScale = 1f, pressedScale = 1f),
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
@@ -746,6 +796,45 @@ private fun UpNextOverlay(ep: io.github.petebutty.viewarr.data.media.EpisodeInfo
                 Button(onClick = onPlay, modifier = Modifier.focusRequester(focus)) { Text("Play now") }
                 OutlinedButton(onClick = onCancel) { Text("Cancel") }
             }
+        }
+    }
+}
+
+/** Hold OK on a poster: play, details, trailer and watchlist without opening the title page first. */
+@Composable
+private fun QuickOptions(item: MediaItem, vm: MediaViewModel, onTrailer: () -> Unit, onClose: () -> Unit) {
+    val first = remember { FocusRequester() }
+    val trailerId by produceState<String?>(null, item.key) { value = vm.trailers.youtubeId(item) }
+    // null = no Trakt (no watchlist option); loading shows nothing until known.
+    val watchlisted by produceState<Boolean?>(null, item.key) { value = vm.watchlistState(item) }
+    BackHandler(onBack = onClose)
+    LaunchedEffect(Unit) { awaitFrame(); runCatching { first.requestFocus() } }
+    val show = item.type == MediaType.Show
+    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.55f)), contentAlignment = Alignment.Center) {
+        Column(
+            Modifier.width(420.dp).background(AppColors.Panel, RoundedCornerShape(14.dp)).padding(20.dp).trapFocus(),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(item.title, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            listOfNotNull(item.year?.toString(), item.origin).joinToString("  ·  ").takeIf { it.isNotEmpty() }?.let {
+                Text(it, fontSize = 12.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(bottom = 8.dp))
+            }
+            io.github.petebutty.viewarr.ui.common.MenuItem(
+                text = if (show) "Episodes" else "Play",
+                selected = false,
+                modifier = Modifier.focusRequester(first),
+                onClick = { onClose(); if (show) vm.quickEpisodes(item) else vm.quickPlay(item) },
+            )
+            io.github.petebutty.viewarr.ui.common.MenuItem(text = "Details", selected = false, onClick = { onClose(); vm.open(item) })
+            if (trailerId != null) io.github.petebutty.viewarr.ui.common.MenuItem(text = "Watch trailer", selected = false, onClick = onTrailer)
+            watchlisted?.let { on ->
+                io.github.petebutty.viewarr.ui.common.MenuItem(
+                    text = if (on) "Remove from watchlist" else "Add to watchlist",
+                    selected = false,
+                    onClick = { onClose(); vm.quickWatchlist(item, add = !on) },
+                )
+            }
+            io.github.petebutty.viewarr.ui.common.MenuItem(text = "Close", selected = false, onClick = onClose)
         }
     }
 }

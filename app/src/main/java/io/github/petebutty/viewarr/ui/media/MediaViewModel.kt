@@ -362,6 +362,49 @@ class MediaViewModel @Inject constructor(
         }
     }
 
+    // ---- Quick options (hold OK on a poster)
+
+    /** A short note shown at the bottom of Movies / Shows (e.g. "Added to your watchlist"). */
+    private val _notice = MutableStateFlow<String?>(null)
+    val notice = _notice.asStateFlow()
+    fun clearNotice() { _notice.value = null }
+
+    /** Whether Trakt is connected and the title is on the watchlist (null = no Trakt, so no watchlist option). */
+    suspend fun watchlistState(item: MediaItem): Boolean? =
+        if (store.current().trakt == null || item.tmdbId == null) null else repo.inTraktWatchlist(item)
+
+    fun quickWatchlist(item: MediaItem, add: Boolean) {
+        viewModelScope.launch {
+            _notice.value = when (repo.setTraktWatchlist(item, add)) {
+                null -> "Couldn't update your Trakt watchlist. Try again."
+                true -> "Added ${item.title} to your watchlist."
+                false -> "Removed ${item.title} from your watchlist."
+            }
+        }
+    }
+
+    /** Play straight from a poster: Plex if it's in your library, otherwise the addon streams. */
+    fun quickPlay(item: MediaItem) {
+        open(item)
+        viewModelScope.launch {
+            detailJob?.join()
+            val d = _detail.value ?: return@launch
+            when {
+                d.copies?.any { it.source == "Plex" && it.ref != null } == true -> playPlex()
+                d.hasAddons -> searchAddons()
+            }
+        }
+    }
+
+    /** Shows: straight to the episode list. */
+    fun quickEpisodes(item: MediaItem) {
+        open(item)
+        viewModelScope.launch {
+            detailJob?.join()
+            openEpisodes()
+        }
+    }
+
     fun toggleWatchlist() {
         val d = _detail.value ?: return
         viewModelScope.launch {

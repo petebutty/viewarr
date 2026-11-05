@@ -204,7 +204,14 @@ fun MpvPlayer(
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) { while (true) { delay(500); now = System.currentTimeMillis() } }
 
-    BackHandler { if (tracksOpen) tracksOpen = false else onClose() }
+    // Back: closes audio & subtitles, then hides the controls, then stops (resume point saved). As Netflix / Plex.
+    BackHandler {
+        when {
+            tracksOpen -> tracksOpen = false
+            System.currentTimeMillis() < osdUntil -> osdUntil = 0L
+            else -> onClose()
+        }
+    }
 
     fun showOsd() { osdUntil = System.currentTimeMillis() + 4_000 }
     fun seek(by: Double) {

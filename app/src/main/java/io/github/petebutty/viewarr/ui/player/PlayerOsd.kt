@@ -77,6 +77,8 @@ fun PlayerOsd(
     onClose: () -> Unit,
     onActivity: () -> Unit,
     onRecord: (() -> Unit)? = null,
+    /** Opened with the Menu button: start on the audio choices. */
+    openAudio: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val catchup by vm.catchup.collectAsStateWithLifecycle()
@@ -85,7 +87,7 @@ fun PlayerOsd(
     val audio by vm.audioTracks.collectAsStateWithLifecycle()
     val subtitles by vm.textTracks.collectAsStateWithLifecycle()
     val aspect by vm.aspect.collectAsStateWithLifecycle()
-    var popup by remember { mutableStateOf<OsdPopup?>(null) }
+    var popup by remember { mutableStateOf<OsdPopup?>(if (openAudio) OsdPopup.Audio else null) }
     var note by remember { mutableStateOf<String?>(null) }
     val firstFocus = remember { FocusRequester() }
 
@@ -241,6 +243,7 @@ private fun SeekBar(
     modifier: Modifier = Modifier,
 ) {
     var focused by remember { mutableStateOf(false) }
+    val seekMs = io.github.petebutty.viewarr.data.settings.LocalRemote.current.seek.ms
     val fraction = if (duration > 0) (position.toFloat() / duration).coerceIn(0f, 1f) else 0f
     Column(
         modifier
@@ -249,7 +252,7 @@ private fun SeekBar(
             .focusable()
             .onPreviewKeyEvent { e ->
                 if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                val step = if (e.nativeKeyEvent.repeatCount >= 4) 120_000L else 30_000L
+                val step = if (e.nativeKeyEvent.repeatCount >= 4) seekMs * 4 else seekMs
                 when (e.key) {
                     Key.DirectionLeft -> onSeek(-step)
                     Key.DirectionRight -> onSeek(step)
