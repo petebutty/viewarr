@@ -628,6 +628,14 @@ private fun MenuOverlay(
     val navFocus = remember { Section.entries.associateWith { FocusRequester() } }
     val settingsFirst = remember { FocusRequester() }
     val groupsFocus = remember { FocusRequester() }
+    // From the guide the menu opens on the channel groups alone; Left again slides the main menu out beside them.
+    var showMain by remember { mutableStateOf(!(remote.menuOpensOn == MenuOpensOn.PageList && page == Page.Tv && session != null)) }
+    val menuScope = androidx.compose.runtime.rememberCoroutineScope()
+    fun revealMain() {
+        if (showMain) { runCatching { navFocus.getValue(section).requestFocus() }; return }
+        showMain = true
+        menuScope.launch { awaitFrame(); awaitFrame(); runCatching { navFocus.getValue(section).requestFocus() } }
+    }
     // The menu opens on its own list (TV, Movies, …); OK or Right then goes into the highlighted entry.
     LaunchedEffect(Unit) {
         awaitFrame()
@@ -655,14 +663,15 @@ private fun MenuOverlay(
     // Back steps out one level: from the right-hand list to the main list, then closes the menu.
     var subListFocused by remember { mutableStateOf(false) }
     BackHandler {
-        if (subListFocused) runCatching { navFocus.getValue(section).requestFocus() }.onFailure { onClose() }
+        if (subListFocused && showMain) runCatching { navFocus.getValue(section).requestFocus() }.onFailure { onClose() }
         else onClose()
     }
 
     Box(Modifier.fillMaxSize()) {
     Row(Modifier.fillMaxSize()) {
-        Column(
+        if (showMain) Column(
             Modifier
+                .slideInFromLeft(180.dp)
                 .width(180.dp)
                 .fillMaxHeight()
                 .background(if (seeThrough) AppColors.MenuPanel else AppColors.palette.panel)
@@ -722,7 +731,7 @@ private fun MenuOverlay(
                         // Left goes back to this section's menu entry, not whichever one is geometrically closest.
                         e.key == Key.DirectionLeft && (section == Section.Tv ||
                             (section == Section.Settings && !showAppearance && !showRemote && !showPlayback && !showAddons && !showUpdates && !showHomeRows)) -> {
-                            runCatching { navFocus.getValue(section).requestFocus() }
+                            revealMain()
                             true
                         }
                         else -> false
