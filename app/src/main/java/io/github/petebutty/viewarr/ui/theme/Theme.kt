@@ -28,7 +28,9 @@ data class Palette(val main: Color, val highlight: Color, val transparency: Floa
 data class ThemePreset(val name: String, val main: Color, val highlight: Color)
 
 val ThemePresets = listOf(
-    // Default: the logo's colours (near-black, aperture cyan); and its pink half.
+    // Default. True black: OLED TVs switch those pixels off (deeper blacks, no glow around menus).
+    ThemePreset("OLED black", Color(0xFF000000), Color(0xFF00E5FF)),
+    // The logo's colours (near-black, aperture cyan); and its pink half.
     ThemePreset("Viewarr", Color(0xFF0E1016), Color(0xFF00E5FF)),
     ThemePreset("Viewarr pink", Color(0xFF0E1016), Color(0xFFFF3366)),
     ThemePreset("Classic blue", Color(0xFF1B2766), Color(0xFF22C7E8)),
@@ -36,8 +38,6 @@ val ThemePresets = listOf(
     ThemePreset("Ocean", Color(0xFF0D3640), Color(0xFF2DD4BF)),
     ThemePreset("Royal purple", Color(0xFF2A1B4D), Color(0xFFC084FC)),
     ThemePreset("Ember", Color(0xFF2B1515), Color(0xFFF97316)),
-    // True black: OLED TVs switch those pixels off (deeper blacks, no glow around menus).
-    ThemePreset("OLED black", Color(0xFF000000), Color(0xFF00E5FF)),
 )
 
 val MainColourChoices = listOf(

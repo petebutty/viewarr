@@ -67,17 +67,20 @@ class PluginsViewModel @Inject constructor(private val repo: PluginsRepository) 
         val problem: String? = null,
         val message: String? = null,
         val busy: Boolean = false,
+        /** Counts reloads, so the screen can put focus back after one. */
+        val reloads: Int = 0,
     )
     private val _ui = MutableStateFlow(Ui())
     val ui = _ui.asStateFlow()
 
     fun load(message: String? = null) {
+        val n = _ui.value.reloads + 1
         viewModelScope.launch {
             val r = runCatching { repo.installed() to repo.store() }
             _ui.value = r.fold(
                 { (inst, store) ->
                     if (inst == null) Ui(loading = false, problem = "Plugins live on a Dispatcharr server; sign in to one first.")
-                    else Ui(loading = false, installed = inst, store = store, message = message)
+                    else Ui(loading = false, installed = inst, store = store, message = message, reloads = n)
                 },
                 { e ->
                     Ui(loading = false, problem = if (e is SecurityException) "Dispatcharr only lets admin users manage plugins." else "Couldn't reach Dispatcharr.")
@@ -111,8 +114,17 @@ fun PluginsSettingsScreen(onBack: () -> Unit, vm: PluginsViewModel = hiltViewMod
     // Selected: an installed plugin's key, or STORE.
     var selected by remember { mutableStateOf<String?>(null) }
     val firstFocus = remember { FocusRequester() }
+    val memory = remember { FocusMemory() }
     BackHandler(onBack = onBack)
+    LaunchedEffect(ui.reloads) {
+        if (ui.reloads <= 1) return@LaunchedEffect
+        awaitFrame(); awaitFrame()
+        val fallback = selected?.let { if (it == STORE) "side:store" else "enabled:$it" }
+        val ok = listOfNotNull(memory.last, fallback).any { k -> memory.rows[k]?.let { runCatching { it.requestFocus() }.isSuccess } == true }
+        if (!ok) runCatching { firstFocus.requestFocus() }
+    }
     LaunchedEffect(ui.loading) { if (!ui.loading) { awaitFrame(); runCatching { firstFocus.requestFocus() } } }
+    androidx.compose.runtime.CompositionLocalProvider(LocalFocusMemory provides memory) {
     Box(Modifier.fillMaxSize().background(AppColors.Background).trapFocus()) {
         Row(Modifier.fillMaxSize().padding(horizontal = 56.dp, vertical = 40.dp)) {
             Column(Modifier.width(300.dp).fillMaxHeight()) {
@@ -130,7 +142,8 @@ fun PluginsSettingsScreen(onBack: () -> Unit, vm: PluginsViewModel = hiltViewMod
                                 trailing = when { p.updateAvailable -> "Update"; p.enabled -> "On"; else -> "Off" },
                                 onClick = { selected = p.key },
                                 modifier = (if (p == ui.installed.first()) Modifier.focusRequester(firstFocus) else Modifier)
-                                    .onFocusChanged { if (it.isFocused) selected = p.key },
+                                    .focusRequester(memory.of("side:" + p.key))
+                                    .onFocusChanged { if (it.isFocused) { selected = p.key; memory.last = "side:" + p.key } },
                             )
                         }
                         item(key = "store") {
@@ -141,7 +154,8 @@ fun PluginsSettingsScreen(onBack: () -> Unit, vm: PluginsViewModel = hiltViewMod
                                 trailing = ui.store.count { it.status == "not_installed" }.toString(),
                                 onClick = { selected = STORE },
                                 modifier = (if (ui.installed.isEmpty()) Modifier.focusRequester(firstFocus) else Modifier)
-                                    .onFocusChanged { if (it.isFocused) selected = STORE },
+                                    .focusRequester(memory.of("side:store"))
+                                    .onFocusChanged { if (it.isFocused) { selected = STORE; memory.last = "side:store" } },
                             )
                         }
                     }
@@ -159,9 +173,19 @@ fun PluginsSettingsScreen(onBack: () -> Unit, vm: PluginsViewModel = hiltViewMod
             }
         }
     }
+    }
 }
 
 private const val STORE = "\u0000store"
+
+/** Which row had focus, so it gets it back after the list reloads (rows are rebuilt, or vanish, e.g. Update). */
+private class FocusMemory {
+    val rows = HashMap<String, FocusRequester>()
+    var last: String? = null
+    fun of(key: String) = rows.getOrPut(key) { FocusRequester() }
+}
+
+private val LocalFocusMemory = androidx.compose.runtime.staticCompositionLocalOf { FocusMemory() }
 
 @Composable
 private fun PluginDetail(p: InstalledPlugin, storeEntry: StorePlugin?, vm: PluginsViewModel) {
@@ -173,14 +197,14 @@ private fun PluginDetail(p: InstalledPlugin, storeEntry: StorePlugin?, vm: Plugi
                 if (p.description.isNotEmpty()) Text(p.description, fontSize = 14.sp, color = AppColors.TextSecondary, maxLines = 4, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
             }
         }
-        item(key = "enabled") { Row2("Enabled", "Runs on your Dispatcharr server while on.", toggle = p.enabled) { vm.setEnabled(p, !p.enabled) } }
+        item(key = "enabled") { Row2("enabled:${p.key}", "Enabled", "Runs on your Dispatcharr server while on.", toggle = p.enabled) { vm.setEnabled(p, !p.enabled) } }
         if (p.updateAvailable && storeEntry != null) item(key = "update") {
-            ConfirmRow("Update to v${storeEntry.version}", "From ${storeEntry.repoName}.", "Update", "Press OK again to update") { vm.install(storeEntry) }
+            ConfirmRow("update:${p.key}", "Update to v${storeEntry.version}", "From ${storeEntry.repoName}.", "Update", "Press OK again to update") { vm.install(storeEntry) }
         }
         if (p.actions.isNotEmpty()) item(key = "ah") { Header("Actions" + if (!p.enabled) " (turn the plugin on first)" else "") }
         items(p.actions, key = { "a:" + it.id }) { a ->
-            if (a.confirm != null) ConfirmRow(a.label, a.description, a.button, "OK again: ${a.confirm}") { vm.run(p, a.id) }
-            else Row2(a.label, a.description, trailing = a.button) { vm.run(p, a.id) }
+            if (a.confirm != null) ConfirmRow("a:${p.key}:${a.id}", a.label, a.description, a.button, "OK again: ${a.confirm}") { vm.run(p, a.id) }
+            else Row2("a:${p.key}:${a.id}", a.label, a.description, trailing = a.button) { vm.run(p, a.id) }
         }
         val fields = p.fields
         if (fields.isNotEmpty()) item(key = "sh") { Header("Settings") }
@@ -198,19 +222,19 @@ private fun FieldRow(p: InstalledPlugin, f: PluginField, vm: PluginsViewModel) {
         }
         "boolean" -> {
             val on = (current as? JsonPrimitive)?.booleanOrNull == true
-            Row2(f.label, f.description, toggle = on) { vm.setting(p, f, JsonPrimitive(!on)) }
+            Row2("f:${p.key}:${f.id}", f.label, f.description, toggle = on) { vm.setting(p, f, JsonPrimitive(!on)) }
         }
         "select" -> {
             val value = (current as? JsonPrimitive)?.content
             val i = f.options.indexOfFirst { it.first == value }
-            Row2(f.label, f.description, trailing = f.options.getOrNull(i)?.second ?: value ?: "—") {
+            Row2("f:${p.key}:${f.id}", f.label, f.description, trailing = f.options.getOrNull(i)?.second ?: value ?: "—") {
                 // OK steps through the choices.
                 f.options.getOrNull((i + 1) % f.options.size.coerceAtLeast(1))?.let { vm.setting(p, f, JsonPrimitive(it.first)) }
             }
         }
         else -> {
             val shown = (current as? JsonPrimitive)?.content?.takeIf { it.isNotBlank() }?.lines()?.first() ?: "—"
-            Row2(f.label, f.description.ifEmpty { "Change this on Dispatcharr's web page." }, trailing = shown, enabled = false) {}
+            Row2("f:${p.key}:${f.id}", f.label, f.description.ifEmpty { "Change this on Dispatcharr's web page." }, trailing = shown, enabled = false) {}
         }
     }
 }
@@ -231,9 +255,9 @@ private fun StoreList(store: List<StorePlugin>, vm: PluginsViewModel) {
                 s.repoName + if (s.official && s.verified) " ✓" else "",
             ).joinToString("  ·  ")
             when (s.status) {
-                "installed" -> Row2(s.name, meta + "\n" + s.description, trailing = "Installed", enabled = false) {}
-                "update_available" -> ConfirmRow(s.name, meta + "\n" + s.description, "Update", "Press OK again to update") { vm.install(s) }
-                else -> ConfirmRow(s.name, meta + "\n" + s.description, "Install", "Press OK again to install") { vm.install(s) }
+                "installed" -> Row2("s:" + s.slug, s.name, meta + "\n" + s.description, trailing = "Installed", enabled = false) {}
+                "update_available" -> ConfirmRow("s:" + s.slug, s.name, meta + "\n" + s.description, "Update", "Press OK again to update") { vm.install(s) }
+                else -> ConfirmRow("s:" + s.slug, s.name, meta + "\n" + s.description, "Install", "Press OK again to install") { vm.install(s) }
             }
         }
     }
@@ -245,15 +269,16 @@ private fun Header(text: String) =
 
 /** OK once arms it (the label asks again), OK again does it. */
 @Composable
-private fun ConfirmRow(title: String, description: String, button: String, armed: String, onConfirm: () -> Unit) {
+private fun ConfirmRow(key: String, title: String, description: String, button: String, armed: String, onConfirm: () -> Unit) {
     var arm by remember { mutableStateOf(false) }
-    Row2(title, description, trailing = if (arm) armed else button, onFocusLost = { arm = false }) {
+    Row2(key, title, description, trailing = if (arm) armed else button, onFocusLost = { arm = false }) {
         if (arm) { arm = false; onConfirm() } else arm = true
     }
 }
 
 @Composable
 private fun Row2(
+    key: String,
     title: String,
     description: String,
     trailing: String? = null,
@@ -264,7 +289,10 @@ private fun Row2(
 ) {
     Surface(
         onClick = { if (enabled) onClick() },
-        modifier = Modifier.fillMaxWidth().onFocusChanged { if (!it.isFocused) onFocusLost() },
+        modifier = Modifier.fillMaxWidth().focusRequester(LocalFocusMemory.current.of(key)).let { m ->
+            val mem = LocalFocusMemory.current
+            m.onFocusChanged { if (it.isFocused) mem.last = key else onFocusLost() }
+        },
         scale = ClickableSurfaceDefaults.scale(scale = 1f, focusedScale = 1f, pressedScale = 1f),
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
         colors = ClickableSurfaceDefaults.colors(
