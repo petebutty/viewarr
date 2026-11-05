@@ -72,6 +72,7 @@ enum class PlexQuality(override val label: String, val maxKbps: Int?) : RemoteCh
 enum class MpvDecoding(override val label: String) : RemoteChoice {
     Hardware("Hardware (fastest)"),
     Software("Software (if the picture glitches)"),
+    Direct("Direct to screen (smoothest on weak boxes; text subtitles only)"),
 }
 
 enum class FrameRateMatch(override val label: String) : RemoteChoice {

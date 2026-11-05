@@ -1,5 +1,6 @@
 package io.github.petebutty.viewarr.ui.media
 
+import io.github.petebutty.viewarr.ui.common.ignoreHeldOk
 import io.github.petebutty.viewarr.ui.common.trapFocus
 import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
@@ -256,7 +257,7 @@ fun VodPlayer(
                     isFocusable = false
                     controllerShowTimeoutMs = 4_000
                     controllerAutoShow = true
-                    setShowSubtitleButton(true)
+                    setShowSubtitleButton(false) // the remote can't reach it; hold OK opens audio & subtitles
                     keepScreenOn = true
                     subtitleView?.setFractionalTextSize(androidx.media3.ui.SubtitleView.DEFAULT_TEXT_SIZE_FRACTION * pb.subtitleSize.scale)
                     val box = pb.subtitleBackground == io.github.petebutty.viewarr.data.settings.SubtitleBackground.Box
@@ -347,7 +348,7 @@ private fun TrackPicker(player: ExoPlayer, onClose: () -> Unit, modifier: Modifi
         }
     }
     androidx.compose.foundation.lazy.LazyColumn(
-        modifier.fillMaxHeight().width(380.dp).background(io.github.petebutty.viewarr.ui.theme.AppColors.Panel.copy(alpha = 0.95f)).padding(20.dp).trapFocus(),
+        modifier.fillMaxHeight().width(380.dp).background(io.github.petebutty.viewarr.ui.theme.AppColors.Panel.copy(alpha = 0.95f)).padding(20.dp).trapFocus().then(Modifier.ignoreHeldOk()),
         verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(2.dp),
     ) {
         var firstSet = false

@@ -1,5 +1,6 @@
 package io.github.petebutty.viewarr.ui.media
 
+import io.github.petebutty.viewarr.ui.common.ignoreHeldOk
 import android.graphics.SurfaceTexture
 import android.os.Handler
 import android.os.Looper
@@ -97,6 +98,7 @@ fun MpvPlayer(
     var okDown by remember { mutableStateOf(false) }
     val focus = remember { FocusRequester() }
     var hasFocus by remember { mutableStateOf(false) }
+    var subText by remember { mutableStateOf("") }
 
     val mpv = remember(stream) {
         MpvHandle(context).apply {
@@ -125,7 +127,9 @@ fun MpvPlayer(
                     }
                 }
             }
-            override fun eventProperty(property: String, value: String) {}
+            override fun eventProperty(property: String, value: String) {
+                if (property == "sub-text") main.post { subText = value }
+            }
             override fun eventProperty(property: String, value: Double) {
                 main.post {
                     when (property) {
@@ -146,6 +150,7 @@ fun MpvPlayer(
         mpv.observeProperty("paused-for-cache", MPVLib.MPV_FORMAT_FLAG)
         mpv.observeProperty("seeking", MPVLib.MPV_FORMAT_FLAG)
         mpv.observeProperty("eof-reached", MPVLib.MPV_FORMAT_FLAG)
+        if (settings.mpvDecoding == MpvDecoding.Direct) mpv.observeProperty("sub-text", MPVLib.MPV_FORMAT_STRING)
         mpv.command(arrayOf("loadfile", stream.url))
         onDispose {
             if (!ended && position > 0) onProgress("stopped", (position * 1000).toLong(), (duration * 1000).toLong())
@@ -158,15 +163,32 @@ fun MpvPlayer(
     // Settings → Playback → Match frame rate: switch the TV once mpv knows the video's rate; switch back on exit.
     val activity = context as? android.app.Activity
     LaunchedEffect(mpv, settings.frameRate) {
-        if (settings.frameRate != io.github.petebutty.viewarr.data.settings.FrameRateMatch.On || activity == null) return@LaunchedEffect
-        repeat(40) {
-            delay(250)
-            val fps = runCatching { MPVLib.getPropertyDouble("container-fps") }.getOrNull()
-            if (fps != null && fps > 0) {
-                val previous = io.github.petebutty.viewarr.playback.FrameRateMatcher.match(activity, fps.toFloat())
-                if (previous != null) restoreMode = previous
-                return@LaunchedEffect
+        if (settings.frameRate != io.github.petebutty.viewarr.data.settings.FrameRateMatch.On) return@LaunchedEffect
+        if (activity == null) { runCatching { mpv.setPropertyBoolean("pause", false) }; return@LaunchedEffect }
+        // mpv was started paused (configure): switching the TV mid-playback stalls HDMI audio on Amlogic boxes.
+        try {
+            repeat(80) {
+                delay(250)
+                val fps = runCatching { MPVLib.getPropertyDouble("container-fps") }.getOrNull()
+                if (fps != null && fps > 0) {
+                    val previous = io.github.petebutty.viewarr.playback.FrameRateMatcher.match(activity, fps.toFloat())
+                    if (previous != null) { restoreMode = previous; delay(2_000) }
+                    return@LaunchedEffect
+                }
             }
+        } finally {
+            runCatching { mpv.setPropertyBoolean("pause", false) }
+        }
+    }
+    // Audio watchdog: if passthrough audio never starts (the box accepted the format but the output stalls),
+    // fall back to decoding in the box instead of sitting on 0:00.
+    LaunchedEffect(mpv) {
+        if (settings.passthrough != Passthrough.On) return@LaunchedEffect
+        delay(if (settings.frameRate == io.github.petebutty.viewarr.data.settings.FrameRateMatch.On) 12_000 else 8_000)
+        if (position <= 0.0 && !paused && error == null) {
+            Log.w(TAG, "audio never started with passthrough: decoding in the box instead")
+            runCatching { mpv.setPropertyString("audio-spdif", "") }
+            runCatching { mpv.command(arrayOf("ao-reload")) }
         }
     }
     DisposableEffect(Unit) { onDispose { restoreMode?.let { m -> activity?.let { io.github.petebutty.viewarr.playback.FrameRateMatcher.restore(it, m) } } } }
@@ -262,7 +284,7 @@ fun MpvPlayer(
                             mpv.attachSurface(surface!!)
                             mpv.setOptionString("force-window", "yes")
                             mpv.setPropertyString("android-surface-size", "${w}x$h")
-                            mpv.setOptionString("vo", "gpu")
+                            mpv.setOptionString("vo", videoOut(settings))
                         }
                         override fun onSurfaceTextureSizeChanged(st: SurfaceTexture, w: Int, h: Int) {
                             mpv.setPropertyString("android-surface-size", "${w}x$h")
@@ -281,6 +303,15 @@ fun MpvPlayer(
             modifier = Modifier.fillMaxSize(),
         )
 
+        if (settings.mpvDecoding == MpvDecoding.Direct && subText.isNotBlank()) Text(
+            subText.trim(),
+            fontSize = (30 * settings.subtitleSize.scale).sp,
+            color = Color(settings.subtitleColour.argb),
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            style = androidx.compose.ui.text.TextStyle(shadow = androidx.compose.ui.graphics.Shadow(Color.Black, blurRadius = 6f)),
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 64.dp, start = 120.dp, end = 120.dp)
+                .then(if (settings.subtitleBackground == io.github.petebutty.viewarr.data.settings.SubtitleBackground.Box) Modifier.background(Color.Black.copy(alpha = 0.75f), RoundedCornerShape(4.dp)).padding(horizontal = 10.dp, vertical = 4.dp) else Modifier),
+        )
         val osdVisible = paused || buffering || now < osdUntil
         if (osdVisible) MpvOsd(stream.title, position, duration, paused, buffering, Modifier.align(Alignment.BottomCenter))
         if (stats.isNotEmpty()) Text(
@@ -294,6 +325,21 @@ fun MpvPlayer(
     }
 }
 
+private fun videoOut(s: PlaybackSettings) = if (s.mpvDecoding == MpvDecoding.Direct) "mediacodec_embed" else "gpu"
+
+/** Soundtrack formats this box says it can send untouched over its current audio output (mpv audio-spdif names). */
+private fun spdifFormats(context: android.content.Context): String {
+    @Suppress("DEPRECATION")
+    val caps = androidx.media3.exoplayer.audio.AudioCapabilities.getCapabilities(context)
+    return listOfNotNull(
+        "ac3".takeIf { caps.supportsEncoding(androidx.media3.common.C.ENCODING_AC3) },
+        "eac3".takeIf { caps.supportsEncoding(androidx.media3.common.C.ENCODING_E_AC3) },
+        "dts".takeIf { caps.supportsEncoding(androidx.media3.common.C.ENCODING_DTS) },
+        "dts-hd".takeIf { caps.supportsEncoding(androidx.media3.common.C.ENCODING_DTS_HD) },
+        "truehd".takeIf { caps.supportsEncoding(androidx.media3.common.C.ENCODING_DOLBY_TRUEHD) },
+    ).joinToString(",")
+}
+
 /** mpv options that must be set before init(). */
 private fun configure(mpv: MpvHandle, context: android.content.Context, stream: VodStream, s: PlaybackSettings) {
     val dir = context.filesDir.absolutePath
@@ -301,10 +347,16 @@ private fun configure(mpv: MpvHandle, context: android.content.Context, stream: 
     opt("config", "no")
     opt("config-dir", dir)
     opt("gpu-shader-cache-dir", context.cacheDir.absolutePath)
-    opt("vo", "gpu")
+    opt("vo", videoOut(s))
     opt("gpu-context", "android")
     opt("opengl-es", "yes")
-    opt("hwdec", if (s.mpvDecoding == MpvDecoding.Hardware) "mediacodec,mediacodec-copy" else "no")
+    // Direct: the hardware decoder draws straight onto the screen surface (no copy back, no GPU pass). mpv then can't
+    // draw subtitles, so the player shows text subtitles itself (sub-text).
+    opt("hwdec", when (s.mpvDecoding) {
+        MpvDecoding.Hardware -> "mediacodec,mediacodec-copy"
+        MpvDecoding.Direct -> "mediacodec"
+        MpvDecoding.Software -> "no"
+    })
     opt("hwdec-codecs", "h264,hevc,mpeg4,mpeg2video,vp8,vp9,av1")
     opt("ao", "audiotrack,opensles")
     // A bigger audio buffer stops dropouts while a weak box decodes TrueHD/DTS-HD in software.
@@ -324,7 +376,9 @@ private fun configure(mpv: MpvHandle, context: android.content.Context, stream: 
     }
     // Audio
     s.audioCode()?.let { opt("alang", "$it,${iso3(it)}") }
-    if (s.passthrough == Passthrough.On) opt("audio-spdif", "ac3,eac3,dts,dts-hd,truehd")
+    if (s.passthrough == Passthrough.On) spdifFormats(context).also { Log.i(TAG, "passthrough formats: '$it'") }.takeIf { it.isNotEmpty() }?.let { opt("audio-spdif", it) }
+    // Match frame rate: start paused, switch the TV, let HDMI settle, then play (see MpvPlayer).
+    if (s.frameRate == io.github.petebutty.viewarr.data.settings.FrameRateMatch.On) opt("pause", "yes")
     if (s.downmix == Downmix.Stereo) opt("audio-channels", "stereo") else opt("audio-channels", "auto")
     if (s.nightMode == NightMode.On) opt("af", "lavfi=[dynaudnorm=f=250:g=31:m=4]")
     // Subtitles
@@ -442,7 +496,7 @@ private fun MpvTrackPicker(mpv: MpvHandle, onClose: () -> Unit, modifier: Modifi
     LaunchedEffect(Unit) { awaitFrame(); runCatching { first.requestFocus() } }
     val subsOff = tracks.none { it.type == "sub" && it.selected }
     LazyColumn(
-        modifier.fillMaxHeight().width(420.dp).background(AppColors.Panel.copy(alpha = 0.95f)).padding(20.dp).trapFocus(),
+        modifier.fillMaxHeight().width(420.dp).background(AppColors.Panel.copy(alpha = 0.95f)).padding(20.dp).trapFocus().then(Modifier.ignoreHeldOk()),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         item { Text("Audio", fontSize = 13.sp, color = AppColors.Accent, modifier = Modifier.padding(start = 12.dp, bottom = 4.dp)) }
