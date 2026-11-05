@@ -401,7 +401,8 @@ private fun GuideRow(
             Modifier
                 .width(ChannelColumn)
                 .fillMaxHeight()
-                .background(if (selected) AppColors.RowSelected else Color.Transparent, RoundedCornerShape(4.dp))
+                .padding(end = 4.dp)
+                .background(if (selected) AppColors.RowSelected else AppColors.CellFuture.copy(alpha = 0.55f), RoundedCornerShape(6.dp))
                 .padding(end = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Start,
@@ -442,7 +443,8 @@ private fun GuideRow(
             val pxPerMs = size.width / GuideViewModel.VISIBLE_MS
             val gap = 2.dp.toPx()
             val pad = 8.dp.toPx()
-            val radius = CornerRadius(4.dp.toPx())
+            val radius = CornerRadius(6.dp.toPx())
+            val outline = androidx.compose.ui.graphics.drawscope.Stroke(1.dp.toPx())
             val ordered = if (focusedRowId == null) programs else programs.sortedBy { it.rowId == focusedRowId }
             for (p in ordered) {
                 if (p.endTime <= windowStart || p.startTime >= windowEnd) continue
@@ -457,6 +459,26 @@ private fun GuideRow(
                     else -> AppColors.CellFuture
                 }
                 drawRoundRect(color, topLeft = Offset(x0, 0f), size = Size(x1 - x0, size.height), cornerRadius = radius)
+                if (!isFocused) drawRoundRect(Color.White.copy(alpha = 0.08f), topLeft = Offset(x0, 0f), size = Size(x1 - x0, size.height), cornerRadius = radius, style = outline)
+                // On now: a bar along the bottom showing how far through it is.
+                if (p.startTime <= now && p.endTime > now && x1 - x0 > 16.dp.toPx()) {
+                    val inset = 6.dp.toPx()
+                    val h = 3.dp.toPx()
+                    val y = size.height - h - 4.dp.toPx()
+                    val full = p.endTime - p.startTime
+                    val done = (now - p.startTime).toFloat() / full
+                    // The bar spans the whole programme, even where the cell runs off the left edge.
+                    val px0 = (p.startTime - windowStart) * pxPerMs + inset
+                    val px1 = (p.endTime - windowStart) * pxPerMs - gap - inset
+                    val l = maxOf(px0, x0 + inset)
+                    val r = minOf(px1, x1 - inset)
+                    val fillEnd = (px0 + (px1 - px0) * done).coerceIn(l, r)
+                    val bar = CornerRadius(h / 2)
+                    if (r > l) {
+                        drawRoundRect((if (isFocused) onAccent else Color.White).copy(alpha = 0.18f), topLeft = Offset(l, y), size = Size(r - l, h), cornerRadius = bar)
+                        if (fillEnd > l) drawRoundRect(if (isFocused) onAccent else accent, topLeft = Offset(l, y), size = Size(fillEnd - l, h), cornerRadius = bar)
+                    }
+                }
                 // The programme on screen right now keeps an accent outline, so you always know what's playing.
                 val isPlaying = p.rowId == playingRowId || (playingLive && p.startTime <= now && p.endTime > now)
                 if (isPlaying && !isFocused) {
