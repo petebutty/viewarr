@@ -501,7 +501,7 @@ fun HomeScreen(
             ProgramInfoDialog(ch, prog, dvr, onRecord = { infoTarget = null; recordTarget = ch to prog }, onClose = { infoTarget = null })
         }
         recordTarget?.let { (ch, prog) -> RecordDialog(ch, prog, dvr) { recordTarget = null } }
-        recordingPlayback?.let { VodPlayer(stream = it, onClose = { recordingPlayback = null }) }
+        recordingPlayback?.let { io.github.petebutty.viewarr.ui.media.PlayerHost(stream = it, onClose = { recordingPlayback = null }) }
 
         (digits.takeIf { it.isNotEmpty() } ?: digitsMessage)?.let { text ->
             Text(
@@ -557,6 +557,7 @@ private fun MenuOverlay(
     }
     var showAppearance by remember { mutableStateOf(false) }
     var showRemote by remember { mutableStateOf(false) }
+    var showPlayback by remember { mutableStateOf(false) }
     val remote = LocalRemote.current
     var lastBack by remember { mutableLongStateOf(0L) }
     val navFocus = remember { Section.entries.associateWith { FocusRequester() } }
@@ -623,7 +624,7 @@ private fun MenuOverlay(
                         .onFocusChanged { if (it.isFocused) section = s }
                         .onPreviewKeyEvent { e ->
                             // Right does the same as OK: open what's inside this entry.
-                            if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionRight && !(s == Section.Settings && (showAppearance || showRemote))) {
+                            if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionRight && !(s == Section.Settings && (showAppearance || showRemote || showPlayback))) {
                                 enter(s)
                                 true
                             } else false
@@ -651,7 +652,7 @@ private fun MenuOverlay(
                         }
                         // Left goes back to this section's menu entry, not whichever one is geometrically closest.
                         e.key == Key.DirectionLeft && (section == Section.Tv || section == Section.Movies || section == Section.Shows ||
-                            (section == Section.Settings && !showAppearance && !showRemote)) -> {
+                            (section == Section.Settings && !showAppearance && !showRemote && !showPlayback)) -> {
                             runCatching { navFocus.getValue(section).requestFocus() }
                             true
                         }
@@ -675,7 +676,13 @@ private fun MenuOverlay(
                     AppearancePanel(onBack = { showAppearance = false })
                 } else if (showRemote) {
                     RemotePanel(onBack = { showRemote = false })
+                } else if (showPlayback) {
+                    io.github.petebutty.viewarr.ui.settings.PlaybackPanel(onBack = { showPlayback = false })
                 } else SettingsPanel(
+                    onPlayback = {
+                        runCatching { navFocus.getValue(Section.Settings).requestFocus() }
+                        showPlayback = true
+                    },
                     // Park focus on the Settings entry before swapping panels, so it never drops back to Search.
                     onRemote = {
                         runCatching { navFocus.getValue(Section.Settings).requestFocus() }
@@ -758,7 +765,7 @@ private fun GroupItem(name: String, count: Int?, selected: Boolean, modifier: Mo
 }
 
 @Composable
-private fun SettingsPanel(onRemote: () -> Unit, session: Session?, sync: SyncState, firstItem: FocusRequester, onAppearance: () -> Unit, onAccounts: () -> Unit, onRefresh: () -> Unit, onSignOut: () -> Unit) {
+private fun SettingsPanel(onPlayback: () -> Unit, onRemote: () -> Unit, session: Session?, sync: SyncState, firstItem: FocusRequester, onAppearance: () -> Unit, onAccounts: () -> Unit, onRefresh: () -> Unit, onSignOut: () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(session?.let { "Signed in as ${it.username}" } ?: "Live TV not set up", fontSize = 15.sp, color = AppColors.TextPrimary, modifier = Modifier.padding(horizontal = 12.dp))
         session?.let { Text(it.serverUrl, fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(horizontal = 12.dp)) }
@@ -772,6 +779,7 @@ private fun SettingsPanel(onRemote: () -> Unit, session: Session?, sync: SyncSta
         Spacer(Modifier.height(12.dp))
         MenuItem(text = "Accounts & sources", selected = false, onClick = onAccounts, modifier = Modifier.focusRequester(firstItem))
         MenuItem(text = "Appearance", selected = false, onClick = onAppearance)
+        MenuItem(text = "Playback", selected = false, onClick = onPlayback)
         MenuItem(text = "Remote & navigation", selected = false, onClick = onRemote)
         MenuItem(text = "Refresh channels & guide", selected = false, onClick = onRefresh)
         var confirmUntil by remember { mutableLongStateOf(0L) }

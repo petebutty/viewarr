@@ -40,7 +40,9 @@ class AppViewModel @Inject constructor(
     private val auth: AuthRepository,
     private val guide: GuideRepository,
     remoteStore: io.github.petebutty.viewarr.data.settings.RemoteStore,
+    playbackStore: io.github.petebutty.viewarr.data.settings.PlaybackStore,
 ) : ViewModel() {
+    val playback = playbackStore.settings.stateIn(viewModelScope, SharingStarted.Eagerly, io.github.petebutty.viewarr.data.settings.PlaybackSettings())
     val remote = remoteStore.settings.stateIn(viewModelScope, SharingStarted.Eagerly, io.github.petebutty.viewarr.data.settings.RemoteSettings())
 
     // Installs from before optional setup steps existed have no flag: a saved session means they're set up.
@@ -67,13 +69,17 @@ class AppViewModel @Inject constructor(
 fun AppRoot(vm: AppViewModel = hiltViewModel()) {
     val state by vm.state.collectAsStateWithLifecycle()
     val remote by vm.remote.collectAsStateWithLifecycle()
+    val playbackSettings by vm.playback.collectAsStateWithLifecycle()
     // Show the splash for at least ~1.6 s (and until the start state is known).
     var splashDone by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
     androidx.compose.runtime.LaunchedEffect(Unit) {
         kotlinx.coroutines.delay(1_600)
         splashDone = true
     }
-    androidx.compose.runtime.CompositionLocalProvider(io.github.petebutty.viewarr.data.settings.LocalRemote provides remote) {
+    androidx.compose.runtime.CompositionLocalProvider(
+        io.github.petebutty.viewarr.data.settings.LocalRemote provides remote,
+        io.github.petebutty.viewarr.data.settings.LocalPlayback provides playbackSettings,
+    ) {
     Box(Modifier.fillMaxSize().background(AppColors.Background)) {
         if (!splashDone || state == StartState.Loading) {
             io.github.petebutty.viewarr.ui.common.ViewarrSplash()

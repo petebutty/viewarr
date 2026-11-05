@@ -62,6 +62,8 @@ fun VodPlayer(
     var error by remember(stream) { mutableStateOf<String?>(null) }
     val focus = remember { FocusRequester() }
     val seekMs = io.github.petebutty.viewarr.data.settings.LocalRemote.current.seek.ms
+    val pb = io.github.petebutty.viewarr.data.settings.LocalPlayback.current
+    val startAt = if (pb.resume == io.github.petebutty.viewarr.data.settings.ResumeMode.Start) 0L else stream.resumeMs
     var view by remember { mutableStateOf<PlayerView?>(null) }
     var tracksOpen by remember { mutableStateOf(false) }
     var okDown by remember { mutableStateOf(false) }
@@ -75,13 +77,30 @@ fun VodPlayer(
         ExoPlayer.Builder(context)
             .setRenderersFactory(
                 // FFmpeg audio (DTS, TrueHD…) only when the box can't decode or pass through a soundtrack itself.
-                DefaultRenderersFactory(context)
+                object : DefaultRenderersFactory(context) {
+                    override fun buildAudioSink(ctx: android.content.Context, floatOutput: Boolean, audioTrackPlaybackParams: Boolean): androidx.media3.exoplayer.audio.AudioSink? =
+                        androidx.media3.exoplayer.audio.DefaultAudioSink.Builder(ctx)
+                            // Passthrough off: always decode to PCM in the box (no Dolby/DTS bitstream to a receiver).
+                            .apply { if (pb.passthrough == io.github.petebutty.viewarr.data.settings.Passthrough.Off) setAudioCapabilities(androidx.media3.exoplayer.audio.AudioCapabilities.DEFAULT_AUDIO_CAPABILITIES) }
+                            .setEnableFloatOutput(floatOutput)
+                            .setEnableAudioTrackPlaybackParams(audioTrackPlaybackParams)
+                            .build()
+                }
                     .setEnableDecoderFallback(true)
                     .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON),
             )
             .setMediaSourceFactory(DefaultMediaSourceFactory(http))
             .build().apply {
-                setMediaItem(mediaItem(stream.url, hls = stream.url.contains(".m3u8")), stream.resumeMs)
+                trackSelectionParameters = trackSelectionParameters.buildUpon().apply {
+                    pb.audioCode()?.let { setPreferredAudioLanguage(it) }
+                    if (pb.downmix == io.github.petebutty.viewarr.data.settings.Downmix.Stereo) setMaxAudioChannelCount(2)
+                    when (pb.subtitles) {
+                        io.github.petebutty.viewarr.data.settings.SubtitleMode.Off -> setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_TEXT, true)
+                        io.github.petebutty.viewarr.data.settings.SubtitleMode.On -> setPreferredTextLanguage(pb.subtitleCode()).setSelectUndeterminedTextLanguage(true)
+                        io.github.petebutty.viewarr.data.settings.SubtitleMode.Forced -> Unit // only tracks flagged forced/default are picked
+                    }
+                }.build()
+                setMediaItem(mediaItem(stream.url, hls = stream.url.contains(".m3u8")), startAt)
                 prepare()
                 playWhenReady = true
             }
@@ -213,6 +232,7 @@ fun VodPlayer(
                     controllerAutoShow = true
                     setShowSubtitleButton(true)
                     keepScreenOn = true
+                    subtitleView?.setFractionalTextSize(androidx.media3.ui.SubtitleView.DEFAULT_TEXT_SIZE_FRACTION * pb.subtitleSize.scale)
                 }
             },
             modifier = Modifier.fillMaxSize(),

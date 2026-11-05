@@ -67,6 +67,7 @@ When you're done, tap **Finish on the TV**. The guide loads, which takes a minut
 - **Settings:**
   - **Accounts & sources:** add or change anything you set up. *Set up on your phone* brings back the QR code.
   - **Appearance:** colours and menu transparency.
+  - **Playback:** which player to use, audio and subtitle language, passthrough to a receiver, and Plex quality.
   - **Remote & navigation:** what the buttons do, and which page the app opens on.
 
 ## 5. Troubleshooting
@@ -82,6 +83,9 @@ When you're done, tap **Finish on the TV**. The guide loads, which takes a minut
 
 **Recording says it isn't allowed**
 The Dispatcharr account needs **DVR access: Manage** (Users → edit user).
+
+**Sound drops out or stutters on a film**
+Some boxes struggle to decode Dolby TrueHD or DTS-HD. If you have a receiver or soundbar, turn on **Settings → Playback → Surround passthrough**. Otherwise pick the AC3 / 5.1 soundtrack (hold OK while playing), or set **Channels** to Stereo.
 
 **A film plays sound but no picture, or won't play**
 - From Plex, Viewarr asks Plex to convert the file if the TV can't play it.

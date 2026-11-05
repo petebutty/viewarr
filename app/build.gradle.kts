@@ -25,9 +25,11 @@ android {
         applicationId = "io.github.petebutty.viewarr"
         minSdk = 26
         targetSdk = 34
-        versionCode = 10
-        versionName = "0.8.1"
+        versionCode = 11
+        versionName = "0.9.0"
         // Trakt device login needs a client id from your own Trakt app (trakt.tv/oauth/applications). Blank = no Trakt.
+        // Android TV boxes are ARM; leaving out x86 keeps the APK smaller.
+        ndk { abiFilters += listOf("armeabi-v7a", "arm64-v8a") }
         buildConfigField("String", "TRAKT_CLIENT_ID", "\"${secrets.getProperty("traktClientId", "")}\"")
     }
 
@@ -57,6 +59,12 @@ android {
     }
     kotlinOptions {
         jvmTarget = "17"
+        // libmpv is built with a newer Kotlin; its few classes are still readable.
+        freeCompilerArgs += "-Xskip-metadata-version-check"
+    }
+    packaging {
+        // libmpv and the FFmpeg decoder each ship libc++_shared.so.
+        jniLibs.pickFirsts += "**/libc++_shared.so"
     }
     buildFeatures {
         compose = true
@@ -95,6 +103,8 @@ dependencies {
     implementation(libs.media3.hls)
     // Prebuilt FFmpeg audio decoders (DTS, TrueHD, MP2…) for soundtracks the box can't decode itself.
     implementation(libs.media3.ffmpeg)
+    // mpv (MIT): the alternative player for films, shows and recordings.
+    implementation(libs.libmpv) { exclude(group = "org.jetbrains.kotlin") }
     implementation(libs.zxing.core)
     implementation(libs.bouncycastle)
 }

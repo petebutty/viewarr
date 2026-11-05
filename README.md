@@ -24,6 +24,8 @@ Viewarr doesn't provide any content. It plays only what your own servers and acc
 - Seasons and episodes for shows.
 - Play from **Plex**, converted by Plex automatically when the TV can't play the file itself. Or search your **Stremio addons** (e.g. AIOStreams) for streams.
 - Watch progress is sent back to Plex and Trakt.
+- Two players: **mpv** (the default; plays almost any file, codec or soundtrack, including TrueHD/Atmos and DTS-HD) or the lighter built-in player.
+- **Playback settings:** audio and subtitle language, surround passthrough to a receiver, stereo downmix, night mode, subtitle size, resume, and Plex quality.
 - Search across films, shows, your Plex library, addons and TV channels.
 
 **Easy setup**
@@ -93,6 +95,7 @@ Optional private files in the project root (they're git-ignored):
 Viewarr is free software under the **GNU General Public License v3.0**: see [LICENSE](LICENSE).
 
 It's built on:
+- [libmpv-android](https://github.com/jarnedemeulemeester/libmpv-android) (MIT), which bundles mpv and FFmpeg.
 - Jetpack Compose for TV, AndroidX Media3 (ExoPlayer), Hilt, Room, Retrofit/OkHttp, kotlinx.serialization, Coil and ZXing (all Apache 2.0).
 - [jellyfin-androidx-media](https://github.com/jellyfin/jellyfin-androidx-media) FFmpeg decoders (GPL-3.0).
 - Bouncy Castle (MIT-style).

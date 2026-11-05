@@ -57,6 +57,7 @@ class CatalogRepository @Inject constructor(
     private val store: AccountStore,
     private val tmdb: TmdbService,
     private val trakt: TraktService,
+    private val playbackStore: io.github.petebutty.viewarr.data.settings.PlaybackStore,
     private val plex: PlexService,
     private val mediaServers: MediaServerService,
 ) {
@@ -544,20 +545,23 @@ class CatalogRepository @Inject constructor(
         val headers = plex.headers(a.deviceId, p.token)
         val resume = m.long("viewOffset") ?: 0
         val target = (watch ?: WatchTarget(MediaType.Movie)).copy(plexRatingKey = ratingKey)
-        val transcode = VodStream(plexTranscodeUrl(a, p, ratingKey), "$title (converted by Plex)", headers, resume, watch = target)
+        val quality = playbackStore.current().plexQuality
+        val transcode = VodStream(plexTranscodeUrl(a, p, ratingKey, quality.maxKbps ?: 20_000), "$title (converted by Plex)", headers, resume, watch = target)
+        // Settings → Playback → Plex quality: anything but Original always converts at that bitrate.
+        if (quality.maxKbps != null) return transcode
         val direct = VodStream("${p.serverUrl}$part?X-Plex-Token=${enc(p.token)}", title, headers, resume, fallback = transcode, watch = target)
         val playable = DeviceCodecs.canPlay(media.str("videoCodec"), media.str("container"))
         Log.i(TAG, "plex $ratingKey video=${media.str("videoCodec")} container=${media.str("container")} direct=$playable")
         return if (playable) direct else transcode
     }
 
-    private fun plexTranscodeUrl(a: Accounts, p: PlexAuth, ratingKey: String): String {
+    private fun plexTranscodeUrl(a: Accounts, p: PlexAuth, ratingKey: String, maxKbps: Int): String {
         val q = linkedMapOf(
             "path" to "/library/metadata/$ratingKey",
             "mediaIndex" to "0", "partIndex" to "0",
             "protocol" to "hls", "fastSeek" to "1",
             "directPlay" to "0", "directStream" to "1", "directStreamAudio" to "1",
-            "videoQuality" to "100", "maxVideoBitrate" to "20000", "videoResolution" to "1920x1080",
+            "videoQuality" to "100", "maxVideoBitrate" to maxKbps.toString(), "videoResolution" to "1920x1080",
             "subtitles" to "auto", "location" to "lan",
             "session" to java.util.UUID.randomUUID().toString(),
             "X-Plex-Token" to p.token,

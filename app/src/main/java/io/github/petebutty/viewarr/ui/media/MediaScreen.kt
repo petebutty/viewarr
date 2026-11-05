@@ -222,7 +222,7 @@ fun MediaScreen(
                 },
             )
         }
-        playing?.let { VodPlayer(stream = it, onClose = vm::stopPlaying, onProgress = vm::reportProgress) }
+        playing?.let { PlayerHost(stream = it, onClose = vm::stopPlaying, onProgress = vm::reportProgress) }
     }
 }
 
