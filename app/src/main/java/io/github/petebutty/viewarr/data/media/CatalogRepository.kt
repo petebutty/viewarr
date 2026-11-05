@@ -603,7 +603,6 @@ class CatalogRepository @Inject constructor(
 
     // ------------------------------------------------------------------ watch progress
 
-    /** Tells Plex where you are (so Continue watching and "watched" stay in sync); marks it watched near the end. */
     // ------------------------------------------------------------------ Jellyfin / Emby playback
 
     private suspend fun serverFor(source: String): Pair<MediaServerAuth, Boolean>? {
@@ -648,7 +647,7 @@ class CatalogRepository @Inject constructor(
             width = t.int("Width") ?: 0, height = t.int("Height") ?: 0,
             tileWidth = t.int("TileWidth") ?: 10, tileHeight = t.int("TileHeight") ?: 10,
             count = t.int("ThumbnailCount") ?: 0, intervalMs = t.long("Interval") ?: 10_000,
-        ).takeIf { it.width > 0 && it.height > 0 && it.count > 0 && it.intervalMs > 0 }
+        ).takeIf { it.width > 0 && it.height > 0 && it.tileWidth > 0 && it.tileHeight > 0 && it.count > 0 && it.intervalMs > 0 }
     }
 
     /** A Jellyfin / Emby series' episodes as (season, episode) → id, resume point and watched. */
@@ -681,6 +680,7 @@ class CatalogRepository @Inject constructor(
         runCatching { http.post(s.serverUrl + path, body, mediaServers.headers(emby, a.deviceId, s.token)) }
     }
 
+    /** Tells Plex where you are (so Continue watching and "watched" stay in sync); marks it watched near the end. */
     suspend fun reportPlex(ratingKey: String, state: String, positionMs: Long, durationMs: Long) {
         val a = store.current()
         val p = a.plex ?: return
@@ -874,7 +874,8 @@ class CatalogRepository @Inject constructor(
             ?: run {
                 val films = runCatching { xtream.vodStreams(s) }.getOrDefault(emptyList())
                 val series = runCatching { xtream.series(s) }.getOrDefault(emptyList())
-                xcCache = Triple(System.currentTimeMillis(), films, series)
+                // A failed fetch (provider slow or down) isn't kept, so the next page load tries again.
+                if (films.isNotEmpty() || series.isNotEmpty()) xcCache = Triple(System.currentTimeMillis(), films, series)
                 films to series
             }
     }

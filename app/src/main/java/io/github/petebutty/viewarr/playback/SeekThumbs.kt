@@ -151,6 +151,9 @@ private class RetrieverThumbs(private val url: String, private val headers: Map<
     /** The stream's setup data (H.264 SPS/PPS, HEVC VPS/SPS/PPS…): a flushed decoder needs it again. */
     private var csd: List<ByteArray> = emptyList()
     @Volatile private var broken = false
+    @Volatile private var closed = false
+    /** Held while a frame is decoded; close() takes it before releasing the decoder, so they never overlap. */
+    private val codecLock = Any()
     private val cache = LruCache<Long, Bitmap>(40)
     private val pending = java.util.concurrent.ConcurrentHashMap<Long, kotlinx.coroutines.Deferred<Bitmap?>>()
 
@@ -194,9 +197,11 @@ private class RetrieverThumbs(private val url: String, private val headers: Map<
         codec = c
     }
 
-    private fun grab(bucket: Long): Bitmap? {
+    private fun grab(bucket: Long): Bitmap? = synchronized(codecLock) { grabLocked(bucket) }
+
+    private fun grabLocked(bucket: Long): Bitmap? {
         cache.get(bucket)?.let { return it }
-        if (broken) return null
+        if (broken || closed) return null
         return runCatching {
             open()
             val ex = extractor!!
@@ -227,7 +232,7 @@ private class RetrieverThumbs(private val url: String, private val headers: Map<
             var fed = 0
             var eos = false
             var out: Bitmap? = null
-            while (out == null && System.currentTimeMillis() - t0 < 8_000) {
+            while (out == null && !closed && System.currentTimeMillis() - t0 < 8_000) {
                 if (!eos) {
                     val i = c.dequeueInputBuffer(5_000)
                     if (i >= 0) {
@@ -246,6 +251,7 @@ private class RetrieverThumbs(private val url: String, private val headers: Map<
             Log.i("SeekThumbs", "box frame ${bucket * 10}s (landed ${landed / 1_000_000}s): ${if (out == null) "none" else "ok"} after $skipped skipped + $fed samples in ${System.currentTimeMillis() - t0} ms")
             out
         }.onFailure {
+            if (closed) return null
             Log.w("SeekThumbs", "box previews unavailable: $it")
             broken = true
         }.getOrNull()
@@ -289,11 +295,16 @@ private class RetrieverThumbs(private val url: String, private val headers: Map<
     }
 
     override fun close() {
+        closed = true
         scope.cancel()
-        val c = codec; val ex = extractor
-        codec = null; extractor = null
-        // Releasing can block while a frame is being read; keep it off the main thread.
-        Thread { runCatching { c?.stop() }; runCatching { c?.release() }; runCatching { ex?.release() } }.start()
+        // Off the main thread: waits for a frame being decoded to finish (the loop stops early once closed).
+        Thread {
+            synchronized(codecLock) {
+                val c = codec; val ex = extractor
+                codec = null; extractor = null
+                runCatching { c?.stop() }; runCatching { c?.release() }; runCatching { ex?.release() }
+            }
+        }.start()
     }
 }
 

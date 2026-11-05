@@ -199,11 +199,14 @@ fun MpvPlayer(
         }
     }
     // Audio watchdog: if passthrough audio never starts (the box accepted the format but the output stalls),
-    // fall back to decoding in the box instead of sitting on 0:00.
+    // fall back to decoding in the box instead of sitting still. Judged by the clock not moving, not by 0:00,
+    // so it also catches a film resumed part-way through.
     LaunchedEffect(mpv) {
         if (settings.passthrough != Passthrough.On) return@LaunchedEffect
-        delay(if (settings.frameRate == io.github.petebutty.viewarr.data.settings.FrameRateMatch.On) 12_000 else 8_000)
-        if (position <= 0.0 && !paused && error == null) {
+        delay(if (settings.frameRate == io.github.petebutty.viewarr.data.settings.FrameRateMatch.On) 9_000 else 5_000)
+        val before = position
+        delay(3_000)
+        if (position - before < 0.5 && !paused && error == null) {
             Log.w(TAG, "audio never started with passthrough: decoding in the box instead")
             runCatching { mpv.setPropertyString("audio-spdif", "") }
             runCatching { mpv.command(arrayOf("ao-reload")) }
@@ -250,7 +253,7 @@ fun MpvPlayer(
         when {
             tracksOpen -> tracksOpen = false
             scrub.active -> { scrub.cancel(); showOsd() }
-            System.currentTimeMillis() < osdUntil -> osdUntil = 0L
+            System.currentTimeMillis() < osdUntil && !paused -> osdUntil = 0L
             else -> onClose()
         }
     }

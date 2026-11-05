@@ -292,6 +292,8 @@ class PlaybackViewModel @Inject constructor(
 
     fun play(channel: ChannelListItem, session: Session? = this.session) {
         val s = session ?: return
+        // A note about the last channel's sources ("Switched to …") doesn't belong to this one.
+        if (_channel.value?.id != channel.id) { _sourceNote.value = null; _sources.value = null }
         start(channel, null, s, liveUrl(s, channel))
         viewModelScope.launch { runCatching { remoteStore.setLastChannel(channel.id) } }
     }

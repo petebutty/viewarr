@@ -90,6 +90,8 @@ class PluginsViewModel @Inject constructor(private val repo: PluginsRepository) 
     }
 
     private fun act(work: suspend () -> io.github.petebutty.viewarr.data.dvr.PluginResult, reload: Boolean = true) {
+        // One thing at a time: a second OK while the server is still answering would act on stale values.
+        if (_ui.value.busy) return
         _ui.value = _ui.value.copy(busy = true, message = "Working…")
         viewModelScope.launch {
             val r = work()
