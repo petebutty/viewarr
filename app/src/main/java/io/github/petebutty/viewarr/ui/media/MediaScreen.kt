@@ -1,5 +1,6 @@
 package io.github.petebutty.viewarr.ui.media
 
+import io.github.petebutty.viewarr.ui.common.ignoreHeldOk
 import io.github.petebutty.viewarr.ui.common.trapFocus
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
@@ -819,7 +820,8 @@ private fun QuickOptions(item: MediaItem, vm: MediaViewModel, onTrailer: () -> U
     val show = item.type == MediaType.Show
     Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.55f)), contentAlignment = Alignment.Center) {
         Column(
-            Modifier.width(420.dp).background(AppColors.Panel, RoundedCornerShape(14.dp)).padding(20.dp).trapFocus(),
+            Modifier.width(420.dp).background(AppColors.Panel, RoundedCornerShape(14.dp)).padding(20.dp).trapFocus()
+                .then(Modifier.ignoreHeldOk()),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             Text(item.title, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis)

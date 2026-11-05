@@ -1,5 +1,6 @@
 package io.github.petebutty.viewarr.ui.dvr
 
+import io.github.petebutty.viewarr.ui.common.ignoreHeldOk
 import io.github.petebutty.viewarr.ui.common.trapFocus
 import androidx.activity.compose.BackHandler
 import androidx.compose.ui.input.key.onPreviewKeyEvent
@@ -136,7 +137,8 @@ private fun ChoicePanel(
     }
     Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.55f)), contentAlignment = Alignment.Center) {
         Column(
-            Modifier.width(520.dp).background(AppColors.Panel, RoundedCornerShape(14.dp)).padding(24.dp).trapFocus(),
+            Modifier.width(520.dp).background(AppColors.Panel, RoundedCornerShape(14.dp)).padding(24.dp).trapFocus()
+                .then(Modifier.ignoreHeldOk()),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             Text(title, fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis)

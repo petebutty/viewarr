@@ -120,7 +120,7 @@ fun GuideScreen(
     Column(
         Modifier
             .fillMaxSize()
-            .padding(start = 32.dp, end = 32.dp, top = 20.dp)
+            .padding(start = 12.dp, end = 12.dp, top = 20.dp)
             .focusRequester(focusRequester)
             .focusable(enabled = focusEnabled)
             .onPreviewKeyEvent { e ->
@@ -406,7 +406,7 @@ private fun GuideRow(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Start,
         ) {
-            Text(
+            if (io.github.petebutty.viewarr.ui.theme.AppColors.palette.showNumbers) Text(
                 channel.number?.let(::formatNumber).orEmpty(),
                 fontSize = 13.sp,
                 color = if (selected) AppColors.TextPrimary else AppColors.TextSecondary,

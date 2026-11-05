@@ -413,7 +413,7 @@ fun HomeScreen(
                 now = now,
                 serverUrl = session?.serverUrl.orEmpty(),
                 modifier = if (fullscreen) Modifier.fillMaxSize()
-                else Modifier.padding(start = 32.dp, top = 20.dp).size(width = 320.dp, height = 180.dp).clip(RoundedCornerShape(8.dp)),
+                else Modifier.padding(start = 12.dp, top = 20.dp).size(width = 320.dp, height = 180.dp).clip(RoundedCornerShape(8.dp)),
             )
         }
 
@@ -502,6 +502,8 @@ fun HomeScreen(
 
         if (menuOpen) {
             MenuOverlay(
+                // See-through only over full-screen video; over the guide and other pages it's solid (tidier).
+                seeThrough = fullscreen,
                 vm = vm,
                 session = session,
                 page = page,
@@ -578,6 +580,7 @@ private fun NoLiveTv(focusRequester: FocusRequester, focusEnabled: Boolean, onSe
 
 @Composable
 private fun MenuOverlay(
+    seeThrough: Boolean,
     vm: GuideViewModel,
     session: Session?,
     page: Page,
@@ -657,7 +660,7 @@ private fun MenuOverlay(
             Modifier
                 .width(180.dp)
                 .fillMaxHeight()
-                .background(AppColors.MenuPanel)
+                .background(if (seeThrough) AppColors.MenuPanel else AppColors.palette.panel)
                 .padding(horizontal = 10.dp, vertical = 24.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
@@ -705,7 +708,7 @@ private fun MenuOverlay(
             Modifier
                 .width(230.dp)
                 .fillMaxHeight()
-                .background(AppColors.MenuPanelAlt)
+                .background(if (seeThrough) AppColors.MenuPanelAlt else AppColors.palette.panelAlt)
                 .onFocusChanged { subListFocused = it.hasFocus }
                 .onPreviewKeyEvent { e ->
                     if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
@@ -795,7 +798,7 @@ private fun MenuOverlay(
             }
         }
 
-        Box(Modifier.weight(1f).fillMaxHeight().background(Color.Black.copy(alpha = 0.4f * AppColors.palette.menuAlpha)))
+        Box(Modifier.weight(1f).fillMaxHeight().background(Color.Black.copy(alpha = 0.4f * (if (seeThrough) AppColors.palette.menuAlpha else 1f))))
     }
     // Settings → Playback is a full page of its own, over the menu.
     if (showPlayback) {
@@ -1161,7 +1164,7 @@ private fun ChannelListOverlay(
                     ),
                 ) {
                     Row(Modifier.padding(horizontal = 10.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text(ch.number?.let { n -> if (n % 1.0 == 0.0) n.toInt().toString() else n.toString() }.orEmpty(), fontSize = 13.sp, modifier = Modifier.width(44.dp))
+                        if (AppColors.palette.showNumbers) Text(ch.number?.let { n -> if (n % 1.0 == 0.0) n.toInt().toString() else n.toString() }.orEmpty(), fontSize = 13.sp, modifier = Modifier.width(44.dp))
                         Box(Modifier.size(width = 56.dp, height = 34.dp), contentAlignment = Alignment.Center) {
                             io.github.petebutty.viewarr.ui.guide.channelLogo(serverUrl, ch)?.let { logo ->
                                 coil.compose.AsyncImage(

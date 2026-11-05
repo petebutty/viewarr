@@ -60,6 +60,10 @@ class AppearanceViewModel @Inject constructor(private val store: ThemeStore) : V
         viewModelScope.launch { store.save(main, highlight) }
     }
 
+    fun setShowNumbers(on: Boolean) {
+        viewModelScope.launch { store.saveShowNumbers(on) }
+    }
+
     fun setTransparency(value: Float) {
         viewModelScope.launch { store.saveTransparency(value) }
     }
@@ -81,6 +85,7 @@ fun AppearanceSettingsScreen(onBack: () -> Unit, vm: AppearanceViewModel = hiltV
     val currentPreset = ThemePresets.firstOrNull { it.main == palette.main && it.highlight == palette.highlight }
     val mains = MainColourChoices.mapIndexed { i, c -> Choice(MainColourNames.getOrElse(i) { "Colour ${i + 1}" }, c) }
     val highs = HighlightChoices.mapIndexed { i, c -> Choice(HighlightNames.getOrElse(i) { "Colour ${i + 1}" }, c) }
+    val onOff = listOf(Choice("On", true), Choice("Off", false))
     val transparencies = (0..70 step 10).map { Choice(if (it == 0) "Solid" else "$it%", it) }
     val currentT = ((palette.transparency * 100).roundToInt() / 10 * 10).coerceIn(0, 70)
     val categories = listOf(
@@ -99,8 +104,15 @@ fun AppearanceSettingsScreen(onBack: () -> Unit, vm: AppearanceViewModel = hiltV
                     highs.firstOrNull { it.value == palette.highlight } ?: Choice("Custom", palette.highlight)) { c ->
                     vm.apply(palette.main, (c as Choice).value as androidx.compose.ui.graphics.Color)
                 },
-                SettingItem("Menu transparency", "How much of the page shows through the side menu.", transparencies,
+                SettingItem("Menu transparency", "How much of the picture shows through the side menu while you watch full screen. Over the guide and other pages the menu is always solid.", transparencies,
                     transparencies.first { it.value == currentT }) { c -> vm.setTransparency(((c as Choice).value as Int) / 100f) }
+            ),
+        ),
+        SettingCategory(
+            "TV guide", "How channels are shown in the guide and the channel list.",
+            listOf(
+                SettingItem("Channel numbers", "Show each channel's number next to its name.", onOff,
+                    if (palette.showNumbers) onOff[0] else onOff[1]) { c -> vm.setShowNumbers((c as Choice).value == true) },
             ),
         ),
     )
