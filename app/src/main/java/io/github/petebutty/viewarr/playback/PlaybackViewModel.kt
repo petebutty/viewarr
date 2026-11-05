@@ -23,6 +23,10 @@ import androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory
 import io.github.petebutty.viewarr.data.local.ChannelListItem
 import io.github.petebutty.viewarr.data.local.GuideProgram
 import io.github.petebutty.viewarr.data.session.Session
+import io.github.petebutty.viewarr.data.remote.services.array
+import io.github.petebutty.viewarr.data.remote.services.child
+import io.github.petebutty.viewarr.data.remote.services.int
+import io.github.petebutty.viewarr.data.remote.services.str
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Job
@@ -50,7 +54,107 @@ class PlaybackViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val remoteStore: io.github.petebutty.viewarr.data.settings.RemoteStore,
     private val xtream: io.github.petebutty.viewarr.data.xtream.XtreamClient,
+    private val http: io.github.petebutty.viewarr.data.remote.services.HttpJson,
 ) : ViewModel() {
+
+    // ---------------------------------------------------------------- Dispatcharr: the channel's sources
+
+    /** One of the streams behind a Dispatcharr channel (providers often have several copies of each channel). */
+    data class LiveSource(val streamId: Int, val name: String, val provider: String, val current: Boolean)
+
+    /** Live TV through Dispatcharr (not a provider login, not catch-up): sources and stream info are available. */
+    val dispatcharrLive get() = session?.isXc == false && _catchup.value == null
+
+    private val _sources = MutableStateFlow<List<LiveSource>?>(null)
+    val sources = _sources.asStateFlow()
+    private val _sourceNote = MutableStateFlow<String?>(null)
+    /** Why the list is empty, or what a switch did. */
+    val sourceNote = _sourceNote.asStateFlow()
+    private var providers: Map<Int, String>? = null
+
+    private fun api(s: Session, path: String) = "${s.serverUrl.trimEnd('/')}/$path"
+    private fun apiHeaders(s: Session) = mapOf("X-API-Key" to s.apiKey)
+
+    fun loadSources() {
+        val s = session ?: return
+        val ch = _channel.value ?: return
+        _sources.value = null
+        _sourceNote.value = null
+        viewModelScope.launch {
+            runCatching {
+                val h = apiHeaders(s)
+                val detail = http.get(api(s, "api/channels/channels/${ch.id}/"), h)
+                if (detail.code == 401 || detail.code == 403) { _sourceNote.value = "Your Dispatcharr user can't see sources (needs an admin API key)."; _sources.value = emptyList(); return@launch }
+                val ids = detail.body.array("streams").mapNotNull { (it as? kotlinx.serialization.json.JsonPrimitive)?.content?.toIntOrNull() }
+                val names = providers ?: http.get(api(s, "api/m3u/accounts/"), h).body.let { b ->
+                    (if (b is kotlinx.serialization.json.JsonArray) b.toList() else b.array("results"))
+                        .mapNotNull { a -> a.int("id")?.let { id -> id to (a.str("name") ?: "Account $id") } }.toMap()
+                }.also { providers = it }
+                val current = http.get(api(s, "proxy/ts/status/${ch.uuid}"), h).body.int("stream_id")
+                val list = ids.map { id ->
+                    val st = http.get(api(s, "api/channels/streams/$id/"), h).body
+                    LiveSource(id, st.str("name") ?: "Stream $id", st.int("m3u_account")?.let { names[it] } ?: "", id == current)
+                }
+                if (list.size < 2) _sourceNote.value = "This channel has only one source."
+                _sources.value = list
+            }.onFailure {
+                _sourceNote.value = "Couldn't load the sources."
+                _sources.value = emptyList()
+            }
+        }
+    }
+
+    /** Tells Dispatcharr to feed this channel from another of its streams, then reconnects to pick it up cleanly. */
+    fun switchSource(src: LiveSource) {
+        val s = session ?: return
+        val ch = _channel.value ?: return
+        viewModelScope.launch {
+            val r = runCatching {
+                http.post(api(s, "proxy/ts/change_stream/${ch.uuid}"),
+                    kotlinx.serialization.json.buildJsonObject { put("stream_id", kotlinx.serialization.json.JsonPrimitive(src.streamId)) },
+                    apiHeaders(s))
+            }.getOrNull()
+            if (r != null && r.code in 200..299) {
+                _sourceNote.value = "Switched to ${src.name}"
+                _sources.value = _sources.value?.map { it.copy(current = it.streamId == src.streamId) }
+                delay(800)
+                restart()
+            } else {
+                _sourceNote.value = r?.body.str("error") ?: "Dispatcharr couldn't switch (${r?.code ?: "no answer"})."
+            }
+        }
+    }
+
+    // ---------------------------------------------------------------- Dispatcharr: live stream info
+
+    /** What Dispatcharr knows about the stream feeding this channel right now, as label → value lines. */
+    suspend fun streamInfo(): List<Pair<String, String>> {
+        val s = session ?: return emptyList()
+        val ch = _channel.value ?: return emptyList()
+        val r = runCatching { http.get(api(s, "proxy/ts/status/${ch.uuid}"), apiHeaders(s)) }.getOrNull()
+            ?: return listOf("Status" to "No answer from Dispatcharr")
+        if (r.code == 401 || r.code == 403) return listOf("Status" to "Needs a Dispatcharr admin API key")
+        if (r.code !in 200..299) return listOf("Status" to "Not running on the server")
+        val b = r.body
+        fun d(k: String) = (b.child(k) as? kotlinx.serialization.json.JsonPrimitive)?.content?.toDoubleOrNull()
+        val provider = b.str("m3u_profile_name")
+        return listOfNotNull(
+            b.str("stream_name")?.let { "Source" to it },
+            provider?.let { "Provider" to it },
+            listOfNotNull(b.str("resolution"), d("source_fps")?.let { "%.2f fps".format(it).replace(".00", "") }).joinToString("  ·  ").takeIf { it.isNotEmpty() }?.let { "Picture" to it },
+            listOfNotNull(b.str("video_codec")?.uppercase(), b.str("pixel_format")).joinToString("  ·  ").takeIf { it.isNotEmpty() }?.let { "Video" to it },
+            listOfNotNull(b.str("audio_codec")?.uppercase(), b.str("audio_channels"), d("sample_rate")?.let { "${(it / 1000).toInt()} kHz" }).joinToString("  ·  ").takeIf { it.isNotEmpty() }?.let { "Audio" to it },
+            (d("source_bitrate")?.let { "%.1f Mbps (source)".format(it / 1000) } ?: b.str("avg_bitrate")?.let { "$it (average)" })?.let { "Bitrate" to it },
+            b.int("client_count")?.let { "Watching" to (if (it == 1) "1 viewer" else "$it viewers") },
+            d("uptime")?.let { "Running for" to clockText((it * 1000).toLong()) },
+            b.str("state")?.let { "State" to it },
+        )
+    }
+
+    private fun clockText(ms: Long): String {
+        val t = ms / 1000; val h = t / 3600; val m = (t % 3600) / 60
+        return if (h > 0) "${h} h ${m} min" else "${m} min"
+    }
 
     /** Live stream address: Dispatcharr's proxy, or the IPTV provider's own stream. */
     private fun liveUrl(s: Session, channel: ChannelListItem) =

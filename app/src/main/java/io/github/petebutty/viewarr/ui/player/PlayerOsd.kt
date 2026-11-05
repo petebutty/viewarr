@@ -1,5 +1,6 @@
 package io.github.petebutty.viewarr.ui.player
 
+import kotlinx.coroutines.delay
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
@@ -60,7 +61,7 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
-private enum class OsdPopup { Audio, Subtitles, Aspect }
+private enum class OsdPopup { Audio, Subtitles, Aspect, Source, Info }
 
 private val hhmm = DateTimeFormatter.ofPattern("HH:mm")
 private fun Long.clockTime() = Instant.ofEpochMilli(this).atZone(ZoneId.systemDefault()).format(hhmm)
@@ -87,6 +88,8 @@ fun PlayerOsd(
     val audio by vm.audioTracks.collectAsStateWithLifecycle()
     val subtitles by vm.textTracks.collectAsStateWithLifecycle()
     val aspect by vm.aspect.collectAsStateWithLifecycle()
+    val sources by vm.sources.collectAsStateWithLifecycle()
+    val sourceNote by vm.sourceNote.collectAsStateWithLifecycle()
     var popup by remember { mutableStateOf<OsdPopup?>(if (openAudio) OsdPopup.Audio else null) }
     var note by remember { mutableStateOf<String?>(null) }
     val firstFocus = remember { FocusRequester() }
@@ -105,20 +108,30 @@ fun PlayerOsd(
             .padding(start = 48.dp, end = 48.dp, top = 40.dp, bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        popup?.let { p ->
+        if (popup == OsdPopup.Info) StreamInfoPopup(vm)
+        popup?.takeIf { it != OsdPopup.Info }?.let { p ->
             OptionPopup(
-                title = p.name,
+                wide = p == OsdPopup.Source,
                 options = when (p) {
                     OsdPopup.Audio -> audio.map { it.label to it.selected }
                     OsdPopup.Subtitles -> subtitles.map { it.label to it.selected }
                     OsdPopup.Aspect -> AspectMode.entries.map { it.label to (it == aspect) }
+                    OsdPopup.Source -> sources.orEmpty().map { (if (it.provider.isNotEmpty()) "${it.name}  ·  ${it.provider}" else it.name) to it.current }
+                    OsdPopup.Info -> emptyList()
                 },
-                emptyText = if (p == OsdPopup.Subtitles) "No subtitles on this channel" else "Nothing to choose",
+                title = if (p == OsdPopup.Source) "Source" + (sourceNote?.let { "  ·  $it" } ?: "") else p.name,
+                emptyText = when {
+                    p == OsdPopup.Subtitles -> "No subtitles on this channel"
+                    p == OsdPopup.Source -> sourceNote ?: "Loading sources…"
+                    else -> "Nothing to choose"
+                },
                 onPick = { i ->
                     when (p) {
                         OsdPopup.Audio -> audio.getOrNull(i)?.let { vm.selectTrack(it, C.TRACK_TYPE_AUDIO) }
                         OsdPopup.Subtitles -> subtitles.getOrNull(i)?.let { vm.selectTrack(it, C.TRACK_TYPE_TEXT) }
                         OsdPopup.Aspect -> vm.setAspect(AspectMode.entries[i])
+                        OsdPopup.Source -> sources?.getOrNull(i)?.let { if (!it.current) vm.switchSource(it) }
+                        OsdPopup.Info -> Unit
                     }
                     popup = null
                 },
@@ -181,8 +194,12 @@ fun PlayerOsd(
             Pill("Audio") { popup = OsdPopup.Audio }
             Pill("Subtitles") { popup = OsdPopup.Subtitles }
             Pill("Aspect: ${aspect.label}") { popup = OsdPopup.Aspect }
+            if (vm.dispatcharrLive) {
+                Pill("Source") { vm.loadSources(); popup = OsdPopup.Source }
+                Pill("Stream info") { popup = if (popup == OsdPopup.Info) null else OsdPopup.Info }
+            }
             if (onRecord != null) Pill("Record") { onRecord() }
-            note?.let { Text(it, fontSize = 12.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(start = 8.dp)) }
+            (note ?: sourceNote?.takeIf { popup == null && it.startsWith("Switched") })?.let { Text(it, fontSize = 12.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(start = 8.dp)) }
         }
     }
 }
@@ -284,6 +301,7 @@ private fun SeekBar(
 
 @Composable
 private fun OptionPopup(
+    wide: Boolean = false,
     title: String,
     options: List<Pair<String, Boolean>>,
     emptyText: String,
@@ -296,7 +314,7 @@ private fun OptionPopup(
     }
     Column(
         Modifier
-            .width(300.dp)
+            .width(if (wide) 560.dp else 300.dp)
             .background(AppColors.Panel, RoundedCornerShape(10.dp))
             .padding(8.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp),
@@ -314,6 +332,32 @@ private fun OptionPopup(
                 trailing = if (selected) "✓" else null,
                 modifier = if (i == selectedIndex) Modifier.focusRequester(focus) else Modifier,
             )
+        }
+    }
+}
+
+/** Dispatcharr's live view of this channel's stream (refreshes every 2 s while open). */
+@Composable
+private fun StreamInfoPopup(vm: PlaybackViewModel) {
+    var lines by remember { mutableStateOf<List<Pair<String, String>>?>(null) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            lines = vm.streamInfo()
+            delay(2_000)
+        }
+    }
+    Column(
+        Modifier.width(460.dp).background(AppColors.Panel, RoundedCornerShape(10.dp)).padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+        Text("Stream info (from Dispatcharr)", fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(bottom = 4.dp))
+        val l = lines
+        if (l == null) Text("Loading…", fontSize = 13.sp, color = Color.White)
+        else l.forEach { (k, v) ->
+            Row {
+                Text(k, fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.width(110.dp))
+                Text(v, fontSize = 13.sp, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
         }
     }
 }
