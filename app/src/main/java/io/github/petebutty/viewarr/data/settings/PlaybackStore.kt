@@ -70,9 +70,11 @@ enum class PlexQuality(override val label: String, val maxKbps: Int?) : RemoteCh
 }
 
 enum class MpvDecoding(override val label: String) : RemoteChoice {
-    Hardware("Hardware (fastest)"),
+    /** The decoder draws straight onto the screen: smoothest, especially on weak boxes. */
+    Hardware("Hardware, direct to screen (smoothest)"),
+    /** Decoded frames go through the GPU, so mpv can draw picture subtitles (PGS) on them. */
+    Gpu("Hardware through the GPU (heavier)"),
     Software("Software (if the picture glitches)"),
-    Direct("Direct to screen (smoothest on weak boxes; text subtitles only)"),
 }
 
 enum class FrameRateMatch(override val label: String) : RemoteChoice {

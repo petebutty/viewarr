@@ -17,6 +17,7 @@ import io.github.petebutty.viewarr.data.remote.services.asArray
 import io.github.petebutty.viewarr.data.remote.services.child
 import io.github.petebutty.viewarr.data.remote.services.int
 import io.github.petebutty.viewarr.data.remote.services.long
+import io.github.petebutty.viewarr.data.remote.services.obj
 import io.github.petebutty.viewarr.data.remote.services.str
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -565,16 +566,20 @@ class CatalogRepository @Inject constructor(
         val p = a.plex ?: return null
         val m = plexGet(a, p, "/library/metadata/$ratingKey")?.array("Metadata")?.firstOrNull() ?: return null
         val media = m.array("Media").firstOrNull()
-        val part = media?.array("Part")?.firstOrNull()?.str("key") ?: return null
+        val partObj = media?.array("Part")?.firstOrNull()
+        val part = partObj?.str("key") ?: return null
+        // Plex's own previews, if "Generate video preview thumbnails" made them for this file.
+        val thumbs = partObj.str("id")?.takeIf { partObj.str("indexes")?.contains("sd") == true }
+            ?.let { ThumbSource.Bif("${p.serverUrl}/library/parts/$it/indexes/sd?X-Plex-Token=${enc(p.token)}") }
         val title = m.str("title") ?: "Plex"
         val headers = plex.headers(a.deviceId, p.token)
         val resume = m.long("viewOffset") ?: 0
         val target = (watch ?: WatchTarget(MediaType.Movie)).copy(plexRatingKey = ratingKey)
         val quality = playbackStore.current().plexQuality
-        val transcode = VodStream(plexTranscodeUrl(a, p, ratingKey, quality.maxKbps ?: 20_000), "$title (converted by Plex)", headers, resume, watch = target)
+        val transcode = VodStream(plexTranscodeUrl(a, p, ratingKey, quality.maxKbps ?: 20_000), "$title (converted by Plex)", headers, resume, watch = target, thumbs = thumbs)
         // Settings → Playback → Plex quality: anything but Original always converts at that bitrate.
         if (quality.maxKbps != null) return transcode
-        val direct = VodStream("${p.serverUrl}$part?X-Plex-Token=${enc(p.token)}", title, headers, resume, fallback = transcode, watch = target)
+        val direct = VodStream("${p.serverUrl}$part?X-Plex-Token=${enc(p.token)}", title, headers, resume, fallback = transcode, watch = target, thumbs = thumbs)
         val playable = DeviceCodecs.canPlay(media.str("videoCodec"), media.str("container"))
         Log.i(TAG, "plex $ratingKey video=${media.str("videoCodec")} container=${media.str("container")} direct=$playable")
         return if (playable) direct else transcode
@@ -618,11 +623,32 @@ class CatalogRepository @Inject constructor(
             .getOrNull()?.takeIf { it.ok }?.body
         val resumeMs = (info.child("UserData").long("PlaybackPositionTicks") ?: 0L) / 10_000
         return VodStream(
+            thumbs = serverThumbs(s, emby, itemId, info),
             url = "${s.serverUrl}/Videos/$itemId/stream?static=true&api_key=${enc(s.token)}",
             title = title,
             resumeMs = resumeMs,
             watch = (watch ?: WatchTarget(MediaType.Movie)).copy(serverSource = source, serverItemId = itemId),
         )
+    }
+
+    /**
+     * Seek-bar previews from the server. Jellyfin: trickplay sheets listed on the item (smallest width).
+     * Emby: its BIF index, if it made one (a missing one just falls back to the box's own pictures).
+     */
+    private fun serverThumbs(s: MediaServerAuth, emby: Boolean, itemId: String, info: kotlinx.serialization.json.JsonElement?): ThumbSource? {
+        val key = "api_key=${enc(s.token)}"
+        if (emby) return ThumbSource.Bif("${s.serverUrl}/Videos/$itemId/index.bif?width=320&$key")
+        val tp = info.child("Trickplay").obj() ?: return null
+        val sourceId = tp.keys.firstOrNull() ?: return null
+        val byWidth = tp[sourceId].obj() ?: return null
+        val w = byWidth.keys.minByOrNull { it.toIntOrNull() ?: Int.MAX_VALUE } ?: return null
+        val t = byWidth[w]
+        return ThumbSource.Trickplay(
+            urlPattern = "${s.serverUrl}/Videos/$itemId/Trickplay/$w/{n}.jpg?MediaSourceId=${enc(sourceId)}&$key",
+            width = t.int("Width") ?: 0, height = t.int("Height") ?: 0,
+            tileWidth = t.int("TileWidth") ?: 10, tileHeight = t.int("TileHeight") ?: 10,
+            count = t.int("ThumbnailCount") ?: 0, intervalMs = t.long("Interval") ?: 10_000,
+        ).takeIf { it.width > 0 && it.height > 0 && it.count > 0 && it.intervalMs > 0 }
     }
 
     /** A Jellyfin / Emby series' episodes as (season, episode) → id, resume point and watched. */

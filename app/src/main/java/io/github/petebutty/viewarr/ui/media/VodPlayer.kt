@@ -70,6 +70,17 @@ fun VodPlayer(
     var view by remember { mutableStateOf<PlayerView?>(null) }
     var tracksOpen by remember { mutableStateOf(false) }
     var okDown by remember { mutableStateOf(false) }
+    val scrub = remember { Scrubber() }
+    val thumbs = remember(stream) { io.github.petebutty.viewarr.playback.SeekThumbs.forStream(stream.url, stream.headers, stream.thumbs) }
+    DisposableEffect(thumbs) { onDispose { thumbs?.close() } }
+    // The app's own controls (as mpv's): state read from the player a few times a second.
+    var positionMs by remember { mutableStateOf(0L) }
+    var durationMs by remember { mutableStateOf(0L) }
+    var paused by remember { mutableStateOf(false) }
+    var buffering by remember { mutableStateOf(true) }
+    var osdUntil by remember { mutableStateOf(System.currentTimeMillis() + 4_000) }
+    var now by remember { mutableStateOf(System.currentTimeMillis()) }
+    fun showOsd() { osdUntil = System.currentTimeMillis() + 4_000 }
     val player = remember(stream) {
         val http = DefaultHttpDataSource.Factory()
             .setUserAgent("Viewarr/0.7")
@@ -115,6 +126,16 @@ fun VodPlayer(
             }
     }
     // Report where you are every 15 s while playing, and on pause/stop.
+    LaunchedEffect(player) {
+        while (true) {
+            positionMs = player.currentPosition
+            durationMs = player.duration.coerceAtLeast(0)
+            paused = !player.playWhenReady
+            buffering = player.playbackState == Player.STATE_BUFFERING || player.playbackState == Player.STATE_IDLE
+            now = System.currentTimeMillis()
+            kotlinx.coroutines.delay(250)
+        }
+    }
     LaunchedEffect(player) {
         while (true) {
             kotlinx.coroutines.delay(15_000)
@@ -186,10 +207,10 @@ fun VodPlayer(
     }
     // Back: closes audio & subtitles, then hides the controls, then stops (resume point saved). As Netflix / Plex.
     BackHandler {
-        val v = view
         when {
             tracksOpen -> tracksOpen = false
-            v != null && v.isControllerFullyVisible && player.isPlaying -> v.hideController()
+            scrub.active -> { scrub.cancel(); showOsd() }
+            System.currentTimeMillis() < osdUntil && player.isPlaying -> osdUntil = 0L
             else -> onClose()
         }
     }
@@ -219,8 +240,31 @@ fun VodPlayer(
             .focusable(enabled = !tracksOpen)
             .onPreviewKeyEvent { e ->
                 if (tracksOpen) return@onPreviewKeyEvent false
-                val v = view
                 val center = e.key == Key.DirectionCenter || e.key == Key.Enter || e.key == Key.NumPadEnter
+                // On the seek bar: Left / Right move the marker, OK jumps there, Up leaves.
+                if (scrub.active) {
+                    val down = e.type == KeyEventType.KeyDown
+                    when {
+                        center -> {
+                            if (down && e.nativeKeyEvent.repeatCount == 0) {
+                                scrub.commit()?.let { player.seekTo(it) }
+                                okDown = false
+                                showOsd()
+                            }
+                            return@onPreviewKeyEvent true
+                        }
+                        e.key == Key.DirectionLeft || e.key == Key.MediaRewind -> {
+                            if (down) { scrub.step(-1, e.nativeKeyEvent.repeatCount, player.duration.coerceAtLeast(0)); showOsd() }
+                            return@onPreviewKeyEvent true
+                        }
+                        e.key == Key.DirectionRight || e.key == Key.MediaFastForward -> {
+                            if (down) { scrub.step(1, e.nativeKeyEvent.repeatCount, player.duration.coerceAtLeast(0)); showOsd() }
+                            return@onPreviewKeyEvent true
+                        }
+                        e.key == Key.DirectionUp -> { if (down) { scrub.cancel(); showOsd() }; return@onPreviewKeyEvent true }
+                        e.key == Key.DirectionDown -> return@onPreviewKeyEvent true
+                    }
+                }
                 if (center) {
                     // Tap OK: pause/play. Hold OK: audio & subtitles.
                     when {
@@ -229,17 +273,18 @@ fun VodPlayer(
                         e.type == KeyEventType.KeyUp && okDown -> {
                             okDown = false
                             player.playWhenReady = !player.playWhenReady
-                            v?.showController()
+                            showOsd()
                         }
                     }
                     return@onPreviewKeyEvent true
                 }
                 if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 when (e.key) {
-                    Key.DirectionLeft, Key.MediaRewind -> { player.seekTo(maxOf(0, player.currentPosition - seekMs)); v?.showController() }
-                    Key.DirectionRight, Key.MediaFastForward -> { player.seekTo(player.currentPosition + seekMs); v?.showController() }
-                    Key.DirectionUp, Key.DirectionDown, Key.Info -> v?.showController()
-                    Key.MediaPlayPause, Key.MediaPlay, Key.MediaPause -> { player.playWhenReady = !player.playWhenReady; v?.showController() }
+                    Key.DirectionLeft, Key.MediaRewind -> { player.seekTo(maxOf(0, player.currentPosition - seekMs)); showOsd() }
+                    Key.DirectionRight, Key.MediaFastForward -> { player.seekTo(player.currentPosition + seekMs); showOsd() }
+                    Key.DirectionDown -> { scrub.begin(player.currentPosition); showOsd() }
+                    Key.DirectionUp, Key.Info -> showOsd()
+                    Key.MediaPlayPause, Key.MediaPlay, Key.MediaPause -> { player.playWhenReady = !player.playWhenReady; showOsd() }
                     Key.Menu -> tracksOpen = true
                     else -> return@onPreviewKeyEvent false
                 }
@@ -251,13 +296,10 @@ fun VodPlayer(
                 (android.view.LayoutInflater.from(ctx).inflate(io.github.petebutty.viewarr.R.layout.vod_player_view, null) as PlayerView).apply {
                     this.player = player
                     view = this
-                    useController = true
-                    // Display only: keys come from the Compose box above.
+                    // Picture and subtitles only: the controls are the app's own (PlayerOsd), keys come from the box above.
+                    useController = false
                     descendantFocusability = android.view.ViewGroup.FOCUS_BLOCK_DESCENDANTS
                     isFocusable = false
-                    controllerShowTimeoutMs = 4_000
-                    controllerAutoShow = true
-                    setShowSubtitleButton(false) // the remote can't reach it; hold OK opens audio & subtitles
                     keepScreenOn = true
                     subtitleView?.setFractionalTextSize(androidx.media3.ui.SubtitleView.DEFAULT_TEXT_SIZE_FRACTION * pb.subtitleSize.scale)
                     val box = pb.subtitleBackground == io.github.petebutty.viewarr.data.settings.SubtitleBackground.Box
@@ -279,6 +321,9 @@ fun VodPlayer(
                 }
             },
             modifier = Modifier.fillMaxSize(),
+        )
+        if (paused || buffering || now < osdUntil || scrub.active) PlayerOsd(
+            stream.title, positionMs, durationMs, paused, buffering, scrub.targetMs, thumbs, Modifier.align(Alignment.BottomCenter),
         )
         if (tracksOpen) TrackPicker(player, onClose = { tracksOpen = false; runCatching { focus.requestFocus() } }, modifier = Modifier.align(Alignment.CenterEnd))
         if (pb.stats == io.github.petebutty.viewarr.data.settings.StatsOverlay.On) {

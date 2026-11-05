@@ -47,7 +47,7 @@ fun PlaybackSettingsScreen(onBack: () -> Unit, vm: PlaybackSettingsViewModel = h
                 item("Player", "mpv plays almost any file and soundtrack. The built-in player is lighter on weak boxes.", k.ENGINE, choices<io.github.petebutty.viewarr.data.settings.PlayerEngine>(), s.engine),
                 SettingItem("Skip with Left / Right", "How far each press jumps.", choices<io.github.petebutty.viewarr.data.settings.SeekStep>(), r.seek) { vm.setRemote(RemoteStore.SEEK, it) },
                 item("Resume", "Carry on where you stopped last time, or always start at the beginning.", k.RESUME, choices<io.github.petebutty.viewarr.data.settings.ResumeMode>(), s.resume),
-                item("mpv decoding", "Hardware is fastest. Try software only if the picture glitches or shows colour blocks.", k.MPV_DECODING, choices<io.github.petebutty.viewarr.data.settings.MpvDecoding>(), s.mpvDecoding),
+                item("mpv decoding", "Direct to screen is smoothest; picture subtitles (Blu-ray PGS) switch to the GPU way by themselves. Try software only if the picture glitches or shows colour blocks.", k.MPV_DECODING, choices<io.github.petebutty.viewarr.data.settings.MpvDecoding>(), s.mpvDecoding),
             ),
         ),
         SettingCategory(

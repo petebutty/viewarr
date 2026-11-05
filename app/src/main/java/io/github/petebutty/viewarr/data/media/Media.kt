@@ -53,7 +53,29 @@ data class VodStream(
     val fallback: VodStream? = null,
     /** What to report watch progress for (Plex timeline, Trakt scrobble). */
     val watch: WatchTarget? = null,
+    /** The server's own seek-bar previews, when it made them (else the box takes its own; see SeekThumbs). */
+    val thumbs: ThumbSource? = null,
 )
+
+/** Where a server keeps its seek-bar preview pictures. */
+sealed interface ThumbSource {
+    /** One BIF file with every preview (Plex, Emby). */
+    data class Bif(val url: String, val headers: Map<String, String> = emptyMap()) : ThumbSource
+
+    /** Jellyfin trickplay: numbered sheets of tileWidth × tileHeight previews of width × height, one every intervalMs. */
+    data class Trickplay(
+        val urlPattern: String,
+        val width: Int,
+        val height: Int,
+        val tileWidth: Int,
+        val tileHeight: Int,
+        val count: Int,
+        val intervalMs: Long,
+        val headers: Map<String, String> = emptyMap(),
+    ) : ThumbSource {
+        fun sheetUrl(n: Int) = urlPattern.replace("{n}", n.toString())
+    }
+}
 
 /** Identifies what's being watched, for progress reporting. */
 data class WatchTarget(

@@ -99,6 +99,11 @@ fun MpvPlayer(
     val focus = remember { FocusRequester() }
     var hasFocus by remember { mutableStateOf(false) }
     var subText by remember { mutableStateOf("") }
+    val scrub = remember { Scrubber() }
+    // Still drawing straight to the screen (Hardware); false once picture subtitles moved this film to the GPU.
+    var direct by remember { mutableStateOf(settings.mpvDecoding == MpvDecoding.Hardware) }
+    val thumbs = remember(stream) { io.github.petebutty.viewarr.playback.SeekThumbs.forStream(stream.url, stream.headers, stream.thumbs) }
+    DisposableEffect(thumbs) { onDispose { thumbs?.close() } }
 
     val mpv = remember(stream) {
         MpvHandle(context).apply {
@@ -129,6 +134,14 @@ fun MpvPlayer(
             }
             override fun eventProperty(property: String, value: String) {
                 if (property == "sub-text") main.post { subText = value }
+                // Picture subtitles can't be drawn on the direct-to-screen picture: switch this film to the GPU way.
+                if (property == "current-tracks/sub/codec" && value in IMAGE_SUBS) main.post {
+                    if (!direct) return@post
+                    direct = false
+                    Log.i(TAG, "picture subtitles ($value): switching to GPU output")
+                    runCatching { mpv.setPropertyString("hwdec", "mediacodec-copy") }
+                    runCatching { mpv.setPropertyString("vo", "gpu") }
+                }
             }
             override fun eventProperty(property: String, value: Double) {
                 main.post {
@@ -150,7 +163,10 @@ fun MpvPlayer(
         mpv.observeProperty("paused-for-cache", MPVLib.MPV_FORMAT_FLAG)
         mpv.observeProperty("seeking", MPVLib.MPV_FORMAT_FLAG)
         mpv.observeProperty("eof-reached", MPVLib.MPV_FORMAT_FLAG)
-        if (settings.mpvDecoding == MpvDecoding.Direct) mpv.observeProperty("sub-text", MPVLib.MPV_FORMAT_STRING)
+        if (settings.mpvDecoding == MpvDecoding.Hardware) {
+            mpv.observeProperty("sub-text", MPVLib.MPV_FORMAT_STRING)
+            mpv.observeProperty("current-tracks/sub/codec", MPVLib.MPV_FORMAT_STRING)
+        }
         mpv.command(arrayOf("loadfile", stream.url))
         onDispose {
             if (!ended && position > 0) onProgress("stopped", (position * 1000).toLong(), (duration * 1000).toLong())
@@ -226,16 +242,17 @@ fun MpvPlayer(
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) { while (true) { delay(500); now = System.currentTimeMillis() } }
 
+    fun showOsd() { osdUntil = System.currentTimeMillis() + 4_000 }
     // Back: closes audio & subtitles, then hides the controls, then stops (resume point saved). As Netflix / Plex.
     BackHandler {
         when {
             tracksOpen -> tracksOpen = false
+            scrub.active -> { scrub.cancel(); showOsd() }
             System.currentTimeMillis() < osdUntil -> osdUntil = 0L
             else -> onClose()
         }
     }
 
-    fun showOsd() { osdUntil = System.currentTimeMillis() + 4_000 }
     fun seek(by: Double) {
         mpv.command(arrayOf("seek", by.toString(), "relative"))
         showOsd()
@@ -250,7 +267,32 @@ fun MpvPlayer(
             .focusable(enabled = !tracksOpen)
             .onPreviewKeyEvent { e ->
                 if (tracksOpen) return@onPreviewKeyEvent false
-                if (e.key == Key.DirectionCenter || e.key == Key.Enter || e.key == Key.NumPadEnter) {
+                val center = e.key == Key.DirectionCenter || e.key == Key.Enter || e.key == Key.NumPadEnter
+                // On the seek bar: Left / Right move the marker, OK jumps there, Up leaves.
+                if (scrub.active) {
+                    val down = e.type == KeyEventType.KeyDown
+                    when {
+                        center -> {
+                            if (down && e.nativeKeyEvent.repeatCount == 0) {
+                                scrub.commit()?.let { mpv.command(arrayOf("seek", (it / 1000.0).toString(), "absolute")) }
+                                okDown = false
+                                showOsd()
+                            }
+                            return@onPreviewKeyEvent true
+                        }
+                        e.key == Key.DirectionLeft || e.key == Key.MediaRewind -> {
+                            if (down) { scrub.step(-1, e.nativeKeyEvent.repeatCount, (duration * 1000).toLong()); showOsd() }
+                            return@onPreviewKeyEvent true
+                        }
+                        e.key == Key.DirectionRight || e.key == Key.MediaFastForward -> {
+                            if (down) { scrub.step(1, e.nativeKeyEvent.repeatCount, (duration * 1000).toLong()); showOsd() }
+                            return@onPreviewKeyEvent true
+                        }
+                        e.key == Key.DirectionUp -> { if (down) { scrub.cancel(); showOsd() }; return@onPreviewKeyEvent true }
+                        e.key == Key.DirectionDown -> return@onPreviewKeyEvent true
+                    }
+                }
+                if (center) {
                     when {
                         e.type == KeyEventType.KeyDown && e.nativeKeyEvent.repeatCount == 0 -> okDown = true
                         e.type == KeyEventType.KeyDown && okDown -> { okDown = false; tracksOpen = true }
@@ -266,7 +308,8 @@ fun MpvPlayer(
                 when (e.key) {
                     Key.DirectionLeft, Key.MediaRewind -> seek(-seekSec)
                     Key.DirectionRight, Key.MediaFastForward -> seek(seekSec)
-                    Key.DirectionUp, Key.DirectionDown, Key.Info -> showOsd()
+                    Key.DirectionDown -> { scrub.begin((position * 1000).toLong()); showOsd() }
+                    Key.DirectionUp, Key.Info -> showOsd()
                     Key.MediaPlayPause, Key.MediaPlay, Key.MediaPause -> { mpv.setPropertyBoolean("pause", !paused); showOsd() }
                     Key.Menu -> tracksOpen = true
                     else -> return@onPreviewKeyEvent false
@@ -284,7 +327,7 @@ fun MpvPlayer(
                             mpv.attachSurface(surface!!)
                             mpv.setOptionString("force-window", "yes")
                             mpv.setPropertyString("android-surface-size", "${w}x$h")
-                            mpv.setOptionString("vo", videoOut(settings))
+                            mpv.setOptionString("vo", if (direct) "mediacodec_embed" else "gpu")
                         }
                         override fun onSurfaceTextureSizeChanged(st: SurfaceTexture, w: Int, h: Int) {
                             mpv.setPropertyString("android-surface-size", "${w}x$h")
@@ -303,7 +346,7 @@ fun MpvPlayer(
             modifier = Modifier.fillMaxSize(),
         )
 
-        if (settings.mpvDecoding == MpvDecoding.Direct && subText.isNotBlank()) Text(
+        if (direct && subText.isNotBlank()) Text(
             subText.trim(),
             fontSize = (30 * settings.subtitleSize.scale).sp,
             color = Color(settings.subtitleColour.argb),
@@ -312,8 +355,11 @@ fun MpvPlayer(
             modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 64.dp, start = 120.dp, end = 120.dp)
                 .then(if (settings.subtitleBackground == io.github.petebutty.viewarr.data.settings.SubtitleBackground.Box) Modifier.background(Color.Black.copy(alpha = 0.75f), RoundedCornerShape(4.dp)).padding(horizontal = 10.dp, vertical = 4.dp) else Modifier),
         )
-        val osdVisible = paused || buffering || now < osdUntil
-        if (osdVisible) MpvOsd(stream.title, position, duration, paused, buffering, Modifier.align(Alignment.BottomCenter))
+        val osdVisible = paused || buffering || now < osdUntil || scrub.active
+        if (osdVisible) PlayerOsd(
+            stream.title, (position * 1000).toLong(), (duration * 1000).toLong(), paused, buffering,
+            scrub.targetMs, thumbs, Modifier.align(Alignment.BottomCenter),
+        )
         if (stats.isNotEmpty()) Text(
             stats, fontSize = 13.sp, color = Color.White,
             modifier = Modifier.align(Alignment.TopStart).padding(24.dp).background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(6.dp)).padding(12.dp),
@@ -325,7 +371,9 @@ fun MpvPlayer(
     }
 }
 
-private fun videoOut(s: PlaybackSettings) = if (s.mpvDecoding == MpvDecoding.Direct) "mediacodec_embed" else "gpu"
+private val IMAGE_SUBS = setOf("hdmv_pgs_subtitle", "dvd_subtitle", "dvb_subtitle", "xsub")
+
+private fun videoOut(s: PlaybackSettings) = if (s.mpvDecoding == MpvDecoding.Hardware) "mediacodec_embed" else "gpu"
 
 /** Soundtrack formats this box says it can send untouched over its current audio output (mpv audio-spdif names). */
 private fun spdifFormats(context: android.content.Context): String {
@@ -350,11 +398,11 @@ private fun configure(mpv: MpvHandle, context: android.content.Context, stream: 
     opt("vo", videoOut(s))
     opt("gpu-context", "android")
     opt("opengl-es", "yes")
-    // Direct: the hardware decoder draws straight onto the screen surface (no copy back, no GPU pass). mpv then can't
+    // Hardware: the decoder draws straight onto the screen surface (no copy back, no GPU pass). mpv then can't
     // draw subtitles, so the player shows text subtitles itself (sub-text).
     opt("hwdec", when (s.mpvDecoding) {
-        MpvDecoding.Hardware -> "mediacodec,mediacodec-copy"
-        MpvDecoding.Direct -> "mediacodec"
+        MpvDecoding.Gpu -> "mediacodec,mediacodec-copy"
+        MpvDecoding.Hardware -> "mediacodec"
         MpvDecoding.Software -> "no"
     })
     opt("hwdec-codecs", "h264,hevc,mpeg4,mpeg2video,vp8,vp9,av1")
@@ -436,41 +484,6 @@ class MpvHandle(context: android.content.Context) {
 }
 
 private fun iso3(code: String) = runCatching { java.util.Locale(code).isO3Language }.getOrDefault(code)
-
-@Composable
-private fun MpvOsd(title: String, position: Double, duration: Double, paused: Boolean, buffering: Boolean, modifier: Modifier) {
-    Column(
-        modifier
-            .fillMaxWidth()
-            .background(Brush.verticalGradient(0f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.85f)))
-            .padding(horizontal = 56.dp, vertical = 36.dp),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(if (buffering) "◌" else if (paused) "❚❚" else "▶", fontSize = 22.sp, color = Color.White, modifier = Modifier.width(40.dp))
-            Text(title, fontSize = 22.sp, fontWeight = FontWeight.Medium, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-            Text(if (buffering) "Loading…" else "", fontSize = 15.sp, color = Color.White.copy(alpha = 0.8f))
-        }
-        Spacer(Modifier.height(14.dp))
-        Box(Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)).background(Color.White.copy(alpha = 0.25f))) {
-            val f = if (duration > 0) (position / duration).toFloat().coerceIn(0f, 1f) else 0f
-            Box(Modifier.fillMaxHeight().fillMaxWidth(f).background(AppColors.Accent))
-        }
-        Spacer(Modifier.height(8.dp))
-        Row {
-            Text(clock(position), fontSize = 14.sp, color = Color.White)
-            Spacer(Modifier.weight(1f))
-            Text("Hold OK: audio & subtitles", fontSize = 13.sp, color = Color.White.copy(alpha = 0.7f))
-            Spacer(Modifier.weight(1f))
-            Text(if (duration > 0) "-" + clock(duration - position) else "", fontSize = 14.sp, color = Color.White)
-        }
-    }
-}
-
-private fun clock(sec: Double): String {
-    val t = sec.toLong().coerceAtLeast(0)
-    val h = t / 3600; val m = (t % 3600) / 60; val s = t % 60
-    return if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%d:%02d".format(m, s)
-}
 
 /** Audio and subtitle tracks from mpv's track-list. */
 @Composable
