@@ -52,9 +52,11 @@ class SettingItem(
     val description: String,
     val choices: List<RemoteChoice>,
     val current: RemoteChoice,
+    /** An action row (e.g. "Check now"): OK runs this, and [current]'s label shows its status. */
+    val action: (() -> Unit)? = null,
     val onSelect: (RemoteChoice) -> Unit,
 ) {
-    val isToggle get() = choices.size == 2 && choices.map { it.label }.toSet() == setOf("On", "Off")
+    val isToggle get() = action == null && choices.size == 2 && choices.map { it.label }.toSet() == setOf("On", "Off")
 }
 
 class SettingCategory(val name: String, val blurb: String, val items: List<SettingItem>)
@@ -112,7 +114,8 @@ fun SettingsPage(
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp), contentPadding = PaddingValues(bottom = 40.dp)) {
                     itemsIndexed(c.items, key = { _, it -> c.name + it.title }) { _, item ->
                         SettingRow(item, enabled = choosing == null) {
-                            if (item.isToggle) item.onSelect(item.choices.first { it != item.current })
+                            if (item.action != null) item.action.invoke()
+                            else if (item.isToggle) item.onSelect(item.choices.first { it != item.current })
                             else choosing = item
                         }
                     }

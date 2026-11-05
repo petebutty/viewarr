@@ -86,7 +86,11 @@ fun AppRoot(vm: AppViewModel = hiltViewModel()) {
         } else when (val s = state) {
             StartState.Loading -> Unit
             StartState.NeedsSetup -> SetupWizard()
-            is StartState.Ready -> HomeScreen(session = s.session, onSignOut = vm::signOut)
+            is StartState.Ready -> {
+                HomeScreen(session = s.session, onSignOut = vm::signOut)
+                // Over everything: the "update available" pop-up (and the automatic check on start).
+                io.github.petebutty.viewarr.ui.update.UpdateHost()
+            }
         }
     }
 }

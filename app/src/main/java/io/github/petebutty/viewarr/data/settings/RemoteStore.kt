@@ -23,7 +23,7 @@ enum class GuideLeft(override val label: String) : RemoteChoice {
 }
 
 enum class GuideBack(override val label: String) : RemoteChoice {
-    NowThenMenu("Jump to now, then menu"),
+    NowThenExit("Jump to now, then ask to exit"),
     Menu("Open the menu"),
 }
 
@@ -74,6 +74,7 @@ enum class RowLeft(override val label: String) : RemoteChoice {
 }
 
 enum class MediaBack(override val label: String) : RemoteChoice {
+    Exit("Ask to exit (press Back twice)"),
     Menu("Open the catalogue menu"),
     Guide("Go to the TV guide"),
 }
@@ -157,7 +158,7 @@ class RemoteStore @Inject constructor(@ApplicationContext private val context: C
 
     companion object {
         const val GUIDE_LEFT = "guide_left"
-        const val GUIDE_BACK = "guide_back"
+        const val GUIDE_BACK = "guide_back_v2" // v2: "ask to exit" became the default (2026-11-05)
         const val CHANNEL_KEYS = "channel_keys"
         const val ZAP = "zap_v2" // v2: "Show the channel list" became the default (2026-11-05)
         const val SEEK = "seek"
@@ -165,7 +166,7 @@ class RemoteStore @Inject constructor(@ApplicationContext private val context: C
         const val ROW_MEMORY = "row_memory"
         const val ROW_ALIGN = "row_align"
         const val ROW_LEFT = "row_left"
-        const val MEDIA_BACK = "media_back"
+        const val MEDIA_BACK = "media_back_v2" // v2: "ask to exit" became the default (2026-11-05)
         const val MENU_OPENS_ON = "menu_opens_on"
         const val MENU_BACK = "menu_back"
         const val START_PAGE = "start_page"

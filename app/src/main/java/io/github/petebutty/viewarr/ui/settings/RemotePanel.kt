@@ -11,7 +11,6 @@ import io.github.petebutty.viewarr.data.settings.ChannelKeys
 import io.github.petebutty.viewarr.data.settings.GuideBack
 import io.github.petebutty.viewarr.data.settings.GuideLeft
 import io.github.petebutty.viewarr.data.settings.MediaBack
-import io.github.petebutty.viewarr.data.settings.MenuBack
 import io.github.petebutty.viewarr.data.settings.MenuOpensOn
 import io.github.petebutty.viewarr.data.settings.PlayerOk
 import io.github.petebutty.viewarr.data.settings.RemoteChoice
@@ -56,7 +55,7 @@ fun RemoteSettingsScreen(onBack: () -> Unit, vm: RemoteViewModel = hiltViewModel
             "TV guide", "Buttons while browsing the guide.",
             listOf(
                 item("Left", "Left at the start of the guide either goes back to earlier programmes (catch-up) or opens the menu. Holding Left does the other one.", k.GUIDE_LEFT, all<GuideLeft>(), s.guideLeft),
-                item("Back", "Back can first jump the guide to what's on now, then open the menu on a second press.", k.GUIDE_BACK, all<GuideBack>(), s.guideBack),
+                item("Back", "Back first jumps the guide to what's on now. On now, it asks to exit (press Back again), or opens the menu.", k.GUIDE_BACK, all<GuideBack>(), s.guideBack),
                 item("Channel + / −", "Pages through the channels. Reverse it if your remote's buttons feel the wrong way round.", k.CHANNEL_KEYS, all<ChannelKeys>(), s.channelKeys),
             ),
         ),
@@ -74,14 +73,13 @@ fun RemoteSettingsScreen(onBack: () -> Unit, vm: RemoteViewModel = hiltViewModel
                 item("Moving between rows", "Going back to a row lands on the poster you were on, or always on its first poster.", k.ROW_MEMORY, all<RowMemory>(), s.rowMemory),
                 item("Poster position", "Keep the highlighted poster at the left edge of the row, or scroll only when it would go off screen.", k.ROW_ALIGN, all<RowAlign>(), s.rowAlign),
                 item("Left on the first poster", "Open the catalogue list (Left again for the main menu), or do nothing.", k.ROW_LEFT, all<RowLeft>(), s.rowLeft),
-                item("Back", "Back on Movies or Shows opens the catalogue list, or goes to the TV guide.", k.MEDIA_BACK, all<MediaBack>(), s.mediaBack),
+                item("Back", "Back on Movies or Shows asks to exit (press Back again), opens the catalogue list, or goes to the TV guide.", k.MEDIA_BACK, all<MediaBack>(), s.mediaBack),
             ),
         ),
         SettingCategory(
-            "Menu", "The side menu.",
+            "Menu", "The side menu. Back steps out one level: from a list to the main menu, then closes the menu.",
             listOf(
                 item("Menu opens on", "Open on the current page's own list (channel groups, catalogues), or on the main list.", k.MENU_OPENS_ON, all<MenuOpensOn>(), s.menuOpensOn),
-                item("Back in the menu", "Press Back twice to leave Viewarr, or have Back just close the menu.", k.MENU_BACK, all<MenuBack>(), s.menuBack),
             ),
         ),
     )

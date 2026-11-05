@@ -81,7 +81,6 @@ import io.github.petebutty.viewarr.data.local.GuideProgram
 import io.github.petebutty.viewarr.data.settings.GuideBack
 import io.github.petebutty.viewarr.data.settings.LocalRemote
 import io.github.petebutty.viewarr.data.settings.MediaBack
-import io.github.petebutty.viewarr.data.settings.MenuBack
 import io.github.petebutty.viewarr.data.settings.MenuOpensOn
 import io.github.petebutty.viewarr.data.settings.PlayerOk
 import io.github.petebutty.viewarr.data.settings.ZapDirection
@@ -214,9 +213,23 @@ fun HomeScreen(
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) { playback.pause() }
     LifecycleEventEffect(Lifecycle.Event.ON_START) { playback.resume() }
 
-    // Back returns to live TV first when browsing the past/future, then opens the menu.
+    // Back on a page (guide, Movies, Shows, Recordings) asks before leaving: a second Back within a few
+    // seconds exits. The menu handles its own Back (list → main menu → closed).
+    val activity = LocalContext.current as? Activity
+    var exitArmed by remember { mutableLongStateOf(0L) }
+    fun backOnPage() {
+        if (exitArmed != 0L) activity?.finish() else exitArmed = System.currentTimeMillis()
+    }
+    LaunchedEffect(exitArmed) {
+        if (exitArmed != 0L) { delay(2_500); exitArmed = 0L }
+    }
+    // Back returns to live TV first when browsing the past/future, then asks to exit (or opens the menu).
     BackHandler(enabled = page == Page.Tv && !menuOpen && !fullscreen && !showAccounts) {
-        if (remote.guideBack == GuideBack.Menu || vm.isAtNow()) menuOpen = true else vm.goToNow()
+        when {
+            !vm.isAtNow() -> vm.goToNow()
+            remote.guideBack == GuideBack.Menu -> menuOpen = true
+            else -> backOnPage()
+        }
     }
     BackHandler(enabled = fullscreen && !osdVisible) {
         fullscreen = false
@@ -320,7 +333,7 @@ fun HomeScreen(
                 vm = dvr,
                 focusRequester = mediaFocus,
                 focusEnabled = !menuOpen && !showAccounts && recordingPlayback == null,
-                onBack = { menuOpen = true },
+                onBack = ::backOnPage,
                 onPlay = { recordingPlayback = it },
             )
         } else if (page != Page.Tv) {
@@ -329,7 +342,13 @@ fun HomeScreen(
                 focusRequester = mediaFocus,
                 focusEnabled = !menuOpen && !showAccounts,
                 onOpenMenu = { menuOpen = true },
-                onBack = { if (remote.mediaBack == MediaBack.Guide) openPage(Page.Tv) else menuOpen = true },
+                onBack = {
+                    when (remote.mediaBack) {
+                        MediaBack.Exit -> backOnPage()
+                        MediaBack.Menu -> menuOpen = true
+                        MediaBack.Guide -> openPage(Page.Tv)
+                    }
+                },
             )
         } else if (session == null) {
             NoLiveTv(
@@ -503,6 +522,19 @@ fun HomeScreen(
         recordTarget?.let { (ch, prog) -> RecordDialog(ch, prog, dvr) { recordTarget = null } }
         recordingPlayback?.let { io.github.petebutty.viewarr.ui.media.PlayerHost(stream = it, onClose = { recordingPlayback = null }) }
 
+        if (exitArmed != 0L && !menuOpen) {
+            Text(
+                "Press Back again to exit",
+                fontSize = 18.sp,
+                color = AppColors.TextPrimary,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 40.dp)
+                    .background(AppColors.Panel.copy(alpha = 0.95f), RoundedCornerShape(24.dp))
+                    .padding(horizontal = 26.dp, vertical = 12.dp),
+            )
+        }
+
         (digits.takeIf { it.isNotEmpty() } ?: digitsMessage)?.let { text ->
             Text(
                 text,
@@ -562,6 +594,8 @@ private fun MenuOverlay(
     var showAddons by remember { mutableStateOf(false) }
     val addonsItem = remember { FocusRequester() }
     val remoteItem = remember { FocusRequester() }
+    var showUpdates by remember { mutableStateOf(false) }
+    val updatesItem = remember { FocusRequester() }
     var returnTo by remember { mutableStateOf<FocusRequester?>(null) }
     // After closing a full settings page, land back on its menu item (not wherever focus happens to fall).
     LaunchedEffect(returnTo) {
@@ -574,7 +608,6 @@ private fun MenuOverlay(
         returnTo = null
     }
     val remote = LocalRemote.current
-    var lastBack by remember { mutableLongStateOf(0L) }
     val navFocus = remember { Section.entries.associateWith { FocusRequester() } }
     val settingsFirst = remember { FocusRequester() }
     val groupsFocus = remember { FocusRequester() }
@@ -599,20 +632,11 @@ private fun MenuOverlay(
             else -> Unit
         }
     }
-    val activity = LocalContext.current as? Activity
-
+    // Back steps out one level: from the right-hand list to the main list, then closes the menu.
+    var subListFocused by remember { mutableStateOf(false) }
     BackHandler {
-        when {
-            remote.menuBack == MenuBack.Close -> onClose()
-            lastBack != 0L -> activity?.finish()
-            else -> lastBack = System.currentTimeMillis()
-        }
-    }
-    LaunchedEffect(lastBack) {
-        if (lastBack != 0L) {
-            delay(2_000)
-            lastBack = 0L
-        }
+        if (subListFocused) runCatching { navFocus.getValue(section).requestFocus() }.onFailure { onClose() }
+        else onClose()
     }
 
     Box(Modifier.fillMaxSize()) {
@@ -656,16 +680,12 @@ private fun MenuOverlay(
                         .onFocusChanged { if (it.isFocused) section = s }
                         .onPreviewKeyEvent { e ->
                             // Right does the same as OK: open what's inside this entry.
-                            if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionRight && !(s == Section.Settings && (showAppearance || showRemote || showPlayback || showAddons))) {
+                            if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionRight && !(s == Section.Settings && (showAppearance || showRemote || showPlayback || showAddons || showUpdates))) {
                                 enter(s)
                                 true
                             } else false
                         },
                 )
-            }
-            Spacer(Modifier.weight(1f))
-            if (lastBack != 0L) {
-                Text("Press Back again to exit", fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(start = 12.dp))
             }
         }
 
@@ -674,17 +694,13 @@ private fun MenuOverlay(
                 .width(230.dp)
                 .fillMaxHeight()
                 .background(AppColors.MenuPanelAlt)
+                .onFocusChanged { subListFocused = it.hasFocus }
                 .onPreviewKeyEvent { e ->
                     if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                     when {
-                        // Right from the category list returns to the guide, like TiviMate.
-                        section == Section.Tv && e.key == Key.DirectionRight -> {
-                            onOpenPage(Page.Tv)
-                            true
-                        }
                         // Left goes back to this section's menu entry, not whichever one is geometrically closest.
                         e.key == Key.DirectionLeft && (section == Section.Tv || section == Section.Movies || section == Section.Shows ||
-                            (section == Section.Settings && !showAppearance && !showRemote && !showPlayback && !showAddons)) -> {
+                            (section == Section.Settings && !showAppearance && !showRemote && !showPlayback && !showAddons && !showUpdates)) -> {
                             runCatching { navFocus.getValue(section).requestFocus() }
                             true
                         }
@@ -718,6 +734,11 @@ private fun MenuOverlay(
                         showAddons = true
                     },
                     // Park focus on the Settings entry before swapping panels, so it never drops back to Search.
+                    updatesItem = updatesItem,
+                    onUpdates = {
+                        runCatching { navFocus.getValue(Section.Settings).requestFocus() }
+                        showUpdates = true
+                    },
                     remoteItem = remoteItem,
                     onRemote = {
                         runCatching { navFocus.getValue(Section.Settings).requestFocus() }
@@ -781,6 +802,13 @@ private fun MenuOverlay(
             returnTo = remoteItem
         })
     }
+    if (showUpdates) {
+        io.github.petebutty.viewarr.ui.settings.UpdatesSettingsScreen(onBack = {
+            runCatching { updatesItem.requestFocus() }
+            showUpdates = false
+            returnTo = updatesItem
+        })
+    }
     if (showAddons) {
         io.github.petebutty.viewarr.ui.settings.AddonsSettingsScreen(onBack = {
             runCatching { addonsItem.requestFocus() }
@@ -820,11 +848,22 @@ private fun GroupList(focusRequester: FocusRequester, groups: List<GroupWithCoun
 
 @Composable
 private fun GroupItem(name: String, count: Int?, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
-    MenuItem(text = name, selected = selected, onClick = onClick, modifier = modifier, trailing = count?.toString())
+    MenuItem(text = name, selected = selected, onClick = onClick, modifier = modifier.rightDoes(onClick), trailing = count?.toString())
 }
 
+/** In the menu's right-hand lists, Right does the same as OK: go to that page. */
+private fun Modifier.rightDoes(action: () -> Unit): Modifier = onPreviewKeyEvent { e ->
+    if (e.key == Key.DirectionRight) {
+        if (e.type == KeyEventType.KeyDown) action()
+        true
+    } else false
+}
+
+/** Right does nothing on menu actions that aren't pages (refresh, sign out), so a stray press can't trigger them. */
+private fun Modifier.rightIgnored(): Modifier = onPreviewKeyEvent { e -> e.key == Key.DirectionRight }
+
 @Composable
-private fun SettingsPanel(playbackItem: FocusRequester, onPlayback: () -> Unit, addonsItem: FocusRequester, onAddons: () -> Unit, remoteItem: FocusRequester, onRemote: () -> Unit, session: Session?, sync: SyncState, firstItem: FocusRequester, onAppearance: () -> Unit, onAccounts: () -> Unit, onRefresh: () -> Unit, onSignOut: () -> Unit) {
+private fun SettingsPanel(playbackItem: FocusRequester, onPlayback: () -> Unit, addonsItem: FocusRequester, onAddons: () -> Unit, remoteItem: FocusRequester, onRemote: () -> Unit, updatesItem: FocusRequester, onUpdates: () -> Unit, session: Session?, sync: SyncState, firstItem: FocusRequester, onAppearance: () -> Unit, onAccounts: () -> Unit, onRefresh: () -> Unit, onSignOut: () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(session?.let { "Signed in as ${it.username}" } ?: "Live TV not set up", fontSize = 15.sp, color = AppColors.TextPrimary, modifier = Modifier.padding(horizontal = 12.dp))
         session?.let { Text(it.serverUrl, fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(horizontal = 12.dp)) }
@@ -836,12 +875,13 @@ private fun SettingsPanel(playbackItem: FocusRequester, onPlayback: () -> Unit, 
             Text(it, fontSize = 13.sp, color = AppColors.Accent, modifier = Modifier.padding(horizontal = 12.dp))
         }
         Spacer(Modifier.height(12.dp))
-        MenuItem(text = "Accounts & sources", selected = false, onClick = onAccounts, modifier = Modifier.focusRequester(firstItem))
-        MenuItem(text = "Appearance", selected = false, onClick = onAppearance)
-        MenuItem(text = "Playback", selected = false, onClick = onPlayback, modifier = Modifier.focusRequester(playbackItem))
-        MenuItem(text = "Addons", selected = false, onClick = onAddons, modifier = Modifier.focusRequester(addonsItem))
-        MenuItem(text = "Remote & navigation", selected = false, onClick = onRemote, modifier = Modifier.focusRequester(remoteItem))
-        MenuItem(text = "Refresh channels & guide", selected = false, onClick = onRefresh)
+        MenuItem(text = "Accounts & sources", selected = false, onClick = onAccounts, modifier = Modifier.focusRequester(firstItem).rightDoes(onAccounts))
+        MenuItem(text = "Appearance", selected = false, onClick = onAppearance, modifier = Modifier.rightDoes(onAppearance))
+        MenuItem(text = "Playback", selected = false, onClick = onPlayback, modifier = Modifier.focusRequester(playbackItem).rightDoes(onPlayback))
+        MenuItem(text = "Addons", selected = false, onClick = onAddons, modifier = Modifier.focusRequester(addonsItem).rightDoes(onAddons))
+        MenuItem(text = "Remote & navigation", selected = false, onClick = onRemote, modifier = Modifier.focusRequester(remoteItem).rightDoes(onRemote))
+        MenuItem(text = "Updates", selected = false, onClick = onUpdates, modifier = Modifier.focusRequester(updatesItem).rightDoes(onUpdates))
+        MenuItem(text = "Refresh channels & guide", selected = false, onClick = onRefresh, modifier = Modifier.rightIgnored())
         var confirmUntil by remember { mutableLongStateOf(0L) }
         LaunchedEffect(confirmUntil) {
             if (confirmUntil != 0L) {
@@ -853,6 +893,7 @@ private fun SettingsPanel(playbackItem: FocusRequester, onPlayback: () -> Unit, 
             text = if (confirmUntil != 0L) "Press OK again to sign out" else "Sign out of everything",
             selected = false,
             onClick = { if (confirmUntil != 0L) onSignOut() else confirmUntil = System.currentTimeMillis() },
+            modifier = Modifier.rightIgnored(),
         )
     }
 }
@@ -873,7 +914,10 @@ private fun CatalogueList(type: MediaType, focusRequester: FocusRequester, onPic
             MenuItem(
                 text = if (type == MediaType.Movie) "Movies home" else "Shows home",
                 selected = false,
-                modifier = if (currentIndex < 0) Modifier.focusRequester(focusRequester) else Modifier,
+                modifier = (if (currentIndex < 0) Modifier.focusRequester(focusRequester) else Modifier).rightDoes {
+                    media.jumpTo(null)
+                    onPick()
+                },
                 onClick = {
                     media.jumpTo(null)
                     onPick()
@@ -884,7 +928,10 @@ private fun CatalogueList(type: MediaType, focusRequester: FocusRequester, onPic
             MenuItem(
                 text = row.title,
                 selected = row.id == current,
-                modifier = if (row.id == current) Modifier.focusRequester(focusRequester) else Modifier,
+                modifier = (if (row.id == current) Modifier.focusRequester(focusRequester) else Modifier).rightDoes {
+                    media.jumpTo(row.id)
+                    onPick()
+                },
                 trailing = row.items.size.toString(),
                 onClick = {
                     media.jumpTo(row.id)
