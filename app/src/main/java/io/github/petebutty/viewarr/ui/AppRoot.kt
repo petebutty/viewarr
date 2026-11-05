@@ -7,6 +7,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -70,27 +72,40 @@ fun AppRoot(vm: AppViewModel = hiltViewModel()) {
     val state by vm.state.collectAsStateWithLifecycle()
     val remote by vm.remote.collectAsStateWithLifecycle()
     val playbackSettings by vm.playback.collectAsStateWithLifecycle()
-    // Show the splash for at least ~1.6 s (and until the start state is known).
+    // The splash stays up for 2.5 s while the start page loads underneath it, so the first press after it
+    // fades lands on a ready page (earlier, presses while rows were still loading did nothing).
     var splashDone by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
     androidx.compose.runtime.LaunchedEffect(Unit) {
-        kotlinx.coroutines.delay(1_600)
+        kotlinx.coroutines.delay(2_500)
         splashDone = true
     }
+    val splashShown = !splashDone || state == StartState.Loading
+    val splashAlpha by androidx.compose.animation.core.animateFloatAsState(
+        if (splashShown) 1f else 0f, androidx.compose.animation.core.tween(300), label = "splash",
+    )
     androidx.compose.runtime.CompositionLocalProvider(
         io.github.petebutty.viewarr.data.settings.LocalRemote provides remote,
         io.github.petebutty.viewarr.data.settings.LocalPlayback provides playbackSettings,
     ) {
-    Box(Modifier.fillMaxSize().background(AppColors.Background)) {
-        if (!splashDone || state == StartState.Loading) {
-            io.github.petebutty.viewarr.ui.common.ViewarrSplash()
-        } else when (val s = state) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(AppColors.Background)
+            // Presses during the splash are swallowed rather than lost on a half-loaded page.
+            .onPreviewKeyEvent { splashShown },
+    ) {
+        when (val s = state) {
             StartState.Loading -> Unit
-            StartState.NeedsSetup -> SetupWizard()
+            StartState.NeedsSetup -> if (!splashShown) SetupWizard()
             is StartState.Ready -> {
+                // Composed straight away, under the splash, so rows and the guide load while it shows.
                 HomeScreen(session = s.session, onSignOut = vm::signOut)
                 // Over everything: the "update available" pop-up (and the automatic check on start).
-                io.github.petebutty.viewarr.ui.update.UpdateHost()
+                if (!splashShown) io.github.petebutty.viewarr.ui.update.UpdateHost()
             }
+        }
+        if (splashAlpha > 0f) Box(Modifier.fillMaxSize().graphicsLayer { alpha = splashAlpha }) {
+            io.github.petebutty.viewarr.ui.common.ViewarrSplash()
         }
     }
 }
