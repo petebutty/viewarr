@@ -1,5 +1,14 @@
 package io.github.petebutty.viewarr.ui.setup
 
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -117,10 +126,19 @@ fun SetupWizard(
                 SetupStep.SignIn -> TextStep(
                     qrUrl = null,
                     fields = {
-                        WizardField(state.username, vm::onUsername, "Username", firstFocus, KeyboardType.Text, ImeAction.Next) {}
-                        WizardField(state.password, vm::onPassword, "Password", null, KeyboardType.Password, ImeAction.Done, vm::submit, password = true)
+                        if (!state.xc && state.useKey) {
+                            WizardField(state.fields[SetupViewModel.API_KEY].orEmpty(), { vm.onField(SetupViewModel.API_KEY, it) }, "API key", firstFocus, KeyboardType.Text, ImeAction.Done, vm::submit)
+                        } else {
+                            WizardField(state.username, vm::onUsername, "Username", firstFocus, KeyboardType.Text, ImeAction.Next) {}
+                            WizardField(state.password, vm::onPassword, "Password", null, KeyboardType.Password, ImeAction.Done, vm::submit, password = true)
+                        }
                     },
-                    actions = { Button(onClick = vm::submit, enabled = !state.busy) { Text(if (state.busy) "Signing in…" else "Sign in") } },
+                    actions = {
+                        Button(onClick = vm::submit, enabled = !state.busy) { Text(if (state.busy) "Signing in…" else "Sign in") }
+                        if (!state.xc) OutlinedButton(onClick = vm::toggleKey, enabled = !state.busy) {
+                            Text(if (state.useKey) "Use username & password instead" else "Use API key instead")
+                        }
+                    },
                 )
                 SetupStep.Tmdb -> TextStep(
                     qrUrl = null,
@@ -204,12 +222,13 @@ private fun ColumnScope.ChooseStep(
     val manage = state.mode == SetupMode.Manage
     val items = SetupItem.entries.filter { it.available && (it != SetupItem.Vod || session != null || SetupItem.LiveTv in state.selected) }
     // The buttons go first so they're always on screen: a long list used to push Continue out of the panel.
+    val continueFocus = remember { FocusRequester() }
     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         if (manage) {
             Button(onClick = vm::openPhone, modifier = Modifier.focusRequester(firstFocus)) { Text("Set up on your phone") }
             OutlinedButton(onClick = { vm.finish(onClose) }) { Text("Done") }
         } else {
-            Button(onClick = vm::beginChosen, enabled = state.selected.isNotEmpty()) {
+            Button(onClick = vm::beginChosen, enabled = state.selected.isNotEmpty(), modifier = Modifier.focusRequester(continueFocus)) {
                 Text(if (state.selected.isEmpty()) "Tick something first" else "Continue with ${state.selected.size} selected")
             }
             OutlinedButton(onClick = vm::openPhone) { Text("Use my phone instead") }
@@ -227,7 +246,8 @@ private fun ColumnScope.ChooseStep(
                     else -> status
                 },
                 onClick = { if (manage) vm.open(item) else vm.toggle(item) },
-                modifier = if (i == 0 && !manage) Modifier.focusRequester(firstFocus) else Modifier,
+                // Up from the top of the list goes to Continue (not whichever button happens to be nearest).
+                modifier = if (i == 0 && !manage) Modifier.focusRequester(firstFocus).focusProperties { up = continueFocus } else Modifier,
             )
             Text(item.description, fontSize = 12.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(start = 12.dp, bottom = 6.dp))
         }
@@ -351,16 +371,44 @@ private fun WizardField(
     password: Boolean = false,
     onIme: () -> Unit,
 ) {
+    // TV text box rules: the keyboard opens only when you press OK on the box (not just by landing on it), and
+    // Up / Down always leave the box, so the buttons below can be reached with the remote.
+    val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+    var editing by remember { mutableStateOf(false) }
+    // Keys, codes and addresses: a "password"-type keyboard has no suggestions or autocorrect (the TV keyboard
+    // ignores the autocorrect flag on ordinary text). Shown as plain text unless it really is a password.
+    val noSuggestions = keyboardType == KeyboardType.Text || keyboardType == KeyboardType.Uri
     OutlinedTextField(
         value = value,
         onValueChange = onValueChange,
         label = { M3Text(label) },
         singleLine = true,
-        modifier = (if (focus != null) Modifier.focusRequester(focus) else Modifier).fillMaxWidth(),
+        modifier = (if (focus != null) Modifier.focusRequester(focus) else Modifier)
+            .fillMaxWidth()
+            .onFocusChanged { f ->
+                if (f.isFocused && !editing) keyboard?.hide()
+                if (!f.isFocused) editing = false
+            }
+            .onPreviewKeyEvent { e ->
+                if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                when (e.key) {
+                    Key.DirectionDown -> { keyboard?.hide(); editing = false; focusManager.moveFocus(androidx.compose.ui.focus.FocusDirection.Down); true }
+                    Key.DirectionUp -> { keyboard?.hide(); editing = false; focusManager.moveFocus(androidx.compose.ui.focus.FocusDirection.Up); true }
+                    Key.DirectionCenter, Key.Enter, Key.NumPadEnter -> if (!editing) { editing = true; keyboard?.show(); true } else false
+                    else -> false
+                }
+            },
         visualTransformation = if (password) PasswordVisualTransformation() else VisualTransformation.None,
-        keyboardOptions = KeyboardOptions(keyboardType = keyboardType, imeAction = imeAction, autoCorrectEnabled = false),
-        keyboardActions = KeyboardActions(onAny = { onIme() }),
+        keyboardOptions = KeyboardOptions(
+            keyboardType = if (noSuggestions && label.contains("key", ignoreCase = true)) KeyboardType.Password else keyboardType,
+            imeAction = imeAction,
+            autoCorrectEnabled = false,
+        ),
+        keyboardActions = KeyboardActions(onAny = { editing = false; keyboard?.hide(); onIme() }),
     )
+    // Landing on the box (e.g. when a step opens) must not pop the keyboard up over the screen.
+    LaunchedEffect(Unit) { kotlinx.coroutines.android.awaitFrame(); if (!editing) keyboard?.hide() }
 }
 
 @Composable
@@ -407,9 +455,10 @@ private fun bodyFor(state: SetupUiState) = when (state.step) {
         "IPTV provider: the server address from your provider's welcome email (Xtream Codes / XC login)."
     SetupStep.SignIn -> if (state.xc) "That isn't a Dispatcharr server, so Viewarr will sign in to it as an IPTV provider (Xtream Codes). " +
         "Use the username and password from your provider. You'll get channels, the guide, catch-up and the provider's films and series; " +
-        "recordings need Dispatcharr." else "Connected to Dispatcharr ${state.serverVersion} at ${state.serverUrl}. Sign in with your Dispatcharr web login, " +
-        "not the XC / Xtream password your IPTV apps use. Easier and recommended for recordings (DVR): set up from your phone " +
-        "and paste your API key (Dispatcharr → Users → your user → API Key). Your password isn't stored on this TV."
+        "recordings need Dispatcharr." else if (state.useKey) "Found Dispatcharr ${state.serverVersion} at ${state.serverUrl}. Enter your API key: in Dispatcharr, " +
+        "open Users, edit your user and copy the API Key (don't press Regenerate). Long keys are easier to paste from the phone setup."
+        else "Found Dispatcharr ${state.serverVersion} at ${state.serverUrl}. Use your Dispatcharr website login, not the XC password your IPTV apps use. " +
+        "The password isn't stored on this TV."
     SetupStep.Tmdb -> "Your free TMDB API key is at themoviedb.org → Settings → API. Long keys are easier to type on your phone."
     SetupStep.Trakt -> "Trakt keeps your watchlist and history in sync with your other apps."
     SetupStep.Plex -> "Link this TV to your Plex account. Viewarr then plays straight from your Plex server."

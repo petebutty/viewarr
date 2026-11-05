@@ -65,6 +65,8 @@ data class SetupUiState(
     val serverVersion: String? = null,
     /** No Dispatcharr at the address: treat it as an IPTV provider (Xtream Codes) login. */
     val xc: Boolean = false,
+    /** Dispatcharr sign-in on the TV: API key (default) or username & password. */
+    val useKey: Boolean = true,
     val username: String = "",
     val password: String = "",
     val fields: Map<String, String> = emptyMap(),
@@ -207,12 +209,12 @@ class SetupViewModel @Inject constructor(
                 _state.update { it.copy(info = "Looking for Dispatcharr on your network…") }
                 val found = runCatching { auth.discover() }.getOrDefault(emptyList())
                 if (_state.value.step != SetupStep.Server) return@launch
-                _state.update {
-                    if (found.isEmpty()) it.copy(info = "Couldn't find Dispatcharr automatically. Type its address, or your IPTV provider's.")
-                    else it.copy(
-                        serverInput = if (it.serverInput.isBlank()) found.first().url.removePrefix("http://") else it.serverInput,
-                        info = "Found Dispatcharr ${found.first().version} at ${found.first().url.removePrefix("http://")}. Press Continue.",
-                    )
+                if (found.isEmpty()) {
+                    _state.update { it.copy(info = "Couldn't find Dispatcharr automatically. Type its address, or your IPTV provider's.") }
+                } else if (_state.value.serverInput.isBlank()) {
+                    // Found it: no typing needed, go straight to sign-in (Back returns here to change the address).
+                    _state.update { it.copy(serverInput = found.first().url.removePrefix("http://"), info = null) }
+                    checkServer()
                 }
             }
             else -> Unit
@@ -398,6 +400,8 @@ class SetupViewModel @Inject constructor(
         when (val result = auth.probe(_state.value.serverInput)) {
             is ProbeResult.Found -> {
                 _state.update { it.copy(busy = false, serverUrl = result.url, serverVersion = result.version, xc = false) }
+                // Sign-in is the next queued step: take it off the queue, or a successful sign-in shows it again (empty).
+                queue = queue.toMutableList().apply { remove(SetupStep.SignIn) }
                 go(SetupStep.SignIn)
                 _state.update { it.copy(serverUrl = result.url, serverVersion = result.version) }
             }
@@ -406,15 +410,29 @@ class SetupViewModel @Inject constructor(
                 val raw = _state.value.serverInput.trim()
                 if (raw.isEmpty()) return@work fail(result.message)
                 _state.update { it.copy(busy = false, serverUrl = raw, serverVersion = null, xc = true) }
+                // Sign-in is the next queued step: take it off the queue, or a successful sign-in shows it again (empty).
+                queue = queue.toMutableList().apply { remove(SetupStep.SignIn) }
                 go(SetupStep.SignIn)
                 _state.update { it.copy(serverUrl = raw, serverVersion = null, xc = true) }
             }
         }
     }
 
+    fun toggleKey() = _state.update { it.copy(useKey = !it.useKey, error = null) }
+
     private fun signIn() {
         val s = _state.value
         if (s.serverUrl == null) return
+        if (!s.xc && s.useKey) {
+            val key = s.fields[API_KEY].orEmpty().trim()
+            if (key.isEmpty()) { _state.update { it.copy(error = "Enter your API key.") }; return }
+            work {
+                auth.signInWithKey(s.serverUrl, key)
+                    .onSuccess { advance() }
+                    .onFailure { e -> fail(e.message ?: "Sign-in failed.") }
+            }
+            return
+        }
         if (s.username.isBlank() || s.password.isEmpty()) {
             _state.update { it.copy(error = "Enter your username and password.") }
             return
@@ -678,6 +696,7 @@ class SetupViewModel @Inject constructor(
         const val SERVER = "server"
         const val USER = "username"
         const val PASSWORD = "password"
+        const val API_KEY = "api_key"
     }
 }
 
