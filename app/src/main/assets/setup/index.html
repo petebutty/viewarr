@@ -187,11 +187,14 @@ a.link.alt{background:transparent;border:1px solid var(--line);color:var(--text)
         <label class="f" for="server">Dispatcharr address</label><input type="text" id="server" inputmode="url" placeholder="192.168.1.50:9191" autocapitalize="off" spellcheck="false">
         <div class="note">The address you open Dispatcharr at in a browser. If you leave out the port, 9191 is tried.</div>
         <label class="f">Sign in with</label>
-        <div class="tabs"><button type="button" data-t="pw" class="on">Username &amp; password</button><button type="button" data-t="key">API key</button></div>
+        <div class="note">Use your <b>API key</b> if you can: it's what Viewarr uses for the guide, catch-up and recordings (DVR), and it always works.
+          Username &amp; password is your <b>Dispatcharr web login</b>, the one for the Dispatcharr website.
+          It is <b>not</b> the XC / Xtream password your IPTV apps use; that one won't work here.</div>
+        <div class="tabs"><button type="button" data-t="pw" class="on">Username &amp; password</button><button type="button" data-t="key">API key (recommended)</button></div>
         <div id="pw">
           <label class="f" for="user">Username</label><input type="text" id="user" autocapitalize="none" autocorrect="off" autocomplete="username" spellcheck="false">
           <label class="f" for="pass">Password</label><input type="password" id="pass" autocomplete="current-password"><label class="show"><input type="checkbox" onchange="document.getElementById('pass').type=this.checked?'text':'password'"> Show password</label>
-          <div class="note">Your Dispatcharr login. It needs to be a Standard or Admin user; Streamer accounts only work in player apps. The password isn't stored on the TV.</div>
+          <div class="note">Your Dispatcharr web login (not your XC password). It needs to be a Standard or Admin user; Streamer accounts only work in player apps. Viewarr uses it once to fetch your API key; the password isn't stored on the TV.</div>
         </div>
         <div id="key" hidden>
           <ol class="how">

@@ -405,7 +405,9 @@ private fun bodyFor(state: SetupUiState) = when (state.step) {
     else "Tick everything you use. Movies & Shows need TMDB, so it's added automatically when you pick a film or TV source."
     SetupStep.Server -> "Enter the address you use to open Dispatcharr in a browser, for example 192.168.1.50:9191. " +
         "If you leave out the port, 9191 is tried too."
-    SetupStep.SignIn -> "Connected to Dispatcharr ${state.serverVersion} at ${state.serverUrl}. Your password isn't stored on this TV."
+    SetupStep.SignIn -> "Connected to Dispatcharr ${state.serverVersion} at ${state.serverUrl}. Sign in with your Dispatcharr web login, " +
+        "not the XC / Xtream password your IPTV apps use. Easier and recommended for recordings (DVR): set up from your phone " +
+        "and paste your API key (Dispatcharr → Users → your user → API Key). Your password isn't stored on this TV."
     SetupStep.Tmdb -> "Your free TMDB API key is at themoviedb.org → Settings → API. Long keys are easier to type on your phone."
     SetupStep.Trakt -> "Trakt keeps your watchlist and history in sync with your other apps."
     SetupStep.Plex -> "Link this TV to your Plex account. Viewarr then plays straight from your Plex server."
