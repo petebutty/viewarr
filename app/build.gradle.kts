@@ -25,8 +25,8 @@ android {
         applicationId = "io.github.petebutty.viewarr"
         minSdk = 26
         targetSdk = 34
-        versionCode = 9
-        versionName = "0.8.0"
+        versionCode = 10
+        versionName = "0.8.1"
         // Trakt device login needs a client id from your own Trakt app (trakt.tv/oauth/applications). Blank = no Trakt.
         buildConfigField("String", "TRAKT_CLIENT_ID", "\"${secrets.getProperty("traktClientId", "")}\"")
     }

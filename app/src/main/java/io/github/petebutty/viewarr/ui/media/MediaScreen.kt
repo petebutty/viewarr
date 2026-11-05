@@ -205,7 +205,8 @@ fun MediaScreen(
                 } }
             }
         }
-        detail?.let { d ->
+        // While a film plays, the title page (and its stream list) is set aside so it can't hold the remote.
+        if (playing == null) detail?.let { d ->
             DetailScreen(
                 ui = d,
                 vm = vm,

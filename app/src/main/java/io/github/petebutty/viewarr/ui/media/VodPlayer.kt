@@ -18,6 +18,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.width
@@ -148,8 +149,18 @@ fun VodPlayer(
     BackHandler { if (tracksOpen) tracksOpen = false else onClose() }
     // The player must hold focus itself, or the remote keeps driving the screen underneath (the controls never respond).
     LaunchedEffect(Unit) {
-        awaitFrame()
-        runCatching { focus.requestFocus() }
+        repeat(3) {
+            awaitFrame()
+            runCatching { focus.requestFocus() }
+        }
+    }
+    var hasFocus by remember { mutableStateOf(false) }
+    // If anything else takes the remote while playing (and no picker is open), take it back.
+    LaunchedEffect(hasFocus, tracksOpen) {
+        if (!hasFocus && !tracksOpen) {
+            kotlinx.coroutines.delay(150)
+            runCatching { focus.requestFocus() }
+        }
     }
     // The remote is handled here, not by the PlayerView's own buttons: inside Compose those never get key focus,
     // which left the remote doing nothing during playback.
@@ -158,6 +169,7 @@ fun VodPlayer(
             .fillMaxSize()
             .background(Color.Black)
             .focusRequester(focus)
+            .onFocusChanged { hasFocus = it.isFocused }
             .focusable(enabled = !tracksOpen)
             .onPreviewKeyEvent { e ->
                 if (tracksOpen) return@onPreviewKeyEvent false
