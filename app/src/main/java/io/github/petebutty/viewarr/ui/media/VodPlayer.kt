@@ -58,6 +58,8 @@ fun VodPlayer(
     onClose: () -> Unit,
     /** Progress for Plex / Trakt: state is "playing", "paused" or "stopped". */
     onProgress: (state: String, positionMs: Long, durationMs: Long) -> Unit = { _, _, _ -> },
+    /** Hold-OK menu → "Switch to mpv": carry on there from this position. */
+    onSwitchPlayer: ((positionMs: Long) -> Unit)? = null,
 ) {
     val context = LocalContext.current
     var error by remember(stream) { mutableStateOf<String?>(null) }
@@ -66,7 +68,7 @@ fun VodPlayer(
     val pb = io.github.petebutty.viewarr.data.settings.LocalPlayback.current
     val activity = context as? android.app.Activity
     var restoreMode by remember { mutableStateOf<Int?>(null) }
-    val startAt = if (pb.resume == io.github.petebutty.viewarr.data.settings.ResumeMode.Start) 0L else stream.resumeMs
+    val startAt = stream.startMs ?: if (pb.resume == io.github.petebutty.viewarr.data.settings.ResumeMode.Start) 0L else stream.resumeMs
     var view by remember { mutableStateOf<PlayerView?>(null) }
     var tracksOpen by remember { mutableStateOf(false) }
     var okDown by remember { mutableStateOf(false) }
@@ -325,7 +327,7 @@ fun VodPlayer(
         if (paused || buffering || now < osdUntil || scrub.active) PlayerOsd(
             stream.title, positionMs, durationMs, paused, buffering, scrub.targetMs, thumbs, Modifier.align(Alignment.BottomCenter),
         )
-        if (tracksOpen) TrackPicker(player, onClose = { tracksOpen = false; runCatching { focus.requestFocus() } }, modifier = Modifier.align(Alignment.CenterEnd))
+        if (tracksOpen) TrackPicker(player, onSwitchPlayer = onSwitchPlayer?.let { f -> { f(player.currentPosition) } }, onClose = { tracksOpen = false; runCatching { focus.requestFocus() } }, modifier = Modifier.align(Alignment.CenterEnd))
         if (pb.stats == io.github.petebutty.viewarr.data.settings.StatsOverlay.On) {
             var info by remember { mutableStateOf("") }
             LaunchedEffect(player) {
@@ -356,7 +358,7 @@ private fun mediaItem(url: String, hls: Boolean): MediaItem =
 /** Audio and subtitle choice for the film player (hold OK, or the Menu key). */
 @OptIn(UnstableApi::class)
 @Composable
-private fun TrackPicker(player: ExoPlayer, onClose: () -> Unit, modifier: Modifier) {
+private fun TrackPicker(player: ExoPlayer, onSwitchPlayer: (() -> Unit)?, onClose: () -> Unit, modifier: Modifier) {
     val first = remember { FocusRequester() }
     LaunchedEffect(Unit) { awaitFrame(); runCatching { first.requestFocus() } }
     val groups = player.currentTracks.groups
@@ -391,6 +393,10 @@ private fun TrackPicker(player: ExoPlayer, onClose: () -> Unit, modifier: Modifi
                 })
             }
         }
+        if (onSwitchPlayer != null) {
+            add(Choice("Player") {})
+            add(Choice("   Switch to mpv (carries on from here)") { onSwitchPlayer() })
+        }
     }
     androidx.compose.foundation.lazy.LazyColumn(
         modifier.fillMaxHeight().width(380.dp).background(io.github.petebutty.viewarr.ui.theme.AppColors.Panel.copy(alpha = 0.95f)).padding(20.dp).trapFocus().then(Modifier.ignoreHeldOk()),
@@ -398,7 +404,7 @@ private fun TrackPicker(player: ExoPlayer, onClose: () -> Unit, modifier: Modifi
     ) {
         var firstSet = false
         choices.forEachIndexed { idx, c ->
-            val header = c.label == "Audio" || c.label == "Subtitles"
+            val header = c.label == "Audio" || c.label == "Subtitles" || c.label == "Player"
             item(key = idx) {
                 if (header) Text(c.label, fontSize = 13.sp, color = io.github.petebutty.viewarr.ui.theme.AppColors.Accent, modifier = Modifier.padding(top = 10.dp, start = 12.dp))
                 else {

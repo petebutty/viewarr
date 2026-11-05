@@ -55,6 +55,8 @@ data class VodStream(
     val watch: WatchTarget? = null,
     /** The server's own seek-bar previews, when it made them (else the box takes its own; see SeekThumbs). */
     val thumbs: ThumbSource? = null,
+    /** Start exactly here, whatever the resume setting (e.g. after switching player mid-film). */
+    val startMs: Long? = null,
 )
 
 /** Where a server keeps its seek-bar preview pictures. */

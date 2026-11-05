@@ -80,6 +80,8 @@ fun MpvPlayer(
     stream: VodStream,
     onClose: () -> Unit,
     onProgress: (state: String, positionMs: Long, durationMs: Long) -> Unit = { _, _, _ -> },
+    /** Hold-OK menu → "Switch to the built-in player": carry on there from this position. */
+    onSwitchPlayer: ((positionMs: Long) -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val settings = LocalPlayback.current
@@ -367,7 +369,7 @@ fun MpvPlayer(
         error?.let {
             Text(it, fontSize = 18.sp, color = Color.White, modifier = Modifier.align(Alignment.Center).background(Color.Black.copy(alpha = 0.7f)).padding(20.dp))
         }
-        if (tracksOpen) MpvTrackPicker(mpv, onClose = { tracksOpen = false; runCatching { focus.requestFocus() } }, modifier = Modifier.align(Alignment.CenterEnd))
+        if (tracksOpen) MpvTrackPicker(mpv, onSwitchPlayer = onSwitchPlayer?.let { f -> { f((position * 1000).toLong()) } }, onClose = { tracksOpen = false; runCatching { focus.requestFocus() } }, modifier = Modifier.align(Alignment.CenterEnd))
     }
 }
 
@@ -456,7 +458,7 @@ private fun configure(mpv: MpvHandle, context: android.content.Context, stream: 
     opt("sub-fonts-dir", "/system/fonts")
     opt("sub-font", "Roboto")
     // Resume point
-    val start = if (s.resume == ResumeMode.Start) 0 else stream.resumeMs / 1000
+    val start = (stream.startMs ?: if (s.resume == ResumeMode.Start) 0L else stream.resumeMs) / 1000
     if (start > 0) opt("start", start.toString())
 }
 
@@ -487,7 +489,7 @@ private fun iso3(code: String) = runCatching { java.util.Locale(code).isO3Langua
 
 /** Audio and subtitle tracks from mpv's track-list. */
 @Composable
-private fun MpvTrackPicker(mpv: MpvHandle, onClose: () -> Unit, modifier: Modifier) {
+private fun MpvTrackPicker(mpv: MpvHandle, onSwitchPlayer: (() -> Unit)?, onClose: () -> Unit, modifier: Modifier) {
     data class Track(val type: String, val id: Int, val label: String, val selected: Boolean)
     val tracks = remember {
         val n = mpv.getPropertyInt("track-list/count") ?: 0
@@ -527,6 +529,10 @@ private fun MpvTrackPicker(mpv: MpvHandle, onClose: () -> Unit, modifier: Modifi
         tracks.filter { it.type == "sub" }.forEach { t ->
             item { MenuItem(text = (if (t.selected) "✓ " else "   ") + t.label, selected = false, onClick = { mpv.setPropertyInt("sid", t.id); onClose() }) }
         }
+        if (onSwitchPlayer != null) {
+            item { Text("Player", fontSize = 13.sp, color = AppColors.Accent, modifier = Modifier.padding(start = 12.dp, top = 12.dp, bottom = 4.dp)) }
+            item { MenuItem(text = "   Switch to the built-in player (carries on from here)", selected = false, onClick = { onSwitchPlayer() }) }
+        }
     }
 }
 
@@ -537,8 +543,19 @@ fun PlayerHost(
     onClose: () -> Unit,
     onProgress: (state: String, positionMs: Long, durationMs: Long) -> Unit = { _, _, _ -> },
 ) {
-    when (LocalPlayback.current.engine) {
-        io.github.petebutty.viewarr.data.settings.PlayerEngine.Mpv -> MpvPlayer(stream, onClose, onProgress)
-        io.github.petebutty.viewarr.data.settings.PlayerEngine.Builtin -> VodPlayer(stream, onClose, onProgress)
+    // The engine from Settings, swappable for this film from the hold-OK menu (picks up at the same moment).
+    val default = LocalPlayback.current.engine
+    var engine by remember(stream) { mutableStateOf(default) }
+    var current by remember(stream) { mutableStateOf(stream) }
+    val switch: (Long) -> Unit = { pos ->
+        current = current.copy(startMs = pos)
+        engine = if (engine == io.github.petebutty.viewarr.data.settings.PlayerEngine.Mpv) io.github.petebutty.viewarr.data.settings.PlayerEngine.Builtin
+        else io.github.petebutty.viewarr.data.settings.PlayerEngine.Mpv
+    }
+    androidx.compose.runtime.key(engine) {
+        when (engine) {
+            io.github.petebutty.viewarr.data.settings.PlayerEngine.Mpv -> MpvPlayer(current, onClose, onProgress, switch)
+            io.github.petebutty.viewarr.data.settings.PlayerEngine.Builtin -> VodPlayer(current, onClose, onProgress, switch)
+        }
     }
 }
