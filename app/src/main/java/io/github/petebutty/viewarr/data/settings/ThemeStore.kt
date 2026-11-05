@@ -26,6 +26,7 @@ class ThemeStore @Inject constructor(@ApplicationContext private val context: Co
             highlight = prefs[HIGHLIGHT]?.let { Color(it) } ?: ThemePresets[0].highlight,
             transparency = prefs[TRANSPARENCY] ?: 0f,
             showNumbers = prefs[NUMBERS] ?: true,
+            squareCorners = prefs[SQUARE] ?: false,
         )
     }
 
@@ -40,12 +41,17 @@ class ThemeStore @Inject constructor(@ApplicationContext private val context: Co
         context.appearanceStore.edit { it[TRANSPARENCY] = value }
     }
 
+    suspend fun saveSquareCorners(on: Boolean) {
+        context.appearanceStore.edit { it[SQUARE] = on }
+    }
+
     suspend fun saveShowNumbers(on: Boolean) {
         context.appearanceStore.edit { it[NUMBERS] = on }
     }
 
     private companion object {
         val NUMBERS = androidx.datastore.preferences.core.booleanPreferencesKey("show_numbers")
+        val SQUARE = androidx.datastore.preferences.core.booleanPreferencesKey("square_corners")
         val MAIN = intPreferencesKey("main")
         val HIGHLIGHT = intPreferencesKey("highlight")
         val TRANSPARENCY = floatPreferencesKey("menu_transparency")

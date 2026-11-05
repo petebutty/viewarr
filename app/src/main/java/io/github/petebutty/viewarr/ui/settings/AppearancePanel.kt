@@ -60,6 +60,10 @@ class AppearanceViewModel @Inject constructor(private val store: ThemeStore) : V
         viewModelScope.launch { store.save(main, highlight) }
     }
 
+    fun setSquareCorners(on: Boolean) {
+        viewModelScope.launch { store.saveSquareCorners(on) }
+    }
+
     fun setShowNumbers(on: Boolean) {
         viewModelScope.launch { store.saveShowNumbers(on) }
     }
@@ -86,6 +90,7 @@ fun AppearanceSettingsScreen(onBack: () -> Unit, vm: AppearanceViewModel = hiltV
     val mains = MainColourChoices.mapIndexed { i, c -> Choice(MainColourNames.getOrElse(i) { "Colour ${i + 1}" }, c) }
     val highs = HighlightChoices.mapIndexed { i, c -> Choice(HighlightNames.getOrElse(i) { "Colour ${i + 1}" }, c) }
     val onOff = listOf(Choice("On", true), Choice("Off", false))
+    val corners = listOf(Choice("Rounded", false), Choice("Square", true))
     val transparencies = (0..70 step 10).map { Choice(if (it == 0) "Solid" else "$it%", it) }
     val currentT = ((palette.transparency * 100).roundToInt() / 10 * 10).coerceIn(0, 70)
     val categories = listOf(
@@ -113,6 +118,8 @@ fun AppearanceSettingsScreen(onBack: () -> Unit, vm: AppearanceViewModel = hiltV
             listOf(
                 SettingItem("Channel numbers", "Show each channel's number next to its name.", onOff,
                     if (palette.showNumbers) onOff[0] else onOff[1]) { c -> vm.setShowNumbers((c as Choice).value == true) },
+                SettingItem("Corners", "Rounded or square corners on the guide's programmes and channel names.", corners,
+                    if (palette.squareCorners) corners[1] else corners[0]) { c -> vm.setSquareCorners((c as Choice).value == true) },
             ),
         ),
     )

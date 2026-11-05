@@ -1,5 +1,7 @@
 package io.github.petebutty.viewarr.ui.media
 
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.stateIn
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.petebutty.viewarr.data.accounts.AccountStore
@@ -57,6 +59,7 @@ class MediaViewModel @Inject constructor(
     /** YouTube trailers: the poster preview window and the title page's Trailer button. */
     val trailers: io.github.petebutty.viewarr.data.trailers.TrailerRepository,
     @dagger.hilt.android.qualifiers.ApplicationContext private val appContext: android.content.Context,
+    private val rowLayouts: io.github.petebutty.viewarr.data.settings.RowLayoutStore,
 ) : ViewModel() {
 
     /** "Next episode in 10 s" after an episode ends (Settings → Playback → Play next episode). */
@@ -96,7 +99,34 @@ class MediaViewModel @Inject constructor(
     private suspend fun autoPick() = playbackStore.current().streamPick == io.github.petebutty.viewarr.data.settings.StreamPick.Auto
 
     private val _rows = MutableStateFlow(RowsState(emptyList(), done = false))
-    val rows = _rows.asStateFlow()
+    /** Films / Shows: Settings → Home rows decides order and which are shown. Search results are left alone. */
+    private val layoutType = MutableStateFlow<MediaType?>(null)
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    private val layout = layoutType.flatMapLatest { t -> if (t == null) kotlinx.coroutines.flow.flowOf(null) else rowLayouts.layout(t) }
+    val rows: kotlinx.coroutines.flow.StateFlow<RowsState> = kotlinx.coroutines.flow.combine(_rows, layout) { r, l ->
+        if (l == null) r else r.copy(rows = l.visible(r.rows))
+    }.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, RowsState(emptyList(), done = false))
+    /** Every row in the chosen order with whether it's hidden, for Settings → Home rows. */
+    val editableRows: kotlinx.coroutines.flow.StateFlow<Pair<List<Pair<io.github.petebutty.viewarr.data.media.MediaRow, Boolean>>, Boolean>> =
+        kotlinx.coroutines.flow.combine(_rows, layout) { r, l ->
+            val lay = l ?: io.github.petebutty.viewarr.data.settings.RowLayout()
+            lay.ordered(r.rows).map { it to (it.id in lay.hidden) } to r.done
+        }.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, emptyList<Pair<io.github.petebutty.viewarr.data.media.MediaRow, Boolean>>() to false)
+
+    fun setRowHidden(id: String, hidden: Boolean) {
+        val t = layoutType.value ?: return
+        viewModelScope.launch { rowLayouts.setHidden(t, id, hidden) }
+    }
+
+    fun setRowOrder(ids: List<String>) {
+        val t = layoutType.value ?: return
+        viewModelScope.launch { rowLayouts.setOrder(t, ids) }
+    }
+
+    fun resetRows() {
+        val t = layoutType.value ?: return
+        viewModelScope.launch { rowLayouts.reset(t) }
+    }
     private val _detail = MutableStateFlow<DetailUi?>(null)
     val detail = _detail.asStateFlow()
     private val _playing = MutableStateFlow<io.github.petebutty.viewarr.data.media.VodStream?>(null)
@@ -126,6 +156,7 @@ class MediaViewModel @Inject constructor(
         if (q == lastQuery && q.isNotEmpty()) return
         lastQuery = q
         loaded = null
+        layoutType.value = null
         rowsJob?.cancel()
         if (q.length < 2) {
             _rows.value = RowsState(emptyList(), done = true)
@@ -152,6 +183,7 @@ class MediaViewModel @Inject constructor(
     fun load(type: MediaType, force: Boolean = false) {
         if (!force && loaded == type) return
         loaded = type
+        layoutType.value = type
         rowsJob?.cancel()
         _rows.value = RowsState(emptyList(), done = false)
         rowsJob = viewModelScope.launch { repo.rows(type).collect { _rows.value = it } }

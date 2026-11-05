@@ -597,6 +597,8 @@ private fun MenuOverlay(
         mutableStateOf(when (page) { Page.Tv -> Section.Tv; Page.Movies -> Section.Movies; Page.Shows -> Section.Shows; Page.Recordings -> Section.Recordings; Page.Search -> Section.Search })
     }
     var showAppearance by remember { mutableStateOf(false) }
+    var showHomeRows by remember { mutableStateOf(false) }
+    val homeRowsItem = remember { FocusRequester() }
     var showRemote by remember { mutableStateOf(false) }
     var showPlayback by remember { mutableStateOf(false) }
     val playbackItem = remember { FocusRequester() }
@@ -621,16 +623,13 @@ private fun MenuOverlay(
     val navFocus = remember { Section.entries.associateWith { FocusRequester() } }
     val settingsFirst = remember { FocusRequester() }
     val groupsFocus = remember { FocusRequester() }
-    val catalogueFocus = remember { FocusRequester() }
     // The menu opens on its own list (TV, Movies, …); OK or Right then goes into the highlighted entry.
     LaunchedEffect(Unit) {
         awaitFrame()
         awaitFrame()
-        // From Movies/Shows the menu opens on that page's catalogue list; Left from there reaches the main list.
         runCatching {
             when {
                 remote.menuOpensOn != MenuOpensOn.PageList -> navFocus.getValue(section).requestFocus()
-                page == Page.Movies || page == Page.Shows -> catalogueFocus.requestFocus()
                 // From the guide: the channel groups (on the group being shown); Left again reaches the main list.
                 page == Page.Tv && session != null -> groupsFocus.requestFocus()
                 else -> navFocus.getValue(section).requestFocus()
@@ -641,7 +640,8 @@ private fun MenuOverlay(
         when (s) {
             Section.Tv -> runCatching { groupsFocus.requestFocus() }
             Section.Settings -> runCatching { settingsFirst.requestFocus() }
-            Section.Movies, Section.Shows -> runCatching { catalogueFocus.requestFocus() }
+            Section.Movies -> onOpenPage(Page.Movies)
+            Section.Shows -> onOpenPage(Page.Shows)
             Section.Recordings -> onOpenPage(Page.Recordings)
             Section.Search -> onOpenPage(Page.Search)
             else -> Unit
@@ -695,7 +695,7 @@ private fun MenuOverlay(
                         .onFocusChanged { if (it.isFocused) section = s }
                         .onPreviewKeyEvent { e ->
                             // Right does the same as OK: open what's inside this entry.
-                            if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionRight && !(s == Section.Settings && (showAppearance || showRemote || showPlayback || showAddons || showUpdates))) {
+                            if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionRight && !(s == Section.Settings && (showAppearance || showRemote || showPlayback || showAddons || showUpdates || showHomeRows))) {
                                 enter(s)
                                 true
                             } else false
@@ -714,8 +714,8 @@ private fun MenuOverlay(
                     if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                     when {
                         // Left goes back to this section's menu entry, not whichever one is geometrically closest.
-                        e.key == Key.DirectionLeft && (section == Section.Tv || section == Section.Movies || section == Section.Shows ||
-                            (section == Section.Settings && !showAppearance && !showRemote && !showPlayback && !showAddons && !showUpdates)) -> {
+                        e.key == Key.DirectionLeft && (section == Section.Tv ||
+                            (section == Section.Settings && !showAppearance && !showRemote && !showPlayback && !showAddons && !showUpdates && !showHomeRows)) -> {
                             runCatching { navFocus.getValue(section).requestFocus() }
                             true
                         }
@@ -765,6 +765,11 @@ private fun MenuOverlay(
                         runCatching { navFocus.getValue(Section.Settings).requestFocus() }
                         showAppearance = true
                     },
+                    homeRowsItem = homeRowsItem,
+                    onHomeRows = {
+                        runCatching { navFocus.getValue(Section.Settings).requestFocus() }
+                        showHomeRows = true
+                    },
                     onAccounts = onAccounts,
                     onRefresh = {
                         vm.refresh()
@@ -784,10 +789,11 @@ private fun MenuOverlay(
                     color = AppColors.TextSecondary,
                     modifier = Modifier.padding(12.dp),
                 )
-                Section.Movies, Section.Shows -> CatalogueList(
-                    type = if (section == Section.Movies) MediaType.Movie else MediaType.Show,
-                    focusRequester = catalogueFocus,
-                    onPick = { onOpenPage(if (section == Section.Movies) Page.Movies else Page.Shows) },
+                Section.Movies, Section.Shows -> Text(
+                    "Press OK to open ${if (section == Section.Movies) "films" else "shows"}. Choose and order the rows in Settings → Home rows.",
+                    fontSize = 15.sp,
+                    color = AppColors.TextSecondary,
+                    modifier = Modifier.padding(12.dp),
                 )
                 else -> Text(
                     "${section.label} is coming in a later update.",
@@ -814,6 +820,13 @@ private fun MenuOverlay(
             runCatching { appearanceItem.requestFocus() }
             showAppearance = false
             returnTo = appearanceItem
+        })
+    }
+    if (showHomeRows) {
+        io.github.petebutty.viewarr.ui.settings.HomeRowsSettingsScreen(onBack = {
+            runCatching { homeRowsItem.requestFocus() }
+            showHomeRows = false
+            returnTo = homeRowsItem
         })
     }
     if (showRemote) {
@@ -884,7 +897,7 @@ private fun Modifier.rightDoes(action: () -> Unit): Modifier = onPreviewKeyEvent
 private fun Modifier.rightIgnored(): Modifier = onPreviewKeyEvent { e -> e.key == Key.DirectionRight }
 
 @Composable
-private fun SettingsPanel(playbackItem: FocusRequester, onPlayback: () -> Unit, addonsItem: FocusRequester, onAddons: () -> Unit, remoteItem: FocusRequester, onRemote: () -> Unit, updatesItem: FocusRequester, onUpdates: () -> Unit, session: Session?, sync: SyncState, firstItem: FocusRequester, appearanceItem: FocusRequester, onAppearance: () -> Unit, onAccounts: () -> Unit, onRefresh: () -> Unit, onSignOut: () -> Unit) {
+private fun SettingsPanel(playbackItem: FocusRequester, onPlayback: () -> Unit, addonsItem: FocusRequester, onAddons: () -> Unit, remoteItem: FocusRequester, onRemote: () -> Unit, updatesItem: FocusRequester, onUpdates: () -> Unit, session: Session?, sync: SyncState, firstItem: FocusRequester, appearanceItem: FocusRequester, onAppearance: () -> Unit, homeRowsItem: FocusRequester, onHomeRows: () -> Unit, onAccounts: () -> Unit, onRefresh: () -> Unit, onSignOut: () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(session?.let { "Signed in as ${it.username}" } ?: "Live TV not set up", fontSize = 15.sp, color = AppColors.TextPrimary, modifier = Modifier.padding(horizontal = 12.dp))
         session?.let { Text(it.serverUrl, fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(horizontal = 12.dp)) }
@@ -898,6 +911,7 @@ private fun SettingsPanel(playbackItem: FocusRequester, onPlayback: () -> Unit, 
         Spacer(Modifier.height(12.dp))
         MenuItem(text = "Accounts & sources", selected = false, onClick = onAccounts, modifier = Modifier.focusRequester(firstItem).rightDoes(onAccounts))
         MenuItem(text = "Appearance", selected = false, onClick = onAppearance, modifier = Modifier.focusRequester(appearanceItem).rightDoes(onAppearance))
+        MenuItem(text = "Home rows", selected = false, onClick = onHomeRows, modifier = Modifier.focusRequester(homeRowsItem).rightDoes(onHomeRows))
         MenuItem(text = "Playback", selected = false, onClick = onPlayback, modifier = Modifier.focusRequester(playbackItem).rightDoes(onPlayback))
         MenuItem(text = "Addons", selected = false, onClick = onAddons, modifier = Modifier.focusRequester(addonsItem).rightDoes(onAddons))
         MenuItem(text = "Remote & navigation", selected = false, onClick = onRemote, modifier = Modifier.focusRequester(remoteItem).rightDoes(onRemote))
@@ -916,53 +930,6 @@ private fun SettingsPanel(playbackItem: FocusRequester, onPlayback: () -> Unit, 
             onClick = { if (confirmUntil != 0L) onSignOut() else confirmUntil = System.currentTimeMillis() },
             modifier = Modifier.rightIgnored(),
         )
-    }
-}
-
-/** The Movies / Shows catalogues (the rows on that page), so you can jump straight to one from the menu. */
-@Composable
-private fun CatalogueList(type: MediaType, focusRequester: FocusRequester, onPick: () -> Unit) {
-    // Same instance as the page's (same key, same owner), so the rows are shared and load once.
-    val media: MediaViewModel = hiltViewModel(key = "media-${type.name}")
-    LaunchedEffect(type) { media.load(type) }
-    val state by media.rows.collectAsStateWithLifecycle()
-    val current by media.currentRow.collectAsStateWithLifecycle()
-    // Focus lands on the row you were last on (highlighted), or on Home.
-    val currentIndex = state.rows.indexOfFirst { it.id == current }
-    val listState = rememberLazyListState(initialFirstVisibleItemIndex = maxOf(0, currentIndex + 1 - 3))
-    LazyColumn(state = listState, verticalArrangement = Arrangement.spacedBy(1.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
-        item(key = "home") {
-            MenuItem(
-                text = if (type == MediaType.Movie) "Movies home" else "Shows home",
-                selected = false,
-                modifier = (if (currentIndex < 0) Modifier.focusRequester(focusRequester) else Modifier).rightDoes {
-                    media.jumpTo(null)
-                    onPick()
-                },
-                onClick = {
-                    media.jumpTo(null)
-                    onPick()
-                },
-            )
-        }
-        items(state.rows, key = { it.id }) { row ->
-            MenuItem(
-                text = row.title,
-                selected = row.id == current,
-                modifier = (if (row.id == current) Modifier.focusRequester(focusRequester) else Modifier).rightDoes {
-                    media.jumpTo(row.id)
-                    onPick()
-                },
-                trailing = row.items.size.toString(),
-                onClick = {
-                    media.jumpTo(row.id)
-                    onPick()
-                },
-            )
-        }
-        if (!state.done) item(key = "loading") {
-            Text("Loading…", fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(12.dp))
-        }
     }
 }
 

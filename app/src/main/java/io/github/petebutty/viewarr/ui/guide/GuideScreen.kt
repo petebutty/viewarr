@@ -402,7 +402,7 @@ private fun GuideRow(
                 .width(ChannelColumn)
                 .fillMaxHeight()
                 .padding(end = 4.dp)
-                .background(if (selected) AppColors.RowSelected else AppColors.CellFuture.copy(alpha = 0.55f), RoundedCornerShape(6.dp))
+                .background(if (selected) AppColors.RowSelected else AppColors.CellFuture.copy(alpha = 0.55f), RoundedCornerShape(if (AppColors.palette.squareCorners) 0.dp else 6.dp))
                 .padding(end = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Start,
@@ -439,11 +439,12 @@ private fun GuideRow(
         val onAccent = AppColors.OnAccent
         val accent = AppColors.Accent
         val iconColor = AppColors.TextSecondary
+        val square = AppColors.palette.squareCorners
         Canvas(Modifier.weight(1f).fillMaxHeight()) {
             val pxPerMs = size.width / GuideViewModel.VISIBLE_MS
             val gap = 2.dp.toPx()
             val pad = 8.dp.toPx()
-            val radius = CornerRadius(6.dp.toPx())
+            val radius = if (square) CornerRadius.Zero else CornerRadius(6.dp.toPx())
             val outline = androidx.compose.ui.graphics.drawscope.Stroke(1.dp.toPx())
             val ordered = if (focusedRowId == null) programs else programs.sortedBy { it.rowId == focusedRowId }
             for (p in ordered) {
