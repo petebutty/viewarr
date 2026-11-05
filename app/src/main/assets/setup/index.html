@@ -1,0 +1,388 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="referrer" content="no-referrer">
+<title>Viewarr setup</title>
+<style>
+:root{--bg:#141d4f;--panel:#1f2b6e;--line:#34459a;--text:#fff;--muted:#bfc6da;--accent:#22c7e8;--accent-ink:#06222b;--ok:#4ade80;--err:#ff8a8a}
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--text);-webkit-text-size-adjust:100%}
+main{max-width:520px;margin:0 auto;padding:20px 16px 40px}
+header{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px}
+.brand{font-weight:700;color:var(--accent);letter-spacing:.2px}
+.progress{font-size:13px;color:var(--muted)}
+.bar{height:4px;background:var(--panel);border-radius:2px;margin:-8px 0 22px;overflow:hidden}
+.bar i{display:block;height:100%;background:var(--accent);width:0;transition:width .25s}
+h1{font-size:24px;line-height:1.2;margin:0 0 8px}
+p{color:var(--muted);margin:0 0 18px;font-size:15px;line-height:1.45}
+p a{color:var(--accent)}
+label.f{display:block;font-size:13px;color:var(--muted);margin:16px 0 6px}
+input[type=text],input[type=url],input[type=password],textarea{width:100%;font:inherit;font-size:16px;padding:13px 12px;border-radius:10px;border:1px solid var(--line);background:var(--panel);color:var(--text)}
+textarea{min-height:96px;resize:vertical}
+input:focus,textarea:focus{outline:2px solid var(--accent);outline-offset:1px}
+.choice{display:flex;gap:12px;align-items:flex-start;padding:14px;margin-bottom:8px;border-radius:12px;background:var(--panel);border:1px solid transparent;cursor:pointer}
+.choice.on{border-color:var(--accent)}
+.choice input{width:22px;height:22px;margin:2px 0 0;accent-color:var(--accent);flex:none}
+.choice b{display:block;font-size:16px}
+.choice span{display:block;font-size:13px;color:var(--muted);margin-top:3px;line-height:1.35}
+.choice em{font-style:normal;font-size:12px;color:var(--ok);display:block;margin-top:5px}
+.btns{display:flex;flex-direction:column;gap:10px;margin-top:24px}
+button{font:inherit;font-size:17px;padding:14px;border-radius:10px;border:0;font-weight:600;cursor:pointer}
+button.primary{background:var(--accent);color:var(--accent-ink)}
+button.ghost{background:transparent;color:var(--muted);border:1px solid var(--line)}
+button:disabled{opacity:.55}
+.msg{margin-top:16px;font-size:15px;line-height:1.4;min-height:1px}
+.msg.err{color:var(--err)}.msg.ok{color:var(--ok)}
+.code{font:700 38px/1 ui-monospace,Menlo,Consolas,monospace;letter-spacing:4px;text-align:center;background:var(--panel);border-radius:12px;padding:18px 10px;margin:6px 0 12px;user-select:all}
+a.link{display:block;text-align:center;background:var(--accent);color:var(--accent-ink);text-decoration:none;font-weight:600;padding:14px;border-radius:10px;font-size:17px}
+.row{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 14px;background:var(--panel);border-radius:10px;margin-bottom:8px;font-size:15px}
+.row small{color:var(--muted)}
+.row button{font-size:14px;padding:8px 12px;background:transparent;color:var(--err);border:1px solid var(--line)}
+.wait{display:flex;gap:10px;align-items:center;color:var(--muted);font-size:14px;margin-top:14px}
+.spin{width:16px;height:16px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:s 1s linear infinite}
+@keyframes s{to{transform:rotate(360deg)}}
+ol.how{margin:0 0 18px;padding-left:22px;color:var(--muted);font-size:15px;line-height:1.5}ol.how li{margin-bottom:6px}ol.how b{color:var(--text)}
+.tabs{display:flex;gap:6px;background:var(--panel);padding:4px;border-radius:12px;margin-bottom:6px}
+.tabs button{flex:1;font-size:15px;padding:10px;background:transparent;color:var(--muted)}
+.tabs button.on{background:var(--accent);color:var(--accent-ink)}
+.note{font-size:13px;color:var(--muted);margin-top:8px;line-height:1.4}
+a.link.alt{background:transparent;border:1px solid var(--line);color:var(--text);margin-top:10px}
+.sum .row b{font-weight:600}.sum .row small{color:var(--ok);text-align:right}
+</style>
+</head>
+<body>
+<main>
+  <header><span class="brand">Viewarr</span><span class="progress" id="progress"></span></header>
+  <div class="bar"><i id="bar"></i></div>
+  <div id="view"><p>Connecting to your TV…</p></div>
+</main>
+<script src="/__TOKEN__/crypto.js"></script>
+<script>
+(() => {
+  const token = location.pathname.split('/').filter(Boolean)[0] || '';
+  const tvKey = location.hash.slice(1);
+  const view = document.getElementById('view');
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+  let items = [];           // [{id,label,desc,status}]
+  let chosen = [];          // ids picked on the first screen
+  let pos = -1;             // index into chosen; -1 = choose screen
+  let poll = null;
+
+  async function api(action, values = {}) {
+    if (!tvKey) throw new Error('This link is missing its key. Scan the QR code on the TV again.');
+    const body = window.viewarrSeal(tvKey, token, JSON.stringify({ action, values }));
+    let r;
+    try { r = await fetch('/' + token + '/api', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body }); }
+    catch (e) { throw new Error("Can't reach the TV. Make sure your phone is on the same Wi-Fi, and the setup screen is still open on the TV."); }
+    if (!r.ok) throw new Error('The TV closed this setup link. Scan the QR code on the TV again.');
+    return r.json();
+  }
+
+  function stopPoll() { if (poll) { clearTimeout(poll); poll = null; } }
+
+  function progress() {
+    const total = chosen.length + 1;
+    const step = pos < 0 ? 0 : Math.min(pos + 1, total);
+    document.getElementById('progress').textContent = pos < 0 ? '' : (pos >= chosen.length ? 'Done' : `Step ${step} of ${chosen.length}`);
+    document.getElementById('bar').style.width = (pos < 0 ? 4 : Math.round((step / total) * 100)) + '%';
+  }
+
+  function render(html) { stopPoll(); view.innerHTML = html; progress(); window.scrollTo(0, 0); }
+  function msg(text, kind) { const m = view.querySelector('.msg'); if (m) { m.textContent = text || ''; m.className = 'msg ' + (kind || ''); } }
+  function busy(btn, on, label) { if (!btn) return; if (on) { btn.dataset.l = btn.textContent; btn.textContent = label || 'Checking…'; } else if (btn.dataset.l) btn.textContent = btn.dataset.l; btn.disabled = on; }
+  const item = (id) => items.find((i) => i.id === id) || {};
+  const val = (id) => (view.querySelector('#' + id)?.value || '').trim();
+  function copy(text, btn) {
+    const done = () => { const l = btn.textContent; btn.textContent = 'Copied'; setTimeout(() => { btn.textContent = l; }, 1500); };
+    // navigator.clipboard needs https; this page is plain http on your LAN, so fall back to execCommand.
+    if (navigator.clipboard && window.isSecureContext) { navigator.clipboard.writeText(text).then(done).catch(() => {}); return; }
+    const t = document.createElement('textarea'); t.value = text; t.setAttribute('readonly', ''); t.style.position = 'fixed'; t.style.opacity = '0';
+    document.body.appendChild(t); t.select(); try { document.execCommand('copy'); done(); } catch (e) {} t.remove();
+  }
+  // Polls a TV-side sign-in (Trakt, Plex, Jellyfin Quick Connect) until it finishes.
+  function watch(action, box) {
+    const tick = async () => {
+      let s;
+      try { s = await api(action); } catch (e) { msg(e.message, 'err'); poll = setTimeout(tick, 5000); return; }
+      if (s.state === 'done') { box.innerHTML = ''; return saved({ ok: true, message: s.message }); }
+      if (s.state === 'failed') { box.innerHTML = ''; return msg(s.message, 'err'); }
+      if (s.state === 'choose') {
+        box.innerHTML = `<p>Which Plex server should Viewarr use?</p>${s.choices.map((c, i) => `<div class="row"><span><b>${esc(c.name)}</b><br><small>${esc(c.address)}</small></span><button data-i="${i}" style="color:var(--accent)">Use</button></div>`).join('')}`;
+        box.querySelectorAll('[data-i]').forEach((b) => b.addEventListener('click', async () => {
+          b.disabled = true;
+          try { await saved(await api('plex-pick', { index: b.dataset.i })); } catch (e) { msg(e.message, 'err'); b.disabled = false; }
+        }));
+        return;
+      }
+      poll = setTimeout(tick, 2500);
+    };
+    poll = setTimeout(tick, 2500);
+  }
+
+  async function refresh() { const s = await api('status'); items = s.items || []; return s; }
+
+  function next() { pos++; show(); }
+  function back() { pos = Math.max(-1, pos - 1); show(); }
+  const nav = (primary, opts = {}) => `<div class="btns">${primary || ''}${opts.skip === false ? '' : `<button class="ghost" data-a="skip">${opts.skipLabel || 'Skip'}</button>`}<button class="ghost" data-a="back">Back</button></div><div class="msg"></div>`;
+  function wireNav() {
+    view.querySelector('[data-a=skip]')?.addEventListener('click', next);
+    view.querySelector('[data-a=back]')?.addEventListener('click', back);
+  }
+  function form(onSubmit) {
+    const f = view.querySelector('form');
+    f.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = f.querySelector('button[type=submit]');
+      busy(btn, true); msg('');
+      try { await onSubmit(btn); } catch (err) { msg(err.message, 'err'); } finally { busy(btn, false); }
+    });
+  }
+  async function saved(r, text) {
+    if (!r.ok) { msg(r.message || 'That didn\'t work. Check and try again.', 'err'); return; }
+    msg(r.message || text || 'Saved.', 'ok');
+    await refresh().catch(() => {});
+    setTimeout(next, 900);
+  }
+
+  // ---------- screens ----------
+  function show() {
+    if (pos < 0) return chooseScreen();
+    if (pos >= chosen.length) return doneScreen();
+    ({ livetv: liveTv, tmdb: tmdb, trakt: () => linkScreen('trakt'), plex: () => linkScreen('plex'),
+       stremio: stremio, jellyfin: () => mediaServer('jellyfin'), emby: () => mediaServer('emby'), vod: vod })[chosen[pos]]();
+  }
+
+  function chooseScreen() {
+    const pre = chosen.length ? chosen : items.filter((i) => !i.status && (i.id === 'livetv' || i.id === 'tmdb')).map((i) => i.id);
+    render(`<h1>What do you want to set up?</h1>
+      <p>Tick everything you use, then tap Continue. Things already connected are marked; tick them only to change them.</p>
+      <div id="list">${items.map((i) => `
+        <label class="choice ${pre.includes(i.id) ? 'on' : ''}"><input type="checkbox" value="${i.id}" ${pre.includes(i.id) ? 'checked' : ''}>
+          <div><b>${esc(i.label)}</b><span>${esc(i.desc)}</span>${i.status ? `<em>✓ ${esc(i.status)}</em>` : ''}</div></label>`).join('')}</div>
+      <div class="btns"><button class="primary" id="go">Continue</button></div><div class="msg"></div>`);
+    const media = ['trakt', 'plex', 'stremio', 'jellyfin', 'emby', 'vod'];
+    view.querySelectorAll('.choice input').forEach((cb) => cb.addEventListener('change', () => {
+      cb.closest('.choice').classList.toggle('on', cb.checked);
+      // Movies & Shows are built on TMDB: picking a film/TV source brings it along unless it's already connected.
+      if (cb.checked && media.includes(cb.value) && !item('tmdb').status) {
+        const t = view.querySelector('.choice input[value=tmdb]');
+        if (t && !t.checked) { t.checked = true; t.closest('.choice').classList.add('on'); }
+      }
+    }));
+    view.querySelector('#go').addEventListener('click', () => {
+      const picked = [...view.querySelectorAll('.choice input:checked')].map((c) => c.value);
+      chosen = items.map((i) => i.id).filter((id) => picked.includes(id));
+      pos = 0; show();
+    });
+  }
+
+  function liveTv() {
+    render(`<h1>Live TV</h1>
+      <p>Connect to Dispatcharr, the server your channels, guide and catch-up come from.</p>
+      <form autocomplete="off" novalidate>
+        <label class="f" for="server">Dispatcharr address</label><input type="text" id="server" inputmode="url" placeholder="192.168.1.50:9191" autocapitalize="off" spellcheck="false">
+        <div class="note">The address you open Dispatcharr at in a browser. If you leave out the port, 9191 is tried.</div>
+        <label class="f">Sign in with</label>
+        <div class="tabs"><button type="button" data-t="pw" class="on">Username &amp; password</button><button type="button" data-t="key">API key</button></div>
+        <div id="pw">
+          <label class="f" for="user">Username</label><input type="text" id="user" autocapitalize="off" spellcheck="false">
+          <label class="f" for="pass">Password</label><input type="password" id="pass">
+          <div class="note">Your Dispatcharr login. It needs to be a Standard or Admin user; Streamer accounts only work in player apps. The password isn't stored on the TV.</div>
+        </div>
+        <div id="key" hidden>
+          <ol class="how">
+            <li>Open Dispatcharr in a browser and sign in.</li>
+            <li>Go to <b>Users</b> and edit your user (or open your profile).</li>
+            <li>Next to <b>API Key</b>, tap the <b>copy</b> button.</li>
+            <li>Paste it below.</li>
+          </ol>
+          <div class="note">Don't press <b>Regenerate</b>: that would replace the key and sign out other apps that use it. If there's no key yet, <b>Generate API Key</b> is fine.</div>
+          <label class="f" for="apikey">API key</label><input type="text" id="apikey" autocapitalize="off" spellcheck="false">
+        </div>
+        ${nav('<button class="primary" type="submit">Connect</button>')}
+      </form>`);
+    wireNav();
+    let mode = 'pw';
+    view.querySelectorAll('[data-t]').forEach((b) => b.addEventListener('click', () => {
+      mode = b.dataset.t;
+      view.querySelectorAll('[data-t]').forEach((x) => x.classList.toggle('on', x === b));
+      view.querySelector('#pw').hidden = mode !== 'pw';
+      view.querySelector('#key').hidden = mode !== 'key';
+    }));
+    form(async (btn) => {
+      busy(btn, true, 'Connecting…');
+      const values = mode === 'key'
+        ? { server: val('server'), apiKey: val('apikey') }
+        : { server: val('server'), username: val('user'), password: view.querySelector('#pass').value };
+      if (mode === 'key' && !values.apiKey) return msg('Paste your API key.', 'err');
+      await saved(await api('livetv', values));
+    });
+  }
+
+  function tmdb() {
+    render(`<h1>TMDB</h1>
+      <p>TMDB supplies posters, descriptions and recommendations for Movies &amp; Shows. Its API key is free.</p>
+      <ol class="how">
+        <li>Tap the button below and sign in to TMDB (or create a free account).</li>
+        <li>If you haven't yet, tap <b>Create</b> / <b>Request an API key</b>, choose <b>Developer</b>, and fill in the short form (personal use is fine).</li>
+        <li>Copy the <b>API Key</b> or the longer <b>API Read Access Token</b>. Either works.</li>
+        <li>Come back here and paste it.</li>
+      </ol>
+      <a class="link" href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener">Open TMDB API page</a>
+      <form autocomplete="off" novalidate>
+        <label class="f" for="key">API key or read access token</label><input type="text" id="key" autocapitalize="off" spellcheck="false">
+        ${nav('<button class="primary" type="submit">Save</button>')}
+      </form>`);
+    wireNav();
+    form(async () => saved(await api('tmdb', { key: val('key') }), 'TMDB connected.'));
+  }
+
+  async function linkScreen(kind) {
+    const plex = kind === 'plex';
+    const name = plex ? 'Plex' : 'Trakt';
+    const intro = plex ? 'Sign in with your Plex account so Viewarr can play straight from your Plex server.'
+      : 'Trakt keeps your watchlist, history and continue-watching in sync with your other apps.';
+    render(`<h1>${name}</h1><p>${intro}</p><div id="link"><div class="wait"><div class="spin"></div>Getting ready…</div></div>${nav('')}`);
+    wireNav();
+    const box = view.querySelector('#link');
+    let r;
+    try { r = await api(kind + '-start'); } catch (e) { box.innerHTML = ''; return msg(e.message, 'err'); }
+    if (!r.ok) { box.innerHTML = ''; return msg(r.message, 'err'); }
+    if (plex) {
+      box.innerHTML = `<ol class="how"><li>Tap <b>Sign in with Plex</b>. Plex's own sign-in page opens.</li><li>Sign in and allow <b>Viewarr</b>.</li><li>Come back to this page. It carries on by itself.</li></ol>
+        <a class="link" href="${esc(r.url)}" target="_blank" rel="noopener">Sign in with Plex</a>
+        <div class="wait"><div class="spin"></div>Waiting for Plex…</div>`;
+    } else {
+      box.innerHTML = `<ol class="how"><li>Copy the code below.</li><li>Tap <b>Open Trakt</b>, sign in if asked, and paste the code.</li><li>Tap <b>Yes</b> to allow Viewarr, then come back here.</li></ol>
+        <div class="code">${esc(r.code)}</div>
+        <div class="btns" style="margin-top:0"><button class="ghost" id="cp" type="button">Copy code</button></div>
+        <a class="link" style="margin-top:10px" href="${esc(r.url)}" target="_blank" rel="noopener">Open Trakt</a>
+        <div class="wait"><div class="spin"></div>Waiting for you to approve…</div>`;
+      box.querySelector('#cp').addEventListener('click', (e) => copy(r.code, e.target));
+    }
+    watch(kind + '-status', box);
+  }
+
+  async function stremio() {
+    render(`<h1>Stremio addons</h1>
+      <p>Add your addons by their manifest link (the URL ending in <b>manifest.json</b>).</p>
+      <ol class="how">
+        <li>Open your addon's configure page. For AIOStreams that's your AIOStreams site → configure.</li>
+        <li>Save your settings, then use <b>Copy manifest URL</b> (or long-press the <b>Install</b> button and copy the link; <b>stremio://</b> links work too).</li>
+        <li>Paste it below. Add several at once, one per line.</li>
+      </ol>
+      <div id="addons"></div>
+      <form autocomplete="off" novalidate>
+        <label class="f" for="urls">Addon manifest URLs</label><textarea id="urls" placeholder="https://…/manifest.json" autocapitalize="off" spellcheck="false"></textarea>
+        <div class="btns"><button class="primary" type="submit">Add</button><button class="ghost" type="button" data-a="skip" id="cont">Skip</button><button class="ghost" type="button" data-a="back">Back</button></div><div class="msg"></div>
+      </form>`);
+    wireNav();
+    const list = (addons) => {
+      const c = view.querySelector('#cont'); if (c) c.textContent = (addons || []).length ? 'Continue' : 'Skip';
+      view.querySelector('#addons').innerHTML = (addons || []).map((a) => `<div class="row"><span>${esc(a.name)}</span><button data-u="${esc(a.baseUrl)}">Remove</button></div>`).join('');
+      view.querySelectorAll('[data-u]').forEach((b) => b.addEventListener('click', async () => {
+        b.disabled = true; list((await api('stremio-remove', { baseUrl: b.dataset.u })).addons);
+      }));
+    };
+    api('stremio-list').then((r) => list(r.addons)).catch((e) => msg(e.message, 'err'));
+    form(async () => {
+      const r = await api('stremio', { urls: view.querySelector('#urls').value });
+      list(r.addons);
+      if (r.ok) view.querySelector('#urls').value = '';
+      msg(r.message, r.ok ? 'ok' : 'err');
+      refresh().catch(() => {});
+    });
+  }
+
+  function mediaServer(kind) {
+    const emby = kind === 'emby';
+    const name = emby ? 'Emby' : 'Jellyfin';
+    render(`<h1>${name}</h1>
+      <p>Connect your ${name} server so Viewarr can play from it.</p>
+      <form autocomplete="off" novalidate>
+        <label class="f" for="server">Server address</label><input type="text" id="server" inputmode="url" placeholder="192.168.1.10:8096" autocapitalize="off" spellcheck="false">
+        <div class="note">The address you open ${name} at in a browser. If you leave out the port, 8096 is tried.</div>
+        ${emby ? '' : `<label class="f">Sign in with</label>
+        <div class="tabs"><button type="button" data-t="qc" class="on">Quick Connect</button><button type="button" data-t="pw">Password</button></div>
+        <div id="qc"><div class="note">No password needed: you approve Viewarr from Jellyfin, where you're already signed in.</div><div id="qcbox"></div></div>`}
+        <div id="pw" ${emby ? '' : 'hidden'}>
+          <label class="f" for="user">Username</label><input type="text" id="user" autocapitalize="off" spellcheck="false">
+          <label class="f" for="pass">Password</label><input type="password" id="pass">
+          ${emby ? '<div class="note">Emby has no sign-in-by-code for apps like this, so use your Emby username and password. It isn\'t stored on the TV; only a sign-in token is.</div>' : ''}
+        </div>
+        ${nav('<button class="primary" type="submit">' + (emby ? 'Sign in' : 'Get a Quick Connect code') + '</button>')}
+      </form>`);
+    wireNav();
+    let mode = emby ? 'pw' : 'qc';
+    const submitBtn = view.querySelector('button[type=submit]');
+    view.querySelectorAll('[data-t]').forEach((b) => b.addEventListener('click', () => {
+      mode = b.dataset.t; stopPoll();
+      view.querySelectorAll('[data-t]').forEach((x) => x.classList.toggle('on', x === b));
+      view.querySelector('#qc').hidden = mode !== 'qc';
+      view.querySelector('#pw').hidden = mode !== 'pw';
+      submitBtn.textContent = mode === 'qc' ? 'Get a Quick Connect code' : 'Sign in';
+    }));
+    form(async (btn) => {
+      if (mode === 'pw') {
+        busy(btn, true, 'Signing in…');
+        return saved(await api(kind, { server: val('server'), username: val('user'), password: view.querySelector('#pass').value }));
+      }
+      const box = view.querySelector('#qcbox');
+      const r = await api('jellyfin-qc', { server: val('server') });
+      if (!r.ok) return msg(r.message, 'err');
+      box.innerHTML = `<ol class="how" style="margin-top:14px"><li>Tap <b>Open Jellyfin</b> and sign in if asked.</li><li>On the <b>Quick Connect</b> page, enter this code and tap <b>Authorize</b>.</li><li>Come back here. It carries on by itself.</li></ol>
+        <div class="code">${esc(r.code)}</div>
+        <div class="btns" style="margin-top:0"><button class="ghost" id="cp" type="button">Copy code</button></div>
+        <a class="link" style="margin-top:10px" href="${esc(r.url)}" target="_blank" rel="noopener">Open Jellyfin</a>
+        <div class="note">If that page doesn't open: in the Jellyfin app, go to your profile → <b>Quick Connect</b>.</div>
+        <div class="wait"><div class="spin"></div>Waiting for you to authorize…</div>`;
+      box.querySelector('#cp').addEventListener('click', (e) => copy(r.code, e.target));
+      watch('jellyfin-qc-status', box);
+    });
+  }
+
+  async function vod() {
+    render(`<h1>Provider VOD</h1><p>Films and series from your IPTV provider, served through Dispatcharr.</p>
+      <div id="vod"><div class="wait"><div class="spin"></div>Checking your Dispatcharr server…</div></div>${nav('', { skipLabel: 'Skip' })}`);
+    wireNav();
+    const box = view.querySelector('#vod');
+    let r;
+    try { r = await api('vod-check'); } catch (e) { box.innerHTML = ''; return msg(e.message, 'err'); }
+    if (!r.ok) { box.innerHTML = ''; return msg(r.message, 'err'); }
+    if (!r.count) {
+      box.innerHTML = `<p>Your Dispatcharr server has no films or series from your provider, so there's nothing to add. If your provider adds VOD later, turn it on here.</p>`;
+      return;
+    }
+    box.innerHTML = `<p>Your server has ${r.count} films and series from your provider.</p><div class="btns"><button class="primary" id="on">Turn on</button><button class="ghost" id="off">Leave off</button></div>`;
+    box.querySelector('#on').addEventListener('click', async () => saved(await api('vod-set', { enabled: 'true' }), 'Provider VOD turned on.'));
+    box.querySelector('#off').addEventListener('click', async () => { await api('vod-set', { enabled: 'false' }); next(); });
+  }
+
+  async function doneScreen() {
+    render(`<h1>You're all set</h1><p>Here's what's connected. You can change any of it later in Settings → Accounts &amp; sources on the TV.</p><div class="sum" id="sum"></div>
+      <div class="btns"><button class="primary" id="finish">Finish on the TV</button><button class="ghost" id="more">Set up something else</button></div><div class="msg"></div>`);
+    try { await refresh(); } catch (e) { msg(e.message, 'err'); }
+    const done = items.filter((i) => i.status);
+    view.querySelector('#sum').innerHTML = done.length
+      ? done.map((i) => `<div class="row"><b>${esc(i.label)}</b><small>${esc(i.status)}</small></div>`).join('')
+      : '<p>Nothing connected yet.</p>';
+    view.querySelector('#more').addEventListener('click', () => { chosen = []; pos = -1; show(); });
+    view.querySelector('#finish').addEventListener('click', async (e) => {
+      busy(e.target, true, 'Finishing…');
+      try {
+        await api('finish');
+        render(`<h1>Done</h1><p>Your TV is ready. You can close this page.</p>`);
+        document.getElementById('progress').textContent = '';
+        document.getElementById('bar').style.width = '100%';
+      } catch (err) { msg(err.message, 'err'); busy(e.target, false); }
+    });
+  }
+
+  refresh().then(() => show()).catch((e) => { view.innerHTML = `<h1>Can't connect</h1><p>${esc(e.message)}</p>`; });
+})();
+</script>
+</body>
+</html>

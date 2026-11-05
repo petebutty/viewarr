@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="viewarr_bg">#080808</color>
+    <style name="Theme.Viewarr" parent="@android:style/Theme.DeviceDefault.NoActionBar">
+        <item name="android:windowBackground">@color/viewarr_bg</item>
+        <item name="android:statusBarColor">@color/viewarr_bg</item>
+    </style>
+</resources>

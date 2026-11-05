@@ -1,0 +1,670 @@
+package io.github.petebutty.viewarr.ui.media
+
+import io.github.petebutty.viewarr.ui.common.trapFocus
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.gestures.BringIntoViewSpec
+import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
+import androidx.compose.ui.platform.LocalDensity
+import io.github.petebutty.viewarr.data.settings.LocalRemote
+import io.github.petebutty.viewarr.data.settings.RowAlign
+import io.github.petebutty.viewarr.data.settings.RowLeft
+import io.github.petebutty.viewarr.data.settings.RowMemory
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.foundation.lazy.rememberLazyListState
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.tv.material3.Border
+import androidx.tv.material3.Button
+import androidx.tv.material3.ClickableSurfaceDefaults
+import androidx.tv.material3.OutlinedButton
+import androidx.tv.material3.Surface
+import androidx.tv.material3.Text
+import io.github.petebutty.viewarr.data.media.MediaItem
+import io.github.petebutty.viewarr.data.media.MediaRow
+import io.github.petebutty.viewarr.data.media.MediaType
+import io.github.petebutty.viewarr.data.media.StreamOption
+import io.github.petebutty.viewarr.ui.theme.AppColors
+import coil.compose.AsyncImage
+import kotlinx.coroutines.android.awaitFrame
+import kotlinx.coroutines.delay
+
+/** Movies or Shows: a hero for the focused title over Netflix-style poster rows. */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun MediaScreen(
+    type: MediaType,
+    focusRequester: FocusRequester,
+    focusEnabled: Boolean,
+    onOpenMenu: () -> Unit,
+    onBack: () -> Unit = onOpenMenu,
+    /** Search: shown instead of the hero, and the rows are search results (no automatic loading or focus grab). */
+    searchHeader: (@Composable () -> Unit)? = null,
+    vm: MediaViewModel = hiltViewModel(key = if (searchHeader != null) "media-search" else "media-${type.name}"),
+) {
+    val remote = LocalRemote.current
+    val state by vm.rows.collectAsStateWithLifecycle()
+    val jump by vm.jump.collectAsStateWithLifecycle()
+    val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+    val detail by vm.detail.collectAsStateWithLifecycle()
+    val playing by vm.playing.collectAsStateWithLifecycle()
+    var focused by remember { mutableStateOf<MediaItem?>(null) }
+    var lastCard by remember { mutableStateOf<String?>(null) }
+    var hasFocus by remember { mutableStateOf(false) }
+    // Waiting a moment before swapping the hero keeps fast scrolling smooth on the weak box.
+    val hero by produceState<MediaItem?>(null, focused) {
+        delay(250)
+        value = focused
+    }
+
+    LaunchedEffect(type) { if (searchHeader == null) vm.load(type) }
+    // Rows arrive after the screen opens: grab focus once there's something to focus.
+    LaunchedEffect(state.rows.isNotEmpty(), focusEnabled, detail == null) {
+        if (searchHeader != null || !focusEnabled || detail != null || state.rows.isEmpty() || hasFocus) return@LaunchedEffect
+        awaitFrame()
+        awaitFrame()
+        runCatching { focusRequester.requestFocus() }
+    }
+    BackHandler(enabled = focusEnabled && detail == null) { onBack() }
+
+    // One scroll per move: the list itself puts the focused row (title included) at the top. Previously a second,
+    // manual scroll ran after the built-in one and the rows jumped up and down.
+    // Sideways: keep the focused poster at the row's left edge (no half-cut poster on the left).
+    val leftPad = with(LocalDensity.current) { 48.dp.toPx() }
+    val defaultSpec = LocalBringIntoViewSpec.current
+    val leftSpec = remember(leftPad) {
+        object : BringIntoViewSpec {
+            override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float {
+                val d = offset - leftPad
+                return if (kotlin.math.abs(d) < 1f) 0f else d
+            }
+        }
+    }
+    val rowSpec = if (remote.rowAlign == RowAlign.Free) defaultSpec else leftSpec
+    // Each row remembers its scroll and focused poster, even after it scrolls out of view and is disposed.
+    val rowStates = remember(type) { HashMap<String, LazyListState>() }
+    val rowPos = remember(type) { androidx.compose.runtime.mutableStateMapOf<String, Int>() }
+    val titleSpace = with(LocalDensity.current) { 28.dp.toPx() }
+    val topAligned = remember(titleSpace) {
+        object : BringIntoViewSpec {
+            override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float {
+                val d = offset - titleSpace
+                return if (kotlin.math.abs(d) < 1f) 0f else d
+            }
+        }
+    }
+
+    val rows = state.rows
+    LaunchedEffect(jump, rows.size) {
+        val (rowId, _) = jump ?: return@LaunchedEffect
+        val index = if (rowId == null) 0 else rows.indexOfFirst { it.id == rowId }
+        val row = rows.getOrNull(index) ?: return@LaunchedEffect
+        listState.scrollToItem(index)
+        row.items.firstOrNull()?.let { lastCard = cardId(row, it) }
+        awaitFrame()
+        awaitFrame()
+        runCatching { focusRequester.requestFocus() }
+        vm.jumpDone()
+    }
+    val entryCard = lastCard?.takeIf { key -> rows.any { r -> r.items.any { cardId(r, it) == key } } }
+        ?: rows.firstOrNull()?.let { r -> r.items.firstOrNull()?.let { cardId(r, it) } }
+
+    Box(Modifier.fillMaxSize().background(AppColors.Background)) {
+        Column(Modifier.fillMaxSize()) {
+            if (searchHeader != null) searchHeader() else Hero(hero ?: rows.firstOrNull()?.items?.firstOrNull(), type)
+            when {
+                searchHeader != null && rows.isEmpty() && state.done -> Unit
+                rows.isEmpty() && !state.done -> Text(
+                    if (searchHeader != null) "Searching…" else "Loading ${if (type == MediaType.Movie) "films" else "shows"}…",
+                    color = AppColors.TextSecondary, modifier = Modifier.padding(start = 48.dp, top = 12.dp),
+                )
+                rows.isEmpty() -> Text(
+                    "Nothing to show yet. Connect Plex, TMDB, Trakt or a Stremio addon in Settings → Accounts & sources.",
+                    color = AppColors.TextSecondary, modifier = Modifier.padding(start = 48.dp, top = 12.dp, end = 48.dp),
+                )
+                else -> CompositionLocalProvider(LocalBringIntoViewSpec provides topAligned, LocalButtonsFree provides (detail == null && playing == null)) { LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxWidth().weight(1f).onFocusChanged { hasFocus = it.hasFocus },
+                    // Room below the last row so it can also scroll up to the top (no half row left above it).
+                    contentPadding = PaddingValues(bottom = 150.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    itemsIndexed(rows, key = { _, it -> it.id }) { index, row ->
+                        PosterRow(
+                            row = row,
+                            rowSpec = rowSpec,
+                            state = rowStates.getOrPut(row.id) { LazyListState() },
+                            entryIndex = if (remote.rowMemory == RowMemory.First) 0 else (rowPos[row.id] ?: 0).coerceAtMost(row.items.lastIndex),
+                            resetOnLeave = remote.rowMemory == RowMemory.First,
+                            onFocusIndex = {
+                                rowPos[row.id] = it
+                                vm.setCurrentRow(row.id)
+                            },
+                            onLeftEdge = if (remote.rowLeft == RowLeft.Menu) onOpenMenu else null,
+                            entryCard = entryCard,
+                            entryFocus = focusRequester,
+                            onFocus = { item, id ->
+                                focused = item
+                                lastCard = id
+                            },
+                            onOpen = vm::open,
+                        )
+                    }
+                } }
+            }
+        }
+        detail?.let { d ->
+            DetailScreen(
+                ui = d,
+                vm = vm,
+                active = playing == null,
+                onPlayPlex = vm::playPlex,
+                onSearch = vm::searchAddons,
+                onPickStream = vm::playStream,
+                onCloseStreams = vm::closeStreams,
+                onWatchlist = vm::toggleWatchlist,
+                onClose = {
+                    vm.close()
+                    runCatching { focusRequester.requestFocus() }
+                },
+            )
+        }
+        playing?.let { VodPlayer(stream = it, onClose = vm::stopPlaying, onProgress = vm::reportProgress) }
+    }
+}
+
+private fun cardId(row: MediaRow, item: MediaItem) = row.id + "|" + item.key
+
+@Composable
+private fun Hero(item: MediaItem?, type: MediaType) {
+    Box(Modifier.fillMaxWidth().height(232.dp)) {
+        item?.backdrop?.let { url ->
+            AsyncImage(
+                model = url,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.align(Alignment.TopEnd).fillMaxHeight().fillMaxWidth(0.68f),
+            )
+        }
+        val bg = AppColors.Background
+        Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(0.3f to bg, 0.55f to bg.copy(alpha = 0.55f), 1f to Color.Transparent)))
+        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.6f to Color.Transparent, 1f to bg)))
+        Column(Modifier.padding(start = 48.dp, top = 26.dp, end = 48.dp).fillMaxWidth(0.5f)) {
+            Text(if (type == MediaType.Movie) "Movies" else "Shows", fontSize = 14.sp, color = AppColors.Accent)
+            Spacer(Modifier.height(8.dp))
+            if (item != null) {
+                Text(item.title, fontSize = 26.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Spacer(Modifier.height(6.dp))
+                Text(metaLine(item), fontSize = 14.sp, color = AppColors.TextSecondary, maxLines = 1)
+                item.subtitle?.let {
+                    Spacer(Modifier.height(4.dp))
+                    Text(it, fontSize = 14.sp, color = AppColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                item.overview?.let {
+                    Spacer(Modifier.height(10.dp))
+                    Text(it, fontSize = 14.sp, lineHeight = 20.sp, color = AppColors.TextPrimary, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                }
+            }
+        }
+    }
+}
+
+private fun metaLine(item: MediaItem) = listOfNotNull(
+    item.year?.toString(),
+    item.rating?.let { "★ %.1f".format(it) },
+    item.origin,
+).joinToString("  ·  ")
+
+@OptIn(ExperimentalFoundationApi::class, androidx.compose.ui.ExperimentalComposeUiApi::class)
+@Composable
+private fun PosterRow(
+    row: MediaRow,
+    rowSpec: BringIntoViewSpec,
+    state: LazyListState,
+    entryIndex: Int,
+    onFocusIndex: (Int) -> Unit,
+    onLeftEdge: (() -> Unit)?,
+    resetOnLeave: Boolean,
+    entryCard: String?,
+    entryFocus: FocusRequester,
+    onFocus: (MediaItem, String) -> Unit,
+    onOpen: (MediaItem) -> Unit,
+) {
+    Column {
+        Text(row.title, fontSize = 16.sp, fontWeight = FontWeight.Medium, color = AppColors.TextPrimary, modifier = Modifier.padding(start = 48.dp, bottom = 6.dp))
+        val rowEntry = remember { FocusRequester() }
+        val scope = rememberCoroutineScope()
+        CompositionLocalProvider(LocalBringIntoViewSpec provides rowSpec) { LazyRow(
+            state = state,
+            // Moving onto this row from above or below lands on its remembered poster, not the nearest one on screen.
+            modifier = Modifier
+                .focusProperties {
+                    // Only aim at the remembered poster if it's on screen; otherwise let focus pick normally.
+                    enter = { if (state.layoutInfo.visibleItemsInfo.any { it.index == entryIndex }) rowEntry else FocusRequester.Default }
+                }
+                .onFocusChanged { if (resetOnLeave && !it.hasFocus && state.firstVisibleItemIndex != 0) scope.launch { state.scrollToItem(0) } },
+            contentPadding = PaddingValues(horizontal = 48.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            itemsIndexed(row.items, key = { _, it -> it.key }) { index, item ->
+                val id = cardId(row, item)
+                PosterCard(
+                    item = item,
+                    modifier = (if (id == entryCard) Modifier.focusRequester(entryFocus) else Modifier)
+                        .then(if (index == entryIndex) Modifier.focusRequester(rowEntry) else Modifier)
+                        // Left on a row's first poster opens the catalogue menu.
+                        .then(if (index == 0 && onLeftEdge != null) Modifier.onPreviewKeyEvent { e ->
+                            if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionLeft) { onLeftEdge(); true } else false
+                        } else Modifier)
+                        .onFocusChanged {
+                            if (it.isFocused) {
+                                onFocus(item, id)
+                                onFocusIndex(index)
+                            }
+                        },
+                    onClick = { onOpen(item) },
+                )
+            }
+        } }
+    }
+}
+
+@Composable
+private fun PosterCard(item: MediaItem, modifier: Modifier, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        modifier = modifier.free().size(width = 100.dp, height = 150.dp),
+        scale = ClickableSurfaceDefaults.scale(scale = 1f, focusedScale = 1f, pressedScale = 1f),
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+        border = ClickableSurfaceDefaults.border(focusedBorder = Border(BorderStroke(3.dp, AppColors.Accent), shape = RoundedCornerShape(8.dp))),
+        colors = ClickableSurfaceDefaults.colors(containerColor = AppColors.Panel, focusedContainerColor = AppColors.Panel),
+    ) {
+        Box(Modifier.fillMaxSize()) {
+            Text(
+                item.title, fontSize = 13.sp, color = AppColors.TextSecondary, textAlign = TextAlign.Center,
+                modifier = Modifier.align(Alignment.Center).padding(8.dp), maxLines = 4, overflow = TextOverflow.Ellipsis,
+            )
+            item.poster?.let { AsyncImage(model = it, contentDescription = item.title, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
+            item.progress?.let { p ->
+                Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(4.dp).background(Color.Black.copy(alpha = 0.6f))) {
+                    Box(Modifier.fillMaxHeight().fillMaxWidth(p.coerceIn(0f, 1f)).background(AppColors.Accent))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DetailScreen(
+    ui: DetailUi,
+    vm: MediaViewModel,
+    active: Boolean,
+    onPlayPlex: () -> Unit,
+    onSearch: () -> Unit,
+    onPickStream: (StreamOption) -> Unit,
+    onCloseStreams: () -> Unit,
+    onWatchlist: () -> Unit,
+    onClose: () -> Unit,
+) {
+    val d = ui.detail
+    val item = d.item
+    val playFocus = remember { FocusRequester() }
+    val onPlex = ui.copies?.any { it.source == "Plex" && it.ref != null } == true
+    val show = item.type == MediaType.Show
+    BackHandler {
+        when {
+            ui.streams != null -> if (ui.episode != null) vm.closeEpisodeStreams() else onCloseStreams()
+            ui.episode != null -> vm.pickEpisode(null)
+            ui.episodesOpen -> vm.closeEpisodes()
+            else -> onClose()
+        }
+    }
+    // The first button changes once the library check finishes (Play on Plex appears), so focus again then.
+    LaunchedEffect(ui.copies != null, ui.hasAddons, ui.streams == null, active, ui.episodesOpen) {
+        if (ui.streams != null || !active || ui.episodesOpen) return@LaunchedEffect
+        awaitFrame()
+        runCatching { playFocus.requestFocus() }
+    }
+    Box(Modifier.fillMaxSize().background(AppColors.Background).trapFocus()) {
+        item.backdrop?.let {
+            AsyncImage(model = it, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.align(Alignment.TopEnd).fillMaxHeight().fillMaxWidth(0.75f))
+        }
+        val bg = AppColors.Background
+        Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(0.25f to bg, 0.6f to bg.copy(alpha = 0.6f), 1f to Color.Transparent)))
+        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.55f to Color.Transparent, 1f to bg)))
+        Row(Modifier.fillMaxSize().padding(horizontal = 56.dp, vertical = 48.dp), verticalAlignment = Alignment.CenterVertically) {
+            item.poster?.let {
+                AsyncImage(
+                    model = it, contentDescription = null, contentScale = ContentScale.Crop,
+                    modifier = Modifier.size(width = 200.dp, height = 300.dp).clip(RoundedCornerShape(10.dp)),
+                )
+                Spacer(Modifier.width(36.dp))
+            }
+            Column(Modifier.fillMaxWidth(0.62f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(item.title, fontSize = 34.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                val meta = listOfNotNull(
+                    item.year?.toString(),
+                    d.certification,
+                    d.runtimeMin?.takeIf { it > 0 }?.let { if (it >= 60) "${it / 60}h ${it % 60}m" else "${it}m" },
+                    d.seasons.takeIf { it.isNotEmpty() }?.let { s -> "${s.size} season${if (s.size == 1) "" else "s"} · ${s.sumOf { it.episodes }} episodes" },
+                    item.rating?.let { "★ %.1f".format(it) },
+                ).joinToString("  ·  ")
+                if (meta.isNotEmpty()) Text(meta, fontSize = 15.sp, color = AppColors.TextSecondary)
+                if (d.genres.isNotEmpty()) Text(d.genres.joinToString(" · "), fontSize = 14.sp, color = AppColors.TextSecondary)
+                d.tagline?.let { Text(it, fontSize = 15.sp, fontStyle = FontStyle.Italic, color = AppColors.TextPrimary) }
+                item.subtitle?.let { Text("Up next: $it", fontSize = 15.sp, color = AppColors.Accent) }
+                item.overview?.let { Text(it, fontSize = 15.sp, lineHeight = 22.sp, color = AppColors.TextPrimary, maxLines = 6, overflow = TextOverflow.Ellipsis) }
+                if (d.cast.isNotEmpty()) {
+                    Text("Starring " + d.cast.take(5).joinToString(", ") { it.name }, fontSize = 13.sp, color = AppColors.TextSecondary, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                }
+                Text(
+                    when (val copies = ui.copies) {
+                        null -> "Checking your library…"
+                        else -> if (copies.isEmpty()) "Not in your library" else "In your library: " + copies.joinToString(" · ") { c -> c.detail?.let { "${c.source} ($it)" } ?: c.source }
+                    },
+                    fontSize = 14.sp,
+                    color = if (ui.copies.isNullOrEmpty()) AppColors.TextSecondary else AppColors.Accent,
+                )
+                Spacer(Modifier.height(6.dp))
+                // Pop-ups and the episodes panel sit on top: the buttons below must not take focus then.
+                val buttonsFree = !ui.episodesOpen && ui.streams == null
+                androidx.compose.runtime.CompositionLocalProvider(LocalButtonsFree provides buttonsFree) {
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    if (show) {
+                        val next = item.nextSeason?.let { sn -> item.nextEpisode?.let { en -> sn to en } }?.takeIf { onPlex }
+                        if (next != null) {
+                            Button(onClick = vm::playNextUp, modifier = (Modifier.focusRequester(playFocus)).free()) { Text("Play S${next.first} · E${next.second}") }
+                            OutlinedButton(onClick = vm::openEpisodes, modifier = Modifier.free()) { Text("Episodes") }
+                        } else {
+                            Button(onClick = vm::openEpisodes, modifier = (Modifier.focusRequester(playFocus)).free()) { Text("Episodes") }
+                        }
+                    } else if (onPlex) {
+                        Button(onClick = onPlayPlex, modifier = (Modifier.focusRequester(playFocus)).free()) {
+                            Text(if (item.progress != null) "Resume on Plex" else "Play on Plex")
+                        }
+                    }
+                    if (ui.hasAddons && !show) {
+                        val m = (if (onPlex) Modifier else Modifier.focusRequester(playFocus)).free()
+                        if (onPlex) OutlinedButton(onClick = onSearch, modifier = m) { Text(if (ui.searching) "Searching…" else "Search addons") }
+                        else Button(onClick = onSearch, modifier = m) { Text(if (ui.searching) "Searching…" else "Search addons") }
+                    }
+                    if (!show && !onPlex && !ui.hasAddons && ui.copies != null) {
+                        OutlinedButton(onClick = onClose, modifier = (Modifier.focusRequester(playFocus)).free()) { Text("Back") }
+                    }
+                    if (ui.hasTrakt) {
+                        OutlinedButton(onClick = onWatchlist, modifier = Modifier.free()) { Text(if (ui.watchlisted) "Remove from watchlist" else "Add to watchlist") }
+                    }
+                }
+                }
+                if (!ui.episodesOpen) ui.message?.let { Text(it, fontSize = 14.sp, color = AppColors.Accent) }
+                if (!onPlex && !ui.hasAddons && ui.copies != null) {
+                    Text("Connect Plex or a Stremio addon in Settings → Accounts & sources to play this.", fontSize = 13.sp, color = AppColors.TextSecondary)
+                }
+            }
+        }
+        if (ui.episodesOpen) EpisodesPanel(ui, vm, onPlex)
+        ui.streams?.takeIf { it.isNotEmpty() }?.let { StreamPicker(it, onPickStream, Modifier.align(Alignment.CenterEnd)) }
+    }
+}
+
+/** Seasons along the top (Left/Right), episodes below. OK on an episode → Play on Plex / Search addons. */
+/**
+ * Episodes: the show's artwork fills the screen. On the left, the title and the highlighted episode's details;
+ * on the right, seasons and a compact episode list. OK on an episode → Play on Plex / Search addons.
+ */
+@Composable
+private fun EpisodesPanel(ui: DetailUi, vm: MediaViewModel, onPlex: Boolean) {
+    val item = ui.detail.item
+    val episodeFocus = remember { FocusRequester() }
+    val target = ui.episodes?.let { eps ->
+        val next = if (item.nextSeason == ui.season) eps.indexOfFirst { it.number == item.nextEpisode } else -1
+        if (next >= 0) next else eps.indexOfFirst { e -> ui.plexEpisodes[e.season to e.number]?.watched != true }.coerceAtLeast(0)
+    } ?: -1
+    var highlighted by remember(ui.season) { mutableStateOf<io.github.petebutty.viewarr.data.media.EpisodeInfo?>(null) }
+    val shown = highlighted ?: ui.episodes?.getOrNull(target)
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    // Nothing behind an open pop-up or stream list may take focus.
+    val panelFree = ui.episode == null && ui.streams == null
+    LaunchedEffect(ui.season, ui.episodes != null, ui.episode == null, ui.streams == null) {
+        if (ui.episodes.isNullOrEmpty() || ui.episode != null || ui.streams != null || target < 0) return@LaunchedEffect
+        listState.scrollToItem(maxOf(0, target - 1))
+        awaitFrame()
+        runCatching { episodeFocus.requestFocus() }
+    }
+    val bg = AppColors.Background
+    Box(Modifier.fillMaxSize().background(bg).trapFocus()) {
+        (shown?.still?.takeIf { false } ?: item.backdrop)?.let {
+            AsyncImage(model = it, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+        }
+        // Artwork stays clear on the left; the list side darkens for readability.
+        Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(0f to bg.copy(alpha = 0.55f), 0.38f to bg.copy(alpha = 0.35f), 0.55f to bg.copy(alpha = 0.85f), 1f to bg.copy(alpha = 0.95f))))
+        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.6f to Color.Transparent, 1f to bg.copy(alpha = 0.8f))))
+        Row(Modifier.fillMaxSize().padding(start = 56.dp, end = 40.dp, top = 40.dp, bottom = 24.dp)) {
+            // Left: show title + the highlighted episode.
+            Column(Modifier.weight(0.42f).fillMaxHeight().padding(end = 32.dp), verticalArrangement = Arrangement.Bottom) {
+                Text(item.title, fontSize = 30.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                shown?.let { ep ->
+                    val plex = ui.plexEpisodes[ep.season to ep.number]
+                    Spacer(Modifier.height(10.dp))
+                    Text("S${ep.season} · E${ep.number}  ${ep.name}", fontSize = 18.sp, fontWeight = FontWeight.Medium, color = AppColors.Accent, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    val tags = listOfNotNull(
+                        ep.airDate?.takeIf { it.isNotBlank() },
+                        ep.runtimeMin?.takeIf { it > 0 }?.let { "${it}m" },
+                        if (plex != null) "In Plex" else null,
+                        if (plex?.watched == true) "Watched" else null,
+                    ).joinToString("  ·  ")
+                    if (tags.isNotEmpty()) Text(tags, fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(top = 4.dp))
+                    ep.overview?.let { Text(it, fontSize = 15.sp, lineHeight = 21.sp, color = AppColors.TextPrimary, maxLines = 6, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 10.dp)) }
+                }
+                Spacer(Modifier.height(24.dp))
+            }
+            // Right: seasons + compact episodes.
+            Column(Modifier.weight(0.58f).fillMaxHeight()) {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(ui.seasons, key = { it.number }) { season ->
+                        val selected = season.number == ui.season
+                        Surface(
+                            onClick = { vm.selectSeason(season.number) },
+                            modifier = Modifier
+                                .focusProperties { canFocus = panelFree }
+                                // Only a real move onto a season changes it, never focus passing through behind a pop-up.
+                                .onFocusChanged { if (it.isFocused && panelFree) vm.selectSeason(season.number) },
+                            scale = ClickableSurfaceDefaults.scale(scale = 1f, focusedScale = 1f, pressedScale = 1f),
+                            shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(18.dp)),
+                            colors = ClickableSurfaceDefaults.colors(
+                                containerColor = if (selected) AppColors.CellCurrent else AppColors.Panel.copy(alpha = 0.8f),
+                                contentColor = AppColors.TextPrimary,
+                                focusedContainerColor = AppColors.Accent,
+                                focusedContentColor = AppColors.OnAccent,
+                            ),
+                        ) {
+                            Text(season.name, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp))
+                        }
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+                val eps = ui.episodes
+                when {
+                    eps == null -> Text("Loading episodes…", color = AppColors.TextSecondary)
+                    eps.isEmpty() -> Text("No episodes listed for this season.", color = AppColors.TextSecondary)
+                    else -> LazyColumn(state = listState, verticalArrangement = Arrangement.spacedBy(4.dp), contentPadding = PaddingValues(bottom = 40.dp)) {
+                        itemsIndexed(eps, key = { _, e -> "${e.season}-${e.number}" }) { i, ep ->
+                            val plex = ui.plexEpisodes[ep.season to ep.number]
+                            Surface(
+                                onClick = { vm.pickEpisode(ep) },
+                                modifier = (if (i == target) Modifier.focusRequester(episodeFocus) else Modifier)
+                                    .focusProperties { canFocus = panelFree }
+                                    .onFocusChanged { if (it.isFocused) highlighted = ep }
+                                    .fillMaxWidth(),
+                                scale = ClickableSurfaceDefaults.scale(scale = 1f, focusedScale = 1f, pressedScale = 1f),
+                                shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+                                colors = ClickableSurfaceDefaults.colors(
+                                    containerColor = AppColors.Panel.copy(alpha = 0.75f),
+                                    contentColor = AppColors.TextPrimary,
+                                    focusedContainerColor = AppColors.Accent,
+                                    focusedContentColor = AppColors.OnAccent,
+                                ),
+                            ) {
+                                Row(Modifier.padding(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Box(Modifier.size(width = 112.dp, height = 63.dp).clip(RoundedCornerShape(5.dp)).background(AppColors.PanelAlt)) {
+                                        ep.still?.let { AsyncImage(model = it, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
+                                        plex?.takeIf { it.viewOffsetMs > 0 && !it.watched }?.let {
+                                            Box(Modifier.align(Alignment.BottomStart).fillMaxWidth(0.5f).height(3.dp).background(AppColors.Accent))
+                                        }
+                                    }
+                                    Spacer(Modifier.width(12.dp))
+                                    Column(Modifier.weight(1f)) {
+                                        Text("${ep.number}. ${ep.name}", fontSize = 14.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        val tags = listOfNotNull(
+                                            ep.runtimeMin?.takeIf { it > 0 }?.let { "${it}m" },
+                                            if (plex != null) "Plex" else null,
+                                        ).joinToString("  ·  ")
+                                        if (tags.isNotEmpty()) Text(tags, fontSize = 12.sp, maxLines = 1)
+                                    }
+                                    if (plex?.watched == true) Text("✓", fontSize = 16.sp, modifier = Modifier.padding(horizontal = 10.dp))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if (ui.streams.isNullOrEmpty()) ui.episode?.let { ep ->
+            val plex = ui.plexEpisodes[ep.season to ep.number]
+            EpisodeActions(
+                title = "S${ep.season} E${ep.number} · ${ep.name}",
+                plexLabel = plex?.let { if (it.viewOffsetMs > 0 && !it.watched) "Resume on Plex" else "Play on Plex" },
+                hasAddons = ui.hasAddons,
+                searching = ui.searching,
+                message = ui.message,
+                onPlex = { vm.playPlexEpisode(ep.season, ep.number) },
+                onSearch = { vm.searchEpisode(ep) },
+                onClose = { vm.pickEpisode(null) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun EpisodeActions(
+    title: String,
+    plexLabel: String?,
+    hasAddons: Boolean,
+    searching: Boolean,
+    message: String?,
+    onPlex: () -> Unit,
+    onSearch: () -> Unit,
+    onClose: () -> Unit,
+) {
+    val first = remember { FocusRequester() }
+    LaunchedEffect(Unit) { awaitFrame(); runCatching { first.requestFocus() } }
+    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f)), contentAlignment = Alignment.Center) {
+        Column(Modifier.width(520.dp).background(AppColors.Panel, RoundedCornerShape(14.dp)).padding(24.dp).trapFocus(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(title, fontSize = 19.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(bottom = 10.dp))
+            var firstUsed = false
+            fun m(): Modifier = if (!firstUsed) { firstUsed = true; Modifier.focusRequester(first) } else Modifier
+            plexLabel?.let { io.github.petebutty.viewarr.ui.common.MenuItem(text = it, selected = false, onClick = onPlex, modifier = m()) }
+            if (hasAddons) io.github.petebutty.viewarr.ui.common.MenuItem(text = if (searching) "Searching…" else "Search addons", selected = false, onClick = onSearch, modifier = m())
+            if (plexLabel == null && !hasAddons) Text("This episode isn't in Plex, and no Stremio addon is connected.", fontSize = 13.sp, color = AppColors.TextSecondary)
+            io.github.petebutty.viewarr.ui.common.MenuItem(text = "Close", selected = false, onClick = onClose, modifier = m())
+            message?.let { Text(it, fontSize = 13.sp, color = AppColors.Accent, modifier = Modifier.padding(top = 8.dp)) }
+        }
+    }
+}
+
+@Composable
+private fun StreamPicker(streams: List<StreamOption>, onPick: (StreamOption) -> Unit, modifier: Modifier) {
+    val first = remember { FocusRequester() }
+    LaunchedEffect(Unit) {
+        awaitFrame()
+        runCatching { first.requestFocus() }
+    }
+    Column(
+        modifier.fillMaxHeight().fillMaxWidth(0.46f).background(AppColors.Panel.copy(alpha = 0.97f)).padding(horizontal = 20.dp, vertical = 28.dp).trapFocus(),
+    ) {
+        Text("${streams.size} stream${if (streams.size == 1) "" else "s"} found", fontSize = 18.sp, fontWeight = FontWeight.Medium, color = AppColors.TextPrimary)
+        Text("Back to close", fontSize = 12.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(bottom = 12.dp))
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            itemsIndexed(streams) { i, s ->
+                Surface(
+                    onClick = { onPick(s) },
+                    modifier = (if (i == 0) Modifier.focusRequester(first) else Modifier).fillMaxWidth(),
+                    scale = ClickableSurfaceDefaults.scale(scale = 1f, focusedScale = 1f, pressedScale = 1f),
+                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+                    colors = ClickableSurfaceDefaults.colors(
+                        containerColor = AppColors.PanelAlt,
+                        contentColor = AppColors.TextPrimary,
+                        focusedContainerColor = AppColors.Accent,
+                        focusedContentColor = AppColors.OnAccent,
+                    ),
+                ) {
+                    Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                        Text(s.name, fontSize = 14.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        if (s.description.isNotBlank()) Text(s.description, fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+            }
+        }
+    }
+}
+
+private val LocalButtonsFree = androidx.compose.runtime.compositionLocalOf { true }
+
+/** Detail page buttons that step aside (unfocusable) while a pop-up is open. */
+@Composable
+private fun Modifier.free(): Modifier {
+    val free = LocalButtonsFree.current
+    return this.focusProperties { canFocus = free }
+}

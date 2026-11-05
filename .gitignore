@@ -1,0 +1,19 @@
+# Build output
+build/
+.gradle/
+app/build/
+*.apk
+*.aab
+local.properties
+.idea/
+*.iml
+.kotlin/
+
+# Signing keys and secrets: never commit
+*.jks
+*.keystore
+keystore.properties
+secrets.properties
+
+# Tooling
+tools/cryptojs/node_modules/

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Android 12+ launch screen: the aperture on the dark background, then the app's own splash takes over. -->
+    <style name="Theme.Viewarr" parent="@android:style/Theme.DeviceDefault.NoActionBar">
+        <item name="android:windowBackground">@color/viewarr_bg</item>
+        <item name="android:statusBarColor">@color/viewarr_bg</item>
+        <item name="android:windowSplashScreenBackground">@color/viewarr_bg</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_launcher_foreground</item>
+    </style>
+</resources>
