@@ -1080,8 +1080,11 @@ private fun ChannelListOverlay(
     // Focus: the current channel (or the first one after a group change), or the selected group.
     LaunchedEffect(showGroups, groupId) {
         awaitFrame()
-        if (showGroups) runCatching { groupFocus.requestFocus() }
-        else {
+        if (showGroups) {
+            // Previewing another group: show its channels from the top (or around the one playing).
+            listState.scrollToItem(maxOf(0, channels.indexOfFirst { it.id == current.id } - 4))
+            runCatching { groupFocus.requestFocus() }
+        } else {
             listState.scrollToItem(maxOf(0, channels.indexOfFirst { it.id == current.id } - 4))
             awaitFrame()
             runCatching { focus.requestFocus() }
@@ -1099,21 +1102,30 @@ private fun ChannelListOverlay(
             else -> false
         }
     }.trapFocus()) {
+    // Moving through the groups previews each group's channels on the right (short pause so fast scrolling stays smooth).
+    val previewScope = androidx.compose.runtime.rememberCoroutineScope()
+    var previewJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    fun preview(id: Int?) {
+        previewJob?.cancel()
+        previewJob = previewScope.launch { delay(250); if (vm.groupId.value != id) vm.selectGroup(id) }
+    }
     if (showGroups) {
         Box(Modifier.fillMaxHeight().width(280.dp).background(AppColors.Panel.copy(alpha = 0.92f)).padding(16.dp)) {
             LazyColumn(verticalArrangement = Arrangement.spacedBy(1.dp)) {
                 item(key = "all") {
                     MenuItem(
                         text = "All channels", selected = groupId == null,
-                        modifier = if (groupId == null) Modifier.focusRequester(groupFocus) else Modifier,
-                        onClick = { vm.selectGroup(null); showGroups = false },
+                        modifier = (if (groupId == null) Modifier.focusRequester(groupFocus) else Modifier)
+                            .onFocusChanged { if (it.isFocused) preview(null) },
+                        onClick = { previewJob?.cancel(); vm.selectGroup(null); showGroups = false },
                     )
                 }
                 items(groups, key = { it.id }) { g ->
                     MenuItem(
                         text = g.name, selected = g.id == groupId, trailing = g.channelCount.toString(),
-                        modifier = if (g.id == groupId) Modifier.focusRequester(groupFocus) else Modifier,
-                        onClick = { vm.selectGroup(g.id); showGroups = false },
+                        modifier = (if (g.id == groupId) Modifier.focusRequester(groupFocus) else Modifier)
+                            .onFocusChanged { if (it.isFocused) preview(g.id) },
+                        onClick = { previewJob?.cancel(); vm.selectGroup(g.id); showGroups = false },
                     )
                 }
             }
@@ -1146,9 +1158,9 @@ private fun ChannelListOverlay(
                     Row(Modifier.padding(horizontal = 10.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text(ch.number?.let { n -> if (n % 1.0 == 0.0) n.toInt().toString() else n.toString() }.orEmpty(), fontSize = 13.sp, modifier = Modifier.width(44.dp))
                         Box(Modifier.size(width = 56.dp, height = 34.dp), contentAlignment = Alignment.Center) {
-                            ch.logoId?.let { id ->
+                            io.github.petebutty.viewarr.ui.guide.channelLogo(serverUrl, ch)?.let { logo ->
                                 coil.compose.AsyncImage(
-                                    model = io.github.petebutty.viewarr.ui.guide.logoUrl(serverUrl, id),
+                                    model = logo,
                                     contentDescription = null,
                                     contentScale = androidx.compose.ui.layout.ContentScale.Fit,
                                     modifier = Modifier.fillMaxSize(),

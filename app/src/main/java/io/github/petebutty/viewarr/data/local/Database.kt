@@ -19,6 +19,8 @@ data class ChannelEntity(
     val number: Double?,
     val groupId: Int?,
     val logoId: Int?,
+    /** XC providers give a full logo address instead of a Dispatcharr logo id. */
+    val logoUrl: String? = null,
     // Programmes are keyed by the EPG source row's tvg_id (not the channel's own), or the channel uuid for dummy/no EPG.
     val guideKey: String,
     val catchupDays: Int,
@@ -52,6 +54,7 @@ data class ChannelListItem(
     val name: String,
     val number: Double?,
     val logoId: Int?,
+    val logoUrl: String?,
     val groupName: String?,
     val guideKey: String,
     val catchupDays: Int,
@@ -82,7 +85,7 @@ data class GuideProgram(
 interface GuideDao {
     @Query(
         """
-        SELECT c.id, c.uuid, c.name, c.number, c.logoId, g.name AS groupName, c.guideKey, c.catchupDays
+        SELECT c.id, c.uuid, c.name, c.number, c.logoId, c.logoUrl, g.name AS groupName, c.guideKey, c.catchupDays
         FROM channels c LEFT JOIN channel_groups g ON g.id = c.groupId
         WHERE (:groupId IS NULL OR c.groupId = :groupId)
         ORDER BY c.number IS NULL, c.number, c.name, c.id
@@ -160,7 +163,7 @@ interface GuideDao {
 
 @Database(
     entities = [ChannelEntity::class, GroupEntity::class, ProgramEntity::class],
-    version = 3,
+    version = 4,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {

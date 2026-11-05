@@ -86,7 +86,7 @@ fun SetupWizard(
         Column(Modifier.weight(0.36f).padding(end = 40.dp)) {
             Text("Viewarr", style = MaterialTheme.typography.titleLarge, color = AppColors.Accent)
             Spacer(Modifier.height(24.dp))
-            Text(titleFor(state.step, mode), style = MaterialTheme.typography.displaySmall, color = AppColors.TextPrimary)
+            Text(if (state.step == SetupStep.SignIn && state.xc) "Sign in to your IPTV provider" else titleFor(state.step, mode), style = MaterialTheme.typography.displaySmall, color = AppColors.TextPrimary)
             Spacer(Modifier.height(14.dp))
             Text(bodyFor(state), style = MaterialTheme.typography.bodyLarge, color = AppColors.TextSecondary)
         }
@@ -385,7 +385,7 @@ private fun titleFor(step: SetupStep, mode: SetupMode) = when (step) {
     SetupStep.Phone -> if (mode == SetupMode.Manage) "Set up on your phone" else "Welcome to Viewarr"
     SetupStep.Welcome -> "Welcome"
     SetupStep.Choose -> if (mode == SetupMode.Manage) "Accounts & sources" else "What do you want to set up?"
-    SetupStep.Server -> "Find your Dispatcharr server"
+    SetupStep.Server -> "Find your live TV server"
     SetupStep.SignIn -> "Sign in to Dispatcharr"
     SetupStep.Tmdb -> "Connect TMDB"
     SetupStep.Trakt -> "Sign in to Trakt"
@@ -403,9 +403,11 @@ private fun bodyFor(state: SetupUiState) = when (state.step) {
     SetupStep.Welcome -> "Let's connect this TV to your services. It only takes a few minutes."
     SetupStep.Choose -> if (state.mode == SetupMode.Manage) "Choose a service to connect, change or check."
     else "Tick everything you use. Movies & Shows need TMDB, so it's added automatically when you pick a film or TV source."
-    SetupStep.Server -> "Enter the address you use to open Dispatcharr in a browser, for example 192.168.1.50:9191. " +
-        "If you leave out the port, 9191 is tried too."
-    SetupStep.SignIn -> "Connected to Dispatcharr ${state.serverVersion} at ${state.serverUrl}. Sign in with your Dispatcharr web login, " +
+    SetupStep.Server -> "Dispatcharr: the address you open it at in a browser, for example 192.168.1.50:9191 (9191 is tried if you leave out the port). " +
+        "IPTV provider: the server address from your provider's welcome email (Xtream Codes / XC login)."
+    SetupStep.SignIn -> if (state.xc) "That isn't a Dispatcharr server, so Viewarr will sign in to it as an IPTV provider (Xtream Codes). " +
+        "Use the username and password from your provider. You'll get channels, the guide, catch-up and the provider's films and series; " +
+        "recordings need Dispatcharr." else "Connected to Dispatcharr ${state.serverVersion} at ${state.serverUrl}. Sign in with your Dispatcharr web login, " +
         "not the XC / Xtream password your IPTV apps use. Easier and recommended for recordings (DVR): set up from your phone " +
         "and paste your API key (Dispatcharr → Users → your user → API Key). Your password isn't stored on this TV."
     SetupStep.Tmdb -> "Your free TMDB API key is at themoviedb.org → Settings → API. Long keys are easier to type on your phone."

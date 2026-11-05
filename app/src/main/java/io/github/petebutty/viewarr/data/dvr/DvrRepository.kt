@@ -76,8 +76,14 @@ class DvrRepository @Inject constructor(
     private suspend fun session(): Session? = sessions.session.first()
     private fun headers(s: Session) = mapOf("X-API-Key" to s.apiKey)
 
+    /** True when live TV comes from an IPTV provider: recordings need a Dispatcharr server. */
+    private val _xc = MutableStateFlow(false)
+    val xc = _xc.asStateFlow()
+
     suspend fun refresh() {
         val s = session() ?: return
+        _xc.value = s.isXc
+        if (s.isXc) { _allowed.value = false; _recordings.value = emptyList(); return }
         val r = runCatching { http.get("${s.serverUrl}/api/channels/recordings/", headers(s)) }.getOrNull() ?: return
         if (r.code == 403 || r.code == 401) {
             _allowed.value = false

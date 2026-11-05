@@ -92,7 +92,7 @@ a.link.alt{background:transparent;border:1px solid var(--line);color:var(--text)
   }
 
   function render(html) { stopPoll(); view.innerHTML = html; progress(); window.scrollTo(0, 0); }
-  function msg(text, kind) { const m = view.querySelector('.msg'); if (m) { m.textContent = text || ''; m.className = 'msg ' + (kind || ''); } }
+  function msg(text, kind) { const m = [...view.querySelectorAll('.msg')].find((x) => x.offsetParent !== null) || view.querySelector('.msg'); if (m) { m.textContent = text || ''; m.className = 'msg ' + (kind || ''); } }
   function busy(btn, on, label) { if (!btn) return; if (on) { btn.dataset.l = btn.textContent; btn.textContent = label || 'Checking…'; } else if (btn.dataset.l) btn.textContent = btn.dataset.l; btn.disabled = on; }
   const item = (id) => items.find((i) => i.id === id) || {};
   const val = (id) => (view.querySelector('#' + id)?.value || '').trim();
@@ -129,11 +129,11 @@ a.link.alt{background:transparent;border:1px solid var(--line);color:var(--text)
   function back() { pos = Math.max(-1, pos - 1); show(); }
   const nav = (primary, opts = {}) => `<div class="btns">${primary || ''}${opts.skip === false ? '' : `<button class="ghost" data-a="skip">${opts.skipLabel || 'Skip'}</button>`}<button class="ghost" data-a="back">Back</button></div><div class="msg"></div>`;
   function wireNav() {
-    view.querySelector('[data-a=skip]')?.addEventListener('click', next);
-    view.querySelector('[data-a=back]')?.addEventListener('click', back);
+    view.querySelectorAll('[data-a=skip]').forEach((b) => b.addEventListener('click', next));
+    view.querySelectorAll('[data-a=back]').forEach((b) => b.addEventListener('click', back));
   }
-  function form(onSubmit) {
-    const f = view.querySelector('form');
+  function form(onSubmit, sel) {
+    const f = view.querySelector(sel || 'form');
     f.addEventListener('submit', async (e) => {
       e.preventDefault();
       const btn = f.querySelector('button[type=submit]');
@@ -182,37 +182,64 @@ a.link.alt{background:transparent;border:1px solid var(--line);color:var(--text)
 
   function liveTv() {
     render(`<h1>Live TV</h1>
-      <p>Connect to Dispatcharr, the server your channels, guide and catch-up come from.</p>
-      <form autocomplete="off" novalidate>
+      <div class="tabs"><button type="button" data-s="d" class="on">Dispatcharr</button><button type="button" data-s="x">IPTV provider</button></div>
+      <form id="dform" autocomplete="off" novalidate>
+        <div id="found"></div>
         <label class="f" for="server">Dispatcharr address</label><input type="text" id="server" inputmode="url" placeholder="192.168.1.50:9191" autocapitalize="off" spellcheck="false">
-        <div class="note">The address you open Dispatcharr at in a browser. If you leave out the port, 9191 is tried.</div>
-        <label class="f">Sign in with</label>
-        <div class="note">Use your <b>API key</b> if you can: it's what Viewarr uses for the guide, catch-up and recordings (DVR), and it always works.
-          Username &amp; password is your <b>Dispatcharr web login</b>, the one for the Dispatcharr website.
-          It is <b>not</b> the XC / Xtream password your IPTV apps use; that one won't work here.</div>
-        <div class="tabs"><button type="button" data-t="pw" class="on">Username &amp; password</button><button type="button" data-t="key">API key (recommended)</button></div>
-        <div id="pw">
+        <div id="key">
+          <label class="f" for="apikey">API key</label><input type="text" id="apikey" autocapitalize="off" spellcheck="false">
+          <div class="note">In Dispatcharr: <b>Users</b> → edit your user → copy the <b>API Key</b>. (Don't press Regenerate.)
+            <a href="#" data-t="pw">Use username &amp; password instead</a></div>
+        </div>
+        <div id="pw" hidden>
           <label class="f" for="user">Username</label><input type="text" id="user" autocapitalize="none" autocorrect="off" autocomplete="username" spellcheck="false">
           <label class="f" for="pass">Password</label><input type="password" id="pass" autocomplete="current-password"><label class="show"><input type="checkbox" onchange="document.getElementById('pass').type=this.checked?'text':'password'"> Show password</label>
-          <div class="note">Your Dispatcharr web login (not your XC password). It needs to be a Standard or Admin user; Streamer accounts only work in player apps. Viewarr uses it once to fetch your API key; the password isn't stored on the TV.</div>
-        </div>
-        <div id="key" hidden>
-          <ol class="how">
-            <li>Open Dispatcharr in a browser and sign in.</li>
-            <li>Go to <b>Users</b> and edit your user (or open your profile).</li>
-            <li>Next to <b>API Key</b>, tap the <b>copy</b> button.</li>
-            <li>Paste it below.</li>
-          </ol>
-          <div class="note">Don't press <b>Regenerate</b>: that would replace the key and sign out other apps that use it. If there's no key yet, <b>Generate API Key</b> is fine.</div>
-          <label class="f" for="apikey">API key</label><input type="text" id="apikey" autocapitalize="off" spellcheck="false">
+          <div class="note">Your Dispatcharr website login, not the XC password your IPTV apps use.
+            <a href="#" data-t="key">Use API key instead</a></div>
         </div>
         ${nav('<button class="primary" type="submit">Connect</button>')}
-      </form>`);
+      </form>
+      <div id="xcform" hidden>
+        <form id="xc" autocomplete="off" novalidate>
+          <div class="note">The login from your provider's welcome email (often called <b>Xtream Codes</b> or <b>XC</b>). Recordings need Dispatcharr.</div>
+          <label class="f" for="xserver">Server address</label><input type="text" id="xserver" inputmode="url" placeholder="http://provider.example:8080" autocapitalize="none" autocorrect="off" spellcheck="false">
+          <label class="f" for="xuser">Username</label><input type="text" id="xuser" autocapitalize="none" autocorrect="off" spellcheck="false">
+          <label class="f" for="xpass">Password</label><input type="password" id="xpass"><label class="show"><input type="checkbox" onchange="document.getElementById('xpass').type=this.checked?'text':'password'"> Show password</label>
+          ${nav('<button class="primary" type="submit">Connect</button>')}
+        </form>
+      </div>`);
     wireNav();
-    let mode = 'pw';
-    view.querySelectorAll('[data-t]').forEach((b) => b.addEventListener('click', () => {
+    view.querySelectorAll('[data-s]').forEach((b) => b.addEventListener('click', () => {
+      view.querySelectorAll('[data-s]').forEach((x) => x.classList.toggle('on', x === b));
+      view.querySelector('#xcform').hidden = b.dataset.s !== 'x';
+      view.querySelector('#dform').hidden = b.dataset.s !== 'd';
+    }));
+    view.querySelector('#xc').addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const btn = ev.submitter || view.querySelector('#xc button[type=submit]');
+      const values = { server: view.querySelector('#xserver').value.trim(), username: view.querySelector('#xuser').value.trim(), password: view.querySelector('#xpass').value };
+      if (!values.server || !values.username || !values.password) return msg('Enter the server address, username and password from your provider.', 'err');
+      busy(btn, true, 'Connecting…'); msg('');
+      try { await saved(await api('livetv-xc', values)); } catch (err) { msg(err.message, 'err'); } finally { busy(btn, false); }
+    });
+    let mode = 'key';
+    // Look for Dispatcharr on the home network and offer what's found.
+    (async () => {
+      const box = view.querySelector('#found');
+      if (!box) return;
+      box.innerHTML = '<div class="note">Looking for Dispatcharr on your network…</div>';
+      try {
+        const r = await api('discover');
+        const list = (r && r.servers) || [];
+        if (!list.length) { box.innerHTML = ''; return; }
+        const srv = view.querySelector('#server');
+        if (srv && !srv.value) srv.value = list[0].url.replace(/^http:\/\//, '');
+        box.innerHTML = '<div class="note ok">✓ Found Dispatcharr on your network</div>';
+      } catch (e) { box.innerHTML = ''; }
+    })();
+    view.querySelectorAll('[data-t]').forEach((b) => b.addEventListener('click', (ev) => {
+      ev.preventDefault();
       mode = b.dataset.t;
-      view.querySelectorAll('[data-t]').forEach((x) => x.classList.toggle('on', x === b));
       view.querySelector('#pw').hidden = mode !== 'pw';
       view.querySelector('#key').hidden = mode !== 'key';
     }));
@@ -223,7 +250,7 @@ a.link.alt{background:transparent;border:1px solid var(--line);color:var(--text)
         : { server: val('server'), username: val('user'), password: view.querySelector('#pass').value };
       if (mode === 'key' && !values.apiKey) return msg('Paste your API key.', 'err');
       await saved(await api('livetv', values));
-    });
+    }, '#dform');
   }
 
   function tmdb() {

@@ -270,9 +270,9 @@ private fun InfoPanel(channel: ChannelListItem?, program: GuideProgram?, now: Lo
                 .background(AppColors.PreviewBox, RoundedCornerShape(8.dp)),
             contentAlignment = Alignment.Center,
         ) {
-            if (channel?.logoId != null) {
+            if (channel != null && (channel.logoId != null || channel.logoUrl != null)) {
                 AsyncImage(
-                    model = logoUrl(serverUrl, channel.logoId),
+                    model = channelLogo(serverUrl, channel),
                     contentDescription = null,
                     contentScale = ContentScale.Fit,
                     modifier = Modifier.size(width = 180.dp, height = 100.dp),
@@ -414,9 +414,9 @@ private fun GuideRow(
                 maxLines = 1,
             )
             Box(Modifier.width(52.dp).fillMaxHeight().padding(vertical = 4.dp), contentAlignment = Alignment.Center) {
-                if (channel.logoId != null) {
+                if (channel.logoId != null || channel.logoUrl != null) {
                     AsyncImage(
-                        model = logoUrl(serverUrl, channel.logoId),
+                        model = channelLogo(serverUrl, channel),
                         contentDescription = null,
                         contentScale = ContentScale.Fit,
                         modifier = Modifier.fillMaxSize(),
@@ -541,5 +541,9 @@ fun displayTitle(p: GuideProgram): String {
 }
 
 fun logoUrl(serverUrl: String, logoId: Int) = "${serverUrl.trimEnd('/')}/api/channels/logos/$logoId/cache/"
+
+/** A channel's logo: the provider's own address (IPTV provider) or Dispatcharr's cached logo. */
+fun channelLogo(serverUrl: String, channel: io.github.petebutty.viewarr.data.local.ChannelListItem): String? =
+    channel.logoUrl ?: channel.logoId?.let { logoUrl(serverUrl, it) }
 
 fun formatNumber(n: Double): String = if (n % 1.0 == 0.0) n.toLong().toString() else n.toString()

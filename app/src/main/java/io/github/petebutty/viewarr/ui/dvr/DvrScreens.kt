@@ -73,6 +73,7 @@ class DvrViewModel @Inject constructor(
     val recordings = repo.recordings
     val rules = repo.rules
     val allowed = repo.allowed
+    val xc = repo.xc
     val channels = guide.observeChannels(null).map { list -> list.associateBy { it.id } }
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
     private val _message = MutableStateFlow<String?>(null)
@@ -241,6 +242,7 @@ fun RecordingsScreen(
     val recordings by vm.recordings.collectAsStateWithLifecycle()
     val rules by vm.rules.collectAsStateWithLifecycle()
     val allowed by vm.allowed.collectAsStateWithLifecycle()
+    val xc by vm.xc.collectAsStateWithLifecycle()
     val channels by vm.channels.collectAsStateWithLifecycle()
     val message by vm.message.collectAsStateWithLifecycle()
     var picked by remember { mutableStateOf<DvrRow?>(null) }
@@ -284,7 +286,9 @@ fun RecordingsScreen(
             Spacer(Modifier.height(16.dp))
             when {
                 allowed == false -> Text(
-                    "Your Dispatcharr account isn't allowed to use recordings. In Dispatcharr, open Users, edit this account and set DVR access to Manage.",
+                    if (xc) "Recordings need a Dispatcharr server. Your live TV comes straight from your IPTV provider, which can't record. " +
+                        "You can still watch catch-up from the TV guide if your provider offers it."
+                    else "Your Dispatcharr account isn't allowed to use recordings. In Dispatcharr, open Users, edit this account and set DVR access to Manage.",
                     fontSize = 15.sp, color = AppColors.TextPrimary,
                 )
                 allowed == null && recordings.isEmpty() -> Text("Loading…", color = AppColors.TextSecondary)

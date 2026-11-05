@@ -42,6 +42,7 @@ sealed interface SyncState {
 class GuideRepository @Inject constructor(
     private val db: AppDatabase,
     private val apiFactory: ApiFactory,
+    private val xtream: io.github.petebutty.viewarr.data.xtream.XtreamClient,
     @ApplicationContext context: Context,
 ) {
     private val prefs = context.getSharedPreferences("guide", Context.MODE_PRIVATE)
@@ -62,6 +63,8 @@ class GuideRepository @Inject constructor(
     /** Fetches one past chunk for one guide key; only programmes starting inside the chunk and ending before
      *  the synced window are kept, so nothing overlaps what the full sync already stored. */
     suspend fun loadPastChunk(session: Session, tvgId: String, chunkStart: Long, chunkEnd: Long) = pastLimiter.withPermit {
+        // IPTV providers: their guide file already includes the past days, loaded in the full sync.
+        if (session.isXc) return@withPermit Result.success(Unit)
         runCatching {
             val api = apiFactory.create(session.serverUrl, session.apiKey)
             val syncedFrom = syncedFrom()
@@ -113,6 +116,7 @@ class GuideRepository @Inject constructor(
     }
 
     suspend fun sync(session: Session) = mutex.withLock {
+        if (session.isXc) return@withLock syncXc(session)
         try {
             _sync.value = SyncState.Running("Updating channels…")
             val api = apiFactory.create(session.serverUrl, session.apiKey)
@@ -166,6 +170,63 @@ class GuideRepository @Inject constructor(
             throw e
         } catch (e: Exception) {
             _sync.value = SyncState.Failed("Couldn't update the TV guide: ${e.message ?: e.javaClass.simpleName}")
+        }
+    }
+
+    /** IPTV provider (Xtream Codes): channels and groups from player_api.php, the guide from xmltv.php. */
+    private suspend fun syncXc(session: Session) {
+        try {
+            _sync.value = SyncState.Running("Updating channels…")
+            val (channels, groups) = coroutineScope {
+                val c = async { xtream.liveStreams(session) }
+                val g = async { xtream.liveCategories(session) }
+                c.await() to g.await()
+            }
+            val groupIds = HashMap<String, Int>()
+            fun groupId(id: String?) = id?.let { groupIds.getOrPut(it) { it.toIntOrNull() ?: (it.hashCode() and 0x3fffffff) } }
+            val groupRows = groups.map { GroupEntity(groupId(it.id)!!, it.name) }.distinctBy { it.id }
+            val channelRows = channels.distinctBy { it.streamId }.map {
+                ChannelEntity(
+                    id = it.streamId,
+                    uuid = it.streamId.toString(),
+                    name = it.name,
+                    number = it.number,
+                    groupId = groupId(it.categoryId),
+                    logoId = null,
+                    logoUrl = it.logo,
+                    guideKey = it.epgId ?: it.streamId.toString(),
+                    catchupDays = it.archiveDays,
+                )
+            }
+            _sync.value = SyncState.Running("Loading TV guide…")
+            val now = System.currentTimeMillis()
+            // Catch-up channels can go back days; keep up to two days of the past (the box has little room).
+            val back = if (channelRows.any { it.catchupDays > 0 }) XC_LOOKBACK_MS else LOOKBACK_MS
+            val wanted = channelRows.mapTo(HashSet()) { it.guideKey }
+            db.withTransaction {
+                dao.clearPrograms()
+                dao.clearChannels()
+                dao.clearGroups()
+                dao.insertGroups(groupRows)
+                dao.insertChannels(channelRows)
+            }
+            var total = 0
+            // Providers without a guide still work: channels just show their names.
+            runCatching {
+                xtream.guide(session, wanted, now - back, now + FORWARD_MS) { batch ->
+                    dao.insertPrograms(batch)
+                    total += batch.size
+                    _sync.value = SyncState.Running("Loading TV guide… %,d programmes".format(total))
+                }
+            }.onFailure { if (it is CancellationException) throw it }
+            dao.useUuidWhereGuideMissing()
+            prefs.edit().putLong(KEY_LAST_SYNC, now).putLong(KEY_SYNCED_FROM, now - back).apply()
+            _generation.value++
+            _sync.value = SyncState.Idle
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            _sync.value = SyncState.Failed("Couldn't update channels from your provider: ${e.message ?: e.javaClass.simpleName}")
         }
     }
 
@@ -290,6 +351,7 @@ class GuideRepository @Inject constructor(
         const val KEY_SYNCED_FROM = "synced_from"
         const val STALE_MS = 4 * 3_600_000L
         const val LOOKBACK_MS = 3_600_000L
+        const val XC_LOOKBACK_MS = 48 * 3_600_000L
         const val FORWARD_MS = 36 * 3_600_000L
         const val BATCH = 1000
     }

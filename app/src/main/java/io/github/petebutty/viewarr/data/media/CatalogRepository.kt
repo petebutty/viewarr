@@ -24,6 +24,7 @@ import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
@@ -45,6 +46,8 @@ import javax.inject.Singleton
 
 private const val TAG = "Catalog"
 private const val TMDB_IMG = "https://image.tmdb.org/t/p/"
+/** Library copies from the IPTV provider (Xtream Codes) are labelled with this source. */
+const val PROVIDER = "Provider"
 private fun enc(s: String) = URLEncoder.encode(s, "UTF-8")
 
 /**
@@ -60,6 +63,8 @@ class CatalogRepository @Inject constructor(
     private val playbackStore: io.github.petebutty.viewarr.data.settings.PlaybackStore,
     private val plex: PlexService,
     private val mediaServers: MediaServerService,
+    private val sessions: io.github.petebutty.viewarr.data.session.SessionStore,
+    private val xtream: io.github.petebutty.viewarr.data.xtream.XtreamClient,
 ) {
     private val tmdbCache = ConcurrentHashMap<String, MediaItem>()
     private val tmdbLimit = Semaphore(6)
@@ -88,6 +93,8 @@ class CatalogRepository @Inject constructor(
                 else add { listOfNotNull(tmdbList(k, type, "/tv/on_the_air", "airing", "On TV this week")) }
             }
             a.activeAddons.forEach { addon -> add { stremioRows(addon, type) } }
+            // IPTV provider films / series, when live TV is signed in to a provider (Xtream Codes).
+            add { providerRows(a, type) }
         }
         val found = arrayOfNulls<List<MediaRow>>(slots.size)
         val lock = Mutex()
@@ -495,7 +502,7 @@ class CatalogRepository @Inject constructor(
     /** Which of the user's own servers have this title. Built once per run from Plex and Jellyfin/Emby. */
     suspend fun copiesOf(item: MediaItem): List<LibraryCopy> {
         val idx = index ?: indexLock.withLock { index ?: buildIndex().also { index = it } }
-        return indexKeys(item.type, item.tmdbId, item.imdbId).flatMap { idx[it].orEmpty() }.distinctBy { it.source }
+        return (indexKeys(item.type, item.tmdbId, item.imdbId) + item.key).flatMap { idx[it].orEmpty() }.distinctBy { it.source }
     }
 
     private suspend fun buildIndex(): Map<String, List<LibraryCopy>> {
@@ -523,6 +530,19 @@ class CatalogRepository @Inject constructor(
             r.body.array("Items").forEach { j ->
                 val type = if (j.str("Type") == "Series") MediaType.Show else MediaType.Movie
                 add(type, j.child("ProviderIds").str("Tmdb")?.toIntOrNull(), j.child("ProviderIds").str("Imdb"), LibraryCopy(if (emby) "Emby" else "Jellyfin"))
+            }
+        }
+        xcSession()?.let { s ->
+            val (films, series) = xcCatalog(s)
+            films.forEach { v ->
+                val copy = LibraryCopy(PROVIDER, v.extension.uppercase(), "movie:${v.streamId}:${v.extension}")
+                add(MediaType.Movie, v.tmdbId, null, copy)
+                out.getOrPut(xcKey(MediaType.Movie, v.streamId)) { ArrayList() }.add(copy)
+            }
+            series.forEach { v ->
+                val copy = LibraryCopy(PROVIDER, null, "series:${v.seriesId}")
+                add(MediaType.Show, v.tmdbId, null, copy)
+                out.getOrPut(xcKey(MediaType.Show, v.seriesId)) { ArrayList() }.add(copy)
             }
         }
         Log.i(TAG, "library index: ${out.size} keys")
@@ -750,6 +770,68 @@ class CatalogRepository @Inject constructor(
             .minByOrNull(::score)?.str("key")
         trailerCache[item.key] = pick.orEmpty()
         return pick
+    }
+
+    // ------------------------------------------------------------------ IPTV provider films & series (Xtream Codes)
+
+    @Volatile private var xcCache: Triple<Long, List<io.github.petebutty.viewarr.data.xtream.XtreamVod>, List<io.github.petebutty.viewarr.data.xtream.XtreamSeries>>? = null
+    private val xcLock = Mutex()
+
+    private suspend fun xcSession() = sessions.session.first()?.takeIf { it.isXc }
+
+    private fun xcKey(type: MediaType, id: Int) = "xc:${type.name}:$id"
+
+    /** The provider's whole film and series lists, fetched once every few hours (they can be large). */
+    private suspend fun xcCatalog(s: io.github.petebutty.viewarr.data.session.Session) = xcLock.withLock {
+        xcCache?.takeIf { System.currentTimeMillis() - it.first < 6 * 3_600_000L }?.let { it.second to it.third }
+            ?: run {
+                val films = runCatching { xtream.vodStreams(s) }.getOrDefault(emptyList())
+                val series = runCatching { xtream.series(s) }.getOrDefault(emptyList())
+                xcCache = Triple(System.currentTimeMillis(), films, series)
+                films to series
+            }
+    }
+
+    private suspend fun providerRows(a: Accounts, type: MediaType): List<MediaRow> {
+        val s = xcSession() ?: return emptyList()
+        val (films, series) = xcCatalog(s)
+        val items: List<Pair<MediaItem, Long>> = if (type == MediaType.Movie) films.map { v ->
+            MediaItem(
+                key = v.tmdbId?.let { "tmdb:Movie:$it" } ?: xcKey(MediaType.Movie, v.streamId),
+                type = MediaType.Movie, title = v.name, year = v.year, poster = v.poster, rating = v.rating, tmdbId = v.tmdbId,
+                origin = "Your provider",
+            ) to v.added
+        } else series.map { v ->
+            MediaItem(
+                key = v.tmdbId?.let { "tmdb:Show:$it" } ?: xcKey(MediaType.Show, v.seriesId),
+                type = MediaType.Show, title = v.name, year = v.year, poster = v.poster, backdrop = v.backdrop, overview = v.plot,
+                rating = v.rating, tmdbId = v.tmdbId, origin = "Your provider",
+            ) to v.lastModified
+        }
+        if (items.isEmpty()) return emptyList()
+        val newest = enrich(a, items.sortedByDescending { it.second }.map { it.first }.distinctBy { it.key }.take(40))
+        val best = enrich(a, items.map { it.first }.filter { it.rating != null }.sortedByDescending { it.rating }.distinctBy { it.key }.take(40))
+        val what = if (type == MediaType.Movie) "films" else "series"
+        return listOf(
+            MediaRow("xc-new-${type.name}", "New $what from your provider", newest),
+            MediaRow("xc-top-${type.name}", "Top-rated $what from your provider", best),
+        )
+    }
+
+    /** A provider film, from its library copy ("movie:<id>:<ext>"). */
+    suspend fun providerMovie(ref: String, title: String, watch: WatchTarget?): VodStream? {
+        val s = xcSession() ?: return null
+        val parts = ref.split(':')
+        val id = parts.getOrNull(1)?.toIntOrNull() ?: return null
+        return VodStream(url = xtream.movieUrl(s, id, parts.getOrNull(2) ?: "mp4"), title = title, watch = watch)
+    }
+
+    /** A provider series' episodes as (season, episode) → stream address, from its library copy ("series:<id>"). */
+    suspend fun providerEpisodes(ref: String): Map<Pair<Int, Int>, String> {
+        val s = xcSession() ?: return emptyMap()
+        val id = ref.removePrefix("series:").toIntOrNull() ?: return emptyMap()
+        return runCatching { xtream.episodes(s, id) }.getOrDefault(emptyList())
+            .associate { (it.season to it.episode) to xtream.episodeUrl(s, it) }
     }
 
     private suspend fun findByImdb(key: String, imdbId: String, type: MediaType): Int? = runCatching {

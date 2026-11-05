@@ -39,6 +39,8 @@ data class DetailUi(
     /** null while loading. */
     val episodes: List<io.github.petebutty.viewarr.data.media.EpisodeInfo>? = null,
     val plexEpisodes: Map<Pair<Int, Int>, io.github.petebutty.viewarr.data.media.PlexEpisode> = emptyMap(),
+    /** IPTV provider series: (season, episode) → stream address. */
+    val providerEpisodes: Map<Pair<Int, Int>, String> = emptyMap(),
     /** The episode whose play options are open. */
     val episode: io.github.petebutty.viewarr.data.media.EpisodeInfo? = null,
 )
@@ -169,8 +171,17 @@ class MediaViewModel @Inject constructor(
             if (full.item.type == MediaType.Show) {
                 val showKey = copies.firstOrNull { it.source == "Plex" }?.ref
                 val plexEps = showKey?.let { runCatching { repo.plexEpisodes(it) }.getOrDefault(emptyMap()) }.orEmpty()
-                val seasons = full.seasons.ifEmpty { showKey?.let { runCatching { repo.plexSeasons(it) }.getOrDefault(emptyList()) }.orEmpty() }
-                _detail.update { it?.copy(plexEpisodes = plexEps, seasons = seasons) }
+                val providerRef = copies.firstOrNull { it.source == io.github.petebutty.viewarr.data.media.PROVIDER }?.ref
+                val providerEps = providerRef?.let { repo.providerEpisodes(it) }.orEmpty()
+                // A provider-only series (no TMDB match) gets its seasons from the provider's own episode list.
+                val seasons = full.seasons
+                    .ifEmpty { showKey?.let { runCatching { repo.plexSeasons(it) }.getOrDefault(emptyList()) }.orEmpty() }
+                    .ifEmpty {
+                        providerEps.keys.groupBy { it.first }.toSortedMap().map { (n, eps) ->
+                            io.github.petebutty.viewarr.data.media.SeasonInfo(n, "Season $n", eps.size, null)
+                        }
+                    }
+                _detail.update { it?.copy(plexEpisodes = plexEps, providerEpisodes = providerEps, seasons = seasons) }
             }
         }
     }
@@ -203,6 +214,12 @@ class MediaViewModel @Inject constructor(
         seasonJob?.cancel()
         seasonJob = viewModelScope.launch {
             val eps = runCatching { repo.seasonEpisodes(d.detail.item, n, d.plexShowKey) }.getOrDefault(emptyList())
+                .ifEmpty {
+                    // Provider-only series: list the provider's episodes for this season.
+                    (_detail.value?.providerEpisodes ?: d.providerEpisodes).keys.filter { it.first == n }.sortedBy { it.second }.map { (s, e) ->
+                        io.github.petebutty.viewarr.data.media.EpisodeInfo(s, e, "Episode $e", null, null, null, null)
+                    }
+                }
             _detail.update { if (it?.season == n) it.copy(episodes = eps) else it }
         }
     }
@@ -230,6 +247,32 @@ class MediaViewModel @Inject constructor(
                 _playing.value = stream.copy(title = "${d.detail.item.title} · S$season E$episode")
             }
         }
+    }
+
+    /** A film from the IPTV provider. */
+    fun playProvider() {
+        val d = _detail.value ?: return
+        if (d.detail.item.type == MediaType.Show) return openEpisodes()
+        val ref = d.copies?.firstOrNull { it.source == io.github.petebutty.viewarr.data.media.PROVIDER }?.ref ?: return
+        viewModelScope.launch {
+            val stream = repo.providerMovie(ref, d.detail.item.title, watchTarget(d.detail.item, null, null))
+            if (stream == null) _detail.update { it?.copy(message = "Couldn't open this from your provider.") }
+            else { _detail.update { it?.copy(message = null) }; _playing.value = stream }
+        }
+    }
+
+    /** One episode from the IPTV provider. */
+    fun playProviderEpisode(season: Int, episode: Int) {
+        val d = _detail.value ?: return
+        val url = d.providerEpisodes[season to episode]
+        if (url == null) {
+            _detail.update { it?.copy(message = "Your provider doesn't have S$season E$episode.") }
+            return
+        }
+        _detail.update { it?.copy(message = null, episode = null) }
+        _playing.value = io.github.petebutty.viewarr.data.media.VodStream(
+            url = url, title = "${d.detail.item.title} · S$season E$episode", watch = watchTarget(d.detail.item, season, episode),
+        )
     }
 
     /** The "Play S2 E4" button on a show from continue watching. */
@@ -391,6 +434,7 @@ class MediaViewModel @Inject constructor(
             val d = _detail.value ?: return@launch
             when {
                 d.copies?.any { it.source == "Plex" && it.ref != null } == true -> playPlex()
+                d.copies?.any { it.source == io.github.petebutty.viewarr.data.media.PROVIDER } == true -> playProvider()
                 d.hasAddons -> searchAddons()
             }
         }

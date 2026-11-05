@@ -6,6 +6,9 @@ import io.github.petebutty.viewarr.data.session.Session
 import io.github.petebutty.viewarr.data.session.SessionStore
 import retrofit2.HttpException
 import java.io.IOException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.sync.withPermit
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -18,7 +21,68 @@ sealed interface ProbeResult {
 class AuthRepository @Inject constructor(
     private val apiFactory: ApiFactory,
     private val sessions: SessionStore,
+    private val xtream: io.github.petebutty.viewarr.data.xtream.XtreamClient,
 ) {
+    /**
+     * IPTV provider (Xtream Codes) sign-in: the username and password from the provider. Tries the address as typed,
+     * then with http:// added. The password is kept (encrypted) because every stream address contains it.
+     */
+    suspend fun signInXc(server: String, username: String, password: String): Result<Session> {
+        val raw = server.trim().trimEnd('/')
+        if (raw.isEmpty()) return Result.failure(IllegalStateException("Enter your provider's server address."))
+        if (username.isBlank() || password.isEmpty()) return Result.failure(IllegalStateException("Enter the username and password from your provider."))
+        val candidates = if (raw.contains("://")) listOf(raw) else listOf("http://$raw", "https://$raw")
+        var last: Throwable = IllegalStateException("Couldn't reach that server. Check the address with your provider.")
+        for (url in candidates) {
+            try {
+                val account = xtream.signIn(url, username.trim(), password)
+                val session = Session(url, account.username, apiKey = "", xcPassword = password, xcTimezone = account.timezone)
+                sessions.save(session)
+                return Result.success(session)
+            } catch (e: io.github.petebutty.viewarr.data.xtream.XtreamException) {
+                return Result.failure(IllegalStateException(e.message))
+            } catch (e: Exception) {
+                last = IllegalStateException("Couldn't reach that server. Check the address with your provider.")
+            }
+        }
+        return Result.failure(last)
+    }
+
+    /**
+     * Looks for Dispatcharr on this TV's own network: every address in the local /24 with port 9191 open, confirmed
+     * by Dispatcharr's version endpoint. Takes a few seconds; nothing outside the home network is contacted.
+     */
+    suspend fun discover(): List<ProbeResult.Found> = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        val prefix = localPrefix() ?: return@withContext emptyList()
+        val gate = kotlinx.coroutines.sync.Semaphore(48)
+        kotlinx.coroutines.coroutineScope {
+            (1..254).map { host ->
+                async {
+                    gate.withPermit {
+                        val ip = "$prefix.$host"
+                        val open = runCatching {
+                            java.net.Socket().use { it.connect(java.net.InetSocketAddress(ip, 9191), 300); true }
+                        }.getOrDefault(false)
+                        if (!open) return@withPermit null
+                        val url = "http://$ip:9191"
+                        runCatching { apiFactory.create(url, quick = true).version().version }.getOrNull()
+                            ?.takeIf { it.isNotBlank() }?.let { ProbeResult.Found(url, it) }
+                    }
+                }
+            }.awaitAll().filterNotNull()
+        }
+    }
+
+    /** "192.168.1" for a TV at 192.168.1.184: the first private IPv4 address on an active interface. */
+    private fun localPrefix(): String? = runCatching {
+        java.net.NetworkInterface.getNetworkInterfaces().toList()
+            .filter { it.isUp && !it.isLoopback }
+            .flatMap { it.inetAddresses.toList() }
+            .filterIsInstance<java.net.Inet4Address>()
+            .firstOrNull { it.isSiteLocalAddress }
+            ?.hostAddress?.substringBeforeLast('.')
+    }.getOrNull()
+
     suspend fun probe(input: String): ProbeResult {
         val candidates = candidateUrls(input)
         if (candidates.isEmpty()) return ProbeResult.Failed("Enter your Dispatcharr server address.")

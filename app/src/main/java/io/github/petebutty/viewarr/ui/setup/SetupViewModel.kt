@@ -42,7 +42,7 @@ enum class SetupMode { FirstRun, Manage }
 enum class SetupStep { Phone, Welcome, Choose, Server, SignIn, Tmdb, Trakt, Plex, Stremio, Jellyfin, Emby, Vod, Done }
 
 enum class SetupItem(val id: String, val label: String, val description: String, val steps: List<SetupStep>) {
-    LiveTv("livetv", "Live TV", "Dispatcharr: channels, TV guide, catch-up and recordings", listOf(SetupStep.Server, SetupStep.SignIn)),
+    LiveTv("livetv", "Live TV", "Dispatcharr or an IPTV provider: channels, TV guide and catch-up (recordings with Dispatcharr)", listOf(SetupStep.Server, SetupStep.SignIn)),
     Tmdb("tmdb", "TMDB", "Posters, descriptions and discovery for Movies & Shows", listOf(SetupStep.Tmdb)),
     Trakt("trakt", "Trakt", "Watchlist, history, recommendations and continue watching", listOf(SetupStep.Trakt)),
     Plex("plex", "Plex", "Play films and shows from your Plex library", listOf(SetupStep.Plex)),
@@ -63,6 +63,8 @@ data class SetupUiState(
     val serverInput: String = "",
     val serverUrl: String? = null,
     val serverVersion: String? = null,
+    /** No Dispatcharr at the address: treat it as an IPTV provider (Xtream Codes) login. */
+    val xc: Boolean = false,
     val username: String = "",
     val password: String = "",
     val fields: Map<String, String> = emptyMap(),
@@ -201,6 +203,18 @@ class SetupViewModel @Inject constructor(
             SetupStep.Trakt -> startTrakt()
             SetupStep.Plex -> startPlex()
             SetupStep.Vod -> checkVod()
+            SetupStep.Server -> if (_state.value.serverInput.isBlank()) viewModelScope.launch {
+                _state.update { it.copy(info = "Looking for Dispatcharr on your network…") }
+                val found = runCatching { auth.discover() }.getOrDefault(emptyList())
+                if (_state.value.step != SetupStep.Server) return@launch
+                _state.update {
+                    if (found.isEmpty()) it.copy(info = "Couldn't find Dispatcharr automatically. Type its address, or your IPTV provider's.")
+                    else it.copy(
+                        serverInput = if (it.serverInput.isBlank()) found.first().url.removePrefix("http://") else it.serverInput,
+                        info = "Found Dispatcharr ${found.first().version} at ${found.first().url.removePrefix("http://")}. Press Continue.",
+                    )
+                }
+            }
             else -> Unit
         }
     }
@@ -383,11 +397,18 @@ class SetupViewModel @Inject constructor(
     private fun checkServer() = work {
         when (val result = auth.probe(_state.value.serverInput)) {
             is ProbeResult.Found -> {
-                _state.update { it.copy(busy = false, serverUrl = result.url, serverVersion = result.version) }
+                _state.update { it.copy(busy = false, serverUrl = result.url, serverVersion = result.version, xc = false) }
                 go(SetupStep.SignIn)
                 _state.update { it.copy(serverUrl = result.url, serverVersion = result.version) }
             }
-            is ProbeResult.Failed -> fail(result.message)
+            // Not Dispatcharr: it may be an IPTV provider's server. The provider login is checked at sign-in.
+            is ProbeResult.Failed -> {
+                val raw = _state.value.serverInput.trim()
+                if (raw.isEmpty()) return@work fail(result.message)
+                _state.update { it.copy(busy = false, serverUrl = raw, serverVersion = null, xc = true) }
+                go(SetupStep.SignIn)
+                _state.update { it.copy(serverUrl = raw, serverVersion = null, xc = true) }
+            }
         }
     }
 
@@ -399,7 +420,7 @@ class SetupViewModel @Inject constructor(
             return
         }
         work {
-            auth.signIn(s.serverUrl, s.username, s.password)
+            (if (s.xc) auth.signInXc(s.serverUrl, s.username, s.password) else auth.signIn(s.serverUrl, s.username, s.password))
                 .onSuccess {
                     _state.update { it.copy(password = "") }
                     advance()
@@ -439,6 +460,23 @@ class SetupViewModel @Inject constructor(
                         }
                     }
                 }
+            }
+            "discover" -> {
+                activity("Looking for Dispatcharr on your network…")
+                val found = auth.discover()
+                activity(if (found.isEmpty()) "No Dispatcharr found automatically" else "Found Dispatcharr")
+                reply(true) {
+                    putJsonArray("servers") {
+                        found.forEach { f -> add(buildJsonObject { put("url", f.url); put("version", f.version) }) }
+                    }
+                }
+            }
+            "livetv-xc" -> {
+                activity("Signing in to your IPTV provider…")
+                auth.signInXc(v["server"].orEmpty(), v["username"].orEmpty(), v["password"].orEmpty()).fold(
+                    onSuccess = { s -> activity("Live TV: signed in to your provider as ${s.username}"); reply(true, "Signed in to your provider as ${s.username}.") },
+                    onFailure = { e -> activity("Provider sign-in failed"); reply(false, e.message ?: "Sign-in failed.") },
+                )
             }
             "livetv" -> {
                 activity("Signing in to Dispatcharr…")

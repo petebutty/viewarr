@@ -49,7 +49,18 @@ sealed interface PlaybackState {
 class PlaybackViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val remoteStore: io.github.petebutty.viewarr.data.settings.RemoteStore,
+    private val xtream: io.github.petebutty.viewarr.data.xtream.XtreamClient,
 ) : ViewModel() {
+
+    /** Live stream address: Dispatcharr's proxy, or the IPTV provider's own stream. */
+    private fun liveUrl(s: Session, channel: ChannelListItem) =
+        if (s.isXc) xtream.liveUrl(s, channel.id) else "${s.serverUrl.trimEnd('/')}/proxy/ts/stream/${channel.uuid}"
+
+    private fun catchupUrl(s: Session, channel: ChannelListItem, program: GuideProgram): String {
+        val minutes = maxOf(1L, (program.endTime - program.startTime) / 60_000)
+        return if (s.isXc) xtream.catchupUrl(s, channel.id, program.startTime, minutes)
+        else "${s.serverUrl.trimEnd('/')}/proxy/catchup/${channel.uuid}?start=${program.startTime / 1000}&duration=$minutes"
+    }
 
     private var session: Session? = null
     private var retryJob: Job? = null
@@ -105,7 +116,7 @@ class PlaybackViewModel @Inject constructor(
             .setConnectTimeoutMs(10_000)
             .setReadTimeoutMs(20_000)
             // Optional for Dispatcharr's proxy, but attributes the stream to this user (limits, "who's watching").
-            .setDefaultRequestProperties(mapOf("X-API-Key" to session.apiKey))
+            .setDefaultRequestProperties(if (session.isXc) emptyMap() else mapOf("X-API-Key" to session.apiKey))
         val extractors = DefaultExtractorsFactory().setTsExtractorFlags(
             DefaultTsPayloadReaderFactory.FLAG_ALLOW_NON_IDR_KEYFRAMES or
                 DefaultTsPayloadReaderFactory.FLAG_DETECT_ACCESS_UNITS
@@ -165,16 +176,14 @@ class PlaybackViewModel @Inject constructor(
 
     fun play(channel: ChannelListItem, session: Session? = this.session) {
         val s = session ?: return
-        start(channel, null, s, "${s.serverUrl.trimEnd('/')}/proxy/ts/stream/${channel.uuid}")
+        start(channel, null, s, liveUrl(s, channel))
         viewModelScope.launch { runCatching { remoteStore.setLastChannel(channel.id) } }
     }
 
     /** Dispatcharr's native catch-up endpoint: authenticated by the API key header, seekable. */
     fun playCatchup(channel: ChannelListItem, program: GuideProgram, session: Session? = this.session) {
         val s = session ?: return
-        val minutes = maxOf(1L, (program.endTime - program.startTime) / 60_000)
-        val url = "${s.serverUrl.trimEnd('/')}/proxy/catchup/${channel.uuid}?start=${program.startTime / 1000}&duration=$minutes"
-        start(channel, program, s, url)
+        start(channel, program, s, catchupUrl(s, channel, program))
     }
 
     private fun start(channel: ChannelListItem, program: GuideProgram?, s: Session, url: String, startAt: Long = 0) {
@@ -197,8 +206,7 @@ class PlaybackViewModel @Inject constructor(
         val program = _catchup.value
         if (program == null) play(channel, s)
         else {
-            val minutes = maxOf(1L, (program.endTime - program.startTime) / 60_000)
-            start(channel, program, s, "${s.serverUrl.trimEnd('/')}/proxy/catchup/${channel.uuid}?start=${program.startTime / 1000}&duration=$minutes", startAt)
+            start(channel, program, s, catchupUrl(s, channel, program), startAt)
         }
     }
 

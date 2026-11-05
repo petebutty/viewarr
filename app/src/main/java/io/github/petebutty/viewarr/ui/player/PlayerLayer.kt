@@ -161,8 +161,8 @@ internal fun InfoBanner(
             modifier = Modifier.width(90.dp),
         )
         Box(Modifier.size(width = 110.dp, height = 62.dp), contentAlignment = Alignment.Center) {
-            channel.logoId?.let {
-                AsyncImage(model = logoUrl(serverUrl, it), contentDescription = null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
+            io.github.petebutty.viewarr.ui.guide.channelLogo(serverUrl, channel)?.let {
+                AsyncImage(model = it, contentDescription = null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
             }
         }
         Column(Modifier.weight(1f).padding(start = 24.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {

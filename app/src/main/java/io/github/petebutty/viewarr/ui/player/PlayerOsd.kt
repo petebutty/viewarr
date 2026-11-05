@@ -134,7 +134,7 @@ fun PlayerOsd(
                 modifier = Modifier.width(64.dp),
             )
             Box(Modifier.size(width = 72.dp, height = 40.dp), contentAlignment = Alignment.Center) {
-                channel.logoId?.let { AsyncImage(logoUrl(serverUrl, it), null, contentScale = ContentScale.Fit) }
+                io.github.petebutty.viewarr.ui.guide.channelLogo(serverUrl, channel)?.let { AsyncImage(it, null, contentScale = ContentScale.Fit) }
             }
             Column(Modifier.weight(1f).padding(start = 16.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
