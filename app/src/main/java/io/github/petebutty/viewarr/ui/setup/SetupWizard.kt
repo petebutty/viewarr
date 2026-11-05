@@ -82,9 +82,10 @@ fun SetupWizard(
         // Two frames: after a step change the new screen's buttons aren't attached on the first one.
         awaitFrame()
         awaitFrame()
-        runCatching { firstFocus.requestFocus() }
+        // The hub places focus itself (on the service you just set up).
+        if (state.step != SetupStep.Choose) runCatching { firstFocus.requestFocus() }
     }
-    val atRoot = (mode == SetupMode.FirstRun && state.step == SetupStep.Phone) || (mode == SetupMode.Manage && state.step == SetupStep.Choose)
+    val atRoot = state.step == SetupStep.Choose
     BackHandler(enabled = !atRoot) { vm.back() }
     BackHandler(enabled = mode == SetupMode.Manage && state.step == SetupStep.Choose) { vm.finish(onClose) }
 
@@ -141,7 +142,8 @@ fun SetupWizard(
                     },
                 )
                 SetupStep.Tmdb -> TextStep(
-                    qrUrl = null,
+                    qrUrl = "https://www.themoviedb.org/settings/api",
+                    qrCaption = "Scan to open TMDB on your phone: sign in, copy your API key, then type it here.",
                     fields = {
                         WizardField(state.fields[TMDB_KEY].orEmpty(), { vm.onField(TMDB_KEY, it) }, "TMDB API key", firstFocus, KeyboardType.Text, ImeAction.Done, vm::submit)
                     },
@@ -152,7 +154,8 @@ fun SetupWizard(
                 )
                 SetupStep.Trakt, SetupStep.Plex -> CodeStep(state, firstFocus, vm)
                 SetupStep.Stremio -> TextStep(
-                    qrUrl = null,
+                    qrUrl = state.qrUrl?.let { u -> u.substringBefore('#') + "?go=stremio#" + u.substringAfter('#') },
+                    qrCaption = "Scan to paste addon links from your phone (easier than typing).",
                     fields = {
                         accounts.addons.forEach { addon ->
                             MenuItem(text = addon.name, selected = false, trailing = "Remove", onClick = { vm.removeAddon(addon.baseUrl) })
@@ -220,18 +223,21 @@ private fun ColumnScope.ChooseStep(
     onClose: () -> Unit,
 ) {
     val manage = state.mode == SetupMode.Manage
-    val items = SetupItem.entries.filter { it.available && (it != SetupItem.Vod || session != null || SetupItem.LiveTv in state.selected) }
-    // The buttons go first so they're always on screen: a long list used to push Continue out of the panel.
-    val continueFocus = remember { FocusRequester() }
+    val items = SetupItem.entries.filter { it.available && (it != SetupItem.Vod || session != null) }
+    val anything = summary(accounts, session).isNotEmpty()
+    // The hub: one row per service. OK runs that service's steps and comes back here. Buttons stay on top.
+    val itemFocus = remember { HashMap<SetupItem, FocusRequester>() }
+    val doneFocus = remember { FocusRequester() }
+    LaunchedEffect(state.lastItem) {
+        // Back from a service: focus returns to it. First visit: Live TV (first run) or the phone button.
+        kotlinx.coroutines.android.awaitFrame()
+        runCatching { (state.lastItem?.let { itemFocus[it] } ?: if (manage) firstFocus else itemFocus[items.first()])?.requestFocus() }
+    }
     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        if (manage) {
-            Button(onClick = vm::openPhone, modifier = Modifier.focusRequester(firstFocus)) { Text("Set up on your phone") }
-            OutlinedButton(onClick = { vm.finish(onClose) }) { Text("Done") }
-        } else {
-            Button(onClick = vm::beginChosen, enabled = state.selected.isNotEmpty(), modifier = Modifier.focusRequester(continueFocus)) {
-                Text(if (state.selected.isEmpty()) "Tick something first" else "Continue with ${state.selected.size} selected")
-            }
-            OutlinedButton(onClick = vm::openPhone) { Text("Use my phone instead") }
+        Button(onClick = vm::openPhone, modifier = Modifier.focusRequester(firstFocus)) { Text("Set up on your phone") }
+        if (manage) OutlinedButton(onClick = { vm.finish(onClose) }, modifier = Modifier.focusRequester(doneFocus)) { Text("Done") }
+        else OutlinedButton(onClick = { vm.finish(onClose) }, enabled = anything, modifier = Modifier.focusRequester(doneFocus)) {
+            Text(if (anything) "Start watching" else "Connect something first")
         }
     }
     Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -239,15 +245,11 @@ private fun ColumnScope.ChooseStep(
             val status = statusFor(item, accounts, session)
             MenuItem(
                 text = item.label,
-                selected = !manage && item in state.selected,
-                trailing = when {
-                    manage -> status ?: "Set up"
-                    item in state.selected -> "✓"
-                    else -> status
-                },
-                onClick = { if (manage) vm.open(item) else vm.toggle(item) },
-                // Up from the top of the list goes to Continue (not whichever button happens to be nearest).
-                modifier = if (i == 0 && !manage) Modifier.focusRequester(firstFocus).focusProperties { up = continueFocus } else Modifier,
+                selected = false,
+                trailing = status ?: "Set up",
+                onClick = { vm.open(item) },
+                modifier = Modifier.focusRequester(itemFocus.getOrPut(item) { FocusRequester() })
+                    .then(if (i == 0) Modifier.focusProperties { up = firstFocus } else Modifier),
             )
             Text(item.description, fontSize = 12.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(start = 12.dp, bottom = 6.dp))
         }
@@ -293,14 +295,14 @@ private fun PhoneStep(
         if (manage) {
             OutlinedButton(onClick = vm::back, modifier = Modifier.focusRequester(firstFocus)) { Text("Back") }
         } else {
-            OutlinedButton(onClick = vm::start, modifier = Modifier.focusRequester(firstFocus)) { Text("Use the remote instead") }
-            if (summary(accounts, session).isNotEmpty()) Button(onClick = { vm.finish(onClose) }) { Text("Finish") }
+            OutlinedButton(onClick = vm::back, modifier = Modifier.focusRequester(firstFocus)) { Text("Back: set up with the remote") }
+            if (summary(accounts, session).isNotEmpty()) Button(onClick = { vm.finish(onClose) }) { Text("Start watching") }
         }
     }
 }
 
 @Composable
-private fun TextStep(qrUrl: String?, fields: @Composable () -> Unit, actions: @Composable () -> Unit) {
+private fun TextStep(qrUrl: String?, qrCaption: String = "Or scan with your phone to type it there", fields: @Composable () -> Unit, actions: @Composable () -> Unit) {
     Row(horizontalArrangement = Arrangement.spacedBy(28.dp)) {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             fields()
@@ -310,7 +312,7 @@ private fun TextStep(qrUrl: String?, fields: @Composable () -> Unit, actions: @C
             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(190.dp)) {
                 QrImage(qrUrl, Modifier.size(170.dp))
                 Spacer(Modifier.height(8.dp))
-                Text("Or scan with your phone to type it there", fontSize = 12.sp, color = AppColors.TextSecondary)
+                Text(qrCaption, fontSize = 12.sp, color = AppColors.TextSecondary)
             }
         }
     }
@@ -339,12 +341,16 @@ private fun CodeStep(state: SetupUiState, firstFocus: FocusRequester, vm: SetupV
                 Text("and enter", color = AppColors.TextSecondary)
                 BigCode(state.code)
                 Text("Waiting for you to approve…", fontSize = 13.sp, color = AppColors.TextSecondary)
+            } else if (state.codeUrl != null) {
+                Text("Scan the code with your phone and sign in to Plex.", fontSize = 18.sp, color = AppColors.TextPrimary)
+                Text("This TV links itself as soon as you've signed in.", color = AppColors.TextSecondary)
+                Text("Waiting for you to sign in…", fontSize = 13.sp, color = AppColors.TextSecondary)
             } else if (state.busy) {
                 Text("Getting a code…", color = AppColors.TextSecondary)
             }
             OutlinedButton(onClick = vm::advance, modifier = Modifier.focusRequester(firstFocus)) { Text("Skip") }
         }
-        state.codeUrl?.let { if (state.code != null) QrImage(it, Modifier.size(170.dp)) }
+        state.codeUrl?.let { QrImage(it, Modifier.size(200.dp)) }
     }
 }
 
@@ -432,7 +438,7 @@ private fun summary(a: Accounts, session: Session?): String = SetupItem.entries
 private fun titleFor(step: SetupStep, mode: SetupMode) = when (step) {
     SetupStep.Phone -> if (mode == SetupMode.Manage) "Set up on your phone" else "Welcome to Viewarr"
     SetupStep.Welcome -> "Welcome"
-    SetupStep.Choose -> if (mode == SetupMode.Manage) "Accounts & sources" else "What do you want to set up?"
+    SetupStep.Choose -> if (mode == SetupMode.Manage) "Accounts & sources" else "Set up Viewarr"
     SetupStep.Server -> "Find your live TV server"
     SetupStep.SignIn -> "Sign in to Dispatcharr"
     SetupStep.Tmdb -> "Connect TMDB"
@@ -450,6 +456,8 @@ private fun bodyFor(state: SetupUiState) = when (state.step) {
         "Typing passwords and links there is much easier than with the remote."
     SetupStep.Welcome -> "Let's connect this TV to your services. It only takes a few minutes."
     SetupStep.Choose -> if (state.mode == SetupMode.Manage) "Choose a service to connect, change or check."
+    else if (true) "Pick each service you use and connect it, one at a time. Live TV finds your Dispatcharr server by itself. " +
+        "Or set everything up from your phone. When you're done, choose Start watching."
     else "Tick everything you use. Movies & Shows need TMDB, so it's added automatically when you pick a film or TV source."
     SetupStep.Server -> "Dispatcharr: the address you open it at in a browser, for example 192.168.1.50:9191 (9191 is tried if you leave out the port). " +
         "IPTV provider: the server address from your provider's welcome email (Xtream Codes / XC login)."

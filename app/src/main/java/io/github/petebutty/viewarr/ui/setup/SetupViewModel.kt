@@ -58,7 +58,9 @@ val SetupItem.available: Boolean
 
 data class SetupUiState(
     val mode: SetupMode = SetupMode.FirstRun,
-    val step: SetupStep = SetupStep.Phone,
+    val step: SetupStep = SetupStep.Choose,
+    /** The service last set up from the hub, to put focus back on it. */
+    val lastItem: SetupItem? = null,
     val selected: Set<SetupItem> = setOf(SetupItem.LiveTv, SetupItem.Tmdb),
     val serverInput: String = "",
     val serverUrl: String? = null,
@@ -127,7 +129,8 @@ class SetupViewModel @Inject constructor(
         viewModelScope.launch {
             if (store.setupComplete.first() == null && sessions.session.first() == null) store.setSetupComplete(false)
         }
-        openPhone()
+        // First run opens on the hub (Accounts & sources): pick each service, or "Set up on your phone".
+        go(SetupStep.Choose)
     }
 
     fun openManage() {
@@ -161,6 +164,7 @@ class SetupViewModel @Inject constructor(
 
     /** Manage mode: run one item's steps, then come back to the list. */
     fun open(item: SetupItem) {
+        _state.update { it.copy(lastItem = item) }
         queue = item.steps
         advance()
     }
@@ -168,14 +172,14 @@ class SetupViewModel @Inject constructor(
     fun advance() {
         val next = queue.firstOrNull()
         queue = queue.drop(1)
-        go(next ?: if (_state.value.mode == SetupMode.Manage) SetupStep.Choose else SetupStep.Done)
+        go(next ?: SetupStep.Choose)
     }
 
     fun back() {
         when (_state.value.step) {
             SetupStep.SignIn -> go(SetupStep.Server)
-            SetupStep.Choose -> if (_state.value.mode == SetupMode.FirstRun) go(SetupStep.Phone)
-            SetupStep.Phone -> if (_state.value.mode == SetupMode.Manage) go(SetupStep.Choose)
+            SetupStep.Choose -> Unit
+            SetupStep.Phone -> go(SetupStep.Choose)
             else -> go(SetupStep.Choose)
         }
     }
@@ -196,12 +200,13 @@ class SetupViewModel @Inject constructor(
 
     private fun go(step: SetupStep) {
         cleanUp()
-        if (step != SetupStep.Phone) stopPhone()
+        if (step != SetupStep.Phone && step != SetupStep.Stremio && step != SetupStep.Tmdb) stopPhone()
         _state.update {
             it.copy(step = step, busy = false, error = null, info = null, code = null, codeUrl = null, plexChoices = emptyList(), fields = emptyMap())
         }
         when (step) {
             SetupStep.Phone -> startPhone()
+            SetupStep.Stremio, SetupStep.Tmdb -> startPhone()
             SetupStep.Trakt -> startTrakt()
             SetupStep.Plex -> startPlex()
             SetupStep.Vod -> checkVod()
@@ -354,8 +359,9 @@ class SetupViewModel @Inject constructor(
         stepJob = viewModelScope.launch {
             _state.update { it.copy(busy = true) }
             val deviceId = store.current().deviceId
-            val pin = plex.createPin(deviceId) ?: return@launch fail("Couldn't reach plex.tv. Check your connection.")
-            _state.update { it.copy(busy = false, code = pin.code, codeUrl = "https://plex.tv/link") }
+            // A "strong" PIN: the QR opens Plex's own sign-in page on the phone, and signing in there links this TV.
+            val pin = plex.createPin(deviceId, strong = true) ?: return@launch fail("Couldn't reach plex.tv. Check your connection.")
+            _state.update { it.copy(busy = false, code = null, codeUrl = plex.authUrl(deviceId, pin.code), info = null) }
             repeat(150) {
                 delay(2_000)
                 val token = plex.checkPin(deviceId, pin.id) ?: return@repeat

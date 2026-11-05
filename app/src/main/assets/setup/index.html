@@ -412,6 +412,9 @@ a.link.alt{background:transparent;border:1px solid var(--line);color:var(--text)
     });
   }
 
+  // Opened from a TV step's QR (e.g. ?go=stremio): go straight to that service.
+  const goTo = new URLSearchParams(location.search).get('go');
+  if (goTo) { chosen = [goTo]; pos = 0; }
   refresh().then(() => show()).catch((e) => { view.innerHTML = `<h1>Can't connect</h1><p>${esc(e.message)}</p>`; });
 })();
 </script>
