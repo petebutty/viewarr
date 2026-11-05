@@ -603,6 +603,8 @@ private fun MenuOverlay(
     }
     var showAppearance by remember { mutableStateOf(false) }
     var showHomeRows by remember { mutableStateOf(false) }
+    var showPlugins by remember { mutableStateOf(false) }
+    val pluginsItem = remember { FocusRequester() }
     val homeRowsItem = remember { FocusRequester() }
     var showRemote by remember { mutableStateOf(false) }
     var showPlayback by remember { mutableStateOf(false) }
@@ -710,7 +712,7 @@ private fun MenuOverlay(
                         .onFocusChanged { if (it.isFocused) section = s }
                         .onPreviewKeyEvent { e ->
                             // Right does the same as OK: open what's inside this entry.
-                            if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionRight && !(s == Section.Settings && (showAppearance || showRemote || showPlayback || showAddons || showUpdates || showHomeRows))) {
+                            if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionRight && !(s == Section.Settings && (showAppearance || showRemote || showPlayback || showAddons || showUpdates || showHomeRows || showPlugins))) {
                                 enter(s)
                                 true
                             } else false
@@ -730,7 +732,7 @@ private fun MenuOverlay(
                     when {
                         // Left goes back to this section's menu entry, not whichever one is geometrically closest.
                         e.key == Key.DirectionLeft && (section == Section.Tv ||
-                            (section == Section.Settings && !showAppearance && !showRemote && !showPlayback && !showAddons && !showUpdates && !showHomeRows)) -> {
+                            (section == Section.Settings && !showAppearance && !showRemote && !showPlayback && !showAddons && !showUpdates && !showHomeRows && !showPlugins)) -> {
                             revealMain()
                             true
                         }
@@ -779,6 +781,11 @@ private fun MenuOverlay(
                     onAppearance = {
                         runCatching { navFocus.getValue(Section.Settings).requestFocus() }
                         showAppearance = true
+                    },
+                    pluginsItem = pluginsItem,
+                    onPlugins = {
+                        runCatching { navFocus.getValue(Section.Settings).requestFocus() }
+                        showPlugins = true
                     },
                     homeRowsItem = homeRowsItem,
                     onHomeRows = {
@@ -835,6 +842,13 @@ private fun MenuOverlay(
             runCatching { appearanceItem.requestFocus() }
             showAppearance = false
             returnTo = appearanceItem
+        })
+    }
+    if (showPlugins) {
+        io.github.petebutty.viewarr.ui.settings.PluginsSettingsScreen(onBack = {
+            runCatching { pluginsItem.requestFocus() }
+            showPlugins = false
+            returnTo = pluginsItem
         })
     }
     if (showHomeRows) {
@@ -912,7 +926,7 @@ private fun Modifier.rightDoes(action: () -> Unit): Modifier = onPreviewKeyEvent
 private fun Modifier.rightIgnored(): Modifier = onPreviewKeyEvent { e -> e.key == Key.DirectionRight }
 
 @Composable
-private fun SettingsPanel(playbackItem: FocusRequester, onPlayback: () -> Unit, addonsItem: FocusRequester, onAddons: () -> Unit, remoteItem: FocusRequester, onRemote: () -> Unit, updatesItem: FocusRequester, onUpdates: () -> Unit, session: Session?, sync: SyncState, firstItem: FocusRequester, appearanceItem: FocusRequester, onAppearance: () -> Unit, homeRowsItem: FocusRequester, onHomeRows: () -> Unit, onAccounts: () -> Unit, onRefresh: () -> Unit, onSignOut: () -> Unit) {
+private fun SettingsPanel(playbackItem: FocusRequester, onPlayback: () -> Unit, addonsItem: FocusRequester, onAddons: () -> Unit, remoteItem: FocusRequester, onRemote: () -> Unit, updatesItem: FocusRequester, onUpdates: () -> Unit, session: Session?, sync: SyncState, firstItem: FocusRequester, appearanceItem: FocusRequester, onAppearance: () -> Unit, homeRowsItem: FocusRequester, onHomeRows: () -> Unit, pluginsItem: FocusRequester, onPlugins: () -> Unit, onAccounts: () -> Unit, onRefresh: () -> Unit, onSignOut: () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(session?.let { "Signed in as ${it.username}" } ?: "Live TV not set up", fontSize = 15.sp, color = AppColors.TextPrimary, modifier = Modifier.padding(horizontal = 12.dp))
         session?.let { Text(it.serverUrl, fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(horizontal = 12.dp)) }
@@ -928,6 +942,7 @@ private fun SettingsPanel(playbackItem: FocusRequester, onPlayback: () -> Unit, 
         MenuItem(text = "Appearance", selected = false, onClick = onAppearance, modifier = Modifier.focusRequester(appearanceItem).rightDoes(onAppearance))
         MenuItem(text = "Home rows", selected = false, onClick = onHomeRows, modifier = Modifier.focusRequester(homeRowsItem).rightDoes(onHomeRows))
         MenuItem(text = "Playback", selected = false, onClick = onPlayback, modifier = Modifier.focusRequester(playbackItem).rightDoes(onPlayback))
+        if (session != null && !session.isXc) MenuItem(text = "Dispatcharr plugins", selected = false, onClick = onPlugins, modifier = Modifier.focusRequester(pluginsItem).rightDoes(onPlugins))
         MenuItem(text = "Addons", selected = false, onClick = onAddons, modifier = Modifier.focusRequester(addonsItem).rightDoes(onAddons))
         MenuItem(text = "Remote & navigation", selected = false, onClick = onRemote, modifier = Modifier.focusRequester(remoteItem).rightDoes(onRemote))
         MenuItem(text = "Updates", selected = false, onClick = onUpdates, modifier = Modifier.focusRequester(updatesItem).rightDoes(onUpdates))
