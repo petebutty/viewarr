@@ -88,7 +88,9 @@ fun PlayerOsd(
     LaunchedEffect(scrubMs?.div(5_000), thumbs) {
         if (scrubMs == null || thumbs == null) { if (scrubMs == null) thumb = null; return@LaunchedEffect }
         delay(120)
-        thumbs.at(scrubMs)?.let { thumb = it }
+        val b = thumbs.at(scrubMs)
+        android.util.Log.i("SeekThumbs", "preview for ${scrubMs / 1000}s: ${if (b == null) "none" else "${b.width}x${b.height}"}")
+        if (b != null) thumb = b
     }
     Column(
         modifier
@@ -109,11 +111,11 @@ fun PlayerOsd(
             Column {
                 if (scrubbing && thumbs != null) {
                     // Preview above the marker, kept on screen at the ends.
-                    val w = 320.dp
+                    val w = 128.dp
                     val x = (barWidth * marker - w / 2).coerceIn(0.dp, (barWidth - w).coerceAtLeast(0.dp))
                     Column(Modifier.offset(x = x).width(w), horizontalAlignment = Alignment.CenterHorizontally) {
                         Box(
-                            Modifier.width(w).height(180.dp).clip(RoundedCornerShape(6.dp)).background(Color.Black)
+                            Modifier.width(w).height(72.dp).clip(RoundedCornerShape(6.dp)).background(Color.Black)
                                 .border(2.dp, Color.White.copy(alpha = 0.85f), RoundedCornerShape(6.dp)),
                             contentAlignment = Alignment.Center,
                         ) {
@@ -121,7 +123,7 @@ fun PlayerOsd(
                             if (b != null) Image(b.asImageBitmap(), null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxWidth().fillMaxHeight())
                             else Text("…", fontSize = 22.sp, color = Color.White.copy(alpha = 0.6f))
                         }
-                        Text(clockMs(scrubMs ?: 0), fontSize = 18.sp, fontWeight = FontWeight.Medium, color = Color.White, modifier = Modifier.padding(top = 6.dp, bottom = 8.dp))
+                        Text(clockMs(scrubMs ?: 0), fontSize = 16.sp, fontWeight = FontWeight.Medium, color = Color.White, modifier = Modifier.padding(top = 4.dp, bottom = 6.dp))
                     }
                 } else if (scrubbing) {
                     val w = 120.dp

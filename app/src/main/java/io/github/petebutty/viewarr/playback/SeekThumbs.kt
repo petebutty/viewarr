@@ -2,11 +2,12 @@ package io.github.petebutty.viewarr.playback
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.media.MediaMetadataRetriever
 import android.util.Log
 import android.util.LruCache
 import io.github.petebutty.viewarr.data.media.ThumbSource
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -138,36 +139,228 @@ private class TrickplayThumbs(private val s: ThumbSource.Trickplay) : SeekThumbs
 }
 
 /**
- * Pictures taken by this box from the video itself (Stremio / debrid links, Plex files without previews). Each one
- * is the keyframe nearest the position, so it's quick; one at a time, small, and remembered in 10-second steps.
+ * Pictures taken by this box from the video itself (Stremio / debrid links, Plex files without previews): the
+ * keyframe nearest the position, decoded in software (so playback keeps the hardware decoder) and shrunk to 320×180.
+ * Android's own MediaMetadataRetriever returns only black frames on Amlogic boxes, hence doing it by hand.
+ * Work runs in its own scope, so a picture the seek bar stopped waiting for is still kept for next time.
  */
 private class RetrieverThumbs(private val url: String, private val headers: Map<String, String>) : SeekThumbs {
-    private val lock = Mutex()
-    private var mmr: MediaMetadataRetriever? = null
-    private var broken = false
-    private val cache = LruCache<Long, Bitmap>(30)
+    private val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO.limitedParallelism(1))
+    private var extractor: android.media.MediaExtractor? = null
+    private var codec: android.media.MediaCodec? = null
+    /** The stream's setup data (H.264 SPS/PPS, HEVC VPS/SPS/PPS…): a flushed decoder needs it again. */
+    private var csd: List<ByteArray> = emptyList()
+    @Volatile private var broken = false
+    private val cache = LruCache<Long, Bitmap>(40)
+    private val pending = java.util.concurrent.ConcurrentHashMap<Long, kotlinx.coroutines.Deferred<Bitmap?>>()
 
     override suspend fun at(ms: Long): Bitmap? {
         val bucket = ms / 10_000
         cache.get(bucket)?.let { return it }
-        return lock.withLock {
-            cache.get(bucket) ?: withContext(Dispatchers.IO) {
-                if (broken) return@withContext null
-                runCatching {
-                    val r = mmr ?: MediaMetadataRetriever().also { it.setDataSource(url, headers); mmr = it }
-                    r.getScaledFrameAtTime(bucket * 10_000_000L + 5_000_000L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC, 320, 180)
-                }.onFailure {
-                    Log.w("SeekThumbs", "box previews unavailable: ${it.message}")
-                    broken = true
-                }.getOrNull()
-            }?.also { cache.put(bucket, it) }
+        if (broken) return null
+        val job = pending.getOrPut(bucket) {
+            scope.async {
+                try { grab(bucket)?.also { cache.put(bucket, it) } } finally { pending.remove(bucket) }
+            }
         }
+        return job.await()
+    }
+
+    private fun open() {
+        if (codec != null) return
+        val ex = android.media.MediaExtractor()
+        // Our own byte-range reader: Android's HTTP source reports the size as unknown for these links,
+        // which leaves the extractor unable to jump anywhere but the start.
+        ex.setDataSource(RangeSource(url, headers))
+        val track = (0 until ex.trackCount).firstOrNull { ex.getTrackFormat(it).getString(android.media.MediaFormat.KEY_MIME)?.startsWith("video/") == true }
+            ?: error("no video track")
+        ex.selectTrack(track)
+        val format = ex.getTrackFormat(track)
+        val mime = format.getString(android.media.MediaFormat.KEY_MIME)!!
+        csd = listOf("csd-0", "csd-1", "csd-2").mapNotNull { k ->
+            format.getByteBuffer(k)?.let { b -> ByteArray(b.remaining()).also { b.duplicate().get(it) } }
+        }
+        // A software decoder: the hardware one is busy playing the film.
+        val name = android.media.MediaCodecList(android.media.MediaCodecList.REGULAR_CODECS).codecInfos
+            .filter { !it.isEncoder && it.supportedTypes.any { t -> t.equals(mime, true) } }
+            .let { list -> list.firstOrNull { it.name.startsWith("c2.android.") || it.name.startsWith("OMX.google.") } ?: list.firstOrNull() }
+            ?.name ?: error("no decoder for $mime")
+        format.setInteger(android.media.MediaFormat.KEY_COLOR_FORMAT, android.media.MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible)
+        val c = android.media.MediaCodec.createByCodecName(name)
+        c.configure(format, null, null, 0)
+        c.start()
+        Log.i("SeekThumbs", "box previews: $mime with $name")
+        extractor = ex
+        codec = c
+    }
+
+    private fun grab(bucket: Long): Bitmap? {
+        cache.get(bucket)?.let { return it }
+        if (broken) return null
+        return runCatching {
+            open()
+            val ex = extractor!!
+            val c = codec!!
+            val t0 = System.currentTimeMillis()
+            val want = bucket * 10_000_000L + 5_000_000L
+            ex.seekTo(want, android.media.MediaExtractor.SEEK_TO_PREVIOUS_SYNC)
+            val landed = ex.sampleTime
+            // Some extractors (Amlogic's Matroska one) land on any frame: step on to a real keyframe, or decoding
+            // starts without the pictures it refers to (green / pink noise).
+            var skipped = 0
+            while (ex.sampleFlags and android.media.MediaExtractor.SAMPLE_FLAG_SYNC == 0 && skipped < 600) {
+                if (!ex.advance()) break
+                skipped++
+            }
+            if (ex.sampleFlags and android.media.MediaExtractor.SAMPLE_FLAG_SYNC == 0) {
+                Log.i("SeekThumbs", "box frame ${bucket * 10}s: no keyframe nearby")
+                return null
+            }
+            c.flush()
+            for (data in csd) {
+                val i = c.dequeueInputBuffer(100_000)
+                if (i < 0) break
+                c.getInputBuffer(i)!!.apply { clear(); put(data) }
+                c.queueInputBuffer(i, 0, data.size, 0, android.media.MediaCodec.BUFFER_FLAG_CODEC_CONFIG)
+            }
+            val info = android.media.MediaCodec.BufferInfo()
+            var fed = 0
+            var eos = false
+            var out: Bitmap? = null
+            while (out == null && System.currentTimeMillis() - t0 < 8_000) {
+                if (!eos) {
+                    val i = c.dequeueInputBuffer(5_000)
+                    if (i >= 0) {
+                        val n = if (fed < 40) ex.readSampleData(c.getInputBuffer(i)!!, 0) else -1
+                        if (n < 0) { c.queueInputBuffer(i, 0, 0, 0, android.media.MediaCodec.BUFFER_FLAG_END_OF_STREAM); eos = true }
+                        else { c.queueInputBuffer(i, 0, n, ex.sampleTime, 0); ex.advance(); fed++ }
+                    }
+                }
+                val o = c.dequeueOutputBuffer(info, 5_000)
+                if (o >= 0) {
+                    if (info.size > 0) out = c.getOutputImage(o)?.use { toBitmap(it) }?.takeUnless { looksBroken(it) }
+                    c.releaseOutputBuffer(o, false)
+                    if (info.flags and android.media.MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) break
+                }
+            }
+            Log.i("SeekThumbs", "box frame ${bucket * 10}s (landed ${landed / 1_000_000}s): ${if (out == null) "none" else "ok"} after $skipped skipped + $fed samples in ${System.currentTimeMillis() - t0} ms")
+            out
+        }.onFailure {
+            Log.w("SeekThumbs", "box previews unavailable: $it")
+            broken = true
+        }.getOrNull()
+    }
+
+    /** A frame decoded without its references is mostly bright green (all-zero YUV): don't show that. */
+    private fun looksBroken(b: Bitmap): Boolean {
+        var green = 0; var n = 0
+        for (y in 0 until b.height step 6) for (x in 0 until b.width step 6) {
+            val p = b.getPixel(x, y)
+            val r = (p shr 16) and 0xff; val g = (p shr 8) and 0xff; val bl = p and 0xff
+            if (g > 120 && r < 60 && bl < 60) green++
+            n++
+        }
+        return green * 4 > n
+    }
+
+    /** YUV 4:2:0 picture → 320×180 bitmap (nearest-pixel shrink; plenty for a preview). */
+    private fun toBitmap(img: android.media.Image): Bitmap {
+        val w = 320; val h = 180
+        val crop = img.cropRect
+        val (yp, up, vp) = img.planes.let { Triple(it[0], it[1], it[2]) }
+        val yb = yp.buffer; val ub = up.buffer; val vb = vp.buffer
+        val px = IntArray(w * h)
+        for (y in 0 until h) {
+            val sy = crop.top + y * crop.height() / h
+            for (x in 0 until w) {
+                val sx = crop.left + x * crop.width() / w
+                val yy = (yb.get(sy * yp.rowStride + sx * yp.pixelStride).toInt() and 0xff) - 16
+                val ci = (sy / 2) * up.rowStride + (sx / 2) * up.pixelStride
+                val u = (ub.get(ci).toInt() and 0xff) - 128
+                val v = (vb.get((sy / 2) * vp.rowStride + (sx / 2) * vp.pixelStride).toInt() and 0xff) - 128
+                val c = 1192 * yy.coerceAtLeast(0)
+                val r = ((c + 1634 * v) shr 10).coerceIn(0, 255)
+                val g = ((c - 833 * v - 400 * u) shr 10).coerceIn(0, 255)
+                val b = ((c + 2066 * u) shr 10).coerceIn(0, 255)
+                px[y * w + x] = (0xff shl 24) or (r shl 16) or (g shl 8) or b
+            }
+        }
+        return Bitmap.createBitmap(px, w, h, Bitmap.Config.ARGB_8888)
     }
 
     override fun close() {
-        // release() can block while a frame is being read; keep it off the main thread.
-        val r = mmr ?: return
-        mmr = null
-        Thread { runCatching { r.release() } }.start()
+        scope.cancel()
+        val c = codec; val ex = extractor
+        codec = null; extractor = null
+        // Releasing can block while a frame is being read; keep it off the main thread.
+        Thread { runCatching { c?.stop() }; runCatching { c?.release() }; runCatching { ex?.release() } }.start()
     }
+}
+
+/**
+ * Reads a video over HTTP in 256 KB byte ranges (a few kept), for MediaExtractor. Redirects (Stremio addons
+ * hand out resolver links) are followed once up front, and the real file size comes from Content-Range.
+ */
+private class RangeSource(url: String, private val headers: Map<String, String>) : android.media.MediaDataSource() {
+    private val block = 256 * 1024
+    private val blocks = object : LinkedHashMap<Long, ByteArray>(16, 0.75f, true) {
+        override fun removeEldestEntry(e: MutableMap.MutableEntry<Long, ByteArray>?) = size > 12
+    }
+    private val target: String
+    private val length: Long
+
+    init {
+        var u = url
+        var len = -1L
+        for (hop in 0 until 6) {
+            val c = (URL(u).openConnection() as HttpURLConnection).apply {
+                instanceFollowRedirects = false
+                connectTimeout = 10_000; readTimeout = 20_000
+                headers.forEach { (k, v) -> setRequestProperty(k, v) }
+                setRequestProperty("Range", "bytes=0-0")
+            }
+            try {
+                val code = c.responseCode
+                if (code in 300..399) { u = URL(URL(u), c.getHeaderField("Location")).toString(); continue }
+                len = c.getHeaderField("Content-Range")?.substringAfterLast('/')?.toLongOrNull() ?: c.contentLengthLong
+                break
+            } finally { c.disconnect() }
+        }
+        target = u
+        length = len
+        if (length <= 0) error("size unknown")
+    }
+
+    override fun getSize() = length
+
+    override fun readAt(position: Long, buffer: ByteArray, offset: Int, size: Int): Int {
+        if (position >= length) return -1
+        var done = 0
+        while (done < size && position + done < length) {
+            val p = position + done
+            val start = p / block * block
+            val b = blocks[start] ?: fetch(start).also { blocks[start] = it }
+            val inBlock = (p - start).toInt()
+            if (inBlock >= b.size) break
+            val n = minOf(size - done, b.size - inBlock)
+            System.arraycopy(b, inBlock, buffer, offset + done, n)
+            done += n
+        }
+        return if (done == 0) -1 else done
+    }
+
+    private fun fetch(start: Long): ByteArray {
+        val end = minOf(start + block, length) - 1
+        val c = (URL(target).openConnection() as HttpURLConnection).apply {
+            connectTimeout = 10_000; readTimeout = 20_000
+            headers.forEach { (k, v) -> setRequestProperty(k, v) }
+            setRequestProperty("Range", "bytes=$start-$end")
+        }
+        try {
+            if (c.responseCode != 206) error("range not supported (${c.responseCode})")
+            return c.inputStream.use { it.readBytes() }
+        } finally { c.disconnect() }
+    }
+
+    override fun close() { blocks.clear() }
 }
