@@ -316,6 +316,10 @@ private fun PosterRow(
     Column {
         Text(row.title, fontSize = 16.sp, fontWeight = FontWeight.Medium, color = AppColors.TextPrimary, modifier = Modifier.padding(start = 48.dp, bottom = 6.dp))
         val rowEntry = remember { FocusRequester() }
+        // True only while the remembered poster is actually composed. A poster can still be listed as visible while
+        // its row is being torn down (e.g. leaving Movies for Shows); aiming focus at it then crashed the app
+        // ("FocusRequester is not initialized").
+        val entryAttached = remember { booleanArrayOf(false) }
         val scope = rememberCoroutineScope()
         CompositionLocalProvider(LocalBringIntoViewSpec provides rowSpec) { LazyRow(
             state = state,
@@ -323,7 +327,9 @@ private fun PosterRow(
             modifier = Modifier
                 .focusProperties {
                     // Only aim at the remembered poster if it's on screen; otherwise let focus pick normally.
-                    enter = { if (state.layoutInfo.visibleItemsInfo.any { it.index == entryIndex }) rowEntry else FocusRequester.Default }
+                    enter = {
+                        if (entryAttached[0] && state.layoutInfo.visibleItemsInfo.any { it.index == entryIndex }) rowEntry else FocusRequester.Default
+                    }
                 }
                 .onFocusChanged { if (resetOnLeave && !it.hasFocus && state.firstVisibleItemIndex != 0) scope.launch { state.scrollToItem(0) } },
             contentPadding = PaddingValues(horizontal = 48.dp),
@@ -331,6 +337,10 @@ private fun PosterRow(
         ) {
             itemsIndexed(row.items, key = { _, it -> it.key }) { index, item ->
                 val id = cardId(row, item)
+                if (index == entryIndex) DisposableEffect(entryIndex) {
+                    entryAttached[0] = true
+                    onDispose { entryAttached[0] = false }
+                }
                 PosterCard(
                     item = item,
                     modifier = (if (id == entryCard) Modifier.focusRequester(entryFocus) else Modifier)
