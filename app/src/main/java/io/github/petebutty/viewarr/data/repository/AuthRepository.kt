@@ -73,7 +73,7 @@ class AuthRepository @Inject constructor(
         }
     }
 
-    /** "192.168.1" for a TV at 192.168.1.184: the first private IPv4 address on an active interface. */
+    /** "192.168.1" for a TV at 192.168.1.50: the first private IPv4 address on an active interface. */
     private fun localPrefix(): String? = runCatching {
         java.net.NetworkInterface.getNetworkInterfaces().toList()
             .filter { it.isUp && !it.isLoopback }
