@@ -63,6 +63,8 @@ fun VodPlayer(
     val focus = remember { FocusRequester() }
     val seekMs = io.github.petebutty.viewarr.data.settings.LocalRemote.current.seek.ms
     val pb = io.github.petebutty.viewarr.data.settings.LocalPlayback.current
+    val activity = context as? android.app.Activity
+    var restoreMode by remember { mutableStateOf<Int?>(null) }
     val startAt = if (pb.resume == io.github.petebutty.viewarr.data.settings.ResumeMode.Start) 0L else stream.resumeMs
     var view by remember { mutableStateOf<PlayerView?>(null) }
     var tracksOpen by remember { mutableStateOf(false) }
@@ -90,6 +92,12 @@ fun VodPlayer(
                     .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON),
             )
             .setMediaSourceFactory(DefaultMediaSourceFactory(http))
+            // Settings → Playback → Buffer.
+            .setLoadControl(
+                androidx.media3.exoplayer.DefaultLoadControl.Builder()
+                    .setBufferDurationsMs(minOf(15_000, pb.buffer.exoMs), pb.buffer.exoMs, 2_500, 5_000)
+                    .build(),
+            )
             .build().apply {
                 trackSelectionParameters = trackSelectionParameters.buildUpon().apply {
                     pb.audioCode()?.let { setPreferredAudioLanguage(it) }
@@ -121,7 +129,16 @@ fun VodPlayer(
                 onProgress(if (isPlaying) "playing" else "paused", player.currentPosition, player.duration.coerceAtLeast(0))
             }
 
+            override fun onRenderedFirstFrame() {
+                // Settings → Playback → Match frame rate.
+                val fps = player.videoFormat?.frameRate ?: return
+                if (pb.frameRate == io.github.petebutty.viewarr.data.settings.FrameRateMatch.On && activity != null && restoreMode == null) {
+                    restoreMode = io.github.petebutty.viewarr.playback.FrameRateMatcher.match(activity, fps)
+                }
+            }
+
             override fun onPlaybackStateChanged(state: Int) {
+                if (state == Player.STATE_ENDED) onClose()
                 if (state == Player.STATE_ENDED) onProgress("stopped", player.duration.coerceAtLeast(0), player.duration.coerceAtLeast(0))
             }
 
@@ -158,6 +175,7 @@ fun VodPlayer(
         }
         player.addListener(listener)
         onDispose {
+            restoreMode?.let { m -> activity?.let { io.github.petebutty.viewarr.playback.FrameRateMatcher.restore(it, m) } }
             if (player.playbackState != Player.STATE_ENDED && player.currentPosition > 0) {
                 onProgress("stopped", player.currentPosition, player.duration.coerceAtLeast(0))
             }
@@ -233,11 +251,45 @@ fun VodPlayer(
                     setShowSubtitleButton(true)
                     keepScreenOn = true
                     subtitleView?.setFractionalTextSize(androidx.media3.ui.SubtitleView.DEFAULT_TEXT_SIZE_FRACTION * pb.subtitleSize.scale)
+                    val box = pb.subtitleBackground == io.github.petebutty.viewarr.data.settings.SubtitleBackground.Box
+                    subtitleView?.setStyle(
+                        androidx.media3.ui.CaptionStyleCompat(
+                            pb.subtitleColour.argb.toInt(),
+                            if (box) 0xC0000000.toInt() else android.graphics.Color.TRANSPARENT,
+                            android.graphics.Color.TRANSPARENT,
+                            if (box) androidx.media3.ui.CaptionStyleCompat.EDGE_TYPE_NONE else androidx.media3.ui.CaptionStyleCompat.EDGE_TYPE_OUTLINE,
+                            android.graphics.Color.BLACK,
+                            null,
+                        ),
+                    )
+                    resizeMode = when (pb.pictureSize) {
+                        io.github.petebutty.viewarr.data.settings.PictureSize.Fit -> androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
+                        io.github.petebutty.viewarr.data.settings.PictureSize.Zoom -> androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                        io.github.petebutty.viewarr.data.settings.PictureSize.Stretch -> androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FILL
+                    }
                 }
             },
             modifier = Modifier.fillMaxSize(),
         )
         if (tracksOpen) TrackPicker(player, onClose = { tracksOpen = false; runCatching { focus.requestFocus() } }, modifier = Modifier.align(Alignment.CenterEnd))
+        if (pb.stats == io.github.petebutty.viewarr.data.settings.StatsOverlay.On) {
+            var info by remember { mutableStateOf("") }
+            LaunchedEffect(player) {
+                while (true) {
+                    val v = player.videoFormat
+                    val a = player.audioFormat
+                    val c = player.videoDecoderCounters
+                    info = listOf(
+                        "Video: ${v?.sampleMimeType?.substringAfter('/') ?: "?"}  ${v?.width ?: "?"}×${v?.height ?: "?"}  ${v?.frameRate?.takeIf { it > 0 }?.let { "%.3f".format(it) } ?: "?"} fps",
+                        "Audio: ${a?.sampleMimeType?.substringAfter('/') ?: "?"}  ${a?.channelCount ?: "?"} ch",
+                        "Dropped frames: ${c?.droppedBufferCount ?: 0}",
+                        "Buffered: ${(player.totalBufferedDuration / 1000)} s",
+                    ).joinToString("\n")
+                    kotlinx.coroutines.delay(1_000)
+                }
+            }
+            Text(info, fontSize = 13.sp, color = Color.White, modifier = Modifier.align(Alignment.TopStart).padding(24.dp).background(Color.Black.copy(alpha = 0.6f)).padding(12.dp))
+        }
         error?.let {
             Text(it, fontSize = 18.sp, color = Color.White, modifier = Modifier.align(Alignment.Center).background(Color.Black.copy(alpha = 0.7f)).padding(20.dp))
         }

@@ -46,7 +46,45 @@ private val DetailUi.plexShowKey get() = copies?.firstOrNull { it.source == "Ple
 class MediaViewModel @Inject constructor(
     private val repo: CatalogRepository,
     private val store: AccountStore,
+    private val playbackStore: io.github.petebutty.viewarr.data.settings.PlaybackStore,
+    @dagger.hilt.android.qualifiers.ApplicationContext private val appContext: android.content.Context,
 ) : ViewModel() {
+
+    /** "Next episode in 10 s" after an episode ends (Settings → Playback → Play next episode). */
+    data class UpNext(val episode: io.github.petebutty.viewarr.data.media.EpisodeInfo)
+    private val _upNext = MutableStateFlow<UpNext?>(null)
+    val upNext = _upNext.asStateFlow()
+    private var endedNearEnd: io.github.petebutty.viewarr.data.media.WatchTarget? = null
+
+    /**
+     * Orders addon streams: within the quality limit before above it, cached (instant) before uncached,
+     * then higher resolution first. The addon's own order breaks ties.
+     */
+    private suspend fun rank(found: List<io.github.petebutty.viewarr.data.media.StreamOption>): List<io.github.petebutty.viewarr.data.media.StreamOption> {
+        val max = playbackStore.current().maxResolution.height ?: io.github.petebutty.viewarr.playback.FrameRateMatcher.maxHeight(appContext)
+        fun res(o: io.github.petebutty.viewarr.data.media.StreamOption): Int {
+            val t = (o.name + " " + o.description).lowercase()
+            return when {
+                "2160" in t || "4k" in t || "uhd" in t -> 2160
+                "1080" in t -> 1080
+                "720" in t -> 720
+                "480" in t || " sd" in t -> 480
+                else -> 0
+            }
+        }
+        fun cached(o: io.github.petebutty.viewarr.data.media.StreamOption): Boolean {
+            val t = o.name + " " + o.description
+            return "⚡" in t || "+]" in t || t.contains("cached", ignoreCase = true) || t.contains("plex", ignoreCase = true)
+        }
+        return found.withIndex().sortedWith(
+            compareBy<IndexedValue<io.github.petebutty.viewarr.data.media.StreamOption>> { if (res(it.value) > max) 1 else 0 }
+                .thenBy { if (cached(it.value)) 0 else 1 }
+                .thenByDescending { res(it.value) }
+                .thenBy { it.index },
+        ).map { it.value }
+    }
+
+    private suspend fun autoPick() = playbackStore.current().streamPick == io.github.petebutty.viewarr.data.settings.StreamPick.Auto
 
     private val _rows = MutableStateFlow(RowsState(emptyList(), done = false))
     val rows = _rows.asStateFlow()
@@ -76,7 +114,7 @@ class MediaViewModel @Inject constructor(
     /** Search mode: the rows become search results. */
     fun search(query: String) {
         val q = query.trim()
-        if (q == lastQuery) return
+        if (q == lastQuery && q.isNotEmpty()) return
         lastQuery = q
         loaded = null
         rowsJob?.cancel()
@@ -186,7 +224,7 @@ class MediaViewModel @Inject constructor(
         playPlexEpisode(s, e)
     }
 
-    fun searchEpisode(ep: io.github.petebutty.viewarr.data.media.EpisodeInfo) {
+    fun searchEpisode(ep: io.github.petebutty.viewarr.data.media.EpisodeInfo, forceAuto: Boolean = false) {
         val d = _detail.value ?: return
         if (d.detail.item.imdbId == null) {
             _detail.update { it?.copy(message = "This show has no IMDb id, so the addons can't look it up.") }
@@ -194,7 +232,12 @@ class MediaViewModel @Inject constructor(
         }
         viewModelScope.launch {
             _detail.update { it?.copy(searching = true, streams = null, message = "Searching your addons for S${ep.season} E${ep.number}…") }
-            val found = runCatching { repo.addonStreams(d.detail.item, ep.season, ep.number) }.getOrDefault(emptyList())
+            val found = rank(runCatching { repo.addonStreams(d.detail.item, ep.season, ep.number) }.getOrDefault(emptyList()))
+            if (found.isNotEmpty() && (autoPick() || forceAuto)) {
+                _detail.update { it?.copy(searching = false, message = null) }
+                playStream(found.first())
+                return@launch
+            }
             _detail.update {
                 it?.copy(searching = false, streams = found, message = if (found.isEmpty()) "Your addons didn't find any playable streams for this episode." else null)
             }
@@ -225,7 +268,12 @@ class MediaViewModel @Inject constructor(
         }
         viewModelScope.launch {
             _detail.update { it?.copy(searching = true, streams = null, message = "Searching your addons…") }
-            val found = runCatching { repo.addonStreams(d.detail.item) }.getOrDefault(emptyList())
+            val found = rank(runCatching { repo.addonStreams(d.detail.item) }.getOrDefault(emptyList()))
+            if (found.isNotEmpty() && autoPick()) {
+                _detail.update { it?.copy(searching = false, message = null) }
+                playStream(found.first())
+                return@launch
+            }
             _detail.update {
                 it?.copy(searching = false, streams = found, message = if (found.isEmpty()) "Your addons didn't find any playable streams." else null)
             }
@@ -244,7 +292,38 @@ class MediaViewModel @Inject constructor(
 
     fun closeStreams() = _detail.update { it?.copy(streams = null, message = null) }
 
-    fun stopPlaying() { _playing.value = null }
+    fun stopPlaying() {
+        val ended = endedNearEnd
+        endedNearEnd = null
+        _playing.value = null
+        if (ended?.season != null && ended.episode != null) viewModelScope.launch { prepareUpNext(ended.season, ended.episode) }
+    }
+
+    /** Finds the episode after S/E (next in the season, or the first of the next season) and starts the countdown. */
+    private suspend fun prepareUpNext(season: Int, episode: Int) {
+        if (playbackStore.current().autoNext != io.github.petebutty.viewarr.data.settings.AutoNext.On) return
+        val d = _detail.value ?: return
+        val inSeason = (if (d.season == season) d.episodes else null)
+            ?: runCatching { repo.seasonEpisodes(d.detail.item, season, d.plexShowKey) }.getOrDefault(emptyList())
+        val next = inSeason.firstOrNull { it.number == episode + 1 }
+            ?: d.seasons.map { it.number }.filter { it > season }.minOrNull()?.let { ns ->
+                runCatching { repo.seasonEpisodes(d.detail.item, ns, d.plexShowKey) }.getOrDefault(emptyList()).firstOrNull()
+            }
+            ?: return
+        _upNext.value = UpNext(next)
+    }
+
+    fun cancelUpNext() { _upNext.value = null }
+
+    /** Plays the up-next episode: from Plex if it's there, otherwise the best addon stream. */
+    fun playUpNext() {
+        val next = _upNext.value?.episode ?: return
+        _upNext.value = null
+        val d = _detail.value ?: return
+        _detail.update { it?.copy(episode = next) }
+        if (d.plexEpisodes.containsKey(next.season to next.number)) playPlexEpisode(next.season, next.number)
+        else if (d.hasAddons) searchEpisode(next, forceAuto = true)
+    }
 
     private fun watchTarget(item: MediaItem, season: Int?, episode: Int?) =
         io.github.petebutty.viewarr.data.media.WatchTarget(item.type, tmdbId = item.tmdbId, imdbId = item.imdbId, season = season, episode = episode)
@@ -253,6 +332,8 @@ class MediaViewModel @Inject constructor(
     private var lastState = ""
     fun reportProgress(state: String, positionMs: Long, durationMs: Long) {
         val target = _playing.value?.watch ?: return
+        // Set straight away (not in the coroutine): the player closes right after reporting the end.
+        if (state == "stopped" && durationMs > 0 && positionMs >= durationMs * 0.95) endedNearEnd = target
         viewModelScope.launch {
             target.plexRatingKey?.let { repo.reportPlex(it, state, positionMs, durationMs) }
             if (state != lastState) {

@@ -1,128 +1,105 @@
 package io.github.petebutty.viewarr.ui.settings
 
-import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
-import androidx.tv.material3.ClickableSurfaceDefaults
-import androidx.tv.material3.Surface
-import androidx.tv.material3.Text
 import dagger.hilt.android.lifecycle.HiltViewModel
 import io.github.petebutty.viewarr.data.settings.PlaybackSettings
 import io.github.petebutty.viewarr.data.settings.PlaybackStore
-import io.github.petebutty.viewarr.data.settings.PlayerEngine
 import io.github.petebutty.viewarr.data.settings.RemoteChoice
-import io.github.petebutty.viewarr.data.settings.RemoteStore
 import io.github.petebutty.viewarr.data.settings.RemoteSettings
-import io.github.petebutty.viewarr.ui.common.MenuItem
-import io.github.petebutty.viewarr.ui.theme.AppColors
-import kotlinx.coroutines.android.awaitFrame
+import io.github.petebutty.viewarr.data.settings.RemoteStore
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @HiltViewModel
-class PlaybackViewModelSettings @Inject constructor(
+class PlaybackSettingsViewModel @Inject constructor(
     private val store: PlaybackStore,
     private val remoteStore: RemoteStore,
 ) : ViewModel() {
     val settings = store.settings.stateIn(viewModelScope, SharingStarted.Eagerly, PlaybackSettings())
     val remote = remoteStore.settings.stateIn(viewModelScope, SharingStarted.Eagerly, RemoteSettings())
 
-    fun <E> next(key: String, current: E) where E : Enum<E>, E : RemoteChoice {
-        val all = current.declaringJavaClass.enumConstants!!.toList()
-        viewModelScope.launch { store.set(key, all[(all.indexOf(current) + 1) % all.size]) }
-    }
-
-    fun <E> nextRemote(key: String, current: E) where E : Enum<E>, E : RemoteChoice {
-        val all = current.declaringJavaClass.enumConstants!!.toList()
-        viewModelScope.launch { remoteStore.set(key, all[(all.indexOf(current) + 1) % all.size]) }
-    }
-
+    fun set(key: String, value: RemoteChoice) = viewModelScope.launch { store.set(key, value as Enum<*>) }
+    fun setRemote(key: String, value: RemoteChoice) = viewModelScope.launch { remoteStore.set(key, value as Enum<*>) }
     fun reset() = viewModelScope.launch { store.reset() }
 }
 
-private class Setting(val section: String?, val title: String, val value: String, val hint: String? = null, val onNext: () -> Unit)
+private inline fun <reified E> choices(): List<RemoteChoice> where E : Enum<E>, E : RemoteChoice = enumValues<E>().toList()
 
-/** Settings → Playback: player, audio, subtitles and quality. OK on a setting moves to its next choice. */
+/** Settings → Playback, full screen. Defaults are the safe choice for most TVs; each setting explains itself. */
 @Composable
-fun PlaybackPanel(onBack: () -> Unit, vm: PlaybackViewModelSettings = hiltViewModel()) {
+fun PlaybackSettingsScreen(onBack: () -> Unit, vm: PlaybackSettingsViewModel = hiltViewModel()) {
     val s by vm.settings.collectAsStateWithLifecycle()
     val r by vm.remote.collectAsStateWithLifecycle()
-    val first = remember { FocusRequester() }
-    BackHandler(onBack = onBack)
-    LaunchedEffect(Unit) {
-        awaitFrame()
-        runCatching { first.requestFocus() }
-    }
-    val mpv = s.engine == PlayerEngine.Mpv
-    val items = listOf(
-        Setting("Player", "Films, shows & recordings", s.engine.label, "mpv handles more formats; built-in uses less power") { vm.next(PlaybackStore.ENGINE, s.engine) },
-        Setting(null, "Skip with Left / Right", r.seek.label) { vm.nextRemote(RemoteStore.SEEK, r.seek) },
-        Setting(null, "Resume", s.resume.label) { vm.next(PlaybackStore.RESUME, s.resume) },
-        Setting("Audio", "Preferred language", s.audioLanguage.label) { vm.next(PlaybackStore.AUDIO_LANG, s.audioLanguage) },
-        Setting(null, "Surround passthrough", s.passthrough.label, "Only if you have an AV receiver or soundbar") { vm.next(PlaybackStore.PASSTHROUGH, s.passthrough) },
-        Setting(null, "Channels", s.downmix.label) { vm.next(PlaybackStore.DOWNMIX, s.downmix) },
-        Setting(null, "Night mode", s.nightMode.label, if (mpv) null else "Works with the mpv player") { vm.next(PlaybackStore.NIGHT, s.nightMode) },
-        Setting("Subtitles", "Show subtitles", s.subtitles.label) { vm.next(PlaybackStore.SUBS, s.subtitles) },
-        Setting(null, "Subtitle language", s.subtitleLanguage.label) { vm.next(PlaybackStore.SUB_LANG, s.subtitleLanguage) },
-        Setting(null, "Subtitle size", s.subtitleSize.label) { vm.next(PlaybackStore.SUB_SIZE, s.subtitleSize) },
-        Setting("Quality", "Plex", s.plexQuality.label) { vm.next(PlaybackStore.PLEX_QUALITY, s.plexQuality) },
-        Setting(null, "mpv decoding", s.mpvDecoding.label) { vm.next(PlaybackStore.MPV_DECODING, s.mpvDecoding) },
-    )
-    Column(Modifier.verticalScroll(rememberScrollState()).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        Text("Playback", fontSize = 15.sp, color = AppColors.TextPrimary, modifier = Modifier.padding(start = 12.dp, bottom = 2.dp))
-        Text("OK changes a setting. Applies to the next thing you play.", fontSize = 12.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(start = 12.dp, bottom = 6.dp))
-        items.forEachIndexed { i, o ->
-            Column {
-                o.section?.let {
-                    Text(it, fontSize = 12.sp, color = AppColors.Accent, modifier = Modifier.padding(start = 12.dp, top = if (i == 0) 0.dp else 10.dp, bottom = 2.dp))
-                }
-                SettingRow(o, if (i == 0) Modifier.focusRequester(first) else Modifier)
-            }
-        }
-        Column(Modifier.padding(top = 12.dp)) { MenuItem(text = "Reset playback settings", selected = false, onClick = { vm.reset() }) }
-    }
-}
-
-@Composable
-private fun SettingRow(o: Setting, modifier: Modifier) {
-    Surface(
-        onClick = o.onNext,
-        modifier = modifier.fillMaxWidth(),
-        scale = ClickableSurfaceDefaults.scale(scale = 1f, focusedScale = 1f, pressedScale = 1f),
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(6.dp)),
-        colors = ClickableSurfaceDefaults.colors(
-            containerColor = Color.Transparent,
-            contentColor = AppColors.TextPrimary,
-            focusedContainerColor = AppColors.Accent,
-            focusedContentColor = AppColors.OnAccent,
+    fun item(title: String, description: String, key: String, all: List<RemoteChoice>, current: RemoteChoice) =
+        SettingItem(title, description, all, current) { vm.set(key, it) }
+    val k = PlaybackStore.Companion
+    val categories = listOf(
+        SettingCategory(
+            "Player", "Which player plays films, shows and recordings, and how it behaves.",
+            listOf(
+                item("Player", "mpv plays almost any file and soundtrack. The built-in player is lighter on weak boxes.", k.ENGINE, choices<io.github.petebutty.viewarr.data.settings.PlayerEngine>(), s.engine),
+                SettingItem("Skip with Left / Right", "How far each press jumps.", choices<io.github.petebutty.viewarr.data.settings.SeekStep>(), r.seek) { vm.setRemote(RemoteStore.SEEK, it) },
+                item("Resume", "Carry on where you stopped last time, or always start at the beginning.", k.RESUME, choices<io.github.petebutty.viewarr.data.settings.ResumeMode>(), s.resume),
+                item("mpv decoding", "Hardware is fastest. Try software only if the picture glitches or shows colour blocks.", k.MPV_DECODING, choices<io.github.petebutty.viewarr.data.settings.MpvDecoding>(), s.mpvDecoding),
+            ),
         ),
-    ) {
-        Column(Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
-            Text(o.title, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(o.value, fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            o.hint?.let { Text(it, fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis) }
-        }
-    }
+        SettingCategory(
+            "Video", "Picture size and smoothness.",
+            listOf(
+                item("Match frame rate", "Switches the TV to the film's own rate (e.g. 24 Hz) for smoother motion. Some TVs go black for a second when it switches.", k.FRAME_RATE, choices<io.github.petebutty.viewarr.data.settings.FrameRateMatch>(), s.frameRate),
+                item("Picture size", "How the picture fills the screen when its shape doesn't match the TV.", k.PICTURE_SIZE, choices<io.github.petebutty.viewarr.data.settings.PictureSize>(), s.pictureSize),
+                item("Deinterlace", "Smooths combing lines on older TV recordings and broadcasts (mpv).", k.DEINTERLACE, choices<io.github.petebutty.viewarr.data.settings.Deinterlace>(), s.deinterlace),
+            ),
+        ),
+        SettingCategory(
+            "Audio", "Language, surround sound and volume.",
+            listOf(
+                item("Preferred language", "The soundtrack picked when a film has several.", k.AUDIO_LANG, choices<io.github.petebutty.viewarr.data.settings.AudioLanguage>(), s.audioLanguage),
+                item("Surround passthrough", "Only turn on if you have an AV receiver or soundbar that decodes Dolby / DTS. Fixes stuttering sound on weak boxes.", k.PASSTHROUGH, choices<io.github.petebutty.viewarr.data.settings.Passthrough>(), s.passthrough),
+                item("Channels", "Stereo mixes surround down to two speakers, so speech isn't too quiet on TV speakers.", k.DOWNMIX, choices<io.github.petebutty.viewarr.data.settings.Downmix>(), s.downmix),
+                item("Night mode", "Evens out loud and quiet parts: quieter explosions, clearer speech (mpv).", k.NIGHT, choices<io.github.petebutty.viewarr.data.settings.NightMode>(), s.nightMode),
+                item("Volume boost", "Louder than normal, for quiet films (mpv).", k.VOLUME_BOOST, choices<io.github.petebutty.viewarr.data.settings.VolumeBoost>(), s.volumeBoost),
+                item("Lip sync", "If voices are out of step with lips, move the sound earlier or later (mpv).", k.AUDIO_DELAY, choices<io.github.petebutty.viewarr.data.settings.AudioDelay>(), s.audioDelay),
+            ),
+        ),
+        SettingCategory(
+            "Subtitles", "When subtitles show, and how they look.",
+            listOf(
+                item("Show subtitles", "Forced only shows the bits in another language (signs, foreign dialogue).", k.SUBS, choices<io.github.petebutty.viewarr.data.settings.SubtitleMode>(), s.subtitles),
+                item("Language", "The subtitle language picked when there are several.", k.SUB_LANG, choices<io.github.petebutty.viewarr.data.settings.SubtitleLanguage>(), s.subtitleLanguage),
+                item("Size", "How big subtitles are.", k.SUB_SIZE, choices<io.github.petebutty.viewarr.data.settings.SubtitleSize>(), s.subtitleSize),
+                item("Colour", "Text colour.", k.SUB_COLOUR, choices<io.github.petebutty.viewarr.data.settings.SubtitleColour>(), s.subtitleColour),
+                item("Background", "A dark box makes subtitles easier to read on bright scenes.", k.SUB_BACKGROUND, choices<io.github.petebutty.viewarr.data.settings.SubtitleBackground>(), s.subtitleBackground),
+            ),
+        ),
+        SettingCategory(
+            "Streams", "Quality, Plex and Stremio addon streams.",
+            listOf(
+                item("Addon streams", "Choose from the list yourself, or let Viewarr start the best cached stream within your quality limit.", k.STREAM_PICK, choices<io.github.petebutty.viewarr.data.settings.StreamPick>(), s.streamPick),
+                item("Best quality allowed", "Streams above this are listed last and never auto-picked. Match the TV works out 4K or 1080p for you.", k.MAX_RES, choices<io.github.petebutty.viewarr.data.settings.MaxResolution>(), s.maxResolution),
+                item("Plex quality", "Original plays the file itself and converts only if the TV can't. Lower settings always convert, for slow Wi-Fi.", k.PLEX_QUALITY, choices<io.github.petebutty.viewarr.data.settings.PlexQuality>(), s.plexQuality),
+                item("Buffer", "How much video is loaded ahead. Large helps on patchy internet; small helps boxes with little memory.", k.BUFFER, choices<io.github.petebutty.viewarr.data.settings.BufferSize>(), s.buffer),
+            ),
+        ),
+        SettingCategory(
+            "Episodes", "Watching shows.",
+            listOf(
+                item("Play next episode automatically", "When an episode ends, the next one starts after a 10-second countdown.", k.AUTO_NEXT, choices<io.github.petebutty.viewarr.data.settings.AutoNext>(), s.autoNext),
+            ),
+        ),
+        SettingCategory(
+            "Troubleshooting", "Tools for when something doesn't play right.",
+            listOf(
+                item("Show playback info", "Shows the video and audio format, decoder and dropped frames while playing.", k.STATS, choices<io.github.petebutty.viewarr.data.settings.StatsOverlay>(), s.stats),
+            ),
+        ),
+    )
+    SettingsPage(title = "Playback", categories = categories, onBack = onBack, onReset = { vm.reset() })
 }

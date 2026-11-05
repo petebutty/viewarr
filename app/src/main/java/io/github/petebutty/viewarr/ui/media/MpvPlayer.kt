@@ -84,6 +84,7 @@ fun MpvPlayer(
     val settings = LocalPlayback.current
     val seekSec = LocalRemote.current.seek.ms / 1000.0
     val main = remember { Handler(Looper.getMainLooper()) }
+    var restoreMode by remember { mutableStateOf<Int?>(null) }
 
     var position by remember { mutableDoubleStateOf(0.0) }
     var duration by remember { mutableDoubleStateOf(0.0) }
@@ -151,6 +152,40 @@ fun MpvPlayer(
             mpv.removeObserver(observer)
             runCatching { mpv.detachSurface() }
             runCatching { mpv.destroy() }
+        }
+    }
+
+    // Settings → Playback → Match frame rate: switch the TV once mpv knows the video's rate; switch back on exit.
+    val activity = context as? android.app.Activity
+    LaunchedEffect(mpv, settings.frameRate) {
+        if (settings.frameRate != io.github.petebutty.viewarr.data.settings.FrameRateMatch.On || activity == null) return@LaunchedEffect
+        repeat(40) {
+            delay(250)
+            val fps = runCatching { MPVLib.getPropertyDouble("container-fps") }.getOrNull()
+            if (fps != null && fps > 0) {
+                val previous = io.github.petebutty.viewarr.playback.FrameRateMatcher.match(activity, fps.toFloat())
+                if (previous != null) restoreMode = previous
+                return@LaunchedEffect
+            }
+        }
+    }
+    DisposableEffect(Unit) { onDispose { restoreMode?.let { m -> activity?.let { io.github.petebutty.viewarr.playback.FrameRateMatcher.restore(it, m) } } } }
+    // Settings → Playback → Show playback info.
+    var stats by remember { mutableStateOf("") }
+    LaunchedEffect(mpv, settings.stats) {
+        if (settings.stats != io.github.petebutty.viewarr.data.settings.StatsOverlay.On) return@LaunchedEffect
+        while (true) {
+            stats = runCatching {
+                fun p(k: String) = MPVLib.getPropertyString(k)
+                listOfNotNull(
+                    "Video: ${p("video-codec") ?: "?"}  ${p("video-params/w") ?: "?"}×${p("video-params/h") ?: "?"}  ${p("container-fps")?.take(6) ?: "?"} fps",
+                    "Decoder: ${p("hwdec-current")?.takeIf { it.isNotBlank() && it != "no" } ?: "software"}",
+                    "Audio: ${p("audio-codec-name") ?: "?"}  ${p("audio-params/channel-count") ?: "?"} ch  ${if (settings.passthrough == Passthrough.On) "(passthrough if supported)" else ""}",
+                    "Dropped frames: ${p("frame-drop-count") ?: "0"} (output)  ${p("decoder-frame-drop-count") ?: "0"} (decoder)",
+                    "Buffered: ${p("demuxer-cache-duration")?.toDoubleOrNull()?.let { "%.0f s".format(it) } ?: "?"}",
+                ).joinToString("\n")
+            }.getOrDefault("")
+            delay(1_000)
         }
     }
 
@@ -241,6 +276,10 @@ fun MpvPlayer(
 
         val osdVisible = paused || buffering || now < osdUntil
         if (osdVisible) MpvOsd(stream.title, position, duration, paused, buffering, Modifier.align(Alignment.BottomCenter))
+        if (stats.isNotEmpty()) Text(
+            stats, fontSize = 13.sp, color = Color.White,
+            modifier = Modifier.align(Alignment.TopStart).padding(24.dp).background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(6.dp)).padding(12.dp),
+        )
         error?.let {
             Text(it, fontSize = 18.sp, color = Color.White, modifier = Modifier.align(Alignment.Center).background(Color.Black.copy(alpha = 0.7f)).padding(20.dp))
         }
@@ -270,7 +309,7 @@ private fun configure(mpv: MpvHandle, context: android.content.Context, stream: 
     opt("save-position-on-quit", "no")
     // Memory: the box has 2 GB, so keep the read-ahead modest.
     opt("cache", "yes")
-    opt("demuxer-max-bytes", "64MiB")
+    opt("demuxer-max-bytes", s.buffer.mpvBytes)
     opt("demuxer-max-back-bytes", "16MiB")
     opt("user-agent", "Viewarr/0.9")
     if (stream.headers.isNotEmpty()) {
@@ -290,6 +329,21 @@ private fun configure(mpv: MpvHandle, context: android.content.Context, stream: 
         SubtitleMode.On -> opt("subs-fallback", "yes")
     }
     opt("sub-scale", s.subtitleSize.scale.toString())
+    opt("sub-color", "#%08X".format(s.subtitleColour.argb))
+    if (s.subtitleBackground == io.github.petebutty.viewarr.data.settings.SubtitleBackground.Box) {
+        opt("sub-border-style", "opaque-box")
+        opt("sub-back-color", "#C0000000")
+    }
+    // Video
+    when (s.pictureSize) {
+        io.github.petebutty.viewarr.data.settings.PictureSize.Fit -> Unit
+        io.github.petebutty.viewarr.data.settings.PictureSize.Zoom -> opt("panscan", "1.0")
+        io.github.petebutty.viewarr.data.settings.PictureSize.Stretch -> opt("keepaspect", "no")
+    }
+    if (s.deinterlace == io.github.petebutty.viewarr.data.settings.Deinterlace.Auto) opt("deinterlace", "auto")
+    // Audio extras
+    if (s.audioDelay.ms != 0) opt("audio-delay", (s.audioDelay.ms / 1000.0).toString())
+    if (s.volumeBoost.percent != 100) { opt("volume-max", "200"); opt("volume", s.volumeBoost.percent.toString()) }
     opt("sub-fonts-dir", "/system/fonts")
     opt("sub-font", "Roboto")
     // Resume point

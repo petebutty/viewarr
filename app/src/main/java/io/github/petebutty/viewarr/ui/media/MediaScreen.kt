@@ -223,6 +223,8 @@ fun MediaScreen(
             )
         }
         playing?.let { PlayerHost(stream = it, onClose = vm::stopPlaying, onProgress = vm::reportProgress) }
+        val upNext by vm.upNext.collectAsStateWithLifecycle()
+        if (playing == null) upNext?.let { UpNextOverlay(it.episode, onPlay = vm::playUpNext, onCancel = vm::cancelUpNext) }
     }
 }
 
@@ -668,4 +670,31 @@ private val LocalButtonsFree = androidx.compose.runtime.compositionLocalOf { tru
 private fun Modifier.free(): Modifier {
     val free = LocalButtonsFree.current
     return this.focusProperties { canFocus = free }
+}
+
+/** "Next episode in 10 s": OK plays now, Back cancels. */
+@Composable
+private fun UpNextOverlay(ep: io.github.petebutty.viewarr.data.media.EpisodeInfo, onPlay: () -> Unit, onCancel: () -> Unit) {
+    var left by remember(ep) { androidx.compose.runtime.mutableIntStateOf(10) }
+    val focus = remember { FocusRequester() }
+    BackHandler(onBack = onCancel)
+    LaunchedEffect(ep) {
+        awaitFrame(); runCatching { focus.requestFocus() }
+        while (left > 0) { delay(1_000); left-- }
+        onPlay()
+    }
+    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.6f)).trapFocus(), contentAlignment = Alignment.BottomEnd) {
+        Column(
+            Modifier.padding(56.dp).width(520.dp).background(AppColors.Panel, RoundedCornerShape(14.dp)).padding(24.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text("Next episode in $left s", fontSize = 14.sp, color = AppColors.Accent)
+            Text("S${ep.season} · E${ep.number}  ${ep.name}", fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            ep.overview?.let { Text(it, fontSize = 13.sp, color = AppColors.TextSecondary, maxLines = 3, overflow = TextOverflow.Ellipsis) }
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(top = 8.dp)) {
+                Button(onClick = onPlay, modifier = Modifier.focusRequester(focus)) { Text("Play now") }
+                OutlinedButton(onClick = onCancel) { Text("Cancel") }
+            }
+        }
+    }
 }

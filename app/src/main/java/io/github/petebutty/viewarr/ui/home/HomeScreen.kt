@@ -94,12 +94,12 @@ import kotlinx.coroutines.delay
 private const val SEEK_MS = 30_000L
 
 private enum class Section(val label: String, val available: Boolean) {
-    Search("Search", true),
-    Tv("TV", true),
+    Tv("Live TV", true),
     Movies("Movies", true),
     Shows("Shows", true),
     Recordings("Recordings", true),
     MyList("My list", false),
+    Search("Search", true),
     Settings("Settings", true),
 }
 
@@ -558,6 +558,15 @@ private fun MenuOverlay(
     var showAppearance by remember { mutableStateOf(false) }
     var showRemote by remember { mutableStateOf(false) }
     var showPlayback by remember { mutableStateOf(false) }
+    val playbackItem = remember { FocusRequester() }
+    var returnToPlayback by remember { mutableStateOf(false) }
+    // After closing the Playback page, land back on its menu item (not wherever focus happens to fall).
+    LaunchedEffect(returnToPlayback) {
+        if (!returnToPlayback) return@LaunchedEffect
+        awaitFrame(); awaitFrame()
+        runCatching { playbackItem.requestFocus() }
+        returnToPlayback = false
+    }
     val remote = LocalRemote.current
     var lastBack by remember { mutableLongStateOf(0L) }
     val navFocus = remember { Section.entries.associateWith { FocusRequester() } }
@@ -600,6 +609,7 @@ private fun MenuOverlay(
         }
     }
 
+    Box(Modifier.fillMaxSize()) {
     Row(Modifier.fillMaxSize()) {
         Column(
             Modifier
@@ -676,9 +686,8 @@ private fun MenuOverlay(
                     AppearancePanel(onBack = { showAppearance = false })
                 } else if (showRemote) {
                     RemotePanel(onBack = { showRemote = false })
-                } else if (showPlayback) {
-                    io.github.petebutty.viewarr.ui.settings.PlaybackPanel(onBack = { showPlayback = false })
                 } else SettingsPanel(
+                    playbackItem = playbackItem,
                     onPlayback = {
                         runCatching { navFocus.getValue(Section.Settings).requestFocus() }
                         showPlayback = true
@@ -730,6 +739,16 @@ private fun MenuOverlay(
 
         Box(Modifier.weight(1f).fillMaxHeight().background(Color.Black.copy(alpha = 0.4f * AppColors.palette.menuAlpha)))
     }
+    // Settings → Playback is a full page of its own, over the menu.
+    if (showPlayback) {
+        io.github.petebutty.viewarr.ui.settings.PlaybackSettingsScreen(onBack = {
+            // Move focus to the Playback item first, while the page is still up; otherwise it jumps to Search.
+            runCatching { playbackItem.requestFocus() }
+            showPlayback = false
+            returnToPlayback = true
+        })
+    }
+    }
 }
 
 @Composable
@@ -765,7 +784,7 @@ private fun GroupItem(name: String, count: Int?, selected: Boolean, modifier: Mo
 }
 
 @Composable
-private fun SettingsPanel(onPlayback: () -> Unit, onRemote: () -> Unit, session: Session?, sync: SyncState, firstItem: FocusRequester, onAppearance: () -> Unit, onAccounts: () -> Unit, onRefresh: () -> Unit, onSignOut: () -> Unit) {
+private fun SettingsPanel(playbackItem: FocusRequester, onPlayback: () -> Unit, onRemote: () -> Unit, session: Session?, sync: SyncState, firstItem: FocusRequester, onAppearance: () -> Unit, onAccounts: () -> Unit, onRefresh: () -> Unit, onSignOut: () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(session?.let { "Signed in as ${it.username}" } ?: "Live TV not set up", fontSize = 15.sp, color = AppColors.TextPrimary, modifier = Modifier.padding(horizontal = 12.dp))
         session?.let { Text(it.serverUrl, fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(horizontal = 12.dp)) }
@@ -779,7 +798,7 @@ private fun SettingsPanel(onPlayback: () -> Unit, onRemote: () -> Unit, session:
         Spacer(Modifier.height(12.dp))
         MenuItem(text = "Accounts & sources", selected = false, onClick = onAccounts, modifier = Modifier.focusRequester(firstItem))
         MenuItem(text = "Appearance", selected = false, onClick = onAppearance)
-        MenuItem(text = "Playback", selected = false, onClick = onPlayback)
+        MenuItem(text = "Playback", selected = false, onClick = onPlayback, modifier = Modifier.focusRequester(playbackItem))
         MenuItem(text = "Remote & navigation", selected = false, onClick = onRemote)
         MenuItem(text = "Refresh channels & guide", selected = false, onClick = onRefresh)
         var confirmUntil by remember { mutableLongStateOf(0L) }

@@ -37,7 +37,7 @@ enum class Downmix(override val label: String) : RemoteChoice {
 
 enum class NightMode(override val label: String) : RemoteChoice {
     Off("Off"),
-    On("On: quieter explosions, clearer speech (mpv)"),
+    On("On"),
 }
 
 enum class SubtitleMode(override val label: String) : RemoteChoice {
@@ -74,6 +74,72 @@ enum class MpvDecoding(override val label: String) : RemoteChoice {
     Software("Software (if the picture glitches)"),
 }
 
+enum class FrameRateMatch(override val label: String) : RemoteChoice {
+    Off("Off"),
+    On("On"),
+}
+
+enum class PictureSize(override val label: String) : RemoteChoice {
+    Fit("Fit (black bars, nothing cut off)"),
+    Zoom("Zoom to fill the screen"),
+    Stretch("Stretch to fill the screen"),
+}
+
+enum class Deinterlace(override val label: String) : RemoteChoice {
+    Auto("Automatic"),
+    Off("Off"),
+}
+
+enum class AudioDelay(override val label: String, val ms: Int) : RemoteChoice {
+    D0("No delay", 0),
+    P100("Sound 100 ms later", 100), P200("Sound 200 ms later", 200), P300("Sound 300 ms later", 300),
+    M100("Sound 100 ms earlier", -100), M200("Sound 200 ms earlier", -200), M300("Sound 300 ms earlier", -300),
+}
+
+enum class VolumeBoost(override val label: String, val percent: Int) : RemoteChoice {
+    Off("Off", 100),
+    B130("+30%", 130),
+    B160("+60%", 160),
+}
+
+enum class SubtitleColour(override val label: String, val argb: Long) : RemoteChoice {
+    White("White", 0xFFFFFFFF),
+    Yellow("Yellow", 0xFFFFE14D),
+}
+
+enum class SubtitleBackground(override val label: String) : RemoteChoice {
+    Outline("Outline only"),
+    Box("Dark box behind the text"),
+}
+
+enum class StreamPick(override val label: String) : RemoteChoice {
+    Choose("Let me choose from the list"),
+    Auto("Play the best one automatically"),
+}
+
+enum class MaxResolution(override val label: String, val height: Int?) : RemoteChoice {
+    Auto("Match the TV", null),
+    R2160("4K", 2160),
+    R1080("1080p", 1080),
+    R720("720p (slow internet)", 720),
+}
+
+enum class BufferSize(override val label: String, val mpvBytes: String, val exoMs: Int) : RemoteChoice {
+    Normal("Normal", "64MiB", 50_000),
+    Large("Large (slow or patchy internet)", "150MiB", 120_000),
+    Small("Small (box with little memory)", "32MiB", 25_000),
+}
+
+enum class AutoNext(override val label: String) : RemoteChoice {
+    On("On"),
+    Off("Off"),
+}
+
+enum class StatsOverlay(override val label: String) : RemoteChoice {
+    Off("Off"),
+    On("On"),
+}
+
 data class PlaybackSettings(
     val engine: PlayerEngine = PlayerEngine.entries.first(),
     val audioLanguage: AudioLanguage = AudioLanguage.entries.first(),
@@ -86,6 +152,18 @@ data class PlaybackSettings(
     val resume: ResumeMode = ResumeMode.entries.first(),
     val plexQuality: PlexQuality = PlexQuality.entries.first(),
     val mpvDecoding: MpvDecoding = MpvDecoding.entries.first(),
+    val frameRate: FrameRateMatch = FrameRateMatch.entries.first(),
+    val pictureSize: PictureSize = PictureSize.entries.first(),
+    val deinterlace: Deinterlace = Deinterlace.entries.first(),
+    val audioDelay: AudioDelay = AudioDelay.entries.first(),
+    val volumeBoost: VolumeBoost = VolumeBoost.entries.first(),
+    val subtitleColour: SubtitleColour = SubtitleColour.entries.first(),
+    val subtitleBackground: SubtitleBackground = SubtitleBackground.entries.first(),
+    val streamPick: StreamPick = StreamPick.entries.first(),
+    val maxResolution: MaxResolution = MaxResolution.entries.first(),
+    val buffer: BufferSize = BufferSize.entries.first(),
+    val autoNext: AutoNext = AutoNext.entries.first(),
+    val stats: StatsOverlay = StatsOverlay.entries.first(),
 ) {
     /** ISO 639-1 code for the chosen audio language, or null for the original track. */
     fun audioCode(): String? = audioLanguage.code?.let { if (it == "device") java.util.Locale.getDefault().language else it }
@@ -112,6 +190,18 @@ class PlaybackStore @Inject constructor(@ApplicationContext private val context:
             resume = p.read(RESUME),
             plexQuality = p.read(PLEX_QUALITY),
             mpvDecoding = p.read(MPV_DECODING),
+            frameRate = p.read(FRAME_RATE),
+            pictureSize = p.read(PICTURE_SIZE),
+            deinterlace = p.read(DEINTERLACE),
+            audioDelay = p.read(AUDIO_DELAY),
+            volumeBoost = p.read(VOLUME_BOOST),
+            subtitleColour = p.read(SUB_COLOUR),
+            subtitleBackground = p.read(SUB_BACKGROUND),
+            streamPick = p.read(STREAM_PICK),
+            maxResolution = p.read(MAX_RES),
+            buffer = p.read(BUFFER),
+            autoNext = p.read(AUTO_NEXT),
+            stats = p.read(STATS),
         )
     }
 
@@ -140,5 +230,17 @@ class PlaybackStore @Inject constructor(@ApplicationContext private val context:
         const val RESUME = "resume"
         const val PLEX_QUALITY = "plex_quality"
         const val MPV_DECODING = "mpv_decoding"
+        const val FRAME_RATE = "frame_rate"
+        const val PICTURE_SIZE = "picture_size"
+        const val DEINTERLACE = "deinterlace"
+        const val AUDIO_DELAY = "audio_delay"
+        const val VOLUME_BOOST = "volume_boost"
+        const val SUB_COLOUR = "sub_colour"
+        const val SUB_BACKGROUND = "sub_background"
+        const val STREAM_PICK = "stream_pick"
+        const val MAX_RES = "max_res"
+        const val BUFFER = "buffer"
+        const val AUTO_NEXT = "auto_next"
+        const val STATS = "stats"
     }
 }
