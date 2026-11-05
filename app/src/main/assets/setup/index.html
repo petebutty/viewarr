@@ -19,6 +19,7 @@ h1{font-size:24px;line-height:1.2;margin:0 0 8px}
 p{color:var(--muted);margin:0 0 18px;font-size:15px;line-height:1.45}
 p a{color:var(--accent)}
 label.f{display:block;font-size:13px;color:var(--muted);margin:16px 0 6px}
+.show{display:flex;gap:8px;align-items:center;font-size:14px;margin-top:6px;opacity:.8}.show input{width:auto}
 input[type=text],input[type=url],input[type=password],textarea{width:100%;font:inherit;font-size:16px;padding:13px 12px;border-radius:10px;border:1px solid var(--line);background:var(--panel);color:var(--text)}
 textarea{min-height:96px;resize:vertical}
 input:focus,textarea:focus{outline:2px solid var(--accent);outline-offset:1px}
@@ -188,8 +189,8 @@ a.link.alt{background:transparent;border:1px solid var(--line);color:var(--text)
         <label class="f">Sign in with</label>
         <div class="tabs"><button type="button" data-t="pw" class="on">Username &amp; password</button><button type="button" data-t="key">API key</button></div>
         <div id="pw">
-          <label class="f" for="user">Username</label><input type="text" id="user" autocapitalize="off" spellcheck="false">
-          <label class="f" for="pass">Password</label><input type="password" id="pass">
+          <label class="f" for="user">Username</label><input type="text" id="user" autocapitalize="none" autocorrect="off" autocomplete="username" spellcheck="false">
+          <label class="f" for="pass">Password</label><input type="password" id="pass" autocomplete="current-password"><label class="show"><input type="checkbox" onchange="document.getElementById('pass').type=this.checked?'text':'password'"> Show password</label>
           <div class="note">Your Dispatcharr login. It needs to be a Standard or Admin user; Streamer accounts only work in player apps. The password isn't stored on the TV.</div>
         </div>
         <div id="key" hidden>
@@ -309,8 +310,8 @@ a.link.alt{background:transparent;border:1px solid var(--line);color:var(--text)
         <div class="tabs"><button type="button" data-t="qc" class="on">Quick Connect</button><button type="button" data-t="pw">Password</button></div>
         <div id="qc"><div class="note">No password needed: you approve Viewarr from Jellyfin, where you're already signed in.</div><div id="qcbox"></div></div>`}
         <div id="pw" ${emby ? '' : 'hidden'}>
-          <label class="f" for="user">Username</label><input type="text" id="user" autocapitalize="off" spellcheck="false">
-          <label class="f" for="pass">Password</label><input type="password" id="pass">
+          <label class="f" for="user">Username</label><input type="text" id="user" autocapitalize="none" autocorrect="off" autocomplete="username" spellcheck="false">
+          <label class="f" for="pass">Password</label><input type="password" id="pass" autocomplete="current-password"><label class="show"><input type="checkbox" onchange="document.getElementById('pass').type=this.checked?'text':'password'"> Show password</label>
           ${emby ? '<div class="note">Emby has no sign-in-by-code for apps like this, so use your Emby username and password. It isn\'t stored on the TV; only a sign-in token is.</div>' : ''}
         </div>
         ${nav('<button class="primary" type="submit">' + (emby ? 'Sign in' : 'Get a Quick Connect code') + '</button>')}

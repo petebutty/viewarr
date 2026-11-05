@@ -31,11 +31,23 @@ class AuthRepository @Inject constructor(
 
     suspend fun signIn(serverUrl: String, username: String, password: String): Result<Session> = try {
         val api = apiFactory.create(serverUrl)
-        val bearer = "Bearer " + api.token(TokenRequest(username.trim(), password)).access
+        val name = username.trim()
+        // Dispatcharr usernames are case-sensitive, and phone or TV keyboards like to capitalise or autocorrect.
+        // If the name as typed is refused, try it in lower case once (most usernames are).
+        val token = try {
+            api.token(TokenRequest(name, password))
+        } catch (e: HttpException) {
+            if (e.code() !in listOf(400, 401) || name == name.lowercase()) throw LoginRefused(e.code())
+            try { api.token(TokenRequest(name.lowercase(), password)) } catch (e2: HttpException) { throw LoginRefused(e2.code()) }
+        }
+        val bearer = "Bearer " + token.access
         // generate replaces the user's existing key and would break other apps using it, so reuse first.
-        val key = api.apiKey(bearer).key?.takeIf { it.isNotBlank() }
-            ?: api.generateApiKey(bearer).key
-            ?: error("The server didn't return an API key.")
+        val key = try {
+            api.apiKey(bearer).key?.takeIf { it.isNotBlank() } ?: api.generateApiKey(bearer).key
+        } catch (e: HttpException) {
+            error("Your username and password were accepted, but Dispatcharr wouldn't give Viewarr an API key (error ${e.code()}). " +
+                "Use the API key option instead: in Dispatcharr open Users, edit your account and copy the API key.")
+        } ?: error("Your username and password were accepted, but Dispatcharr didn't return an API key. Use the API key option instead.")
         val me = apiFactory.create(serverUrl, apiKey = key).me()
         check(me.userLevel >= STANDARD_LEVEL) {
             "\"${me.username}\" is a Streamer account, which only works in player apps. " +
@@ -44,11 +56,23 @@ class AuthRepository @Inject constructor(
         val session = Session(serverUrl, me.username, key)
         sessions.save(session)
         Result.success(session)
+    } catch (e: LoginRefused) {
+        Result.failure(
+            IllegalStateException(
+                when (e.code) {
+                    400, 401 -> "Dispatcharr didn't accept that username or password. Usernames are case-sensitive, so check capital letters " +
+                        "and that the keyboard didn't autocorrect it. The API key option always works."
+                    403 -> "This Dispatcharr server doesn't allow sign-in from this network (Settings → Network access in Dispatcharr)."
+                    429 -> "Too many attempts. Wait a minute and try again."
+                    else -> "Sign-in failed (server error ${e.code})."
+                }
+            )
+        )
     } catch (e: HttpException) {
         Result.failure(
             IllegalStateException(
                 when (e.code()) {
-                    400, 401 -> "Wrong username or password."
+                    400, 401 -> "Dispatcharr refused the sign-in (error ${e.code()}). Try the API key option instead."
                     403 -> "This server doesn't allow sign-in from this network."
                     429 -> "Too many attempts. Wait a minute and try again."
                     else -> "Sign-in failed (server error ${e.code()})."
@@ -81,6 +105,8 @@ class AuthRepository @Inject constructor(
     }
 
     suspend fun signOut() = sessions.clear()
+
+    private class LoginRefused(val code: Int) : Exception()
 
     private companion object {
         const val STANDARD_LEVEL = 1
