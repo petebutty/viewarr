@@ -116,7 +116,7 @@ fun PlayerOsd(
                     OsdPopup.Audio -> audio.map { it.label to it.selected }
                     OsdPopup.Subtitles -> subtitles.map { it.label to it.selected }
                     OsdPopup.Aspect -> AspectMode.entries.map { it.label to (it == aspect) }
-                    OsdPopup.Source -> sources.orEmpty().map { (if (it.provider.isNotEmpty()) "${it.name}  ·  ${it.provider}" else it.name) to it.current }
+                    OsdPopup.Source -> sources.orEmpty().map { (if (it.current) "✓  " else "     ") + (if (it.provider.isNotEmpty()) "${it.name}  ·  ${it.provider}" else it.name) to it.current }
                     OsdPopup.Info -> emptyList()
                 },
                 title = if (p == OsdPopup.Source) "Source" + (sourceNote?.let { "  ·  $it" } ?: "") else p.name,
@@ -199,7 +199,7 @@ fun PlayerOsd(
                 Pill("Stream info") { popup = if (popup == OsdPopup.Info) null else OsdPopup.Info }
             }
             if (onRecord != null) Pill("Record") { onRecord() }
-            (note ?: sourceNote?.takeIf { popup == null && it.startsWith("Switched") })?.let { Text(it, fontSize = 12.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(start = 8.dp)) }
+            (note ?: sourceNote?.takeIf { popup == null })?.let { Text(it, fontSize = 12.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(start = 8.dp)) }
         }
     }
 }

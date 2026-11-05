@@ -90,11 +90,15 @@ class PlaybackViewModel @Inject constructor(
                     (if (b is kotlinx.serialization.json.JsonArray) b.toList() else b.array("results"))
                         .mapNotNull { a -> a.int("id")?.let { id -> id to (a.str("name") ?: "Account $id") } }.toMap()
                 }.also { providers = it }
-                val current = http.get(api(s, "proxy/ts/status/${ch.uuid}"), h).body.int("stream_id")
-                val list = ids.map { id ->
-                    val st = http.get(api(s, "api/channels/streams/$id/"), h).body
+                // Which stream is feeding the channel: the live status says (admin users only); otherwise the stream with viewers.
+                val status = http.get(api(s, "proxy/ts/status/${ch.uuid}"), h)
+                val statusCurrent = status.body.int("stream_id").takeIf { status.code in 200..299 }
+                val streams = ids.map { id -> id to http.get(api(s, "api/channels/streams/$id/"), h).body }
+                val current = statusCurrent ?: streams.firstOrNull { (_, st) -> (st.int("current_viewers") ?: 0) > 0 }?.first
+                val list = streams.map { (id, st) ->
                     LiveSource(id, st.str("name") ?: "Stream $id", st.int("m3u_account")?.let { names[it] } ?: "", id == current)
                 }
+                if (status.code == 401 || status.code == 403) _sourceNote.value = ADMIN_ONLY
                 if (list.size < 2) _sourceNote.value = "This channel has only one source."
                 _sources.value = list
             }.onFailure {
@@ -120,7 +124,11 @@ class PlaybackViewModel @Inject constructor(
                 delay(800)
                 restart()
             } else {
-                _sourceNote.value = r?.body.str("error") ?: "Dispatcharr couldn't switch (${r?.code ?: "no answer"})."
+                _sourceNote.value = when (r?.code) {
+                    401, 403 -> ADMIN_ONLY
+                    null -> "No answer from Dispatcharr."
+                    else -> r.body.str("error") ?: "Dispatcharr couldn't switch (${r.code})."
+                }
             }
         }
     }
@@ -133,7 +141,7 @@ class PlaybackViewModel @Inject constructor(
         val ch = _channel.value ?: return emptyList()
         val r = runCatching { http.get(api(s, "proxy/ts/status/${ch.uuid}"), apiHeaders(s)) }.getOrNull()
             ?: return listOf("Status" to "No answer from Dispatcharr")
-        if (r.code == 401 || r.code == 403) return listOf("Status" to "Needs a Dispatcharr admin API key")
+        if (r.code == 401 || r.code == 403) return listOf("Status" to ADMIN_ONLY)
         if (r.code !in 200..299) return listOf("Status" to "Not running on the server")
         val b = r.body
         fun d(k: String) = (b.child(k) as? kotlinx.serialization.json.JsonPrimitive)?.content?.toDoubleOrNull()
@@ -149,6 +157,10 @@ class PlaybackViewModel @Inject constructor(
             d("uptime")?.let { "Running for" to clockText((it * 1000).toLong()) },
             b.str("state")?.let { "State" to it },
         )
+    }
+
+    private companion object {
+        const val ADMIN_ONLY = "Dispatcharr only lets admin users switch sources and see stream info."
     }
 
     private fun clockText(ms: Long): String {
