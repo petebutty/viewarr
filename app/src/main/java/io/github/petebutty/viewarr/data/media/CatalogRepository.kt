@@ -87,7 +87,7 @@ class CatalogRepository @Inject constructor(
                 if (type == MediaType.Movie) add { listOfNotNull(tmdbList(k, type, "/movie/now_playing", "cinema", "In cinemas", mapOf("region" to "GB"))) }
                 else add { listOfNotNull(tmdbList(k, type, "/tv/on_the_air", "airing", "On TV this week")) }
             }
-            a.addons.forEach { addon -> add { stremioRows(addon, type) } }
+            a.activeAddons.forEach { addon -> add { stremioRows(addon, type) } }
         }
         val found = arrayOfNulls<List<MediaRow>>(slots.size)
         val lock = Mutex()
@@ -120,7 +120,7 @@ class CatalogRepository @Inject constructor(
                 add { listOfNotNull(tmdbSearch(k, MediaType.Movie, q)) }
                 add { listOfNotNull(tmdbSearch(k, MediaType.Show, q)) }
             }
-            a.addons.forEach { addon -> add { stremioSearch(addon, q) } }
+            a.activeAddons.forEach { addon -> add { stremioSearch(addon, q) } }
         }
         val found = arrayOfNulls<List<MediaRow>>(slots.size)
         val lock = Mutex()
@@ -663,7 +663,7 @@ class CatalogRepository @Inject constructor(
         val baseImdb = item.imdbId ?: return emptyList()
         val type = if (item.type == MediaType.Movie) "movie" else "series"
         val imdb = if (season != null && episode != null) "$baseImdb:$season:$episode" else baseImdb
-        val addons = store.current().addons
+        val addons = store.current().activeAddons
         return coroutineScope {
             addons.map { addon ->
                 async {
@@ -687,7 +687,7 @@ class CatalogRepository @Inject constructor(
         }
     }
 
-    fun hasAddons(a: Accounts) = a.addons.isNotEmpty()
+    fun hasAddons(a: Accounts) = a.activeAddons.isNotEmpty()
 
     // ------------------------------------------------------------------ detail
 
@@ -731,6 +731,25 @@ class CatalogRepository @Inject constructor(
             },
             status = j.str("status"),
         )
+    }
+
+    private val trailerCache = ConcurrentHashMap<String, String>()
+
+    /** The YouTube id of the title's trailer on TMDB (official English trailer first, then teasers), or null. */
+    suspend fun trailerKey(item: MediaItem): String? {
+        trailerCache[item.key]?.let { return it.ifEmpty { null } }
+        val key = store.current().tmdbKey ?: return null
+        val id = item.tmdbId ?: item.imdbId?.let { findByImdb(key, it, item.type) } ?: return null
+        val path = (if (item.type == MediaType.Movie) "/movie/" else "/tv/") + id + "/videos"
+        val r = runCatching { http.get(tmdb.url(path, key, mapOf("include_video_language" to "en,null")), tmdb.headers(key)) }
+            .getOrNull()?.takeIf { it.ok } ?: return null
+        fun score(v: JsonElement) = (if (v.str("type") == "Trailer") 0 else 10) +
+            (if (v.str("official") == "true") 0 else 4) + (if (v.str("iso_639_1") == "en") 0 else 2)
+        val pick = r.body.array("results")
+            .filter { it.str("site") == "YouTube" && !it.str("key").isNullOrBlank() && it.str("type") in setOf("Trailer", "Teaser") }
+            .minByOrNull(::score)?.str("key")
+        trailerCache[item.key] = pick.orEmpty()
+        return pick
     }
 
     private suspend fun findByImdb(key: String, imdbId: String, type: MediaType): Int? = runCatching {

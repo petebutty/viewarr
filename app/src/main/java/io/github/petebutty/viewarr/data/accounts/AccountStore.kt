@@ -26,7 +26,13 @@ data class PlexAuth(val token: String, val serverName: String, val serverUrl: St
 data class MediaServerAuth(val serverUrl: String, val serverName: String, val userId: String, val userName: String, val token: String)
 
 @Serializable
-data class AddonInfo(val baseUrl: String, val id: String, val name: String)
+data class AddonInfo(
+    val baseUrl: String,
+    val id: String,
+    val name: String,
+    /** Off = kept but unused: no rows, search results or streams from it (Settings → Addons). */
+    val enabled: Boolean = true,
+)
 
 /** Every optional source. Stored as one Keystore-encrypted JSON blob; none of it is ever logged. */
 @Serializable
@@ -39,7 +45,10 @@ data class Accounts(
     val emby: MediaServerAuth? = null,
     val addons: List<AddonInfo> = emptyList(),
     val vodEnabled: Boolean = false,
-)
+) {
+    /** The addons switched on in Settings → Addons. */
+    val activeAddons: List<AddonInfo> get() = addons.filter { it.enabled }
+}
 
 private val Context.accountsStore by preferencesDataStore(name = "accounts")
 

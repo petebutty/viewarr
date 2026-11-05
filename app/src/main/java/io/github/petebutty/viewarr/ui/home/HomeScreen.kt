@@ -78,7 +78,6 @@ import io.github.petebutty.viewarr.ui.dvr.RecordingsScreen
 import io.github.petebutty.viewarr.data.media.VodStream
 import io.github.petebutty.viewarr.data.local.ChannelListItem
 import io.github.petebutty.viewarr.data.local.GuideProgram
-import io.github.petebutty.viewarr.ui.settings.RemotePanel
 import io.github.petebutty.viewarr.data.settings.GuideBack
 import io.github.petebutty.viewarr.data.settings.LocalRemote
 import io.github.petebutty.viewarr.data.settings.MediaBack
@@ -98,10 +97,11 @@ private enum class Section(val label: String, val available: Boolean) {
     Movies("Movies", true),
     Shows("Shows", true),
     Recordings("Recordings", true),
-    MyList("My list", false),
     Search("Search", true),
     Settings("Settings", true),
 }
+
+private val LogoFont = androidx.compose.ui.text.font.FontFamily(androidx.compose.ui.text.font.Font(io.github.petebutty.viewarr.R.font.poppins_bold))
 
 /** What fills the screen behind the menu. */
 enum class Page { Tv, Movies, Shows, Recordings, Search }
@@ -559,13 +559,19 @@ private fun MenuOverlay(
     var showRemote by remember { mutableStateOf(false) }
     var showPlayback by remember { mutableStateOf(false) }
     val playbackItem = remember { FocusRequester() }
-    var returnToPlayback by remember { mutableStateOf(false) }
-    // After closing the Playback page, land back on its menu item (not wherever focus happens to fall).
-    LaunchedEffect(returnToPlayback) {
-        if (!returnToPlayback) return@LaunchedEffect
+    var showAddons by remember { mutableStateOf(false) }
+    val addonsItem = remember { FocusRequester() }
+    val remoteItem = remember { FocusRequester() }
+    var returnTo by remember { mutableStateOf<FocusRequester?>(null) }
+    // After closing a full settings page, land back on its menu item (not wherever focus happens to fall).
+    LaunchedEffect(returnTo) {
+        val target = returnTo ?: return@LaunchedEffect
+        // When the page goes, focus can fall onto the first menu entry and switch the side panel away from
+        // Settings (taking the menu item with it). Put Settings back first, then focus the item.
+        section = Section.Settings
         awaitFrame(); awaitFrame()
-        runCatching { playbackItem.requestFocus() }
-        returnToPlayback = false
+        runCatching { target.requestFocus() }
+        returnTo = null
     }
     val remote = LocalRemote.current
     var lastBack by remember { mutableLongStateOf(0L) }
@@ -619,7 +625,23 @@ private fun MenuOverlay(
                 .padding(horizontal = 10.dp, vertical = 24.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
-            Text("Viewarr", fontSize = 20.sp, color = AppColors.Accent, modifier = Modifier.padding(start = 12.dp, bottom = 20.dp))
+            // The Viewarr logo: aperture mark plus the wordmark in the banner's font.
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 10.dp, bottom = 20.dp)) {
+                androidx.compose.foundation.Image(
+                    painter = androidx.compose.ui.res.painterResource(io.github.petebutty.viewarr.R.drawable.logo_mark),
+                    contentDescription = null,
+                    modifier = Modifier.size(30.dp),
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    "viewarr",
+                    fontSize = 22.sp,
+                    fontFamily = LogoFont,
+                    color = Color.White,
+                    // Poppins sits high in its line box; trim the extra space so it centres on the mark.
+                    style = androidx.compose.ui.text.TextStyle(platformStyle = androidx.compose.ui.text.PlatformTextStyle(includeFontPadding = false)),
+                )
+            }
             Section.entries.forEach { s ->
                 MenuItem(
                     text = s.label,
@@ -634,7 +656,7 @@ private fun MenuOverlay(
                         .onFocusChanged { if (it.isFocused) section = s }
                         .onPreviewKeyEvent { e ->
                             // Right does the same as OK: open what's inside this entry.
-                            if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionRight && !(s == Section.Settings && (showAppearance || showRemote || showPlayback))) {
+                            if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionRight && !(s == Section.Settings && (showAppearance || showRemote || showPlayback || showAddons))) {
                                 enter(s)
                                 true
                             } else false
@@ -662,7 +684,7 @@ private fun MenuOverlay(
                         }
                         // Left goes back to this section's menu entry, not whichever one is geometrically closest.
                         e.key == Key.DirectionLeft && (section == Section.Tv || section == Section.Movies || section == Section.Shows ||
-                            (section == Section.Settings && !showAppearance && !showRemote && !showPlayback)) -> {
+                            (section == Section.Settings && !showAppearance && !showRemote && !showPlayback && !showAddons)) -> {
                             runCatching { navFocus.getValue(section).requestFocus() }
                             true
                         }
@@ -684,15 +706,19 @@ private fun MenuOverlay(
                 )
                 Section.Settings -> if (showAppearance) {
                     AppearancePanel(onBack = { showAppearance = false })
-                } else if (showRemote) {
-                    RemotePanel(onBack = { showRemote = false })
                 } else SettingsPanel(
                     playbackItem = playbackItem,
                     onPlayback = {
                         runCatching { navFocus.getValue(Section.Settings).requestFocus() }
                         showPlayback = true
                     },
+                    addonsItem = addonsItem,
+                    onAddons = {
+                        runCatching { navFocus.getValue(Section.Settings).requestFocus() }
+                        showAddons = true
+                    },
                     // Park focus on the Settings entry before swapping panels, so it never drops back to Search.
+                    remoteItem = remoteItem,
                     onRemote = {
                         runCatching { navFocus.getValue(Section.Settings).requestFocus() }
                         showRemote = true
@@ -745,7 +771,21 @@ private fun MenuOverlay(
             // Move focus to the Playback item first, while the page is still up; otherwise it jumps to Search.
             runCatching { playbackItem.requestFocus() }
             showPlayback = false
-            returnToPlayback = true
+            returnTo = playbackItem
+        })
+    }
+    if (showRemote) {
+        io.github.petebutty.viewarr.ui.settings.RemoteSettingsScreen(onBack = {
+            runCatching { remoteItem.requestFocus() }
+            showRemote = false
+            returnTo = remoteItem
+        })
+    }
+    if (showAddons) {
+        io.github.petebutty.viewarr.ui.settings.AddonsSettingsScreen(onBack = {
+            runCatching { addonsItem.requestFocus() }
+            showAddons = false
+            returnTo = addonsItem
         })
     }
     }
@@ -784,7 +824,7 @@ private fun GroupItem(name: String, count: Int?, selected: Boolean, modifier: Mo
 }
 
 @Composable
-private fun SettingsPanel(playbackItem: FocusRequester, onPlayback: () -> Unit, onRemote: () -> Unit, session: Session?, sync: SyncState, firstItem: FocusRequester, onAppearance: () -> Unit, onAccounts: () -> Unit, onRefresh: () -> Unit, onSignOut: () -> Unit) {
+private fun SettingsPanel(playbackItem: FocusRequester, onPlayback: () -> Unit, addonsItem: FocusRequester, onAddons: () -> Unit, remoteItem: FocusRequester, onRemote: () -> Unit, session: Session?, sync: SyncState, firstItem: FocusRequester, onAppearance: () -> Unit, onAccounts: () -> Unit, onRefresh: () -> Unit, onSignOut: () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(session?.let { "Signed in as ${it.username}" } ?: "Live TV not set up", fontSize = 15.sp, color = AppColors.TextPrimary, modifier = Modifier.padding(horizontal = 12.dp))
         session?.let { Text(it.serverUrl, fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(horizontal = 12.dp)) }
@@ -799,7 +839,8 @@ private fun SettingsPanel(playbackItem: FocusRequester, onPlayback: () -> Unit, 
         MenuItem(text = "Accounts & sources", selected = false, onClick = onAccounts, modifier = Modifier.focusRequester(firstItem))
         MenuItem(text = "Appearance", selected = false, onClick = onAppearance)
         MenuItem(text = "Playback", selected = false, onClick = onPlayback, modifier = Modifier.focusRequester(playbackItem))
-        MenuItem(text = "Remote & navigation", selected = false, onClick = onRemote)
+        MenuItem(text = "Addons", selected = false, onClick = onAddons, modifier = Modifier.focusRequester(addonsItem))
+        MenuItem(text = "Remote & navigation", selected = false, onClick = onRemote, modifier = Modifier.focusRequester(remoteItem))
         MenuItem(text = "Refresh channels & guide", selected = false, onClick = onRefresh)
         var confirmUntil by remember { mutableLongStateOf(0L) }
         LaunchedEffect(confirmUntil) {

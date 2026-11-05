@@ -95,6 +95,14 @@ fun PlaybackSettingsScreen(onBack: () -> Unit, vm: PlaybackSettingsViewModel = h
             ),
         ),
         SettingCategory(
+            "Trailers", "YouTube trailers for films and shows.",
+            listOf(
+                item("Trailer previews", "When you rest on a poster in Movies or Shows, its trailer plays in a small window at the top.", k.TRAILER_PREVIEW, choices<io.github.petebutty.viewarr.data.settings.TrailerPreview>(), s.trailerPreview),
+                item("Start after", "How long to stay on a poster before its trailer starts.", k.TRAILER_DELAY, choices<io.github.petebutty.viewarr.data.settings.TrailerDelay>(), s.trailerDelay),
+                item("Preview sound", "Off plays previews silently. The Trailer button on a title page always has sound.", k.TRAILER_SOUND, choices<io.github.petebutty.viewarr.data.settings.TrailerSound>(), s.trailerSound),
+            ),
+        ),
+        SettingCategory(
             "Troubleshooting", "Tools for when something doesn't play right.",
             listOf(
                 item("Show playback info", "Shows the video and audio format, decoder and dropped frames while playing.", k.STATS, choices<io.github.petebutty.viewarr.data.settings.StatsOverlay>(), s.stats),

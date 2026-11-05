@@ -140,6 +140,25 @@ enum class StatsOverlay(override val label: String) : RemoteChoice {
     On("On"),
 }
 
+enum class TrailerPreview(override val label: String) : RemoteChoice {
+    On("On"),
+    Off("Off"),
+}
+
+enum class TrailerDelay(override val label: String, val ms: Long) : RemoteChoice {
+    S3("3 seconds", 3_000),
+    S1("1 second", 1_000),
+    S2("2 seconds", 2_000),
+    S5("5 seconds", 5_000),
+    S8("8 seconds", 8_000),
+    S12("12 seconds", 12_000),
+}
+
+enum class TrailerSound(override val label: String) : RemoteChoice {
+    On("On"),
+    Off("Off"),
+}
+
 data class PlaybackSettings(
     val engine: PlayerEngine = PlayerEngine.entries.first(),
     val audioLanguage: AudioLanguage = AudioLanguage.entries.first(),
@@ -164,6 +183,9 @@ data class PlaybackSettings(
     val buffer: BufferSize = BufferSize.entries.first(),
     val autoNext: AutoNext = AutoNext.entries.first(),
     val stats: StatsOverlay = StatsOverlay.entries.first(),
+    val trailerPreview: TrailerPreview = TrailerPreview.entries.first(),
+    val trailerDelay: TrailerDelay = TrailerDelay.entries.first(),
+    val trailerSound: TrailerSound = TrailerSound.entries.first(),
 ) {
     /** ISO 639-1 code for the chosen audio language, or null for the original track. */
     fun audioCode(): String? = audioLanguage.code?.let { if (it == "device") java.util.Locale.getDefault().language else it }
@@ -202,6 +224,9 @@ class PlaybackStore @Inject constructor(@ApplicationContext private val context:
             buffer = p.read(BUFFER),
             autoNext = p.read(AUTO_NEXT),
             stats = p.read(STATS),
+            trailerPreview = p.read(TRAILER_PREVIEW),
+            trailerDelay = p.read(TRAILER_DELAY),
+            trailerSound = p.read(TRAILER_SOUND),
         )
     }
 
@@ -242,5 +267,8 @@ class PlaybackStore @Inject constructor(@ApplicationContext private val context:
         const val BUFFER = "buffer"
         const val AUTO_NEXT = "auto_next"
         const val STATS = "stats"
+        const val TRAILER_PREVIEW = "trailer_preview"
+        const val TRAILER_DELAY = "trailer_delay"
+        const val TRAILER_SOUND = "trailer_sound"
     }
 }

@@ -25,8 +25,8 @@ android {
         applicationId = "io.github.petebutty.viewarr"
         minSdk = 26
         targetSdk = 34
-        versionCode = 11
-        versionName = "0.9.0"
+        versionCode = 12
+        versionName = "0.10.0"
         // Trakt device login needs a client id from your own Trakt app (trakt.tv/oauth/applications). Blank = no Trakt.
         // Android TV boxes are ARM; leaving out x86 keeps the APK smaller.
         ndk { abiFilters += listOf("armeabi-v7a", "arm64-v8a") }
@@ -48,7 +48,7 @@ android {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
-            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             // Your release key if keystore.properties exists; otherwise the debug key (fine for trying it out).
             signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
         }
@@ -56,6 +56,8 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+        // NewPipe Extractor uses java.nio / java.time APIs that Android below 13 lacks.
+        isCoreLibraryDesugaringEnabled = true
     }
     kotlinOptions {
         jvmTarget = "17"
@@ -101,6 +103,10 @@ dependencies {
     implementation(libs.media3.exoplayer)
     implementation(libs.media3.ui)
     implementation(libs.media3.hls)
+    implementation(libs.media3.dash)
+    // NewPipe Extractor (GPL-3.0): finds the playable video behind a YouTube trailer link.
+    implementation(libs.newpipe.extractor)
+    coreLibraryDesugaring(libs.desugar.nio)
     // Prebuilt FFmpeg audio decoders (DTS, TrueHD, MP2…) for soundtracks the box can't decode itself.
     implementation(libs.media3.ffmpeg)
     // mpv (MIT): the alternative player for films, shows and recordings.

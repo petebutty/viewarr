@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -17,6 +18,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -24,6 +26,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -163,7 +166,14 @@ fun MediaScreen(
 
     Box(Modifier.fillMaxSize().background(AppColors.Background)) {
         Column(Modifier.fillMaxSize()) {
-            if (searchHeader != null) searchHeader() else Hero(hero ?: rows.firstOrNull()?.items?.firstOrNull(), type)
+            if (searchHeader != null) searchHeader() else Hero(
+                item = hero ?: rows.firstOrNull()?.items?.firstOrNull(),
+                type = type,
+                // Only the poster you've stopped on plays: not the first-row fallback, nor while anything covers the rows.
+                trailerItem = hero,
+                trailerActive = focusEnabled && hasFocus && detail == null && playing == null,
+                trailers = vm.trailers,
+            )
             when {
                 searchHeader != null && rows.isEmpty() && state.done -> Unit
                 rows.isEmpty() && !state.done -> Text(
@@ -231,7 +241,13 @@ fun MediaScreen(
 private fun cardId(row: MediaRow, item: MediaItem) = row.id + "|" + item.key
 
 @Composable
-private fun Hero(item: MediaItem?, type: MediaType) {
+private fun Hero(
+    item: MediaItem?,
+    type: MediaType,
+    trailerItem: MediaItem? = null,
+    trailerActive: Boolean = false,
+    trailers: io.github.petebutty.viewarr.data.trailers.TrailerRepository? = null,
+) {
     Box(Modifier.fillMaxWidth().height(232.dp)) {
         item?.backdrop?.let { url ->
             AsyncImage(
@@ -244,6 +260,18 @@ private fun Hero(item: MediaItem?, type: MediaType) {
         val bg = AppColors.Background
         Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(0.3f to bg, 0.55f to bg.copy(alpha = 0.55f), 1f to Color.Transparent)))
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.6f to Color.Transparent, 1f to bg)))
+        // Picture-in-picture trailer over the right of the backdrop, clear of the title and overview.
+        if (trailers != null) TrailerPreview(
+            item = trailerItem,
+            active = trailerActive,
+            trailers = trailers,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(top = 16.dp, end = 48.dp)
+                .height(200.dp)
+                .aspectRatio(16f / 9f)
+                .clip(RoundedCornerShape(10.dp)),
+        )
         Column(Modifier.padding(start = 48.dp, top = 26.dp, end = 48.dp).fillMaxWidth(0.5f)) {
             Text(if (type == MediaType.Movie) "Movies" else "Shows", fontSize = 14.sp, color = AppColors.Accent)
             Spacer(Modifier.height(8.dp))
@@ -366,7 +394,10 @@ private fun DetailScreen(
     val playFocus = remember { FocusRequester() }
     val onPlex = ui.copies?.any { it.source == "Plex" && it.ref != null } == true
     val show = item.type == MediaType.Show
-    BackHandler {
+    val trailerId by produceState<String?>(null, item.key) { value = vm.trailers.youtubeId(item) }
+    var trailerOpen by remember { mutableStateOf(false) }
+    val trailerFocus = remember { FocusRequester() }
+    BackHandler(enabled = !trailerOpen) {
         when {
             ui.streams != null -> if (ui.episode != null) vm.closeEpisodeStreams() else onCloseStreams()
             ui.episode != null -> vm.pickEpisode(null)
@@ -376,7 +407,7 @@ private fun DetailScreen(
     }
     // The first button changes once the library check finishes (Play on Plex appears), so focus again then.
     LaunchedEffect(ui.copies != null, ui.hasAddons, ui.streams == null, active, ui.episodesOpen) {
-        if (ui.streams != null || !active || ui.episodesOpen) return@LaunchedEffect
+        if (ui.streams != null || !active || ui.episodesOpen || trailerOpen) return@LaunchedEffect
         awaitFrame()
         runCatching { playFocus.requestFocus() }
     }
@@ -422,9 +453,10 @@ private fun DetailScreen(
                 )
                 Spacer(Modifier.height(6.dp))
                 // Pop-ups and the episodes panel sit on top: the buttons below must not take focus then.
-                val buttonsFree = !ui.episodesOpen && ui.streams == null
+                val buttonsFree = !ui.episodesOpen && ui.streams == null && !trailerOpen
                 androidx.compose.runtime.CompositionLocalProvider(LocalButtonsFree provides buttonsFree) {
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                // The buttons may run past the text column into the free space on the right, rather than squash.
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.wrapContentWidth(Alignment.Start, unbounded = true)) {
                     if (show) {
                         val next = item.nextSeason?.let { sn -> item.nextEpisode?.let { en -> sn to en } }?.takeIf { onPlex }
                         if (next != null) {
@@ -446,6 +478,9 @@ private fun DetailScreen(
                     if (!show && !onPlex && !ui.hasAddons && ui.copies != null) {
                         OutlinedButton(onClick = onClose, modifier = (Modifier.focusRequester(playFocus)).free()) { Text("Back") }
                     }
+                    if (trailerId != null) {
+                        OutlinedButton(onClick = { trailerOpen = true }, modifier = Modifier.focusRequester(trailerFocus).free()) { Text("Trailer") }
+                    }
                     if (ui.hasTrakt) {
                         OutlinedButton(onClick = onWatchlist, modifier = Modifier.free()) { Text(if (ui.watchlisted) "Remove from watchlist" else "Add to watchlist") }
                     }
@@ -459,6 +494,12 @@ private fun DetailScreen(
         }
         if (ui.episodesOpen) EpisodesPanel(ui, vm, onPlex)
         ui.streams?.takeIf { it.isNotEmpty() }?.let { StreamPicker(it, onPickStream, Modifier.align(Alignment.CenterEnd)) }
+        if (trailerOpen) {
+            TrailerPlayer(item = item, trailers = vm.trailers, onClose = { trailerOpen = false })
+            DisposableEffect(Unit) {
+                onDispose { trailerFocus.let { f -> android.os.Handler(android.os.Looper.getMainLooper()).post { runCatching { f.requestFocus() } } } }
+            }
+        }
     }
 }
 

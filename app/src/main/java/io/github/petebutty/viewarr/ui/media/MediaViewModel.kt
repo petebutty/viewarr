@@ -14,6 +14,9 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -47,6 +50,8 @@ class MediaViewModel @Inject constructor(
     private val repo: CatalogRepository,
     private val store: AccountStore,
     private val playbackStore: io.github.petebutty.viewarr.data.settings.PlaybackStore,
+    /** YouTube trailers: the poster preview window and the title page's Trailer button. */
+    val trailers: io.github.petebutty.viewarr.data.trailers.TrailerRepository,
     @dagger.hilt.android.qualifiers.ApplicationContext private val appContext: android.content.Context,
 ) : ViewModel() {
 
@@ -129,6 +134,17 @@ class MediaViewModel @Inject constructor(
         }
     }
 
+    init {
+        // Switching an addon on or off in Settings → Addons reloads the rows, so its catalogues come or go at once.
+        viewModelScope.launch {
+            store.accounts
+                .map { a -> a.activeAddons.map { it.baseUrl } }
+                .distinctUntilChanged()
+                .drop(1)
+                .collect { loaded?.let { type -> load(type, force = true) } }
+        }
+    }
+
     fun load(type: MediaType, force: Boolean = false) {
         if (!force && loaded == type) return
         loaded = type
@@ -143,7 +159,7 @@ class MediaViewModel @Inject constructor(
         detailJob = viewModelScope.launch {
             val accounts = store.current()
             val hasTrakt = accounts.trakt != null
-            _detail.update { it?.copy(hasAddons = accounts.addons.isNotEmpty()) }
+            _detail.update { it?.copy(hasAddons = accounts.activeAddons.isNotEmpty()) }
             val full = repo.detail(item)
             _detail.update {
                 it?.copy(detail = full, loading = false, hasTrakt = hasTrakt && full.item.tmdbId != null, watchlisted = repo.inTraktWatchlist(full.item))
