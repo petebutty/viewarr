@@ -75,11 +75,11 @@ class CatalogRepository @Inject constructor(
         val a = store.current()
         val traktAuth = a.trakt?.let { freshTrakt(it) }
         val slots: List<suspend () -> List<MediaRow>> = buildList {
-            a.plex?.let { p -> add { listOfNotNull(plexOnDeck(a, p, type)) } }
+            plexServers(a).forEach { p -> add { listOfNotNull(plexOnDeck(a, p, type)) } }
             a.jellyfin?.let { j -> add { listOfNotNull(serverResume(a, j, emby = false, type)) } }
             a.emby?.let { e -> add { listOfNotNull(serverResume(a, e, emby = true, type)) } }
             traktAuth?.let { t -> add { listOfNotNull(traktWatchlistRow(a, t, type)) } }
-            a.plex?.let { p -> add { plexRecent(a, p, type) } }
+            plexServers(a).forEach { p -> add { plexRecent(a, p, type) } }
             a.jellyfin?.let { j -> add { listOfNotNull(serverLatest(a, j, emby = false, type)) } }
             a.emby?.let { e -> add { listOfNotNull(serverLatest(a, e, emby = true, type)) } }
             traktAuth?.let { t -> add { listOfNotNull(traktRecommended(a, t, type)) } }
@@ -162,7 +162,7 @@ class CatalogRepository @Inject constructor(
      */
     private suspend fun librarySearch(a: Accounts, q: String): MediaRow? = coroutineScope {
         val parts = buildList {
-            a.plex?.let { p -> add(async { runCatching { withTimeoutOrNull(12_000) { plexSearch(a, p, q)?.items } }.getOrNull().orEmpty() }) }
+            plexServers(a).forEach { p -> add(async { runCatching { withTimeoutOrNull(12_000) { plexSearch(a, p, q)?.items } }.getOrNull().orEmpty() }) }
             listOfNotNull(a.jellyfin?.let { it to false }, a.emby?.let { it to true }).forEach { (srv, emby) ->
                 add(async { runCatching { withTimeoutOrNull(12_000) { serverSearch(a, srv, emby, q) } }.getOrNull().orEmpty() })
             }
@@ -432,6 +432,44 @@ class CatalogRepository @Inject constructor(
 
     // ------------------------------------------------------------------ Plex
 
+    // ------------------------------------------------------------------ several Plex servers
+
+    /** The main server's id (the one linked in setup): its items keep plain keys, others get "@server". */
+    @Volatile private var mainPlexMachine: String? = null
+
+    /** Every Plex server: the one linked in setup first, then the others on the same account. */
+    private fun plexServers(a: Accounts): List<PlexAuth> {
+        mainPlexMachine = a.plex?.machineId
+        return listOfNotNull(a.plex) + a.plexMore.filter { m -> m.machineId != a.plex?.machineId }
+    }
+
+    private fun isMainPlex(p: PlexAuth) = mainPlexMachine == null || p.machineId == mainPlexMachine
+
+    /** A rating key that also says which server it's on: plain on the main one, "rk@server" on others. */
+    private fun plexRef(p: PlexAuth, rk: String) = if (isMainPlex(p)) rk else "$rk@${p.machineId}"
+
+    /** The server and plain rating key behind a [plexRef]. */
+    private fun plexResolve(a: Accounts, ref: String): Pair<PlexAuth, String>? {
+        val servers = plexServers(a)
+        val rk = ref.substringBefore('@')
+        val machine = ref.substringAfter('@', "")
+        val p = if (machine.isEmpty()) a.plex else servers.firstOrNull { it.machineId == machine }
+        return p?.let { it to rk }
+    }
+
+    /** Finds your other Plex servers on the account (e.g. a second machine) and remembers them. */
+    suspend fun refreshPlexServers() {
+        val a = store.current()
+        val p = a.plex ?: return
+        val found = runCatching { plex.servers(a.deviceId, p.token) }.getOrDefault(emptyList())
+        if (found.isEmpty()) return
+        val more = found.filter { it.machineId != p.machineId }.map(plex::toAuth)
+        if (more != a.plexMore) {
+            store.update { it.copy(plexMore = more) }
+            Log.i(TAG, "plex servers: ${p.serverName} + ${more.joinToString { it.serverName }}")
+        }
+    }
+
     private fun plexImage(p: PlexAuth, path: String?, w: Int, h: Int) = path?.let {
         "${p.serverUrl}/photo/:/transcode?width=$w&height=$h&minSize=1&upscale=1&url=${enc(it)}&X-Plex-Token=${enc(p.token)}"
     }
@@ -446,7 +484,7 @@ class CatalogRepository @Inject constructor(
         val ratingKey = j.str("ratingKey") ?: return null
         val (tmdbId, imdbId) = guidIds(j)
         return MediaItem(
-            key = tmdbId?.let { "tmdb:${type.name}:$it" } ?: "plex:$ratingKey",
+            key = tmdbId?.let { "tmdb:${type.name}:$it" } ?: "plex:${plexRef(p, ratingKey)}",
             type = type,
             title = j.str("title") ?: return null,
             year = j.int("year"),
@@ -456,7 +494,7 @@ class CatalogRepository @Inject constructor(
             tmdbId = tmdbId,
             imdbId = imdbId,
             rating = (j.child("audienceRating") as? JsonPrimitive)?.doubleOrNull,
-            origin = "Plex",
+            origin = if (isMainPlex(p)) "Plex" else "Plex · ${p.serverName}",
         )
     }
 
@@ -481,7 +519,13 @@ class CatalogRepository @Inject constructor(
                                 ?.array("Metadata").orEmpty().mapNotNull { plexItem(p, it, type) }
                         }
                     }.getOrNull() ?: run { Log.w(TAG, "plex library '$name' didn't answer in time"); return@async null }
-                    MediaRow("plex-recent-$key", if (sections.size == 1) "Recently added" else "Recently added in $name", items)
+                    // The main server keeps its old row ids (Home rows settings); others are told apart by server.
+                    val main = isMainPlex(p)
+                    MediaRow(
+                        if (main) "plex-recent-$key" else "plex-${p.machineId}-recent-$key",
+                        (if (sections.size == 1) "Recently added" else "Recently added in $name") + if (main) "" else " · ${p.serverName}",
+                        items,
+                    )
                 }
             }.awaitAll().filterNotNull()
         }
@@ -491,7 +535,7 @@ class CatalogRepository @Inject constructor(
     suspend fun recentlyAdded(type: MediaType, limit: Int = 12): List<MediaItem> = coroutineScope {
         val a = store.current()
         val parts = buildList {
-            a.plex?.let { p ->
+            plexServers(a).forEach { p ->
                 add(async {
                     runCatching {
                         withTimeoutOrNull(15_000) {
@@ -531,7 +575,7 @@ class CatalogRepository @Inject constructor(
     suspend fun continueWatching(type: MediaType): List<MediaItem> = coroutineScope {
         val a = store.current()
         val parts = buildList {
-            a.plex?.let { p -> add(async { runCatching { withTimeoutOrNull(20_000) { plexOnDeck(a, p, type)?.items } }.getOrNull().orEmpty() }) }
+            plexServers(a).forEach { p -> add(async { runCatching { withTimeoutOrNull(20_000) { plexOnDeck(a, p, type)?.items } }.getOrNull().orEmpty() }) }
             a.jellyfin?.let { j -> add(async { runCatching { withTimeoutOrNull(20_000) { serverResume(a, j, emby = false, type)?.items } }.getOrNull().orEmpty() }) }
             a.emby?.let { e -> add(async { runCatching { withTimeoutOrNull(20_000) { serverResume(a, e, emby = true, type)?.items } }.getOrNull().orEmpty() }) }
         }
@@ -563,7 +607,8 @@ class CatalogRepository @Inject constructor(
                 }
             }.awaitAll().filterNotNull()
         }
-        return MediaRow("plex-deck-${type.name}", "Continue watching", items)
+        return if (isMainPlex(p)) MediaRow("plex-deck-${type.name}", "Continue watching", items)
+        else MediaRow("plex-deck-${type.name}-${p.machineId}", "Continue watching on ${p.serverName}", items)
     }
 
     // ------------------------------------------------------------------ Jellyfin / Emby
@@ -669,7 +714,7 @@ class CatalogRepository @Inject constructor(
 
     /** Answers already worked out this run (title key → copies), kept for 10 minutes. */
     private val copyCache = ConcurrentHashMap<String, Pair<Long, List<LibraryCopy>>>()
-    @Volatile private var plexSectionCache: Pair<Long, List<JsonElement>>? = null
+    private val plexSectionCache = ConcurrentHashMap<String, Pair<Long, List<JsonElement>>>()
 
     /**
      * Which of the user's own servers have this title. Each server is asked about just this title (by name, then
@@ -681,7 +726,7 @@ class CatalogRepository @Inject constructor(
         val a = store.current()
         val found = coroutineScope {
             val jobs = buildList {
-                a.plex?.let { p -> add(async { runCatching { withTimeoutOrNull(15_000) { plexCopies(a, p, item) } }.getOrNull().orEmpty() }) }
+                plexServers(a).forEach { p -> add(async { runCatching { withTimeoutOrNull(15_000) { plexCopies(a, p, item) } }.getOrNull().orEmpty() }) }
                 listOfNotNull(a.jellyfin?.let { it to false }, a.emby?.let { it to true }).forEach { (srv, emby) ->
                     add(async { runCatching { withTimeoutOrNull(15_000) { serverCopies(a, srv, emby, item) } }.getOrNull().orEmpty() })
                 }
@@ -708,20 +753,22 @@ class CatalogRepository @Inject constructor(
         return listOf(title, plain, title.substringBefore(':').trim()).filter { it.length >= 2 }.distinct()
     }
 
-    private fun plexCopy(j: JsonElement?): LibraryCopy {
-        val res = j.array("Media").firstOrNull()?.str("videoResolution")
-        return LibraryCopy("Plex", res?.let { if (it.all(Char::isDigit)) "${it}p" else it.uppercase() }, j.str("ratingKey"))
+    private fun plexCopy(p: PlexAuth, j: JsonElement?): LibraryCopy {
+        val res = j.array("Media").firstOrNull()?.str("videoResolution")?.let { if (it.all(Char::isDigit)) "${it}p" else it.uppercase() }
+        val detail = listOfNotNull(res, p.serverName.takeIf { !isMainPlex(p) }).joinToString(" · ").ifEmpty { null }
+        return LibraryCopy("Plex", detail, j.str("ratingKey")?.let { plexRef(p, it) })
     }
 
     private suspend fun plexCopies(a: Accounts, p: PlexAuth, item: MediaItem): List<LibraryCopy> {
         // A title from a Plex row already knows where it is.
         if (item.key.startsWith("plex:")) {
-            val rk = item.key.removePrefix("plex:")
-            val m = plexGet(a, p, "/library/metadata/$rk")?.array("Metadata")?.firstOrNull() ?: return listOf(LibraryCopy("Plex", null, rk))
-            return listOf(plexCopy(m))
+            val (server, rk) = plexResolve(a, item.key.removePrefix("plex:")) ?: return emptyList()
+            if (server.machineId != p.machineId) return emptyList()
+            val m = plexGet(a, p, "/library/metadata/$rk")?.array("Metadata")?.firstOrNull() ?: return listOf(LibraryCopy("Plex", null, plexRef(p, rk)))
+            return listOf(plexCopy(p, m))
         }
-        val sections = (plexSectionCache?.takeIf { System.currentTimeMillis() - it.first < 30 * 60_000L }?.second
-            ?: (plexGet(a, p, "/library/sections")?.array("Directory").orEmpty().also { plexSectionCache = System.currentTimeMillis() to it }))
+        val sections = (plexSectionCache[p.machineId]?.takeIf { System.currentTimeMillis() - it.first < 30 * 60_000L }?.second
+            ?: (plexGet(a, p, "/library/sections")?.array("Directory").orEmpty().also { plexSectionCache[p.machineId] = System.currentTimeMillis() to it }))
             .filter { it.str("type") == if (item.type == MediaType.Movie) "movie" else "show" }
             .mapNotNull { it.str("key") }
         for (name in searchNames(item.title)) {
@@ -734,7 +781,7 @@ class CatalogRepository @Inject constructor(
                 }.awaitAll().flatten()
             }
             val match = hits.firstOrNull { j -> val (t, i) = guidIds(j); sameTitle(item, t, i, j.str("title"), j.int("year")) }
-            if (match != null) return listOf(plexCopy(match))
+            if (match != null) return listOf(plexCopy(p, match))
         }
         // Plex's own search is looser (accents, punctuation, alternative titles): last try, matched on the ids.
         val want = if (item.type == MediaType.Movie) "movie" else "show"
@@ -744,7 +791,7 @@ class CatalogRepository @Inject constructor(
             ?: return emptyList()
         // Search results carry less detail (no resolution): read the item itself.
         val full = loose.str("ratingKey")?.let { rk -> runCatching { plexGet(a, p, "/library/metadata/$rk") }.getOrNull()?.array("Metadata")?.firstOrNull() }
-        return listOf(plexCopy(full ?: loose))
+        return listOf(plexCopy(p, full ?: loose))
     }
 
     private suspend fun serverCopies(a: Accounts, srv: MediaServerAuth, emby: Boolean, item: MediaItem): List<LibraryCopy> {
@@ -786,9 +833,9 @@ class CatalogRepository @Inject constructor(
      * A Plex item to play: the file itself when this TV can decode it, with Plex transcoding (HLS) as the fallback.
      * Files the TV can't handle at all (e.g. AVI, VC-1 on some boxes) go straight to transcoding.
      */
-    suspend fun plexStream(ratingKey: String, watch: WatchTarget? = null): VodStream? {
+    suspend fun plexStream(ref: String, watch: WatchTarget? = null): VodStream? {
         val a = store.current()
-        val p = a.plex ?: return null
+        val (p, ratingKey) = plexResolve(a, ref) ?: return null
         val m = plexGet(a, p, "/library/metadata/$ratingKey")?.array("Metadata")?.firstOrNull() ?: return null
         val media = m.array("Media").firstOrNull()
         val partObj = media?.array("Part")?.firstOrNull()
@@ -799,7 +846,7 @@ class CatalogRepository @Inject constructor(
         val title = m.str("title") ?: "Plex"
         val headers = plex.headers(a.deviceId, p.token)
         val resume = m.long("viewOffset") ?: 0
-        val target = (watch ?: WatchTarget(MediaType.Movie)).copy(plexRatingKey = ratingKey)
+        val target = (watch ?: WatchTarget(MediaType.Movie)).copy(plexRatingKey = ref)
         val quality = playbackStore.current().plexQuality
         val transcode = VodStream(plexTranscodeUrl(a, p, ratingKey, quality.maxKbps ?: 20_000), "$title (converted by Plex)", headers, resume, watch = target, thumbs = thumbs)
         // Settings → Playback → Plex quality: anything but Original always converts at that bitrate.
@@ -906,9 +953,9 @@ class CatalogRepository @Inject constructor(
     }
 
     /** Tells Plex where you are (so Continue watching and "watched" stay in sync); marks it watched near the end. */
-    suspend fun reportPlex(ratingKey: String, state: String, positionMs: Long, durationMs: Long) {
+    suspend fun reportPlex(ref: String, state: String, positionMs: Long, durationMs: Long) {
         val a = store.current()
-        val p = a.plex ?: return
+        val (p, ratingKey) = plexResolve(a, ref) ?: return
         runCatching {
             http.get("${p.serverUrl}/:/timeline?ratingKey=$ratingKey&key=${enc("/library/metadata/$ratingKey")}&state=$state&time=$positionMs&duration=$durationMs",
                 plex.headers(a.deviceId, p.token))
@@ -954,8 +1001,7 @@ class CatalogRepository @Inject constructor(
             if (eps.isNotEmpty()) return eps
         }
         val a = store.current()
-        val p = a.plex ?: return emptyList()
-        val showKey = plexShowKey ?: return emptyList()
+        val (p, showKey) = plexShowKey?.let { plexResolve(a, it) } ?: return emptyList()
         return plexGet(a, p, "/library/metadata/$showKey/allLeaves")?.array("Metadata").orEmpty()
             .filter { it.int("parentIndex") == season }
             .mapNotNull { e ->
@@ -966,9 +1012,9 @@ class CatalogRepository @Inject constructor(
     }
 
     /** Seasons from Plex when TMDB has none (no key, or an unmatched show). */
-    suspend fun plexSeasons(showKey: String): List<SeasonInfo> {
+    suspend fun plexSeasons(showRef: String): List<SeasonInfo> {
         val a = store.current()
-        val p = a.plex ?: return emptyList()
+        val (p, showKey) = plexResolve(a, showRef) ?: return emptyList()
         return plexGet(a, p, "/library/metadata/$showKey/children")?.array("Metadata").orEmpty().mapNotNull { s ->
             val n = s.int("index") ?: return@mapNotNull null
             if (n == 0) null else SeasonInfo(n, s.str("title") ?: "Season $n", s.int("leafCount") ?: 0, s.int("year"))
@@ -976,17 +1022,17 @@ class CatalogRepository @Inject constructor(
     }
 
     /** Every episode of a show in Plex, by (season, episode). Cached per show for this run. */
-    suspend fun plexEpisodes(showKey: String): Map<Pair<Int, Int>, PlexEpisode> {
-        plexEpisodeCache[showKey]?.let { return it }
+    suspend fun plexEpisodes(showRef: String): Map<Pair<Int, Int>, PlexEpisode> {
+        plexEpisodeCache[showRef]?.let { return it }
         val a = store.current()
-        val p = a.plex ?: return emptyMap()
+        val (p, showKey) = plexResolve(a, showRef) ?: return emptyMap()
         val map = plexGet(a, p, "/library/metadata/$showKey/allLeaves")?.array("Metadata").orEmpty().mapNotNull { e ->
             val s = e.int("parentIndex") ?: return@mapNotNull null
             val n = e.int("index") ?: return@mapNotNull null
             val rk = e.str("ratingKey") ?: return@mapNotNull null
-            (s to n) to PlexEpisode(rk, e.long("viewOffset") ?: 0, (e.int("viewCount") ?: 0) > 0)
+            (s to n) to PlexEpisode(plexRef(p, rk), e.long("viewOffset") ?: 0, (e.int("viewCount") ?: 0) > 0)
         }.toMap()
-        plexEpisodeCache[showKey] = map
+        plexEpisodeCache[showRef] = map
         return map
     }
 

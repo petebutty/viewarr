@@ -315,7 +315,7 @@ fun HomeScreen(
     // while everything else loads), and a card picked there opens its title's page here.
     val moviesVm: io.github.petebutty.viewarr.ui.media.MediaViewModel = hiltViewModel(key = "media-Movie")
     val showsVm: io.github.petebutty.viewarr.ui.media.MediaViewModel = hiltViewModel(key = "media-Show")
-    LaunchedEffect(Unit) { delay(20_000); moviesVm.refreshWatchNext() }
+    LaunchedEffect(Unit) { moviesVm.refreshPlexServers(); delay(20_000); moviesVm.refreshWatchNext() }
     val deepLink by io.github.petebutty.viewarr.data.media.DeepLink.pending.collectAsStateWithLifecycle()
     LaunchedEffect(deepLink) {
         val item = deepLink ?: return@LaunchedEffect

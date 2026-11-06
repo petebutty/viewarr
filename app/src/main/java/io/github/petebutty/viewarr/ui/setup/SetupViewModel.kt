@@ -179,7 +179,7 @@ class SetupViewModel @Inject constructor(
                 SetupItem.LiveTv -> auth.signOut()
                 SetupItem.Tmdb -> store.update { it.copy(tmdbKey = null) }
                 SetupItem.Trakt -> store.update { it.copy(trakt = null) }
-                SetupItem.Plex -> store.update { it.copy(plex = null) }
+                SetupItem.Plex -> store.update { it.copy(plex = null, plexMore = emptyList()) }
                 SetupItem.Stremio -> store.update { it.copy(addons = emptyList()) }
                 SetupItem.Jellyfin -> store.update { it.copy(jellyfin = null) }
                 SetupItem.Emby -> store.update { it.copy(emby = null) }
@@ -744,7 +744,7 @@ fun statusText(item: SetupItem, a: Accounts, session: io.github.petebutty.viewar
     SetupItem.LiveTv -> session?.let { "Signed in as ${it.username}" }
     SetupItem.Tmdb -> a.tmdbKey?.let { "Connected" }
     SetupItem.Trakt -> a.trakt?.let { "Signed in as ${it.username}" }
-    SetupItem.Plex -> a.plex?.let { "Connected to ${it.serverName}" }
+    SetupItem.Plex -> a.plex?.let { "Connected to ${it.serverName}" + if (a.plexMore.isNotEmpty()) " + ${a.plexMore.joinToString { m -> m.serverName }}" else "" }
     SetupItem.Stremio -> a.addons.takeIf { it.isNotEmpty() }?.let { "${it.size} addon${if (it.size == 1) "" else "s"}" }
     SetupItem.Jellyfin -> a.jellyfin?.let { "${it.userName} on ${it.serverName}" }
     SetupItem.Emby -> a.emby?.let { "${it.userName} on ${it.serverName}" }

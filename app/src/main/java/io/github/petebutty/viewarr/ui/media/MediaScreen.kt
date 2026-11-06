@@ -329,7 +329,7 @@ private fun Hero(
     val inLibrary by produceState<String?>(null, item?.key) {
         value = null
         val i = item ?: return@produceState
-        if (librarySourcesOf != null && i.origin !in LIBRARY_ORIGINS) value = librarySourcesOf(i)
+        if (librarySourcesOf != null && i.origin !in LIBRARY_ORIGINS && !i.origin.startsWith("Plex")) value = librarySourcesOf(i)
     }
     Box(Modifier.fillMaxWidth().height(232.dp)) {
         item?.backdrop?.let { url ->

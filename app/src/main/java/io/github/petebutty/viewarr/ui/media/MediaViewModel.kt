@@ -271,6 +271,9 @@ class MediaViewModel @Inject constructor(
         viewModelScope.launch { _recent.value = runCatching { repo.recentlyAdded(type) }.getOrDefault(emptyList()) }
     }
 
+    /** Picks up your other Plex servers (e.g. a second machine) so their titles count as yours. */
+    fun refreshPlexServers() { viewModelScope.launch { runCatching { repo.refreshPlexServers() } } }
+
     /** The TV home screen's Watch Next row (Continue watching), brought up to date. */
     fun refreshWatchNext() { viewModelScope.launch { watchNext.refresh() } }
 

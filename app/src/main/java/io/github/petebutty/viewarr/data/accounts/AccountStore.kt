@@ -50,6 +50,8 @@ data class Accounts(
     val addons: List<AddonInfo> = emptyList(),
     val vodEnabled: Boolean = false,
     val seerr: SeerrAuth? = null,
+    /** Your other Plex servers (found on the same Plex account); [plex] stays the main one. */
+    val plexMore: List<PlexAuth> = emptyList(),
 ) {
     /** The addons switched on in Settings → Addons. */
     val activeAddons: List<AddonInfo> get() = addons.filter { it.enabled }
