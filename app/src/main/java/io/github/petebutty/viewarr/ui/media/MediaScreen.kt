@@ -60,6 +60,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -591,6 +592,16 @@ private fun DetailScreen(
                     if (ui.hasTrakt) {
                         OutlinedButton(onClick = onWatchlist, modifier = Modifier.free()) { Text(if (ui.watchlisted) "Remove from watchlist" else "Add to watchlist") }
                     }
+                    // Seerr: ask for it to be kept (Radarr / Sonarr fetch it), or show it's already on the way.
+                    val seerrState by produceState<io.github.petebutty.viewarr.data.remote.services.SeerrService.Status?>(null, ui.detail.item.key, ui.message) { value = vm.seerrStatus(ui.detail.item) }
+                    // Not for something you already have.
+                    if (ui.copies.isNullOrEmpty()) seerrState?.takeIf { it != io.github.petebutty.viewarr.data.remote.services.SeerrService.Status.Available }?.let { st ->
+                        val canAsk = st == io.github.petebutty.viewarr.data.remote.services.SeerrService.Status.None ||
+                            st == io.github.petebutty.viewarr.data.remote.services.SeerrService.Status.Partial
+                        OutlinedButton(onClick = { if (canAsk) vm.requestOnSeerr(ui.detail.item) }, modifier = Modifier.free()) {
+                            Text(if (canAsk) "Request" else if (st == io.github.petebutty.viewarr.data.remote.services.SeerrService.Status.Available) "On Seerr: available" else "Requested")
+                        }
+                    }
                 }
                 }
                 if (!ui.episodesOpen) ui.message?.let { Text(it, fontSize = 14.sp, color = AppColors.Accent) }
@@ -643,8 +654,8 @@ private fun EpisodesPanel(ui: DetailUi, vm: MediaViewModel, onPlex: Boolean) {
         Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(0f to bg.copy(alpha = 0.55f), 0.38f to bg.copy(alpha = 0.35f), 0.55f to bg.copy(alpha = 0.85f), 1f to bg.copy(alpha = 0.95f))))
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.6f to Color.Transparent, 1f to bg.copy(alpha = 0.8f))))
         Row(Modifier.fillMaxSize().padding(start = 56.dp, end = 40.dp, top = 40.dp, bottom = 24.dp)) {
-            // Left: show title + the highlighted episode.
-            Column(Modifier.weight(0.42f).fillMaxHeight().padding(end = 32.dp), verticalArrangement = Arrangement.Bottom) {
+            // Left: show title + the highlighted episode, at the top where it's read first.
+            Column(Modifier.weight(0.42f).fillMaxHeight().padding(end = 32.dp), verticalArrangement = Arrangement.Top) {
                 Text(item.title, fontSize = 30.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 shown?.let { ep ->
                     val plex = ui.plexEpisodes[ep.season to ep.number]
@@ -709,7 +720,7 @@ private fun EpisodesPanel(ui: DetailUi, vm: MediaViewModel, onPlex: Boolean) {
                                 ),
                             ) {
                                 Row(Modifier.padding(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    Box(Modifier.size(width = 112.dp, height = 63.dp).clip(RoundedCornerShape(5.dp)).background(AppColors.PanelAlt)) {
+                                    Box(Modifier.size(width = 128.dp, height = 72.dp).clip(RoundedCornerShape(5.dp)).background(AppColors.PanelAlt)) {
                                         ep.still?.let { AsyncImage(model = it, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
                                         plex?.takeIf { it.viewOffsetMs > 0 && !it.watched }?.let {
                                             Box(Modifier.align(Alignment.BottomStart).fillMaxWidth(0.5f).height(3.dp).background(AppColors.Accent))
@@ -723,6 +734,10 @@ private fun EpisodesPanel(ui: DetailUi, vm: MediaViewModel, onPlex: Boolean) {
                                             if (plex != null) "Plex" else null,
                                         ).joinToString("  ·  ")
                                         if (tags.isNotEmpty()) Text(tags, fontSize = 12.sp, maxLines = 1)
+                                        // A taste of the story, right in the list (the full synopsis is on the left).
+                                        ep.overview?.takeIf { it.isNotBlank() }?.let {
+                                            Text(it, fontSize = 12.sp, lineHeight = 16.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp).graphicsLayer { alpha = 0.85f })
+                                        }
                                     }
                                     if (plex?.watched == true) Text("✓", fontSize = 16.sp, modifier = Modifier.padding(horizontal = 10.dp))
                                 }
@@ -865,6 +880,8 @@ private fun QuickOptions(item: MediaItem, vm: MediaViewModel, onTrailer: () -> U
     val trailerId by produceState<String?>(null, item.key) { value = vm.trailers.youtubeId(item) }
     // null = no Trakt (no watchlist option); loading shows nothing until known.
     val watchlisted by produceState<Boolean?>(null, item.key) { value = vm.watchlistState(item) }
+    // Seerr set up: request the title to keep (or see that it's already requested / available).
+    val seerrStatus by produceState<io.github.petebutty.viewarr.data.remote.services.SeerrService.Status?>(null, item.key) { value = vm.seerrStatus(item) }
     BackHandler(onBack = onClose)
     LaunchedEffect(Unit) { awaitFrame(); runCatching { first.requestFocus() } }
     val show = item.type == MediaType.Show
@@ -891,6 +908,16 @@ private fun QuickOptions(item: MediaItem, vm: MediaViewModel, onTrailer: () -> U
                     text = if (on) "Remove from watchlist" else "Add to watchlist",
                     selected = false,
                     onClick = { onClose(); vm.quickWatchlist(item, add = !on) },
+                )
+            }
+            seerrStatus?.let { st ->
+                val canAsk = st == io.github.petebutty.viewarr.data.remote.services.SeerrService.Status.None ||
+                    st == io.github.petebutty.viewarr.data.remote.services.SeerrService.Status.Partial
+                io.github.petebutty.viewarr.ui.common.MenuItem(
+                    text = st.label,
+                    selected = false,
+                    dim = !canAsk,
+                    onClick = { if (canAsk) { onClose(); vm.requestOnSeerr(item) } },
                 )
             }
             io.github.petebutty.viewarr.ui.common.MenuItem(text = "Close", selected = false, onClick = onClose)

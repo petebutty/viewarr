@@ -61,7 +61,29 @@ class MediaViewModel @Inject constructor(
     @dagger.hilt.android.qualifiers.ApplicationContext private val appContext: android.content.Context,
     private val rowLayouts: io.github.petebutty.viewarr.data.settings.RowLayoutStore,
     private val watchNext: io.github.petebutty.viewarr.data.media.WatchNext,
+    private val seerr: io.github.petebutty.viewarr.data.remote.services.SeerrService,
 ) : ViewModel() {
+    /** Seerr: where this title stands (null = Seerr not set up, or the title has no TMDB id). */
+    suspend fun seerrStatus(item: MediaItem): io.github.petebutty.viewarr.data.remote.services.SeerrService.Status? {
+        val a = store.current().seerr ?: return null
+        val id = item.tmdbId ?: return null
+        // Already in one of your libraries: nothing to request.
+        if (runCatching { repo.copiesOf(item) }.getOrDefault(emptyList()).isNotEmpty()) return null
+        val st = runCatching { seerr.status(a, item.type, id) }.getOrDefault(io.github.petebutty.viewarr.data.remote.services.SeerrService.Status.None)
+        return st.takeIf { it != io.github.petebutty.viewarr.data.remote.services.SeerrService.Status.Available }
+    }
+
+    /** Request the title on Seerr; the result shows as a notice. */
+    fun requestOnSeerr(item: MediaItem) {
+        viewModelScope.launch {
+            val a = store.current().seerr ?: return@launch
+            val id = item.tmdbId ?: return@launch
+            val (_, msg) = runCatching { seerr.request(a, item.type, id) }.getOrDefault(false to "Couldn't reach Seerr.")
+            _notice.value = "${item.title}: $msg"
+            _detail.update { d -> if (d?.detail?.item?.key == item.key) d.copy(message = msg) else d }
+        }
+    }
+
 
     /** "Next episode in 10 s" after an episode ends (Settings → Playback → Play next episode). */
     data class UpNext(val episode: io.github.petebutty.viewarr.data.media.EpisodeInfo)

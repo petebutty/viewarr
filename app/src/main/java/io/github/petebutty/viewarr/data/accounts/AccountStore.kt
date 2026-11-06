@@ -22,6 +22,10 @@ data class TraktAuth(val accessToken: String, val refreshToken: String, val expi
 @Serializable
 data class PlexAuth(val token: String, val serverName: String, val serverUrl: String, val machineId: String)
 
+/** Seerr (Overseerr / Jellyseerr): where to send requests. */
+@Serializable
+data class SeerrAuth(val url: String, val apiKey: String, val userName: String? = null)
+
 @Serializable
 data class MediaServerAuth(val serverUrl: String, val serverName: String, val userId: String, val userName: String, val token: String)
 
@@ -45,6 +49,7 @@ data class Accounts(
     val emby: MediaServerAuth? = null,
     val addons: List<AddonInfo> = emptyList(),
     val vodEnabled: Boolean = false,
+    val seerr: SeerrAuth? = null,
 ) {
     /** The addons switched on in Settings → Addons. */
     val activeAddons: List<AddonInfo> get() = addons.filter { it.enabled }

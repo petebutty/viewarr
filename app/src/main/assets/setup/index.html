@@ -153,7 +153,7 @@ a.link.alt{background:transparent;border:1px solid var(--line);color:var(--text)
     if (pos < 0) return chooseScreen();
     if (pos >= chosen.length) return doneScreen();
     ({ livetv: liveTv, tmdb: tmdb, trakt: () => linkScreen('trakt'), plex: () => linkScreen('plex'),
-       stremio: stremio, jellyfin: () => mediaServer('jellyfin'), emby: () => mediaServer('emby'), vod: vod })[chosen[pos]]();
+       stremio: stremio, jellyfin: () => mediaServer('jellyfin'), emby: () => mediaServer('emby'), vod: vod, seerr: seerr })[chosen[pos]]();
   }
 
   function chooseScreen() {
@@ -269,6 +269,23 @@ a.link.alt{background:transparent;border:1px solid var(--line);color:var(--text)
       </form>`);
     wireNav();
     form(async () => saved(await api('tmdb', { key: val('key') }), 'TMDB connected.'));
+  }
+
+  function seerr() {
+    render(`<h1>Seerr</h1>
+      <p>Seerr (Overseerr or Jellyseerr) lets you request films and shows to keep: hold OK on a poster in Viewarr and choose <b>Request on Seerr</b>.</p>
+      <ol class="how">
+        <li>Open Seerr in a browser and go to <b>Settings → General</b>.</li>
+        <li>Copy the <b>API Key</b>.</li>
+        <li>Paste it below with the address you open Seerr at (for example <code>192.168.1.50:5055</code>).</li>
+      </ol>
+      <form autocomplete="off" novalidate>
+        <label class="f" for="server">Seerr address</label><input type="url" id="server" autocapitalize="off" spellcheck="false" placeholder="192.168.1.50:5055">
+        <label class="f" for="key">API key</label><input type="text" id="key" autocapitalize="off" spellcheck="false">
+        ${nav('<button class="primary" type="submit">Save</button>')}
+      </form>`);
+    wireNav();
+    form(async () => saved(await api('seerr', { server: val('server'), key: val('key') }), 'Seerr connected.'));
   }
 
   async function linkScreen(kind) {

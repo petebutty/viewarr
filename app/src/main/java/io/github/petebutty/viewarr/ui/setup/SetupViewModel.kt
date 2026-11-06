@@ -39,7 +39,7 @@ import javax.inject.Inject
 
 enum class SetupMode { FirstRun, Manage }
 
-enum class SetupStep { Phone, Welcome, Choose, Server, SignIn, Tmdb, Trakt, Plex, Stremio, Jellyfin, Emby, Vod, Done }
+enum class SetupStep { Phone, Welcome, Choose, Server, SignIn, Tmdb, Trakt, Plex, Stremio, Jellyfin, Emby, Vod, Seerr, Done }
 
 enum class SetupItem(val id: String, val label: String, val description: String, val steps: List<SetupStep>) {
     LiveTv("livetv", "Live TV", "Dispatcharr or an IPTV provider: channels, TV guide and catch-up (recordings with Dispatcharr)", listOf(SetupStep.Server, SetupStep.SignIn)),
@@ -50,6 +50,7 @@ enum class SetupItem(val id: String, val label: String, val description: String,
     Jellyfin("jellyfin", "Jellyfin", "Play from a Jellyfin server", listOf(SetupStep.Jellyfin)),
     Emby("emby", "Emby", "Play from an Emby server", listOf(SetupStep.Emby)),
     Vod("vod", "Provider VOD", "Films and series from your IPTV provider, via Dispatcharr", listOf(SetupStep.Vod)),
+    Seerr("seerr", "Seerr", "Request films and shows to keep (Overseerr / Jellyseerr)", listOf(SetupStep.Seerr)),
 }
 
 /** Trakt needs a client id built into the app (secrets.properties); without one it isn't offered. */
@@ -107,6 +108,7 @@ class SetupViewModel @Inject constructor(
     private val plex: PlexService,
     private val mediaServers: MediaServerService,
     private val stremio: StremioService,
+    private val seerr: io.github.petebutty.viewarr.data.remote.services.SeerrService,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(SetupUiState())
@@ -182,6 +184,7 @@ class SetupViewModel @Inject constructor(
                 SetupItem.Jellyfin -> store.update { it.copy(jellyfin = null) }
                 SetupItem.Emby -> store.update { it.copy(emby = null) }
                 SetupItem.Vod -> store.update { it.copy(vodEnabled = false) }
+                SetupItem.Seerr -> store.update { it.copy(seerr = null) }
             }
         }
     }
@@ -217,13 +220,13 @@ class SetupViewModel @Inject constructor(
 
     private fun go(step: SetupStep) {
         cleanUp()
-        if (step != SetupStep.Phone && step != SetupStep.Stremio && step != SetupStep.Tmdb) stopPhone()
+        if (step != SetupStep.Phone && step != SetupStep.Stremio && step != SetupStep.Tmdb && step != SetupStep.Seerr) stopPhone()
         _state.update {
             it.copy(step = step, busy = false, error = null, info = null, code = null, codeUrl = null, plexChoices = emptyList(), fields = emptyMap())
         }
         when (step) {
             SetupStep.Phone -> startPhone()
-            SetupStep.Stremio, SetupStep.Tmdb -> startPhone()
+            SetupStep.Stremio, SetupStep.Tmdb, SetupStep.Seerr -> startPhone()
             SetupStep.Trakt -> startTrakt()
             SetupStep.Plex -> startPlex()
             SetupStep.Vod -> checkVod()
@@ -281,6 +284,12 @@ class SetupViewModel @Inject constructor(
                 if (!tmdb.validate(key)) return@work fail("TMDB didn't accept that key. Check it and try again.")
                 store.update { it.copy(tmdbKey = key) }
                 advance()
+            }
+            SetupStep.Seerr -> work {
+                seerr.connect(s.fields[SERVER].orEmpty(), s.fields[API_KEY].orEmpty()).fold(
+                    onSuccess = { auth -> store.update { it.copy(seerr = auth) }; advance() },
+                    onFailure = { e -> fail(e.message ?: "Couldn't connect to Seerr.") },
+                )
             }
             SetupStep.Stremio -> work {
                 val urls = s.fields[ADDON_URLS].orEmpty().split(Regex("\\s+")).filter { it.isNotBlank() }
@@ -544,6 +553,13 @@ class SetupViewModel @Inject constructor(
                     else -> { store.update { it.copy(tmdbKey = key) }; activity("TMDB connected"); reply(true, "TMDB connected.") }
                 }
             }
+            "seerr" -> {
+                activity("Connecting Seerr…")
+                seerr.connect(v["server"].orEmpty(), v["key"].orEmpty()).fold(
+                    onSuccess = { auth -> store.update { it.copy(seerr = auth) }; activity("Seerr connected"); reply(true, "Seerr connected.") },
+                    onFailure = { e -> activity("Seerr didn't connect"); reply(false, e.message ?: "Couldn't connect to Seerr.") },
+                )
+            }
             "trakt-start" -> {
                 activity("Linking Trakt…")
                 val code = trakt.deviceCode() ?: return reply(false, "Couldn't reach Trakt. Try again in a moment.")
@@ -733,4 +749,5 @@ fun statusText(item: SetupItem, a: Accounts, session: io.github.petebutty.viewar
     SetupItem.Jellyfin -> a.jellyfin?.let { "${it.userName} on ${it.serverName}" }
     SetupItem.Emby -> a.emby?.let { "${it.userName} on ${it.serverName}" }
     SetupItem.Vod -> if (a.vodEnabled) "On" else null
+    SetupItem.Seerr -> a.seerr?.let { s -> s.userName?.let { "Connected as $it" } ?: "Connected" }
 }

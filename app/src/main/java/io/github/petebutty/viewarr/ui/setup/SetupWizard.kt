@@ -156,6 +156,18 @@ fun SetupWizard(
                     },
                 )
                 SetupStep.Trakt, SetupStep.Plex -> CodeStep(state, firstFocus, vm)
+                SetupStep.Seerr -> TextStep(
+                    qrUrl = state.qrUrl?.let { u -> u.substringBefore('#') + "?go=seerr#" + u.substringAfter('#') },
+                    qrCaption = "Scan to paste the address and API key from your phone (easier than typing).",
+                    fields = {
+                        WizardField(state.fields[SetupViewModel.SERVER].orEmpty(), { vm.onField(SetupViewModel.SERVER, it) }, "Seerr address", firstFocus, KeyboardType.Uri, ImeAction.Next, {})
+                        WizardField(state.fields[SetupViewModel.API_KEY].orEmpty(), { vm.onField(SetupViewModel.API_KEY, it) }, "Seerr API key", null, KeyboardType.Password, ImeAction.Done, vm::submit)
+                    },
+                    actions = {
+                        Button(onClick = vm::submit, enabled = !state.busy) { Text(if (state.busy) "Checking…" else "Save") }
+                        OutlinedButton(onClick = vm::advance) { Text("Skip") }
+                    },
+                )
                 SetupStep.Stremio -> TextStep(
                     qrUrl = state.qrUrl?.let { u -> u.substringBefore('#') + "?go=stremio#" + u.substringAfter('#') },
                     qrCaption = "Scan to paste addon links from your phone (easier than typing).",
@@ -500,6 +512,7 @@ private fun titleFor(step: SetupStep, mode: SetupMode) = when (step) {
     SetupStep.Jellyfin -> "Connect Jellyfin"
     SetupStep.Emby -> "Connect Emby"
     SetupStep.Vod -> "Provider VOD"
+    SetupStep.Seerr -> "Connect Seerr"
     SetupStep.Done -> "You're all set"
 }
 
@@ -526,5 +539,6 @@ private fun bodyFor(state: SetupUiState) = when (state.step) {
     SetupStep.Jellyfin -> "Sign in with your Jellyfin account, or use Quick Connect from the Jellyfin app."
     SetupStep.Emby -> "Sign in with your Emby account."
     SetupStep.Vod -> "Films and series from your IPTV provider, served through Dispatcharr."
+    SetupStep.Seerr -> "Your Seerr address (for example 192.168.1.50:5055) and its API key from Seerr → Settings → General. The key is long: the phone setup is easier."
     SetupStep.Done -> "Everything you connected is ready. You can change any of it in Settings → Accounts & sources."
 }
