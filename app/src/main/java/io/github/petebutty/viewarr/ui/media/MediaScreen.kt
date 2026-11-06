@@ -218,6 +218,7 @@ fun MediaScreen(
                 trailerItem = hero,
                 trailerActive = focusEnabled && hasFocus && detail == null && playing == null,
                 trailers = vm.trailers,
+                librarySourcesOf = vm::librarySources,
             )
             when {
                 searchHeader != null && rows.isEmpty() && state.done -> Unit
@@ -322,7 +323,14 @@ private fun Hero(
     trailerItem: MediaItem? = null,
     trailerActive: Boolean = false,
     trailers: io.github.petebutty.viewarr.data.trailers.TrailerRepository? = null,
+    /** Where a title from an addon row really is, e.g. "Plex" (AIOStreams can pass on your own library). */
+    librarySourcesOf: (suspend (MediaItem) -> String?)? = null,
 ) {
+    val inLibrary by produceState<String?>(null, item?.key) {
+        value = null
+        val i = item ?: return@produceState
+        if (librarySourcesOf != null && i.origin !in LIBRARY_ORIGINS) value = librarySourcesOf(i)
+    }
     Box(Modifier.fillMaxWidth().height(232.dp)) {
         item?.backdrop?.let { url ->
             AsyncImage(
@@ -353,7 +361,10 @@ private fun Hero(
             if (item != null) {
                 Text(item.title, fontSize = 26.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Spacer(Modifier.height(6.dp))
-                Text(metaLine(item), fontSize = 14.sp, color = AppColors.TextSecondary, maxLines = 1)
+                Text(
+                    inLibrary?.let { where -> metaLine(item.copy(origin = "$where · via ${item.origin}")) } ?: metaLine(item),
+                    fontSize = 14.sp, color = AppColors.TextSecondary, maxLines = 1,
+                )
                 item.subtitle?.let {
                     Spacer(Modifier.height(4.dp))
                     Text(it, fontSize = 14.sp, color = AppColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -366,6 +377,9 @@ private fun Hero(
         }
     }
 }
+
+/** Rows that already are your library (no need to look the title up). */
+private val LIBRARY_ORIGINS = setOf("Plex", "Jellyfin", "Emby", "Your provider")
 
 private fun metaLine(item: MediaItem) = listOfNotNull(
     item.year?.toString(),

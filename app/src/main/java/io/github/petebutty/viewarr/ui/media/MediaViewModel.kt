@@ -75,6 +75,12 @@ class MediaViewModel @Inject constructor(
         return st.takeIf { it != io.github.petebutty.viewarr.data.remote.services.SeerrService.Status.Available }
     }
 
+    /** Which of your servers have this title ("Plex · Jellyfin"), or null: for addon rows that pass on your library. */
+    suspend fun librarySources(item: MediaItem): String? = runCatching {
+        val known = if (item.tmdbId == null) repo.tmdbIdFor(item)?.let { item.copy(tmdbId = it) } ?: item else item
+        repo.copiesOf(known).map { it.source }.distinct().joinToString(" · ").takeIf { it.isNotEmpty() }
+    }.getOrNull()
+
     /** Request the title on Seerr; the result shows as a notice. */
     fun requestOnSeerr(item: MediaItem) {
         viewModelScope.launch {
