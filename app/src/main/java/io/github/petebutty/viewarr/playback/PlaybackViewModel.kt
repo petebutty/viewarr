@@ -296,6 +296,61 @@ class PlaybackViewModel @Inject constructor(
         if (_channel.value?.id != channel.id) { _sourceNote.value = null; _sources.value = null }
         start(channel, null, s, liveUrl(s, channel))
         viewModelScope.launch { runCatching { remoteStore.setLastChannel(channel.id) } }
+        if (!s.isXc) checkConnections(channel, s)
+    }
+
+    // ---------------------------------------------------------------- Dispatcharr: provider connections in use
+
+    private val _connectionNote = MutableStateFlow<String?>(null)
+    /** Set when this channel's providers have no free connection: what's using them (shown over the picture). */
+    val connectionNote = _connectionNote.asStateFlow()
+    fun clearConnectionNote() { _connectionNote.value = null }
+    private var connectionJob: Job? = null
+    /** Channel id → the provider accounts its streams come from (doesn't change often). */
+    private val channelAccounts = HashMap<Int, Set<Int>>()
+
+    /**
+     * Providers often allow only one or two streams at once, and a recording can be holding one. If every provider
+     * this channel could use is full (and the channel isn't already running, which would share its stream), say
+     * what's using them, so a channel that doesn't start isn't a mystery. Admin users only; others see nothing.
+     */
+    private fun checkConnections(channel: ChannelListItem, s: Session) {
+        connectionJob?.cancel()
+        _connectionNote.value = null
+        connectionJob = viewModelScope.launch {
+            runCatching {
+                val h = apiHeaders(s)
+                val accountsRes = http.get(api(s, "api/m3u/accounts/"), h)
+                if (accountsRes.code !in 200..299) return@launch
+                val accountsBody = accountsRes.body
+                val accounts = (if (accountsBody is kotlinx.serialization.json.JsonArray) accountsBody.toList() else accountsBody.array("results"))
+                // Account id → (name, max, in use); max 0 means no limit.
+                val usage = accounts.mapNotNull { a ->
+                    val id = a.int("id") ?: return@mapNotNull null
+                    val profiles = a.array("profiles").filter { (it.child("is_active") as? kotlinx.serialization.json.JsonPrimitive)?.content != "false" }
+                    val max = profiles.sumOf { it.int("max_streams") ?: 0 }
+                    val cur = profiles.sumOf { it.int("current_viewers") ?: 0 }
+                    id to Triple(a.str("name") ?: "Your provider", max, cur)
+                }.toMap()
+                val mine = channelAccounts[channel.id] ?: run {
+                    val ids = http.get(api(s, "api/channels/channels/${channel.id}/"), h).body.array("streams")
+                        .mapNotNull { (it as? kotlinx.serialization.json.JsonPrimitive)?.content?.toIntOrNull() }
+                    ids.mapNotNull { sid -> http.get(api(s, "api/channels/streams/$sid/"), h).body.int("m3u_account") }.toSet()
+                        .also { channelAccounts[channel.id] = it }
+                }
+                if (mine.isEmpty()) return@launch
+                val free = mine.any { id -> usage[id]?.let { (_, max, cur) -> max == 0 || cur < max } ?: true }
+                if (free) return@launch
+                // Full: what's running on the server right now (the same channel shares its stream, so that's fine).
+                val status = http.get(api(s, "proxy/ts/status"), h).body.array("channels")
+                if (status.any { it.str("channel_id") == channel.uuid || it.str("channel_uuid") == channel.uuid }) return@launch
+                val running = status.mapNotNull { c -> c.str("channel_name") ?: c.str("stream_name") }.distinct().take(3)
+                val names = mine.mapNotNull { usage[it] }.joinToString(" and ") { (name, max, _) -> "$name's $max" }
+                val conns = if (mine.sumOf { usage[it]?.second ?: 0 } == 1) "connection is" else "connections are"
+                _connectionNote.value = "$names $conns in use" + (if (running.isNotEmpty()) ": " + running.joinToString(", ") else "") +
+                    ". This channel may not start until one is free."
+            }
+        }
     }
 
     /** Dispatcharr's native catch-up endpoint: authenticated by the API key header, seekable. */

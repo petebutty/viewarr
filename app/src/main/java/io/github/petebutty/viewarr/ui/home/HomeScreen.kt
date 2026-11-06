@@ -138,6 +138,32 @@ fun HomeScreen(
         }
     }
     LaunchedEffect(dueReminder) { if (dueReminder != null) { delay(90_000); dueReminder = null } }
+    // Recordings: a small card when one starts, finishes or fails (by the schedule, so it's on time).
+    var dvrNote by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(Unit) {
+        val told = HashSet<String>()
+        var first = true
+        while (true) {
+            val now = System.currentTimeMillis()
+            val names = dvr.channels.value
+            for (r in dvr.recordings.value) {
+                val ch = names[r.channelId]?.name?.let { " · $it" }.orEmpty()
+                val note = when {
+                    r.state == io.github.petebutty.viewarr.data.dvr.DvrState.Failed -> "⚠  Recording failed: ${r.title}$ch"
+                    r.end in (now - 120_000)..now -> "✓  Recorded: ${r.title}$ch"
+                    r.start in (now - 120_000)..now && r.end > now -> "●  Recording now: ${r.title}$ch"
+                    else -> null
+                } ?: continue
+                val id = "${r.id}:${note.take(3)}"
+                if (told.add(id) && !first) { dvrNote = note; delay(6_000); dvrNote = null }
+            }
+            first = false // what was already true when the app opened isn't news
+            delay(15_000)
+        }
+    }
+    // Live TV: the channel's providers have no free connection (see PlaybackViewModel.checkConnections).
+    val connectionNote by playback.connectionNote.collectAsStateWithLifecycle()
+    LaunchedEffect(connectionNote) { if (connectionNote != null) { delay(12_000); playback.clearConnectionNote() } }
     val dvrRecordings by dvr.recordings.collectAsStateWithLifecycle()
     var menuOpen by rememberSaveable { mutableStateOf(false) }
     var showAccounts by rememberSaveable { mutableStateOf(false) }
@@ -650,6 +676,30 @@ fun HomeScreen(
 
         infoTarget?.let { (ch, prog) ->
             ProgramInfoDialog(ch, prog, dvr, onRecord = { infoTarget = null; recordTarget = ch to prog }, onClose = { infoTarget = null })
+        }
+        // Recording started / finished / failed: bottom-right, a few seconds, no buttons.
+        dvrNote?.let { text ->
+            Text(
+                text, fontSize = 15.sp, color = AppColors.TextPrimary, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                modifier = Modifier.align(Alignment.BottomEnd).padding(28.dp).width(420.dp)
+                    .background(AppColors.Panel, RoundedCornerShape(10.dp))
+                    .border(1.dp, if (text.startsWith("⚠")) Color(0xFFE5534B) else AppColors.Accent, RoundedCornerShape(10.dp))
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+            )
+        }
+        // No free provider connection for the channel just tuned: say what's using them.
+        if (page == Page.Tv) connectionNote?.let { text ->
+            val recordingNow = dvrRecordings.firstOrNull { it.state == io.github.petebutty.viewarr.data.dvr.DvrState.Recording }
+            Column(
+                Modifier.align(Alignment.TopCenter).padding(top = 28.dp).width(640.dp)
+                    .background(AppColors.Panel.copy(alpha = 0.95f), RoundedCornerShape(10.dp))
+                    .border(1.dp, Color(0xFFE5A23B), RoundedCornerShape(10.dp))
+                    .padding(horizontal = 18.dp, vertical = 12.dp),
+            ) {
+                Text("All connections in use", fontSize = 13.sp, color = Color(0xFFE5A23B))
+                Text(text, fontSize = 15.sp, color = AppColors.TextPrimary)
+                recordingNow?.let { Text("Recording now: ${it.title}", fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(top = 4.dp)) }
+            }
         }
         dueReminder?.let { r ->
             Column(
