@@ -66,9 +66,11 @@ class MediaViewModel @Inject constructor(
     /** Seerr: where this title stands (null = Seerr not set up, or the title has no TMDB id). */
     suspend fun seerrStatus(item: MediaItem): io.github.petebutty.viewarr.data.remote.services.SeerrService.Status? {
         val a = store.current().seerr ?: return null
-        val id = item.tmdbId ?: return null
+        val id = runCatching { repo.tmdbIdFor(item) }.getOrNull() ?: return null
         // Already in one of your libraries: nothing to request.
         if (runCatching { repo.copiesOf(item) }.getOrDefault(emptyList()).isNotEmpty()) return null
+        // Library check with the TMDB id known (addon titles only carry an IMDb id).
+        if (item.tmdbId == null && runCatching { repo.copiesOf(item.copy(tmdbId = id)) }.getOrDefault(emptyList()).isNotEmpty()) return null
         val st = runCatching { seerr.status(a, item.type, id) }.getOrDefault(io.github.petebutty.viewarr.data.remote.services.SeerrService.Status.None)
         return st.takeIf { it != io.github.petebutty.viewarr.data.remote.services.SeerrService.Status.Available }
     }
@@ -77,7 +79,10 @@ class MediaViewModel @Inject constructor(
     fun requestOnSeerr(item: MediaItem) {
         viewModelScope.launch {
             val a = store.current().seerr ?: return@launch
-            val id = item.tmdbId ?: return@launch
+            val id = runCatching { repo.tmdbIdFor(item) }.getOrNull() ?: run {
+                _notice.value = "${item.title}: Seerr needs a TMDB match, and none was found."
+                return@launch
+            }
             val (_, msg) = runCatching { seerr.request(a, item.type, id) }.getOrDefault(false to "Couldn't reach Seerr.")
             _notice.value = "${item.title}: $msg"
             _detail.update { d -> if (d?.detail?.item?.key == item.key) d.copy(message = msg) else d }
@@ -491,6 +496,9 @@ class MediaViewModel @Inject constructor(
         _playing.value = io.github.petebutty.viewarr.data.media.VodStream(
             option.url, title, option.headers,
             watch = d?.detail?.item?.let { watchTarget(it, ep?.season, ep?.number) },
+            // Addon links (debrid, AIOStreams) often allow one connection: a second one for seek previews can get the
+            // stream refused mid-film.
+            boxPreviews = false,
         )
     }
 

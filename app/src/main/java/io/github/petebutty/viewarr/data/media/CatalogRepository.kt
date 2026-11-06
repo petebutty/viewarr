@@ -702,7 +702,11 @@ class CatalogRepository @Inject constructor(
     }
 
     /** Names to ask for: the title, and its part before a colon ("Batman: Year One" is "Batman Year One" on some servers). */
-    private fun searchNames(title: String) = listOf(title, title.substringBefore(':').trim()).filter { it.length >= 2 }.distinct()
+    private fun searchNames(title: String): List<String> {
+        // Also without accents: "Filipiñana" may be stored as "Filipinana".
+        val plain = java.text.Normalizer.normalize(title, java.text.Normalizer.Form.NFD).replace(Regex("\\p{Mn}+"), "")
+        return listOf(title, plain, title.substringBefore(':').trim()).filter { it.length >= 2 }.distinct()
+    }
 
     private fun plexCopy(j: JsonElement?): LibraryCopy {
         val res = j.array("Media").firstOrNull()?.str("videoResolution")
@@ -732,7 +736,15 @@ class CatalogRepository @Inject constructor(
             val match = hits.firstOrNull { j -> val (t, i) = guidIds(j); sameTitle(item, t, i, j.str("title"), j.int("year")) }
             if (match != null) return listOf(plexCopy(match))
         }
-        return emptyList()
+        // Plex's own search is looser (accents, punctuation, alternative titles): last try, matched on the ids.
+        val want = if (item.type == MediaType.Movie) "movie" else "show"
+        val hubs = runCatching { plexGet(a, p, "/hubs/search?query=${enc(item.title)}&limit=20&includeGuids=1") }.getOrNull()?.array("Hub").orEmpty()
+        val loose = hubs.filter { it.str("type") == want }.flatMap { it.array("Metadata") }
+            .firstOrNull { j -> val (t, i) = guidIds(j); sameTitle(item, t, i, j.str("title"), j.int("year")) }
+            ?: return emptyList()
+        // Search results carry less detail (no resolution): read the item itself.
+        val full = loose.str("ratingKey")?.let { rk -> runCatching { plexGet(a, p, "/library/metadata/$rk") }.getOrNull()?.array("Metadata")?.firstOrNull() }
+        return listOf(plexCopy(full ?: loose))
     }
 
     private suspend fun serverCopies(a: Accounts, srv: MediaServerAuth, emby: Boolean, item: MediaItem): List<LibraryCopy> {
@@ -1133,6 +1145,14 @@ class CatalogRepository @Inject constructor(
         val id = ref.removePrefix("series:").toIntOrNull() ?: return emptyMap()
         return runCatching { xtream.episodes(s, id) }.getOrDefault(emptyList())
             .associate { (it.season to it.episode) to xtream.episodeUrl(s, it) }
+    }
+
+    /** A title's TMDB id: its own, or looked up from its IMDb id (Stremio addons such as AIOStreams use IMDb ids). */
+    suspend fun tmdbIdFor(item: MediaItem): Int? {
+        item.tmdbId?.let { return it }
+        val imdb = item.imdbId ?: item.key.substringAfterLast(':').takeIf { it.startsWith("tt") } ?: return null
+        val key = store.current().tmdbKey ?: return null
+        return findByImdb(key, imdb, item.type)
     }
 
     private suspend fun findByImdb(key: String, imdbId: String, type: MediaType): Int? = runCatching {
