@@ -64,6 +64,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -155,7 +156,15 @@ fun MediaScreen(
     var focusedIndex by remember { androidx.compose.runtime.mutableIntStateOf(0) }
     var quick by remember { mutableStateOf<MediaItem?>(null) }
     var quickTrailer by remember { mutableStateOf<MediaItem?>(null) }
+    val personShown by vm.person.collectAsStateWithLifecycle()
     BackHandler(enabled = focusEnabled && detail == null && quick == null && quickTrailer == null) {
+        // Search, a person's films and shows: Back to the results.
+        if (personShown != null) {
+            vm.closePerson()
+            lastCard = null
+            scope.launch { listState.scrollToItem(0); awaitFrame(); awaitFrame(); runCatching { focusRequester.requestFocus() } }
+            return@BackHandler
+        }
         val top = rows.firstOrNull()
         if (searchHeader == null && hasFocus && top != null && (focusedRow > 0 || focusedIndex > 0)) {
             rowPos[top.id] = 0
@@ -183,6 +192,9 @@ fun MediaScreen(
         ?: rows.firstOrNull()?.let { r -> r.items.firstOrNull()?.let { cardId(r, it) } }
     // Rows keep arriving after the page opens (slow servers, many libraries) and can be put in above the one you're
     // on, which drops focus: the remote then does nothing until a direction is pressed. Take it back by itself.
+    // A row that arrives late can land above the top of the list (out of sight): while you're not in the rows yet,
+    // keep the list at its top so the first row (e.g. search's "In your library") is the one you see.
+    LaunchedEffect(rows.firstOrNull()?.id) { if (!hasFocus && rows.isNotEmpty()) runCatching { listState.scrollToItem(0) } }
     val upNextShown by vm.upNext.collectAsStateWithLifecycle()
     LaunchedEffect(hasFocus, focusEnabled, detail == null, quick == null, quickTrailer == null, playing == null, rows.size, upNextShown == null) {
         if (searchHeader != null || upNextShown != null || hasFocus || !focusEnabled || detail != null || quick != null || quickTrailer != null || playing != null) return@LaunchedEffect
@@ -196,7 +208,7 @@ fun MediaScreen(
         runCatching { focusRequester.requestFocus() }
     }
 
-    Box(Modifier.fillMaxSize().background(AppColors.Background)) {
+    Box(Modifier.fillMaxSize().background(if (searchHeader != null) Color.Transparent else AppColors.Background)) {
         Column(Modifier.fillMaxSize()) {
             if (searchHeader != null) searchHeader() else Hero(
                 item = hero ?: rows.firstOrNull()?.items?.firstOrNull(),
@@ -236,7 +248,7 @@ fun MediaScreen(
                                 focusedIndex = it
                                 vm.setCurrentRow(row.id)
                             },
-                            onLongOpen = { quick = it },
+                            onLongOpen = { if (!it.key.startsWith("person:")) quick = it },
                             onLeftEdge = if (remote.rowLeft == RowLeft.Menu) onOpenMenu else null,
                             entryCard = entryCard,
                             entryFocus = focusRequester,
@@ -443,6 +455,16 @@ private fun PosterCard(item: MediaItem, modifier: Modifier, onClick: () -> Unit,
                 modifier = Modifier.align(Alignment.Center).padding(8.dp), maxLines = 4, overflow = TextOverflow.Ellipsis,
             )
             item.poster?.let { AsyncImage(model = it, contentDescription = item.title, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
+            // Search: this one's in your library.
+            if (item.owned) Box(
+                Modifier.align(Alignment.TopEnd).padding(6.dp).size(24.dp).background(AppColors.Accent, CircleShape),
+                contentAlignment = Alignment.Center,
+            ) { Text("✓", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = AppColors.OnAccent) }
+            // A person (search): their name under the photo.
+            if (item.key.startsWith("person:")) Text(
+                item.title, fontSize = 11.sp, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center,
+                modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(Color.Black.copy(alpha = 0.7f)).padding(horizontal = 4.dp, vertical = 3.dp),
+            )
             item.progress?.let { p ->
                 Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(4.dp).background(Color.Black.copy(alpha = 0.6f))) {
                     Box(Modifier.fillMaxHeight().fillMaxWidth(p.coerceIn(0f, 1f)).background(AppColors.Accent))

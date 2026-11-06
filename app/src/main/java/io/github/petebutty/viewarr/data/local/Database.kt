@@ -123,6 +123,19 @@ interface GuideDao {
     @Query("SELECT COUNT(*) FROM programs")
     suspend fun programCount(): Int
 
+    /** Search: programmes whose title contains [q], on now or still to come, soonest first. */
+    @Query(
+        """
+        SELECT c.id AS channelId, p.rowId, p.title, p.subTitle, p.description, p.startTime, p.endTime,
+               p.season, p.episode, p.isNew, p.isLive, p.isPremiere
+        FROM programs p JOIN channels c ON c.guideKey = p.tvgId
+        WHERE p.endTime > :from AND p.title LIKE '%' || :q || '%'
+        ORDER BY p.startTime, c.number IS NULL, c.number
+        LIMIT :limit
+        """
+    )
+    suspend fun searchPrograms(q: String, from: Long, limit: Int): List<GuideProgram>
+
     @Query(
         """
         UPDATE channels SET guideKey = uuid

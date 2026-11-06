@@ -70,7 +70,18 @@ import javax.inject.Inject
 class DvrViewModel @Inject constructor(
     private val repo: DvrRepository,
     guide: GuideRepository,
+    private val reminderStore: io.github.petebutty.viewarr.data.dvr.ReminderStore,
 ) : ViewModel() {
+    /** "Remind me" programmes (pop up when they start). */
+    val reminders = reminderStore.reminders.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    fun reminderFor(channelId: Int, p: GuideProgram) = reminders.value.firstOrNull { it.channelId == channelId && it.start == p.startTime }
+    fun remind(channel: ChannelListItem, p: GuideProgram) = viewModelScope.launch {
+        reminderStore.add(io.github.petebutty.viewarr.data.dvr.Reminder(channel.id, p.startTime, p.endTime, p.title, channel.name))
+        _message.value = "We'll remind you when it starts (while Viewarr is open)."
+    }
+    fun forget(id: String) = viewModelScope.launch { reminderStore.remove(id) }
+    fun pruneReminders() = viewModelScope.launch { reminderStore.prune(System.currentTimeMillis()) }
+
     val recordings = repo.recordings
     val rules = repo.rules
     val allowed = repo.allowed
@@ -154,7 +165,7 @@ private fun ChoicePanel(
     }
 }
 
-/** Programme details (normal OK on an upcoming programme). Hold OK in the guide for the record options directly. */
+/** Programme details (OK on an upcoming programme in the guide), with the way to record it or set a reminder. */
 @Composable
 fun ProgramInfoDialog(channel: ChannelListItem, program: GuideProgram, vm: DvrViewModel, onRecord: () -> Unit, onClose: () -> Unit) {
     vm.recordings.collectAsStateWithLifecycle().value
@@ -170,8 +181,8 @@ fun ProgramInfoDialog(channel: ChannelListItem, program: GuideProgram, vm: DvrVi
     ChoicePanel(
         title = program.title + episodeTag(program.season, program.episode),
         subtitle = "${channel.name}  ·  ${span(program.startTime, program.endTime)}$status",
-        choices = listOf("Record options" to onRecord, "Close" to onClose),
-        message = "Tip: hold OK on a programme to go straight to the record options.",
+        choices = listOf("Record or remind me" to onRecord, "Close" to onClose),
+        message = null,
         onClose = onClose,
         description = listOf(sub, program.description.orEmpty()).filter { it.isNotBlank() }.joinToString("\n"),
     )
@@ -179,7 +190,7 @@ fun ProgramInfoDialog(channel: ChannelListItem, program: GuideProgram, vm: DvrVi
 
 /** Record options for one programme in the guide (or what's on now, from the player). */
 @Composable
-fun RecordDialog(channel: ChannelListItem, program: GuideProgram, vm: DvrViewModel, onClose: () -> Unit) {
+fun RecordDialog(channel: ChannelListItem, program: GuideProgram, vm: DvrViewModel, onDetails: (() -> Unit)? = null, onClose: () -> Unit) {
     val message by vm.message.collectAsStateWithLifecycle()
     vm.recordings.collectAsStateWithLifecycle().value // recompose when the list changes
     vm.rules.collectAsStateWithLifecycle().value
@@ -197,23 +208,37 @@ fun RecordDialog(channel: ChannelListItem, program: GuideProgram, vm: DvrViewMod
     }
     val rec = vm.recordingFor(channel.id, program)
     val rule = vm.ruleFor(channel, program)
+    val reminders by vm.reminders.collectAsStateWithLifecycle()
+    val reminder = reminders.firstOrNull { it.channelId == channel.id && it.start == program.startTime }
+    val canRecord = vm.allowed.collectAsStateWithLifecycle().value != false && !vm.xc.collectAsStateWithLifecycle().value
+    val future = program.startTime > System.currentTimeMillis()
     val choices = buildList<Pair<String, () -> Unit>> {
-        when {
+        if (!canRecord) {
+            // No recordings here (IPTV provider login, or a Dispatcharr user without DVR access): reminders still work.
+        } else when {
             rec?.state == DvrState.Recording -> add("Stop recording" to { run { vm.stop(rec) } })
             rec != null -> add("Cancel this recording" to { run { vm.cancel(rec) } })
             else -> add((if (program.startTime <= System.currentTimeMillis()) "Record from now" else "Record this programme") to { run { vm.record(channel, program) } })
         }
-        if (rule != null) add("Stop series recording" to { run { vm.removeRule(rule) } })
-        else {
-            add("Record series: every episode" to { run { vm.recordSeries(channel, program, newOnly = false) } })
-            add("Record series: new episodes only" to { run { vm.recordSeries(channel, program, newOnly = true) } })
+        if (canRecord) {
+            if (rule != null) add("Stop series recording" to { run { vm.removeRule(rule) } })
+            else {
+                add("Record series: every episode" to { run { vm.recordSeries(channel, program, newOnly = false) } })
+                add("Record series: new episodes only" to { run { vm.recordSeries(channel, program, newOnly = true) } })
+            }
         }
+        if (future) {
+            if (reminder != null) add("Cancel reminder" to { vm.forget(reminder.id); onClose() })
+            else add("Remind me when it starts" to { run { vm.remind(channel, program) } })
+        }
+        onDetails?.let { add("Details" to it) }
         add("Close" to onClose)
     }
     val status = when {
         rec?.state == DvrState.Recording -> "  ·  ● Recording now"
         rec != null -> "  ·  ● Scheduled"
         rule != null -> "  ·  Series recording on"
+        reminder != null -> "  ·  ⏰ Reminder set"
         else -> ""
     }
     ChoicePanel(

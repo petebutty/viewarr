@@ -172,6 +172,18 @@ class GuideViewModel @Inject constructor(
     suspend fun channelById(id: Int): ChannelListItem? = repo.observeChannels(null).first().firstOrNull { it.id == id }
 
     /** Channels whose name or number matches a search, across all categories. */
+    /** Search: what's on now and coming up whose title matches, with its channel (one per showing). */
+    suspend fun searchPrograms(q: String): List<Pair<ChannelListItem, io.github.petebutty.viewarr.data.local.GuideProgram>> {
+        val t = q.trim()
+        if (t.length < 2) return emptyList()
+        val channels = repo.observeChannels(null).first().associateBy { it.id }
+        return repo.searchPrograms(t, System.currentTimeMillis(), 120)
+            .mapNotNull { p -> channels[p.channelId]?.let { it to p } }
+            // The same showing on two copies of a channel: keep one.
+            .distinctBy { (c, p) -> Triple(c.name.lowercase(), p.title, p.startTime) }
+            .take(40)
+    }
+
     suspend fun searchChannels(q: String): List<ChannelListItem> {
         val t = q.trim()
         if (t.length < 2) return emptyList()

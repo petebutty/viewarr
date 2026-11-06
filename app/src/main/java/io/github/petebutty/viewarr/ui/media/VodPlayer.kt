@@ -225,8 +225,9 @@ fun VodPlayer(
     }
     var hasFocus by remember { mutableStateOf(false) }
     // If anything else takes the remote while playing (and no picker is open), take it back.
-    LaunchedEffect(hasFocus, tracksOpen) {
-        if (!hasFocus && !tracksOpen) {
+    val searchOpen = io.github.petebutty.viewarr.ui.common.LocalQuickSearchOpen.current
+    LaunchedEffect(hasFocus, tracksOpen, searchOpen) {
+        if (!hasFocus && !tracksOpen && !searchOpen) {
             kotlinx.coroutines.delay(150)
             runCatching { focus.requestFocus() }
         }

@@ -90,6 +90,17 @@ enum class MenuBack(override val label: String) : RemoteChoice {
     Close("Close the menu"),
 }
 
+/** The button that pops search up from any screen. */
+enum class SearchButton(override val label: String) : RemoteChoice {
+    Auto("The remote's search button, or hold Menu (≡)"),
+    Red("Red button"),
+    Green("Green button"),
+    Yellow("Yellow button"),
+    Blue("Blue button"),
+    Info("Info button"),
+    Off("Off (search from the menu only)"),
+}
+
 data class RemoteSettings(
     val guideLeft: GuideLeft = GuideLeft.entries.first(),
     val guideBack: GuideBack = GuideBack.entries.first(),
@@ -104,6 +115,7 @@ data class RemoteSettings(
     val menuOpensOn: MenuOpensOn = MenuOpensOn.entries.first(),
     val menuBack: MenuBack = MenuBack.entries.first(),
     val startPage: StartPage = StartPage.entries.first(),
+    val searchButton: SearchButton = SearchButton.entries.first(),
     /** The last live channel played (for "Last channel" start). */
     val lastChannelId: Int? = null,
     /** False until the stored settings have been read. */
@@ -133,6 +145,7 @@ class RemoteStore @Inject constructor(@ApplicationContext private val context: C
             menuOpensOn = p.read(MENU_OPENS_ON),
             menuBack = p.read(MENU_BACK),
             startPage = p.read(START_PAGE),
+            searchButton = p.read(SEARCH_BUTTON),
             lastChannelId = p[intPreferencesKey(LAST_CHANNEL)],
             loaded = true,
         )
@@ -171,6 +184,7 @@ class RemoteStore @Inject constructor(@ApplicationContext private val context: C
         const val MENU_OPENS_ON = "menu_opens_on"
         const val MENU_BACK = "menu_back"
         const val START_PAGE = "start_page"
+        const val SEARCH_BUTTON = "search_button"
         const val LAST_CHANNEL = "last_channel"
     }
 }

@@ -23,6 +23,8 @@ data class MediaItem(
     /** Shows in continue watching: the episode to play next. */
     val nextSeason: Int? = null,
     val nextEpisode: Int? = null,
+    /** Search: a TMDB result that's also in one of your libraries (a tick on the poster). */
+    val owned: Boolean = false,
 )
 
 data class EpisodeInfo(

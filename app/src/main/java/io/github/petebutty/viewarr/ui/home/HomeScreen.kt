@@ -4,6 +4,7 @@ import io.github.petebutty.viewarr.ui.common.slideInFromLeft
 import android.app.Activity
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -118,6 +119,24 @@ fun HomeScreen(
     var recordTarget by remember { mutableStateOf<Pair<ChannelListItem, GuideProgram>?>(null) }
     var recordingPlayback by remember { mutableStateOf<VodStream?>(null) }
     var infoTarget by remember { mutableStateOf<Pair<ChannelListItem, GuideProgram>?>(null) }
+    // Search popped up over the current screen (Settings → Remote → Search button); Back closes it.
+    var quickSearch by remember { mutableStateOf(false) }
+    var searchHeld by remember { mutableStateOf(false) }
+    // "Remind me": the programme starting now pops up in the corner; OK watches it, Back dismisses.
+    var dueReminder by remember { mutableStateOf<io.github.petebutty.viewarr.data.dvr.Reminder?>(null) }
+    LaunchedEffect(Unit) {
+        dvr.pruneReminders()
+        while (true) {
+            val now = System.currentTimeMillis()
+            val due = dvr.reminders.value.firstOrNull { it.start <= now + 30_000 && it.end > now }
+            if (due != null && dueReminder?.id != due.id) {
+                dueReminder = due
+                dvr.forget(due.id)
+            }
+            delay(15_000)
+        }
+    }
+    LaunchedEffect(dueReminder) { if (dueReminder != null) { delay(90_000); dueReminder = null } }
     val dvrRecordings by dvr.recordings.collectAsStateWithLifecycle()
     var menuOpen by rememberSaveable { mutableStateOf(false) }
     var showAccounts by rememberSaveable { mutableStateOf(false) }
@@ -193,7 +212,7 @@ fun HomeScreen(
             StartPage.Guide -> Unit
             StartPage.Movies -> page = Page.Movies
             StartPage.Shows -> page = Page.Shows
-            StartPage.Search -> page = Page.Search
+            StartPage.Search -> quickSearch = true
             StartPage.Recordings -> page = Page.Recordings
             StartPage.LastChannel -> {
                 val ch = remote.lastChannelId?.let { id -> vm.channelById(id) }
@@ -206,14 +225,14 @@ fun HomeScreen(
             }
         }
     }
-    LaunchedEffect(menuOpen, fullscreen, osdVisible, showAccounts, page, recordTarget == null, recordingPlayback == null, infoTarget == null, channelListOpen) {
-        if (channelListOpen) return@LaunchedEffect
+    LaunchedEffect(menuOpen, fullscreen, osdVisible, showAccounts, page, recordTarget == null, recordingPlayback == null, infoTarget == null, channelListOpen, quickSearch) {
+        if (channelListOpen || quickSearch) return@LaunchedEffect
         if (recordTarget != null || recordingPlayback != null || infoTarget != null) return@LaunchedEffect
         awaitFrame()
         runCatching {
             when {
                 fullscreen && !osdVisible -> playerFocus.requestFocus()
-                !fullscreen && !menuOpen && !showAccounts -> if (page == Page.Tv) guideFocus.requestFocus() else mediaFocus.requestFocus()
+                !fullscreen && !menuOpen && !showAccounts && !quickSearch -> if (page == Page.Tv) guideFocus.requestFocus() else mediaFocus.requestFocus()
             }
         }
     }
@@ -231,7 +250,7 @@ fun HomeScreen(
         if (exitArmed != 0L) { delay(2_500); exitArmed = 0L }
     }
     // Back returns to live TV first when browsing the past/future, then asks to exit (or opens the menu).
-    BackHandler(enabled = page == Page.Tv && !menuOpen && !fullscreen && !showAccounts) {
+    BackHandler(enabled = page == Page.Tv && !menuOpen && !fullscreen && !showAccounts && !quickSearch) {
         when {
             !vm.isAtNow() -> vm.goToNow()
             remote.guideBack == GuideBack.Menu -> menuOpen = true
@@ -266,6 +285,12 @@ fun HomeScreen(
     }
 
     fun openPage(p: Page) {
+        // Search never replaces what's on screen: it slides over it, and Back returns you there.
+        if (p == Page.Search) {
+            menuOpen = false
+            quickSearch = true
+            return
+        }
         if (p != Page.Tv && page == Page.Tv) {
             playback.stop()
             fullscreen = false
@@ -278,8 +303,55 @@ fun HomeScreen(
         Modifier
             .fillMaxSize()
             .onPreviewKeyEvent { e ->
+                // A reminder on screen: OK switches to it, Back dismisses it; other buttons work as usual.
+                dueReminder?.let { r ->
+                    val ok = e.key == Key.DirectionCenter || e.key == Key.Enter || e.key == Key.NumPadEnter
+                    if (ok || e.key == Key.Back) {
+                        if (e.type == KeyEventType.KeyUp) {
+                            dueReminder = null
+                            if (ok) dvr.channels.value[r.channelId]?.let { ch ->
+                                quickSearch = false
+                                menuOpen = false
+                                vm.reveal(ch) {
+                                    page = Page.Tv
+                                    playback.play(ch, session)
+                                    vm.selectChannel(ch.id)
+                                    fullscreen = true
+                                    showBanner()
+                                }
+                            }
+                        }
+                        return@onPreviewKeyEvent true
+                    }
+                }
+                // The search button (Settings → Remote): pops search up over whatever's on screen.
+                if (searchHeld) {
+                    if (e.type == KeyEventType.KeyUp) searchHeld = false
+                    return@onPreviewKeyEvent true
+                }
+                if (!quickSearch && !showAccounts && recordingPlayback == null && page != Page.Search && e.type == KeyEventType.KeyDown) {
+                    val code = e.nativeKeyEvent.keyCode
+                    val hit = when (remote.searchButton) {
+                        io.github.petebutty.viewarr.data.settings.SearchButton.Auto ->
+                            code == android.view.KeyEvent.KEYCODE_SEARCH || (e.key == Key.Menu && e.nativeKeyEvent.repeatCount == 1)
+                        io.github.petebutty.viewarr.data.settings.SearchButton.Red -> code == android.view.KeyEvent.KEYCODE_PROG_RED
+                        io.github.petebutty.viewarr.data.settings.SearchButton.Green -> code == android.view.KeyEvent.KEYCODE_PROG_GREEN
+                        io.github.petebutty.viewarr.data.settings.SearchButton.Yellow -> code == android.view.KeyEvent.KEYCODE_PROG_YELLOW
+                        io.github.petebutty.viewarr.data.settings.SearchButton.Blue -> code == android.view.KeyEvent.KEYCODE_PROG_BLUE
+                        io.github.petebutty.viewarr.data.settings.SearchButton.Info -> code == android.view.KeyEvent.KEYCODE_INFO
+                        io.github.petebutty.viewarr.data.settings.SearchButton.Off -> false
+                    }
+                    if (hit) {
+                        menuOpen = false
+                        channelListOpen = false
+                        quickSearch = true
+                        searchHeld = true // swallow the rest of this press
+                        return@onPreviewKeyEvent true
+                    }
+                }
+                if (quickSearch) return@onPreviewKeyEvent false
                 if (e.key == Key.Back) {
-                    val canReturn = page == Page.Tv && !fullscreen && !menuOpen && !showAccounts && playing != null &&
+                    val canReturn = page == Page.Tv && !fullscreen && !menuOpen && !showAccounts && !quickSearch && playing != null &&
                         recordTarget == null && infoTarget == null
                     when {
                         e.type == KeyEventType.KeyDown && e.nativeKeyEvent.repeatCount > 0 && canReturn && !backLongPress -> {
@@ -294,7 +366,7 @@ fun HomeScreen(
                     }
                 }
                 // Number keys type a channel number on the TV page (guide or full screen); OK tunes straight away.
-                if (page != Page.Tv || menuOpen || showAccounts || recordTarget != null || infoTarget != null || session == null || e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                if (page != Page.Tv || menuOpen || showAccounts || quickSearch || recordTarget != null || infoTarget != null || session == null || e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 val code = e.nativeKeyEvent.keyCode
                 val digit = when (code) {
                     in android.view.KeyEvent.KEYCODE_0..android.view.KeyEvent.KEYCODE_9 -> code - android.view.KeyEvent.KEYCODE_0
@@ -323,7 +395,8 @@ fun HomeScreen(
         if (page == Page.Search) {
             SearchPage(
                 guide = vm,
-                focusEnabled = !menuOpen && !showAccounts,
+                focusEnabled = !menuOpen && !showAccounts && !quickSearch && infoTarget == null && recordTarget == null,
+                onProgramme = { ch, prog -> recordTarget = ch to prog },
                 onOpenMenu = { menuOpen = true },
                 onExit = ::backOnPage,
                 onChannel = { ch ->
@@ -340,16 +413,16 @@ fun HomeScreen(
             RecordingsScreen(
                 vm = dvr,
                 focusRequester = mediaFocus,
-                focusEnabled = !menuOpen && !showAccounts && recordingPlayback == null,
+                focusEnabled = !menuOpen && !showAccounts && !quickSearch && recordingPlayback == null,
                 onBack = ::backOnPage,
                 onPlay = { recordingPlayback = it },
                 onOpenMenu = { menuOpen = true },
             )
-        } else if (page != Page.Tv) {
+        } else if (page != Page.Tv) androidx.compose.runtime.CompositionLocalProvider(io.github.petebutty.viewarr.ui.common.LocalQuickSearchOpen provides quickSearch) {
             MediaScreen(
                 type = if (page == Page.Movies) MediaType.Movie else MediaType.Show,
                 focusRequester = mediaFocus,
-                focusEnabled = !menuOpen && !showAccounts,
+                focusEnabled = !menuOpen && !showAccounts && !quickSearch,
                 onOpenMenu = { menuOpen = true },
                 onBack = {
                     when (remote.mediaBack) {
@@ -362,7 +435,7 @@ fun HomeScreen(
         } else if (session == null) {
             NoLiveTv(
                 focusRequester = guideFocus,
-                focusEnabled = !menuOpen && !showAccounts,
+                focusEnabled = !menuOpen && !showAccounts && !quickSearch,
                 onSetUp = { showAccounts = true },
                 onOpenMenu = { menuOpen = true },
             )
@@ -374,7 +447,7 @@ fun HomeScreen(
                 playingCatchupRowId = catchup?.rowId,
                 serverUrl = session?.serverUrl.orEmpty(),
                 focusRequester = guideFocus,
-                focusEnabled = !menuOpen && !fullscreen && !showAccounts,
+                focusEnabled = !menuOpen && !fullscreen && !showAccounts && !quickSearch,
                 onOpenMenu = { menuOpen = true },
                 onSelect = { channel, program ->
                     val t = System.currentTimeMillis()
@@ -529,10 +602,50 @@ fun HomeScreen(
             SetupWizard(mode = SetupMode.Manage, onClose = { showAccounts = false })
         }
 
+        // Search popped up from any screen: the same search page, on top; Back closes it.
+        if (quickSearch) {
+            BackHandler { quickSearch = false }
+            // Dimmed, not hidden: what you were on stays faintly in view. The remote stays inside search until it closes.
+            Box(Modifier.fillMaxSize().background(AppColors.Background.copy(alpha = 0.94f)).slideInFromLeft(60.dp, 150).then(if (infoTarget == null && recordTarget == null) Modifier.trapFocus() else Modifier)) {
+                SearchPage(
+                    guide = vm,
+                    focusEnabled = infoTarget == null && recordTarget == null,
+                    openKeyboard = true,
+                    onProgramme = { ch, prog -> recordTarget = ch to prog },
+                    // Left at the edge stays in search (it used to close it and open the menu); Back is the way out.
+                    onOpenMenu = {},
+                    onExit = { quickSearch = false },
+                    onChannel = { ch ->
+                        quickSearch = false
+                        vm.reveal(ch) {
+                            page = Page.Tv
+                            playback.play(ch, session)
+                            vm.selectChannel(ch.id)
+                            fullscreen = true
+                            showBanner()
+                        }
+                    },
+                )
+            }
+        }
+
         infoTarget?.let { (ch, prog) ->
             ProgramInfoDialog(ch, prog, dvr, onRecord = { infoTarget = null; recordTarget = ch to prog }, onClose = { infoTarget = null })
         }
-        recordTarget?.let { (ch, prog) -> RecordDialog(ch, prog, dvr) { recordTarget = null } }
+        dueReminder?.let { r ->
+            Column(
+                Modifier.align(Alignment.TopEnd).padding(28.dp).width(380.dp)
+                    .background(AppColors.Panel, RoundedCornerShape(12.dp))
+                    .border(2.dp, AppColors.Accent, RoundedCornerShape(12.dp))
+                    .padding(horizontal = 18.dp, vertical = 14.dp),
+            ) {
+                Text("⏰  Starting now", fontSize = 13.sp, color = AppColors.Accent)
+                Text(r.title, fontSize = 18.sp, color = AppColors.TextPrimary, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                Text(r.channelName, fontSize = 14.sp, color = AppColors.TextSecondary)
+                Text("OK: watch  ·  Back: dismiss", fontSize = 12.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(top = 6.dp))
+            }
+        }
+        recordTarget?.let { (ch, prog) -> RecordDialog(ch, prog, dvr, onDetails = { recordTarget = null; infoTarget = ch to prog }) { recordTarget = null } }
         recordingPlayback?.let { io.github.petebutty.viewarr.ui.media.PlayerHost(stream = it, onClose = { recordingPlayback = null }) }
 
         if (exitArmed != 0L && !menuOpen) {
@@ -965,7 +1078,17 @@ private fun SettingsPanel(playbackItem: FocusRequester, onPlayback: () -> Unit, 
 
 /** Search: a text box (the TV keyboard), then channel matches and poster rows of results. */
 @Composable
-private fun SearchPage(guide: GuideViewModel, focusEnabled: Boolean, onOpenMenu: () -> Unit, onExit: () -> Unit, onChannel: (ChannelListItem) -> Unit) {
+private fun SearchPage(
+    guide: GuideViewModel,
+    focusEnabled: Boolean,
+    onOpenMenu: () -> Unit,
+    onExit: () -> Unit,
+    onChannel: (ChannelListItem) -> Unit,
+    /** A programme from the guide that hasn't started: its details (with Record). */
+    onProgramme: (ChannelListItem, io.github.petebutty.viewarr.data.local.GuideProgram) -> Unit,
+    /** Popped up with the search button: the keyboard opens straight away, ready to type. */
+    openKeyboard: Boolean = false,
+) {
     var fieldFocused by remember { mutableStateOf(false) }
     val searchScope = androidx.compose.runtime.rememberCoroutineScope()
     val media: MediaViewModel = hiltViewModel(key = "media-search")
@@ -983,12 +1106,45 @@ private fun SearchPage(guide: GuideViewModel, focusEnabled: Boolean, onOpenMenu:
         delay(400)
         value = guide.searchChannels(query)
     }
+    // Live TV: programmes in the guide whose title matches, on now and coming up.
+    val onTv by androidx.compose.runtime.produceState(emptyList<Pair<ChannelListItem, io.github.petebutty.viewarr.data.local.GuideProgram>>(), query) {
+        delay(400)
+        value = runCatching { guide.searchPrograms(query) }.getOrDefault(emptyList())
+    }
+    val filter by media.searchFilter.collectAsStateWithLifecycle()
+    val showTv = filter == io.github.petebutty.viewarr.ui.media.SearchFilter.All || filter == io.github.petebutty.viewarr.ui.media.SearchFilter.LiveTv
     LaunchedEffect(query) { media.search(query) }
+    // Quick picks under the box while typing: tap one instead of typing the rest.
+    val picks by androidx.compose.runtime.produceState(emptyList<String>(), query) {
+        if (query.trim().length < 2) { value = emptyList(); return@produceState }
+        delay(300)
+        value = media.suggestions(query)
+    }
+    // Voice search: Android's speech recogniser listens, the words become the search.
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val voiceIntent = remember {
+        android.content.Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+            .putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL, android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            .putExtra(android.speech.RecognizerIntent.EXTRA_PROMPT, "Say a film, show, person or channel")
+            .putExtra(android.speech.RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+    }
+    val canVoice = remember { runCatching { context.packageManager.queryIntentActivities(voiceIntent, 0).isNotEmpty() }.getOrDefault(false) }
+    val voice = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()) { r ->
+        val said = r.data?.getStringArrayListExtra(android.speech.RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()?.trim()
+        if (!said.isNullOrEmpty()) {
+            query = said
+            searchScope.launch { delay(900); runCatching { rowsFocus.requestFocus() } }
+        }
+    }
+    fun listen() { if (canVoice) runCatching { voice.launch(voiceIntent) } }
+    // Each search starts showing everything.
+    LaunchedEffect(Unit) { media.setSearchFilter(io.github.petebutty.viewarr.ui.media.SearchFilter.All) }
     // Focus the box only when the page first opens with nothing typed yet.
     LaunchedEffect(Unit) {
         if (query.isNotEmpty()) return@LaunchedEffect
         awaitFrame()
         runCatching { fieldFocus.requestFocus() }
+        if (openKeyboard) { awaitFrame(); keyboard?.show() }
     }
     MediaScreen(
         type = MediaType.Movie,
@@ -1005,28 +1161,51 @@ private fun SearchPage(guide: GuideViewModel, focusEnabled: Boolean, onOpenMenu:
             }
         },
         searchHeader = {
-            Column(Modifier.padding(start = 48.dp, end = 48.dp, top = 32.dp, bottom = 12.dp)) {
-                Text("Search", fontSize = 14.sp, color = AppColors.Accent)
-                Spacer(Modifier.height(8.dp))
-                androidx.compose.material3.OutlinedTextField(
+            // Quick picks only while you're up here typing: down in the results they'd just take room.
+            var headerFocused by remember { mutableStateOf(false) }
+            Column(Modifier.onFocusChanged { headerFocused = it.hasFocus }.padding(start = 48.dp, end = 48.dp, top = 18.dp, bottom = 10.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                // Voice: a round mic button before the bar, as on Android TV's own search.
+                if (canVoice) {
+                    androidx.tv.material3.Surface(
+                        onClick = ::listen,
+                        modifier = Modifier.size(44.dp).focusProperties { canFocus = fieldFree && focusEnabled },
+                        shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(androidx.compose.foundation.shape.CircleShape),
+                        scale = androidx.tv.material3.ClickableSurfaceDefaults.scale(focusedScale = 1.1f),
+                        colors = androidx.tv.material3.ClickableSurfaceDefaults.colors(
+                            containerColor = AppColors.Panel, contentColor = AppColors.TextPrimary,
+                            focusedContainerColor = AppColors.Accent, focusedContentColor = AppColors.OnAccent,
+                        ),
+                    ) {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            androidx.tv.material3.Icon(io.github.petebutty.viewarr.ui.common.AppIcons.Mic, contentDescription = "Voice search", modifier = Modifier.size(22.dp))
+                        }
+                    }
+                    Spacer(Modifier.width(12.dp))
+                }
+                // A slim pill-shaped bar (magnifier, then the text), like Android TV's own search.
+                androidx.compose.foundation.text.BasicTextField(
                     value = query,
                     onValueChange = { query = it },
                     singleLine = true,
-                    placeholder = { androidx.compose.material3.Text("Films, shows or channels…") },
+                    cursorBrush = androidx.compose.ui.graphics.SolidColor(AppColors.Accent),
+                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 15.sp, color = AppColors.TextPrimary),
                     keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Search),
                     keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = {
                         keyboard?.hide()
                         if (!focusManager.moveFocus(androidx.compose.ui.focus.FocusDirection.Down)) runCatching { rowsFocus.requestFocus() }
                     }),
                     modifier = Modifier
-                        .fillMaxWidth(0.6f)
+                        .fillMaxWidth(0.55f)
+                        .height(44.dp)
                         .focusRequester(fieldFocus)
                         .focusProperties { canFocus = fieldFree && focusEnabled }
                         .onFocusChanged { fieldFocused = it.isFocused; if (!it.isFocused) keyboard?.hide() }
                         // The text box would keep the remote: Down always leaves it for the results.
                         .onPreviewKeyEvent { e ->
-                            // Left in an empty box opens the menu (with text, Left moves the cursor).
+                            // Left in an empty box: the mic if there is one, else the menu (with text, Left moves the cursor).
                             if (e.key == Key.DirectionLeft && query.isEmpty()) {
+                                if (canVoice) return@onPreviewKeyEvent false
                                 if (e.type == KeyEventType.KeyDown) onOpenMenu()
                                 return@onPreviewKeyEvent true
                             }
@@ -1035,9 +1214,98 @@ private fun SearchPage(guide: GuideViewModel, focusEnabled: Boolean, onOpenMenu:
                                 true
                             } else false
                         },
-                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 18.sp, color = AppColors.TextPrimary),
+                    decorationBox = { inner ->
+                        Row(
+                            Modifier.fillMaxSize()
+                                .background(AppColors.Panel, androidx.compose.foundation.shape.RoundedCornerShape(50))
+                                .border(if (fieldFocused) 2.dp else 1.dp, if (fieldFocused) AppColors.Accent else AppColors.TextSecondary.copy(alpha = 0.4f), androidx.compose.foundation.shape.RoundedCornerShape(50))
+                                .padding(horizontal = 16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            androidx.compose.material3.Icon(io.github.petebutty.viewarr.ui.common.AppIcons.Search, contentDescription = null, tint = AppColors.TextSecondary, modifier = Modifier.size(20.dp))
+                            Spacer(Modifier.width(10.dp))
+                            Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+                                if (query.isEmpty()) Text("Search films, shows, people, channels and the TV guide", fontSize = 15.sp, color = AppColors.TextSecondary, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                                inner()
+                            }
+                        }
+                    },
                 )
+                }
+                // Quick picks: the best-known titles and names for what's typed so far.
+                if (picks.isNotEmpty() && headerFocused) {
+                    Spacer(Modifier.height(10.dp))
+                    androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(picks, key = { it }) { pick ->
+                            androidx.tv.material3.Surface(
+                                onClick = {
+                                    query = pick
+                                    searchScope.launch { delay(900); runCatching { rowsFocus.requestFocus() } }
+                                },
+                                modifier = Modifier.focusProperties { canFocus = fieldFree && focusEnabled },
+                                shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(androidx.compose.foundation.shape.RoundedCornerShape(18.dp)),
+                                colors = androidx.tv.material3.ClickableSurfaceDefaults.colors(
+                                    containerColor = AppColors.Panel, contentColor = AppColors.TextPrimary,
+                                    focusedContainerColor = AppColors.Accent, focusedContentColor = AppColors.OnAccent,
+                                ),
+                                border = androidx.tv.material3.ClickableSurfaceDefaults.border(
+                                    border = androidx.tv.material3.Border(androidx.compose.foundation.BorderStroke(1.dp, AppColors.Accent.copy(alpha = 0.5f)), shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp)),
+                                ),
+                            ) { Text("⌕  $pick", fontSize = 14.sp, maxLines = 1, modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp)) }
+                        }
+                    }
+                }
+                // Filters: narrow the results to one kind.
                 if (query.trim().length >= 2) {
+                    Spacer(Modifier.height(10.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        io.github.petebutty.viewarr.ui.media.SearchFilter.entries.forEach { f ->
+                            val on = f == filter
+                            androidx.tv.material3.Surface(
+                                onClick = { media.setSearchFilter(f) },
+                                modifier = Modifier.focusProperties { canFocus = fieldFree && focusEnabled },
+                                shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(androidx.compose.foundation.shape.RoundedCornerShape(18.dp)),
+                                colors = androidx.tv.material3.ClickableSurfaceDefaults.colors(
+                                    containerColor = if (on) AppColors.TextPrimary else Color.Transparent,
+                                    contentColor = if (on) AppColors.Background else AppColors.TextSecondary,
+                                    focusedContainerColor = AppColors.Accent, focusedContentColor = AppColors.OnAccent,
+                                ),
+                                border = androidx.tv.material3.ClickableSurfaceDefaults.border(
+                                    border = androidx.tv.material3.Border(androidx.compose.foundation.BorderStroke(1.dp, AppColors.TextSecondary.copy(alpha = 0.5f)), shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp)),
+                                ),
+                            ) { Text(f.label, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)) }
+                        }
+                    }
+                }
+                if (query.trim().length >= 2 && showTv) {
+                    // On TV: guide programmes that match. On now → watch; later → details and Record.
+                    if (onTv.isNotEmpty()) {
+                        Spacer(Modifier.height(12.dp))
+                        Text("On TV", fontSize = 16.sp, color = AppColors.TextPrimary, modifier = Modifier.padding(bottom = 6.dp))
+                        val nowMs = System.currentTimeMillis()
+                        androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            items(onTv, key = { (c, p) -> "${c.id}:${p.rowId}" }) { (ch, p) ->
+                                val live = p.startTime <= nowMs
+                                androidx.tv.material3.Surface(
+                                    onClick = { if (live) onChannel(ch) else onProgramme(ch, p) },
+                                    modifier = Modifier.width(250.dp).focusProperties { canFocus = fieldFree && focusEnabled },
+                                    shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(androidx.compose.foundation.shape.RoundedCornerShape(8.dp)),
+                                    colors = androidx.tv.material3.ClickableSurfaceDefaults.colors(
+                                        containerColor = AppColors.Panel, contentColor = AppColors.TextPrimary,
+                                        focusedContainerColor = AppColors.Accent, focusedContentColor = AppColors.OnAccent,
+                                    ),
+                                ) {
+                                    Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                                        Text(p.title, fontSize = 14.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Medium, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                                        Text(
+                                            (if (live) "● Now  ·  " else whenText(p.startTime, nowMs) + "  ·  ") + ch.name,
+                                            fontSize = 12.sp, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
                     Spacer(Modifier.height(12.dp))
                     if (channels.isNotEmpty()) {
                         Text("Channels", fontSize = 16.sp, color = AppColors.TextPrimary, modifier = Modifier.padding(bottom = 6.dp))
@@ -1183,4 +1451,17 @@ private fun ChannelListOverlay(
         }
     }
     }
+}
+
+/** "Today 21:00", "Tomorrow 06:30", "Sat 15:00": when a programme starts, as the guide search shows it. */
+private fun whenText(start: Long, now: Long): String {
+    val zone = java.time.ZoneId.systemDefault()
+    val d = java.time.Instant.ofEpochMilli(start).atZone(zone)
+    val today = java.time.Instant.ofEpochMilli(now).atZone(zone).toLocalDate()
+    val day = when (d.toLocalDate()) {
+        today -> "Today"
+        today.plusDays(1) -> "Tomorrow"
+        else -> d.format(java.time.format.DateTimeFormatter.ofPattern("EEE"))
+    }
+    return day + " " + d.format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"))
 }

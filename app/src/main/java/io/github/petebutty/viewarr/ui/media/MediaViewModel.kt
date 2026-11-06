@@ -103,8 +103,13 @@ class MediaViewModel @Inject constructor(
     private val layoutType = MutableStateFlow<MediaType?>(null)
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     private val layout = layoutType.flatMapLatest { t -> if (t == null) kotlinx.coroutines.flow.flowOf(null) else rowLayouts.layout(t) }
-    val rows: kotlinx.coroutines.flow.StateFlow<RowsState> = kotlinx.coroutines.flow.combine(_rows, layout) { r, l ->
-        if (l == null) r else r.copy(rows = l.visible(r.rows))
+    /** Search: the filter buttons under the box. */
+    private val _searchFilter = MutableStateFlow(SearchFilter.All)
+    val searchFilter = _searchFilter.asStateFlow()
+    fun setSearchFilter(f: SearchFilter) { _searchFilter.value = f }
+
+    val rows: kotlinx.coroutines.flow.StateFlow<RowsState> = kotlinx.coroutines.flow.combine(_rows, layout, _searchFilter) { r, l, f ->
+        if (l != null) r.copy(rows = l.visible(r.rows)) else r.copy(rows = f.apply(r.rows))
     }.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, RowsState(emptyList(), done = false))
     /** Every row in the chosen order with whether it's hidden, for Settings → Home rows. */
     val editableRows: kotlinx.coroutines.flow.StateFlow<Pair<List<Pair<io.github.petebutty.viewarr.data.media.MediaRow, Boolean>>, Boolean>> =
@@ -153,8 +158,10 @@ class MediaViewModel @Inject constructor(
     /** Search mode: the rows become search results. */
     fun search(query: String) {
         val q = query.trim()
-        if (q == lastQuery && q.isNotEmpty()) return
+        if (q == lastQuery && q.isNotEmpty() && _person.value == null) return
         lastQuery = q
+        _person.value = null
+        resultsBeforePerson = null
         loaded = null
         layoutType.value = null
         rowsJob?.cancel()
@@ -189,7 +196,39 @@ class MediaViewModel @Inject constructor(
         rowsJob = viewModelScope.launch { repo.rows(type).collect { _rows.value = it } }
     }
 
+    // ---- Search: a person's films and shows, in place of the results until Back
+
+    private val _person = MutableStateFlow<String?>(null)
+    /** The person whose films and shows are showing (search), or null. */
+    val person = _person.asStateFlow()
+    private var resultsBeforePerson: RowsState? = null
+
+    private fun openPerson(item: MediaItem) {
+        val id = item.key.removePrefix("person:")
+        if (_person.value == null) resultsBeforePerson = _rows.value
+        _person.value = item.title
+        rowsJob?.cancel()
+        _rows.value = RowsState(emptyList(), done = false)
+        rowsJob = viewModelScope.launch {
+            val rows = runCatching { repo.personCredits(id, item.title) }.getOrDefault(emptyList())
+            _rows.value = RowsState(rows, done = true)
+        }
+    }
+
+    /** Back from a person: the search results again. */
+    fun closePerson() {
+        if (_person.value == null) return
+        rowsJob?.cancel()
+        _person.value = null
+        _rows.value = resultsBeforePerson ?: RowsState(emptyList(), done = true)
+        resultsBeforePerson = null
+    }
+
+    /** Quick picks under the search box (titles and names that match what's typed). */
+    suspend fun suggestions(q: String): List<String> = if (q.trim().length < 2) emptyList() else runCatching { repo.suggestions(q.trim()) }.getOrDefault(emptyList())
+
     fun open(item: MediaItem) {
+        if (item.key.startsWith("person:")) return openPerson(item)
         detailJob?.cancel()
         _detail.value = DetailUi(MediaDetail(item))
         detailJob = viewModelScope.launch {
@@ -532,6 +571,23 @@ class MediaViewModel @Inject constructor(
                     false -> it?.copy(watchlisted = false, message = "Removed from your Trakt watchlist.")
                 }
             }
+        }
+    }
+}
+
+/** Search filter buttons: what the results show. */
+enum class SearchFilter(val label: String) {
+    All("All"), Films("Films"), Shows("Shows"), LiveTv("Live TV"), Library("In my library");
+
+    fun apply(rows: List<io.github.petebutty.viewarr.data.media.MediaRow>): List<io.github.petebutty.viewarr.data.media.MediaRow> = when (this) {
+        All -> rows
+        LiveTv -> emptyList()
+        Library -> rows.filter { it.id == "search-library" }
+        Films, Shows -> {
+            val want = if (this == Films) MediaType.Movie else MediaType.Show
+            rows.filter { it.id != "search-people" }
+                .map { r -> r.copy(items = r.items.filter { it.type == want }) }
+                .filter { it.items.isNotEmpty() }
         }
     }
 }

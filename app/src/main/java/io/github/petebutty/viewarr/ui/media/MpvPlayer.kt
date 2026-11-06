@@ -240,8 +240,9 @@ fun MpvPlayer(
         }
     }
     LaunchedEffect(Unit) { repeat(3) { awaitFrame(); runCatching { focus.requestFocus() } } }
-    LaunchedEffect(hasFocus, tracksOpen) {
-        if (!hasFocus && !tracksOpen) { delay(150); runCatching { focus.requestFocus() } }
+    val searchOpen = io.github.petebutty.viewarr.ui.common.LocalQuickSearchOpen.current
+    LaunchedEffect(hasFocus, tracksOpen, searchOpen) {
+        if (!hasFocus && !tracksOpen && !searchOpen) { delay(150); runCatching { focus.requestFocus() } }
     }
     // Repaint the clock for the auto-hiding controls.
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }

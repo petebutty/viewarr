@@ -120,17 +120,24 @@ class CatalogRepository @Inject constructor(
     fun search(query: String): Flow<RowsState> = channelFlow {
         val q = query.trim()
         val a = store.current()
+        // Rows in this order, each shown as soon as it arrives: your own copies first, then discovery, then addons.
         val slots: List<suspend () -> List<MediaRow>> = buildList {
-            a.plex?.let { p -> add { listOfNotNull(plexSearch(a, p, q)) } }
+            add { listOfNotNull(librarySearch(a, q)) }
             a.tmdbKey?.let { k ->
                 add { listOfNotNull(tmdbSearch(k, MediaType.Movie, q)) }
                 add { listOfNotNull(tmdbSearch(k, MediaType.Show, q)) }
+                add { listOfNotNull(tmdbPeople(k, q)) }
             }
             a.activeAddons.forEach { addon -> add { stremioSearch(addon, q) } }
         }
         val found = arrayOfNulls<List<MediaRow>>(slots.size)
         val lock = Mutex()
         var finished = 0
+        // Titles found in your libraries: TMDB results with the same id get a tick.
+        val owned = HashSet<String>()
+        fun withTicks(rows: List<MediaRow>) = rows.map { r ->
+            if (!r.id.startsWith("search-tmdb")) r else r.copy(items = r.items.map { it.copy(owned = it.key in owned) })
+        }
         slots.forEachIndexed { i, slot ->
             launch {
                 val result = runCatching { withTimeoutOrNull(20_000) { slot() } }
@@ -138,13 +145,119 @@ class CatalogRepository @Inject constructor(
                     .getOrNull().orEmpty().map { r -> r.copy(items = r.items.distinctBy { it.key }) }.filter { it.items.isNotEmpty() }
                 lock.withLock {
                     found[i] = result
+                    if (i == 0) result.firstOrNull()?.items?.forEach { owned.add(it.key) }
                     finished++
-                    send(RowsState(found.filterNotNull().flatten(), done = finished == slots.size))
+                    send(RowsState(withTicks(found.filterNotNull().flatten()), done = finished == slots.size))
                 }
             }
         }
         if (slots.isEmpty()) send(RowsState(emptyList(), done = true))
         awaitClose()
+    }
+
+    /**
+     * "In your library": the search words asked of Plex, Jellyfin, Emby and the IPTV provider's films and series,
+     * merged into one row. A title on several servers is one poster that says where it is ("Plex · Jellyfin").
+     * Closest names first.
+     */
+    private suspend fun librarySearch(a: Accounts, q: String): MediaRow? = coroutineScope {
+        val parts = buildList {
+            a.plex?.let { p -> add(async { runCatching { withTimeoutOrNull(12_000) { plexSearch(a, p, q)?.items } }.getOrNull().orEmpty() }) }
+            listOfNotNull(a.jellyfin?.let { it to false }, a.emby?.let { it to true }).forEach { (srv, emby) ->
+                add(async { runCatching { withTimeoutOrNull(12_000) { serverSearch(a, srv, emby, q) } }.getOrNull().orEmpty() })
+            }
+            add(async { runCatching { withTimeoutOrNull(12_000) { providerSearch(q) } }.getOrNull().orEmpty() })
+        }
+        val all = parts.awaitAll().flatten()
+        if (all.isEmpty()) return@coroutineScope null
+        val merged = all.groupBy { it.key }.map { (_, copies) ->
+            copies.first().copy(origin = copies.map { it.origin }.distinct().joinToString(" · "))
+        }
+        val needle = q.lowercase()
+        fun rank(m: MediaItem): Int {
+            val t = m.title.lowercase()
+            return when { t == needle -> 0; t.startsWith(needle) -> 1; t.contains(needle) -> 2; else -> 3 }
+        }
+        MediaRow("search-library", "In your library", merged.withIndex().sortedWith(compareBy({ rank(it.value) }, { it.index })).map { it.value })
+    }
+
+    private suspend fun serverSearch(a: Accounts, srv: MediaServerAuth, emby: Boolean, q: String): List<MediaItem> {
+        val name = if (emby) "Emby" else "Jellyfin"
+        val r = http.get(
+            "${srv.serverUrl}/Users/${srv.userId}/Items?Recursive=true&IncludeItemTypes=Movie,Series&SearchTerm=${enc(q)}&Limit=30&Fields=ProviderIds,Overview,ProductionYear",
+            mediaServers.headers(emby, a.deviceId, srv.token),
+        )
+        if (!r.ok) return emptyList()
+        return r.body.array("Items").mapNotNull { j ->
+            serverItem(srv, j, if (j.str("Type") == "Series") MediaType.Show else MediaType.Movie, name)
+        }
+    }
+
+    private suspend fun providerSearch(q: String): List<MediaItem> {
+        val s = xcSession() ?: return emptyList()
+        val (films, series) = xcCatalog(s)
+        val needle = q.lowercase()
+        val f = films.asSequence().filter { it.name.lowercase().contains(needle) }.take(20).map { v ->
+            MediaItem(
+                key = v.tmdbId?.let { "tmdb:Movie:$it" } ?: xcKey(MediaType.Movie, v.streamId),
+                type = MediaType.Movie, title = v.name, year = v.year, poster = v.poster, rating = v.rating, tmdbId = v.tmdbId,
+                origin = "Your provider",
+            )
+        }
+        val sr = series.asSequence().filter { it.name.lowercase().contains(needle) }.take(20).map { v ->
+            MediaItem(
+                key = v.tmdbId?.let { "tmdb:Show:$it" } ?: xcKey(MediaType.Show, v.seriesId),
+                type = MediaType.Show, title = v.name, year = v.year, poster = v.poster, backdrop = v.backdrop, overview = v.plot,
+                rating = v.rating, tmdbId = v.tmdbId, origin = "Your provider",
+            )
+        }
+        return (f + sr).toList()
+    }
+
+    /** People whose name matches (actors, directors…), with their photo. Opening one lists their films and shows. */
+    private suspend fun tmdbPeople(key: String, q: String): MediaRow? {
+        val r = http.get(tmdb.url("/search/person", key, mapOf("language" to "en-GB", "query" to q, "include_adult" to "false")), tmdb.headers(key))
+        if (!r.ok) return null
+        val people = r.body.array("results").mapNotNull { j ->
+            val id = j.int("id") ?: return@mapNotNull null
+            val photo = j.str("profile_path") ?: return@mapNotNull null
+            MediaItem(
+                key = "person:$id", type = MediaType.Movie, title = j.str("name") ?: return@mapNotNull null,
+                poster = TMDB_IMG + "w185" + photo, origin = "TMDB", subtitle = j.str("known_for_department"),
+            )
+        }
+        return MediaRow("search-people", "People", people.take(20))
+    }
+
+    /** A person's films and shows (acting, and directing / writing), most popular first. */
+    suspend fun personCredits(personId: String, name: String): List<MediaRow> {
+        val key = store.current().tmdbKey ?: return emptyList()
+        val r = http.get(tmdb.url("/person/$personId/combined_credits", key, mapOf("language" to "en-GB")), tmdb.headers(key))
+        if (!r.ok) return emptyList()
+        fun pop(j: JsonElement?) = (j.child("popularity") as? JsonPrimitive)?.doubleOrNull ?: 0.0
+        fun items(list: List<JsonElement>, type: MediaType) = list.sortedByDescending { pop(it) }
+            .mapNotNull { tmdbItem(it, type) }.filter { it.poster != null }.distinctBy { it.key }.take(40)
+        val cast = r.body.array("cast")
+        val crew = r.body.array("crew").filter { it.str("job") == "Director" || it.str("department") == "Writing" }
+        return listOfNotNull(
+            MediaRow("person-films", "Films with $name", items(cast.filter { it.str("media_type") == "movie" }, MediaType.Movie)),
+            MediaRow("person-shows", "Shows with $name", items(cast.filter { it.str("media_type") == "tv" }, MediaType.Show)),
+            MediaRow("person-made", "Directed or written by $name", items(crew.filter { it.str("media_type") == "movie" }, MediaType.Movie) +
+                items(crew.filter { it.str("media_type") == "tv" }, MediaType.Show)),
+        ).filter { it.items.isNotEmpty() }
+    }
+
+    /** Quick picks while typing: the best-known titles and names that match (TMDB). */
+    suspend fun suggestions(q: String): List<String> {
+        val key = store.current().tmdbKey ?: return emptyList()
+        val r = runCatching { http.get(tmdb.url("/search/multi", key, mapOf("language" to "en-GB", "query" to q, "include_adult" to "false")), tmdb.headers(key)) }
+            .getOrNull()?.takeIf { it.ok } ?: return emptyList()
+        return r.body.array("results")
+            .sortedByDescending { (it.child("popularity") as? JsonPrimitive)?.doubleOrNull ?: 0.0 }
+            .mapNotNull { it.str("title") ?: it.str("name") }
+            .distinctBy { it.lowercase() }
+            .filter { !it.equals(q, ignoreCase = true) }
+            .take(6)
     }
 
     private suspend fun tmdbSearch(key: String, type: MediaType, q: String): MediaRow? {

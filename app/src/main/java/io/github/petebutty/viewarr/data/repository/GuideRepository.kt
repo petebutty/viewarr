@@ -110,6 +110,8 @@ class GuideRepository @Inject constructor(
     fun observeProgramBlock(groupId: Int?, offset: Int, count: Int, start: Long, end: Long) =
         dao.observeProgramBlock(groupId, offset, count, start, end)
 
+    suspend fun searchPrograms(q: String, from: Long, limit: Int) = dao.searchPrograms(q, from, limit)
+
     suspend fun syncIfStale(session: Session) {
         val age = System.currentTimeMillis() - prefs.getLong(KEY_LAST_SYNC, 0)
         // Signed in somewhere else (another server, user, or Dispatcharr ↔ provider): the stored channels are the old
