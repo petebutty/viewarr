@@ -46,8 +46,6 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 private const val TAG = "Catalog"
-/** Titles per request when building the "In your library" index (keeps each answer small). */
-private const val INDEX_PAGE = 500
 private const val TMDB_IMG = "https://image.tmdb.org/t/p/"
 /** Library copies from the IPTV provider (Xtream Codes) are labelled with this source. */
 const val PROVIDER = "Provider"
@@ -71,8 +69,6 @@ class CatalogRepository @Inject constructor(
 ) {
     private val tmdbCache = ConcurrentHashMap<String, MediaItem>()
     private val tmdbLimit = Semaphore(6)
-    private val indexLock = Mutex()
-    @Volatile private var index: Map<String, List<LibraryCopy>>? = null
     @Volatile private var traktWatchlist: MutableSet<String> = ConcurrentHashMap.newKeySet()
 
     fun rows(type: MediaType): Flow<RowsState> = channelFlow {
@@ -502,80 +498,107 @@ class CatalogRepository @Inject constructor(
         )
     }
 
-    // ------------------------------------------------------------------ library index (In your library)
+    // ------------------------------------------------------------------ In your library
 
-    private fun indexKeys(type: MediaType, tmdbId: Int?, imdbId: String?) =
-        listOfNotNull(tmdbId?.let { "${type.name}:tmdb:$it" }, imdbId?.let { "${type.name}:imdb:$it" })
+    /** Answers already worked out this run (title key → copies), kept for 10 minutes. */
+    private val copyCache = ConcurrentHashMap<String, Pair<Long, List<LibraryCopy>>>()
+    @Volatile private var plexSectionCache: Pair<Long, List<JsonElement>>? = null
 
-    /** Which of the user's own servers have this title. Built once per run from Plex and Jellyfin/Emby. */
+    /**
+     * Which of the user's own servers have this title. Each server is asked about just this title (by name, then
+     * matched on its TMDB / IMDb id), so it's quick however big the libraries are. Reading whole libraries instead
+     * took minutes, or ran the TV out of memory, on big Plex servers.
+     */
     suspend fun copiesOf(item: MediaItem): List<LibraryCopy> {
-        val idx = index ?: indexLock.withLock { index ?: buildIndex().also { index = it } }
-        return (indexKeys(item.type, item.tmdbId, item.imdbId) + item.key).flatMap { idx[it].orEmpty() }.distinctBy { it.source }
+        copyCache[item.key]?.takeIf { System.currentTimeMillis() - it.first < 10 * 60_000L }?.let { return it.second }
+        val a = store.current()
+        val found = coroutineScope {
+            val jobs = buildList {
+                a.plex?.let { p -> add(async { runCatching { withTimeoutOrNull(15_000) { plexCopies(a, p, item) } }.getOrNull().orEmpty() }) }
+                listOfNotNull(a.jellyfin?.let { it to false }, a.emby?.let { it to true }).forEach { (srv, emby) ->
+                    add(async { runCatching { withTimeoutOrNull(15_000) { serverCopies(a, srv, emby, item) } }.getOrNull().orEmpty() })
+                }
+                add(async { runCatching { withTimeoutOrNull(20_000) { providerCopies(item) } }.getOrNull().orEmpty() })
+            }
+            jobs.awaitAll().flatten()
+        }.distinctBy { it.source }
+        copyCache[item.key] = System.currentTimeMillis() to found
+        return found
     }
 
-    private suspend fun buildIndex(): Map<String, List<LibraryCopy>> {
-        val a = store.current()
-        val out = HashMap<String, MutableList<LibraryCopy>>()
-        fun add(type: MediaType, tmdbId: Int?, imdbId: String?, copy: LibraryCopy) =
-            indexKeys(type, tmdbId, imdbId).forEach { out.getOrPut(it) { ArrayList() }.add(copy) }
-        a.plex?.let { p ->
-            for (type in MediaType.entries) for (s in runCatching { plexSections(a, p, type) }.getOrDefault(emptyList())) {
-                val key = s.str("key") ?: continue
-                // A page at a time: a big library in one answer (summaries, cast…) can be 100+ MB and runs the TV
-                // out of memory, leaving title pages stuck on "Checking your library".
-                var start = 0
-                while (true) {
-                    val page = runCatching {
-                        plexGet(a, p, "/library/sections/$key/all?includeGuids=1&X-Plex-Container-Start=$start&X-Plex-Container-Size=$INDEX_PAGE")
-                    }.getOrNull()?.array("Metadata") ?: break
-                    page.forEach { j ->
-                        val (tmdbId, imdbId) = guidIds(j)
-                        val res = j.array("Media").firstOrNull()?.str("videoResolution")
-                        add(type, tmdbId, imdbId, LibraryCopy("Plex", res?.let { if (it.all(Char::isDigit)) "${it}p" else it.uppercase() }, j.str("ratingKey")))
-                    }
-                    if (page.size < INDEX_PAGE) break
-                    start += page.size
-                }
-            }
+    /** True when a server's entry is this title: same TMDB or IMDb id, or (no ids to go on) same name and year. */
+    private fun sameTitle(item: MediaItem, tmdbId: Int?, imdbId: String?, name: String?, year: Int?): Boolean {
+        if (item.tmdbId != null && tmdbId != null) return item.tmdbId == tmdbId
+        if (item.imdbId != null && imdbId != null) return item.imdbId == imdbId
+        if (name == null || !name.equals(item.title, ignoreCase = true)) return false
+        return item.year == null || year == null || kotlin.math.abs(item.year - year) <= 1
+    }
+
+    /** Names to ask for: the title, and its part before a colon ("Batman: Year One" is "Batman Year One" on some servers). */
+    private fun searchNames(title: String) = listOf(title, title.substringBefore(':').trim()).filter { it.length >= 2 }.distinct()
+
+    private fun plexCopy(j: JsonElement?): LibraryCopy {
+        val res = j.array("Media").firstOrNull()?.str("videoResolution")
+        return LibraryCopy("Plex", res?.let { if (it.all(Char::isDigit)) "${it}p" else it.uppercase() }, j.str("ratingKey"))
+    }
+
+    private suspend fun plexCopies(a: Accounts, p: PlexAuth, item: MediaItem): List<LibraryCopy> {
+        // A title from a Plex row already knows where it is.
+        if (item.key.startsWith("plex:")) {
+            val rk = item.key.removePrefix("plex:")
+            val m = plexGet(a, p, "/library/metadata/$rk")?.array("Metadata")?.firstOrNull() ?: return listOf(LibraryCopy("Plex", null, rk))
+            return listOf(plexCopy(m))
         }
-        listOfNotNull(a.jellyfin?.let { it to false }, a.emby?.let { it to true }).forEach { (s, emby) ->
-          var start = 0
-          while (true) {
+        val sections = (plexSectionCache?.takeIf { System.currentTimeMillis() - it.first < 30 * 60_000L }?.second
+            ?: (plexGet(a, p, "/library/sections")?.array("Directory").orEmpty().also { plexSectionCache = System.currentTimeMillis() to it }))
+            .filter { it.str("type") == if (item.type == MediaType.Movie) "movie" else "show" }
+            .mapNotNull { it.str("key") }
+        for (name in searchNames(item.title)) {
+            val hits = coroutineScope {
+                sections.map { key ->
+                    async {
+                        runCatching { plexGet(a, p, "/library/sections/$key/all?title=${enc(name)}&includeGuids=1&X-Plex-Container-Start=0&X-Plex-Container-Size=30") }
+                            .getOrNull()?.array("Metadata").orEmpty()
+                    }
+                }.awaitAll().flatten()
+            }
+            val match = hits.firstOrNull { j -> val (t, i) = guidIds(j); sameTitle(item, t, i, j.str("title"), j.int("year")) }
+            if (match != null) return listOf(plexCopy(match))
+        }
+        return emptyList()
+    }
+
+    private suspend fun serverCopies(a: Accounts, srv: MediaServerAuth, emby: Boolean, item: MediaItem): List<LibraryCopy> {
+        val source = if (emby) "Emby" else "Jellyfin"
+        val prefix = source.lowercase() + ":"
+        if (item.key.startsWith(prefix)) return listOf(LibraryCopy(source, null, item.key.removePrefix(prefix)))
+        val kind = if (item.type == MediaType.Movie) "Movie" else "Series"
+        for (name in searchNames(item.title)) {
             val r = runCatching {
                 http.get(
-                    "${s.serverUrl}/Users/${s.userId}/Items?IncludeItemTypes=Movie,Series&Recursive=true&Fields=ProviderIds&EnableImages=false&StartIndex=$start&Limit=$INDEX_PAGE",
-                    mediaServers.headers(emby, a.deviceId, s.token),
+                    "${srv.serverUrl}/Users/${srv.userId}/Items?Recursive=true&IncludeItemTypes=$kind&SearchTerm=${enc(name)}&Fields=ProviderIds,ProductionYear&EnableImages=false&Limit=30",
+                    mediaServers.headers(emby, a.deviceId, srv.token),
                 )
-            }.getOrNull()?.takeIf { it.ok } ?: break
-            val page = r.body.array("Items")
-            page.forEach { j ->
-                val type = if (j.str("Type") == "Series") MediaType.Show else MediaType.Movie
-                val source = if (emby) "Emby" else "Jellyfin"
-                val id = j.str("Id") ?: return@forEach
-                val copy = LibraryCopy(source, null, id)
-                add(type, j.child("ProviderIds").str("Tmdb")?.toIntOrNull(), j.child("ProviderIds").str("Imdb"), copy)
-                // Titles without TMDB / IMDb ids are found by their own key (as used on the server's rows).
-                out.getOrPut("${source.lowercase()}:$id") { ArrayList() }.add(copy)
+            }.getOrNull()?.takeIf { it.ok } ?: return emptyList()
+            val match = r.body.array("Items").firstOrNull { j ->
+                sameTitle(item, j.child("ProviderIds").str("Tmdb")?.toIntOrNull(), j.child("ProviderIds").str("Imdb"), j.str("Name"), j.int("ProductionYear"))
             }
-            if (page.size < INDEX_PAGE) break
-            start += page.size
-          }
+            if (match != null) return listOfNotNull(match.str("Id")?.let { LibraryCopy(source, null, it) })
         }
-        xcSession()?.let { s ->
-            val (films, series) = xcCatalog(s)
-            films.forEach { v ->
-                val copy = LibraryCopy(PROVIDER, v.extension.uppercase(), "movie:${v.streamId}:${v.extension}")
-                add(MediaType.Movie, v.tmdbId, null, copy)
-                out.getOrPut(xcKey(MediaType.Movie, v.streamId)) { ArrayList() }.add(copy)
-            }
-            series.forEach { v ->
-                val copy = LibraryCopy(PROVIDER, null, "series:${v.seriesId}")
-                add(MediaType.Show, v.tmdbId, null, copy)
-                out.getOrPut(xcKey(MediaType.Show, v.seriesId)) { ArrayList() }.add(copy)
-            }
+        return emptyList()
+    }
+
+    /** The IPTV provider's films / series (one list, fetched every few hours and kept in memory). */
+    private suspend fun providerCopies(item: MediaItem): List<LibraryCopy> {
+        val s = xcSession() ?: return emptyList()
+        val (films, series) = xcCatalog(s)
+        return if (item.type == MediaType.Movie) {
+            films.firstOrNull { v -> xcKey(MediaType.Movie, v.streamId) == item.key || (item.tmdbId != null && v.tmdbId == item.tmdbId) }
+                ?.let { v -> listOf(LibraryCopy(PROVIDER, v.extension.uppercase(), "movie:${v.streamId}:${v.extension}")) }.orEmpty()
+        } else {
+            series.firstOrNull { v -> xcKey(MediaType.Show, v.seriesId) == item.key || (item.tmdbId != null && v.tmdbId == item.tmdbId) }
+                ?.let { v -> listOf(LibraryCopy(PROVIDER, null, "series:${v.seriesId}")) }.orEmpty()
         }
-        Log.i(TAG, "library index: ${out.size} keys")
-        return out
     }
 
     // ------------------------------------------------------------------ playback sources
