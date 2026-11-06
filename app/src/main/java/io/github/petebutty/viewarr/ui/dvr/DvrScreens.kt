@@ -132,7 +132,7 @@ private fun episodeTag(season: Int?, episode: Int?) = if (season != null && epis
 
 /** Small centred panel of choices, used for the record options and the recording options. */
 @Composable
-private fun ChoicePanel(
+internal fun ChoicePanel(
     title: String,
     subtitle: String,
     choices: List<Pair<String, () -> Unit>>,

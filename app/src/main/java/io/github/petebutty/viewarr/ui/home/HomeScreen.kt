@@ -1741,6 +1741,8 @@ private fun RecordingsPanel(focusRequester: FocusRequester, onCount: (Int) -> Un
         .sortedByDescending { it.start }.take(8)
     val upcoming = all.filter { it.state == io.github.petebutty.viewarr.data.dvr.DvrState.Scheduled }.sortedBy { it.start }.take(4)
     LaunchedEffect(recorded.size + upcoming.size) { onCount(recorded.size + upcoming.size) }
+    var picked by remember { mutableStateOf<io.github.petebutty.viewarr.data.dvr.DvrRecording?>(null) }
+    var confirmDelete by remember { mutableStateOf(false) }
     val day = java.time.format.DateTimeFormatter.ofPattern("EEE d MMM")
     val time = java.time.format.DateTimeFormatter.ofPattern("EEE HH:mm")
     fun at(ms: Long, f: java.time.format.DateTimeFormatter) = java.time.Instant.ofEpochMilli(ms).atZone(java.time.ZoneId.systemDefault()).format(f)
@@ -1758,13 +1760,47 @@ private fun RecordingsPanel(focusRequester: FocusRequester, onCount: (Int) -> Un
                 trailing = at(r.start, day),
                 selected = false,
                 onClick = { scope.launch { dvr.playback(r)?.let(onPlay) } },
+                // Hold OK: play, stop or delete.
+                onLongClick = { dvr.clearMessage(); confirmDelete = false; picked = r },
             )
         }
         if (upcoming.isNotEmpty()) item(key = "h-up") {
             Text("Coming up", fontSize = 13.sp, color = AppColors.Accent, modifier = Modifier.padding(start = 12.dp, top = 10.dp, bottom = 4.dp))
         }
         items(upcoming, key = { "u${it.id}" }) { r ->
-            MenuItem(text = r.title, trailing = at(r.start, time), selected = false, onClick = onOpenPage)
+            MenuItem(text = r.title, trailing = at(r.start, time), selected = false, onClick = onOpenPage, onLongClick = { dvr.clearMessage(); confirmDelete = false; picked = r })
+        }
+    }
+    picked?.let { r ->
+        val message by dvr.message.collectAsStateWithLifecycle()
+        val close = { picked = null; confirmDelete = false; scope.launch { awaitFrame(); runCatching { focusRequester.requestFocus() } }; Unit }
+        // Done (or failed): the message shows a moment, then the options close.
+        LaunchedEffect(message) { if (message != null && message != "Working…") { delay(1_400); close() } }
+        androidx.compose.ui.window.Dialog(onDismissRequest = close, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
+            if (confirmDelete) {
+                // "Keep it" first, so a stray OK can never delete anything.
+                io.github.petebutty.viewarr.ui.dvr.ChoicePanel(
+                    "Delete \"${r.title}\"?",
+                    "This deletes the recording from your Dispatcharr server. It can't be undone.",
+                    listOf("Keep it" to { confirmDelete = false }, "Delete permanently" to { confirmDelete = false; dvr.cancel(r); Unit }),
+                    message,
+                    { confirmDelete = false },
+                )
+            } else {
+                val choices = buildList<Pair<String, () -> Unit>> {
+                    when (r.state) {
+                        io.github.petebutty.viewarr.data.dvr.DvrState.Recorded -> {
+                            if (r.hasFile) add("Play" to { picked = null; scope.launch { dvr.playback(r)?.let(onPlay) }; Unit })
+                            add("Delete recording…" to { confirmDelete = true })
+                        }
+                        io.github.petebutty.viewarr.data.dvr.DvrState.Recording -> add("Stop recording" to { dvr.stop(r); Unit })
+                        io.github.petebutty.viewarr.data.dvr.DvrState.Scheduled -> add("Cancel recording" to { dvr.cancel(r); Unit })
+                        else -> add("Remove from list" to { dvr.cancel(r); Unit })
+                    }
+                    add("Close" to close)
+                }
+                io.github.petebutty.viewarr.ui.dvr.ChoicePanel(r.title, at(r.start, time), choices, message, close)
+            }
         }
     }
 }
