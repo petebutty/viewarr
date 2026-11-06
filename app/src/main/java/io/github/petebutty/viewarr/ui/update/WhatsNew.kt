@@ -54,8 +54,11 @@ fun WhatsNewHost() {
     val (heading, points) = remember { read(context) }
     if (points.isEmpty()) return
     val ok = remember { FocusRequester() }
-    LaunchedEffect(Unit) { awaitFrame(); runCatching { ok.requestFocus() } }
-    androidx.activity.compose.BackHandler { show = false }
+    // Stays until you press Got it (or Back). Presses in the first moment are ignored, so an OK meant for the
+    // screen underneath can't close it before it's been read.
+    var ready by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { awaitFrame(); runCatching { ok.requestFocus() }; kotlinx.coroutines.delay(1_500); ready = true }
+    androidx.activity.compose.BackHandler { if (ready) show = false }
     Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.6f)), contentAlignment = Alignment.Center) {
         Column(
             Modifier.width(560.dp).background(AppColors.Panel, RoundedCornerShape(14.dp)).padding(24.dp).trapFocus(),
@@ -70,7 +73,7 @@ fun WhatsNewHost() {
                 }
             }
             Box(Modifier.padding(top = 8.dp)) {
-                MenuItem(text = "Got it", selected = false, onClick = { show = false }, modifier = Modifier.focusRequester(ok))
+                MenuItem(text = "Got it", selected = false, onClick = { if (ready) show = false }, modifier = Modifier.focusRequester(ok))
             }
         }
     }
