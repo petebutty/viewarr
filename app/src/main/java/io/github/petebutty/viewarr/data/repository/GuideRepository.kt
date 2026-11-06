@@ -112,10 +112,16 @@ class GuideRepository @Inject constructor(
 
     suspend fun syncIfStale(session: Session) {
         val age = System.currentTimeMillis() - prefs.getLong(KEY_LAST_SYNC, 0)
-        if (age > STALE_MS || dao.programCount() == 0) sync(session)
+        // Signed in somewhere else (another server, user, or Dispatcharr ↔ provider): the stored channels are the old
+        // server's, with its channel ids, so reload now rather than when they'd normally go stale.
+        val other = prefs.getString(KEY_SOURCE, null) != sourceId(session)
+        if (age > STALE_MS || dao.programCount() == 0 || other) sync(session)
     }
 
+    private fun sourceId(s: Session) = "${s.serverUrl}|${s.username}|${s.isXc}"
+
     suspend fun sync(session: Session) = mutex.withLock {
+        prefs.edit().putString(KEY_SOURCE, sourceId(session)).apply()
         if (session.isXc) return@withLock syncXc(session)
         try {
             _sync.value = SyncState.Running("Updating channels…")
@@ -349,6 +355,7 @@ class GuideRepository @Inject constructor(
     private companion object {
         const val KEY_LAST_SYNC = "last_sync"
         const val KEY_SYNCED_FROM = "synced_from"
+        const val KEY_SOURCE = "synced_source"
         const val STALE_MS = 4 * 3_600_000L
         const val LOOKBACK_MS = 3_600_000L
         const val XC_LOOKBACK_MS = 48 * 3_600_000L
