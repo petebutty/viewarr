@@ -46,6 +46,8 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 private const val TAG = "Catalog"
+/** Titles per request when building the "In your library" index (keeps each answer small). */
+private const val INDEX_PAGE = 500
 private const val TMDB_IMG = "https://image.tmdb.org/t/p/"
 /** Library copies from the IPTV provider (Xtream Codes) are labelled with this source. */
 const val PROVIDER = "Provider"
@@ -104,7 +106,7 @@ class CatalogRepository @Inject constructor(
             launch {
                 val result = runCatching { withTimeoutOrNull(25_000) { slot() } }
                     .onFailure { Log.w(TAG, "row ${type.name}#$i failed: ${it.javaClass.simpleName} ${it.message}") }
-                    .getOrNull().orEmpty().filter { it.items.isNotEmpty() }
+                    .getOrNull().orEmpty().map { r -> r.copy(items = r.items.distinctBy { it.key }) }.filter { it.items.isNotEmpty() }
                 lock.withLock {
                     found[i] = result
                     finished++
@@ -137,7 +139,7 @@ class CatalogRepository @Inject constructor(
             launch {
                 val result = runCatching { withTimeoutOrNull(20_000) { slot() } }
                     .onFailure { Log.w(TAG, "search #$i failed: ${it.javaClass.simpleName}") }
-                    .getOrNull().orEmpty().filter { it.items.isNotEmpty() }
+                    .getOrNull().orEmpty().map { r -> r.copy(items = r.items.distinctBy { it.key }) }.filter { it.items.isNotEmpty() }
                 lock.withLock {
                     found[i] = result
                     finished++
@@ -362,9 +364,14 @@ class CatalogRepository @Inject constructor(
             sections.map { s ->
                 async {
                     val key = s.str("key") ?: return@async null
-                    val items = plexGet(a, p, "/library/sections/$key/all?sort=addedAt:desc&includeGuids=1&X-Plex-Container-Start=0&X-Plex-Container-Size=40")
-                        ?.array("Metadata").orEmpty().mapNotNull { plexItem(p, it, type) }
                     val name = s.str("title") ?: "Plex"
+                    // Each library on its own clock: one slow library (big, or a remote server) mustn't hold up the rest.
+                    val items = runCatching {
+                        withTimeoutOrNull(15_000) {
+                            plexGet(a, p, "/library/sections/$key/all?sort=addedAt:desc&includeGuids=1&X-Plex-Container-Start=0&X-Plex-Container-Size=40")
+                                ?.array("Metadata").orEmpty().mapNotNull { plexItem(p, it, type) }
+                        }
+                    }.getOrNull() ?: run { Log.w(TAG, "plex library '$name' didn't answer in time"); return@async null }
                     MediaRow("plex-recent-$key", if (sections.size == 1) "Recently added" else "Recently added in $name", items)
                 }
             }.awaitAll().filterNotNull()
@@ -514,21 +521,34 @@ class CatalogRepository @Inject constructor(
         a.plex?.let { p ->
             for (type in MediaType.entries) for (s in runCatching { plexSections(a, p, type) }.getOrDefault(emptyList())) {
                 val key = s.str("key") ?: continue
-                runCatching { plexGet(a, p, "/library/sections/$key/all?includeGuids=1") }.getOrNull()?.array("Metadata")?.forEach { j ->
-                    val (tmdbId, imdbId) = guidIds(j)
-                    val res = j.array("Media").firstOrNull()?.str("videoResolution")
-                    add(type, tmdbId, imdbId, LibraryCopy("Plex", res?.let { if (it.all(Char::isDigit)) "${it}p" else it.uppercase() }, j.str("ratingKey")))
+                // A page at a time: a big library in one answer (summaries, cast…) can be 100+ MB and runs the TV
+                // out of memory, leaving title pages stuck on "Checking your library".
+                var start = 0
+                while (true) {
+                    val page = runCatching {
+                        plexGet(a, p, "/library/sections/$key/all?includeGuids=1&X-Plex-Container-Start=$start&X-Plex-Container-Size=$INDEX_PAGE")
+                    }.getOrNull()?.array("Metadata") ?: break
+                    page.forEach { j ->
+                        val (tmdbId, imdbId) = guidIds(j)
+                        val res = j.array("Media").firstOrNull()?.str("videoResolution")
+                        add(type, tmdbId, imdbId, LibraryCopy("Plex", res?.let { if (it.all(Char::isDigit)) "${it}p" else it.uppercase() }, j.str("ratingKey")))
+                    }
+                    if (page.size < INDEX_PAGE) break
+                    start += page.size
                 }
             }
         }
         listOfNotNull(a.jellyfin?.let { it to false }, a.emby?.let { it to true }).forEach { (s, emby) ->
+          var start = 0
+          while (true) {
             val r = runCatching {
                 http.get(
-                    "${s.serverUrl}/Users/${s.userId}/Items?IncludeItemTypes=Movie,Series&Recursive=true&Fields=ProviderIds",
+                    "${s.serverUrl}/Users/${s.userId}/Items?IncludeItemTypes=Movie,Series&Recursive=true&Fields=ProviderIds&EnableImages=false&StartIndex=$start&Limit=$INDEX_PAGE",
                     mediaServers.headers(emby, a.deviceId, s.token),
                 )
-            }.getOrNull()?.takeIf { it.ok } ?: return@forEach
-            r.body.array("Items").forEach { j ->
+            }.getOrNull()?.takeIf { it.ok } ?: break
+            val page = r.body.array("Items")
+            page.forEach { j ->
                 val type = if (j.str("Type") == "Series") MediaType.Show else MediaType.Movie
                 val source = if (emby) "Emby" else "Jellyfin"
                 val id = j.str("Id") ?: return@forEach
@@ -537,6 +557,9 @@ class CatalogRepository @Inject constructor(
                 // Titles without TMDB / IMDb ids are found by their own key (as used on the server's rows).
                 out.getOrPut("${source.lowercase()}:$id") { ArrayList() }.add(copy)
             }
+            if (page.size < INDEX_PAGE) break
+            start += page.size
+          }
         }
         xcSession()?.let { s ->
             val (films, series) = xcCatalog(s)

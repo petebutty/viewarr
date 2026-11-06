@@ -181,6 +181,20 @@ fun MediaScreen(
     }
     val entryCard = lastCard?.takeIf { key -> rows.any { r -> r.items.any { cardId(r, it) == key } } }
         ?: rows.firstOrNull()?.let { r -> r.items.firstOrNull()?.let { cardId(r, it) } }
+    // Rows keep arriving after the page opens (slow servers, many libraries) and can be put in above the one you're
+    // on, which drops focus: the remote then does nothing until a direction is pressed. Take it back by itself.
+    val upNextShown by vm.upNext.collectAsStateWithLifecycle()
+    LaunchedEffect(hasFocus, focusEnabled, detail == null, quick == null, quickTrailer == null, playing == null, rows.size, upNextShown == null) {
+        if (searchHeader != null || upNextShown != null || hasFocus || !focusEnabled || detail != null || quick != null || quickTrailer != null || playing != null) return@LaunchedEffect
+        if (rows.isEmpty()) return@LaunchedEffect
+        delay(400)
+        if (hasFocus) return@LaunchedEffect
+        // The poster that takes focus has to be on screen: bring its row in first.
+        val rowIndex = rows.indexOfFirst { r -> r.items.any { cardId(r, it) == entryCard } }.coerceAtLeast(0)
+        if (listState.layoutInfo.visibleItemsInfo.none { it.index == rowIndex }) runCatching { listState.scrollToItem(rowIndex) }
+        awaitFrame(); awaitFrame()
+        runCatching { focusRequester.requestFocus() }
+    }
 
     Box(Modifier.fillMaxSize().background(AppColors.Background)) {
         Column(Modifier.fillMaxSize()) {
