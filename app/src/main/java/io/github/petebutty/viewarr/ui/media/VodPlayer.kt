@@ -73,7 +73,7 @@ fun VodPlayer(
     var tracksOpen by remember { mutableStateOf(false) }
     var okDown by remember { mutableStateOf(false) }
     val scrub = remember { Scrubber() }
-    val thumbs = remember(stream) { io.github.petebutty.viewarr.playback.SeekThumbs.forStream(stream.url, stream.headers, stream.thumbs) }
+    val thumbs = remember(stream) { io.github.petebutty.viewarr.playback.SeekThumbs.forStream(stream.url, stream.headers, stream.thumbs, stream.boxPreviews) }
     DisposableEffect(thumbs) { onDispose { thumbs?.close() } }
     // The app's own controls (as mpv's): state read from the player a few times a second.
     var positionMs by remember { mutableStateOf(0L) }

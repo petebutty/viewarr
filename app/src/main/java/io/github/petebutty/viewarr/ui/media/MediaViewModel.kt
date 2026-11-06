@@ -341,6 +341,7 @@ class MediaViewModel @Inject constructor(
         _detail.update { it?.copy(message = null, episode = null) }
         _playing.value = io.github.petebutty.viewarr.data.media.VodStream(
             url = url, title = "${d.detail.item.title} · S$season E$episode", watch = watchTarget(d.detail.item, season, episode),
+            boxPreviews = false,
         )
     }
 

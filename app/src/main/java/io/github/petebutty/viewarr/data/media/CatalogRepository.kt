@@ -911,7 +911,7 @@ class CatalogRepository @Inject constructor(
         val s = xcSession() ?: return null
         val parts = ref.split(':')
         val id = parts.getOrNull(1)?.toIntOrNull() ?: return null
-        return VodStream(url = xtream.movieUrl(s, id, parts.getOrNull(2) ?: "mp4"), title = title, watch = watch)
+        return VodStream(url = xtream.movieUrl(s, id, parts.getOrNull(2) ?: "mp4"), title = title, watch = watch, boxPreviews = false)
     }
 
     /** A provider series' episodes as (season, episode) → stream address, from its library copy ("series:<id>"). */

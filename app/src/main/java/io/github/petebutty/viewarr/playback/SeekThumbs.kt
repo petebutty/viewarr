@@ -26,8 +26,8 @@ interface SeekThumbs {
          * The best source for a stream: the server's own previews (Plex / Emby BIF, Jellyfin trickplay) when it has them,
          * else pictures this box takes from the video itself. HLS (Plex converting) has no file to take them from.
          */
-        fun forStream(url: String, headers: Map<String, String>, source: ThumbSource?): SeekThumbs? {
-            val own = if (url.contains(".m3u8")) null else RetrieverThumbs(url, headers)
+        fun forStream(url: String, headers: Map<String, String>, source: ThumbSource?, boxPreviews: Boolean = true): SeekThumbs? {
+            val own = if (!boxPreviews || url.contains(".m3u8")) null else RetrieverThumbs(url, headers)
             val server = when (source) {
                 is ThumbSource.Bif -> BifThumbs(source.url, source.headers)
                 is ThumbSource.Trickplay -> TrickplayThumbs(source)

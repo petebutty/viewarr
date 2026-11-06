@@ -136,6 +136,7 @@ fun AppearanceSettingsScreen(onBack: () -> Unit, vm: AppearanceViewModel = hiltV
     )
     SettingsPage(title = "Appearance", categories = categories, onBack = onBack, onReset = {
         vm.apply(ThemePresets[0].main, ThemePresets[0].highlight); vm.setTransparency(0f)
+        vm.setShowNumbers(true); vm.setSquareCorners(true); vm.setHideMedia(false)
     })
 }
 

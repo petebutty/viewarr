@@ -57,6 +57,11 @@ data class VodStream(
     val thumbs: ThumbSource? = null,
     /** Start exactly here, whatever the resume setting (e.g. after switching player mid-film). */
     val startMs: Long? = null,
+    /**
+     * Let the box take its own previews by reading the file a second time. Off for IPTV providers: most allow one
+     * connection per account, so a second one could cut off the film (or the live TV).
+     */
+    val boxPreviews: Boolean = true,
 )
 
 /** Where a server keeps its seek-bar preview pictures. */

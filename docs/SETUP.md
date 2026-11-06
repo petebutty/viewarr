@@ -60,13 +60,16 @@ When you're done, tap **Finish on the TV**. The guide loads, which takes a minut
 
 ## 4. Using Viewarr
 
-- **Menu:** press **Back** on the guide, or Left on a row's first poster. It has TV, Movies, Shows, Search, Recordings and Settings.
-- **Watch live:** OK on a programme. While watching, **Up/Down** opens the channel list, and **OK** shows the controls (audio, subtitles, aspect, record).
+- **Menu:** press **Back** on the guide, or Left on a row's first poster. It has TV, Movies, Shows, Search, Recordings and Settings. From the guide, Left opens the channel groups first; Left again brings the main menu.
+- **Watch live:** OK on a programme. While watching, **Up/Down** opens the channel list, and **OK** shows the controls (audio, subtitles, aspect, record, and for Dispatcharr admins **Source** and **Stream info**).
 - **Record:** **hold OK** on a programme in the guide. Choose that programme, every episode, or new episodes only. A red dot marks what's set to record.
-- **Films & shows:** open a title. **Play on Plex** plays your own copy; **Search addons** finds streams. For shows, use **Episodes**.
+- **Films & shows:** open a title. **Play on Plex** (or Jellyfin / Emby) plays your own copy; **Search addons** finds streams. For shows, use **Episodes**.
+- **While a film plays:** OK pauses; **Down** opens the seek bar with preview pictures (Left/Right to move, OK to jump); **hold OK** for audio, subtitles and switching between mpv and the built-in player.
 - **Settings:**
   - **Accounts & sources:** add or change anything you set up. *Set up on your phone* brings back the QR code.
-  - **Appearance:** colours and menu transparency.
+  - **Appearance:** colours (OLED black by default), menu transparency, guide corners, channel numbers, and Movies & Shows on/off.
+  - **Home rows:** which rows the Movies and Shows pages show, and in what order.
+  - **Dispatcharr plugins** (admin users): turn plugins on and off, run their actions, and install new ones.
   - **Playback:** which player to use, audio and subtitle language, passthrough to a receiver, and Plex quality.
   - **Remote & navigation:** what the buttons do, and which page the app opens on.
 
@@ -86,6 +89,17 @@ The Dispatcharr account needs **DVR access: Manage** (Users → edit user).
 
 **Sound drops out or stutters on a film**
 Some boxes struggle to decode Dolby TrueHD or DTS-HD. If you have a receiver or soundbar, turn on **Settings → Playback → Surround passthrough**. Otherwise pick the AC3 / 5.1 soundtrack (hold OK while playing), or set **Channels** to Stereo.
+
+**A film looks choppy or skips frames**
+- Settings → Playback → **Match frame rate** lets the TV switch to the film's own rate (24p films look smoother).
+- Try the other player: hold OK while watching → *Switch to the built-in player*. On weak boxes the built-in player is often the smoothest.
+- In mpv, Settings → Playback → **mpv decoding** → *Hardware, direct to screen* is the lightest option.
+
+**A film freezes at the start with passthrough on**
+Your TV or receiver may not really accept that soundtrack. Viewarr notices and decodes the sound itself after a few seconds; if it keeps happening, turn **Surround passthrough** off.
+
+**Source / Stream info / Plugins say "admin only"**
+Dispatcharr only allows these for Admin users. Make your user an admin in Dispatcharr (Users → edit user).
 
 **A film plays sound but no picture, or won't play**
 - From Plex, Viewarr asks Plex to convert the file if the TV can't play it.

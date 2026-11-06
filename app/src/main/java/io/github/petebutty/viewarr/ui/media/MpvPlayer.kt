@@ -104,7 +104,7 @@ fun MpvPlayer(
     val scrub = remember { Scrubber() }
     // Still drawing straight to the screen (Hardware); false once picture subtitles moved this film to the GPU.
     var direct by remember { mutableStateOf(settings.mpvDecoding == MpvDecoding.Hardware) }
-    val thumbs = remember(stream) { io.github.petebutty.viewarr.playback.SeekThumbs.forStream(stream.url, stream.headers, stream.thumbs) }
+    val thumbs = remember(stream) { io.github.petebutty.viewarr.playback.SeekThumbs.forStream(stream.url, stream.headers, stream.thumbs, stream.boxPreviews) }
     DisposableEffect(thumbs) { onDispose { thumbs?.close() } }
 
     val mpv = remember(stream) {

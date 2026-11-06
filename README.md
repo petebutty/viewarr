@@ -8,35 +8,41 @@ Viewarr is an Android TV app that brings your live TV and your films and shows t
 
 Viewarr doesn't provide any content. It plays only what your own servers and accounts give it.
 
-> **Status: early beta.** It's tested on a Formuler Android TV box. Things may break; please report anything odd in [Issues](../../issues).
+> **Status: early beta.** It's tested on an Amlogic Android TV box (2 GB). For the smoothest films and full surround sound, a stronger box such as an Nvidia Shield TV Pro helps. Things may break; please report anything odd in [Issues](../../issues).
 
 ## Features
 
 **Live TV (Dispatcharr)**
-- A TiviMate-style TV guide with channel logos, categories, and programmes going back and forward in time.
+- A TiviMate-style TV guide with channel logos, categories, programmes going back and forward in time, and a progress bar under what's on now.
 - Catch-up: replay programmes from the past, where the channel supports it.
+- **Source switching:** see every stream behind a channel (and which provider it's from) and switch Dispatcharr to another one from the remote. **Stream info** shows Dispatcharr's live view: source, provider, resolution, codecs, bitrate and viewers. *(Admin users.)*
+- **Dispatcharr plugins** (Settings → Dispatcharr plugins): switch installed plugins on and off, press their action buttons, change simple settings, and install or update plugins from your server's plugin store. *(Admin users.)*
 - Recordings on your Dispatcharr server: record one programme or a whole series (every episode, or new ones only). Then watch, stop or delete recordings from the app.
 - A channel list over the picture (Up/Down while watching), channel groups, and number keys to type a channel number.
+- No Dispatcharr? Sign in with your **IPTV provider's (Xtream Codes) login** for channels, guide, catch-up and the provider's films and series.
 
 **Films & shows**
-- Netflix-style rows: Continue watching, your Trakt watchlist and recommendations, recently added on Plex, and trending, popular and top-rated titles from TMDB.
+- Netflix-style rows: Continue watching, your Trakt watchlist and recommendations, recently added on Plex, and trending, popular and top-rated titles from TMDB. Choose which rows show, and their order, in **Settings → Home rows**.
 - Detail pages with cast, rating, and "In your library" badges.
 - Seasons and episodes for shows.
-- Play from **Plex**, converted by Plex automatically when the TV can't play the file itself. Or search your **Stremio addons** (e.g. AIOStreams) for streams.
-- Watch progress is sent back to Plex and Trakt.
-- Two players: **mpv** (the default; plays almost any file, codec or soundtrack, including TrueHD/Atmos and DTS-HD) or the lighter built-in player.
+- Play from **Plex** (converted by Plex automatically when the TV can't play the file itself), from **Jellyfin / Emby**, or search your **Stremio addons** (e.g. AIOStreams) for streams.
+- Watch progress is sent back to Plex, Jellyfin/Emby and Trakt.
+- Two players: **mpv** (the default; plays almost any file, codec or soundtrack, including TrueHD/Atmos and DTS-HD) or the lighter built-in player. Swap between them mid-film from the hold-OK menu and carry on from the same moment.
+- **Seek bar with preview pictures:** press Down while watching, scrub with Left/Right, OK to jump. Previews come from Plex / Emby / Jellyfin when the server made them, otherwise the box takes them from the film itself.
+- **Smooth playback on weak boxes:** mpv draws straight to the screen by default, the TV can switch to the film's frame rate, and surround passthrough only uses formats your TV or receiver really accepts.
 - **Playback settings:** audio and subtitle language, surround passthrough to a receiver, stereo downmix, night mode, subtitle size, resume, and Plex quality.
 - Search across films, shows, your Plex library, addons and TV channels.
 
 **Easy setup**
 - Scan a QR code on the TV and set everything up on your phone. Passwords and keys are encrypted between your phone and the TV.
-- A big choice of colours and remote-control options.
+- A big choice of colours (an **OLED black** theme by default), square or rounded guide corners, and remote-control options.
+- Only want live TV? Turn Movies & Shows off in **Settings → Appearance → Menu**.
 
 ## What you need
 
 - An **Android TV** device (Android 8 or newer): Google TV, Nvidia Shield, Formuler, Chromecast with Google TV, Fire TV and so on.
 - A phone on the **same Wi-Fi** as the TV, for setup.
-- For live TV: a **Dispatcharr** server and an account on it (Standard or Admin user).
+- For live TV: a **Dispatcharr** server and an account on it (Standard or Admin user; source switching, stream info and plugins need Admin), or an IPTV provider's Xtream Codes login.
 - Optional:
   - A free [TMDB](https://www.themoviedb.org/) API key, needed for the Movies & Shows pages.
   - A Trakt account.
@@ -63,9 +69,11 @@ The full walkthrough, with what each step needs and troubleshooting tips, is in 
 | TV guide | Number keys | Type a channel number |
 | Watching live TV | Up / Down | Channel list (Left from there: channel groups) |
 | Watching live TV | Channel + / − | Change channel |
-| Watching live TV | OK | Player controls (audio, subtitles, aspect, record) |
-| Films & shows | Left at the start of a row, or Back | Catalogue menu |
-| Film player | OK / hold OK | Pause / audio and subtitles |
+| Watching live TV | OK | Player controls (audio, subtitles, aspect, source, stream info, record) |
+| Films & shows | Left at the start of a row, or Back | Menu |
+| Film player | OK / hold OK | Pause / audio, subtitles and switch player |
+| Film player | Down, then Left / Right, OK | Seek bar with previews: move, then jump there |
+| Film player | Back | Hide the controls, then stop (your place is saved) |
 
 Most of these can be changed in **Settings → Remote & navigation**.
 
