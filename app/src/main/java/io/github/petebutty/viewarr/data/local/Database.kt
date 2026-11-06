@@ -46,6 +46,8 @@ data class ProgramEntity(
     val isNew: Boolean,
     val isLive: Boolean,
     val isPremiere: Boolean,
+    /** The programme's own picture from the guide source (XMLTV icon), if it has one. */
+    val image: String? = null,
 )
 
 data class ChannelListItem(
@@ -79,6 +81,7 @@ data class GuideProgram(
     val isNew: Boolean,
     val isLive: Boolean,
     val isPremiere: Boolean,
+    val image: String? = null,
 )
 
 @Dao
@@ -106,7 +109,7 @@ interface GuideDao {
     @Query(
         """
         SELECT c.id AS channelId, p.rowId, p.title, p.subTitle, p.description, p.startTime, p.endTime,
-               p.season, p.episode, p.isNew, p.isLive, p.isPremiere
+               p.season, p.episode, p.isNew, p.isLive, p.isPremiere, p.image
         FROM (
             SELECT id, guideKey FROM channels
             WHERE (:groupId IS NULL OR groupId = :groupId)
@@ -127,7 +130,7 @@ interface GuideDao {
     @Query(
         """
         SELECT :channelId AS channelId, p.rowId, p.title, p.subTitle, p.description, p.startTime, p.endTime,
-               p.season, p.episode, p.isNew, p.isLive, p.isPremiere
+               p.season, p.episode, p.isNew, p.isLive, p.isPremiere, p.image
         FROM programs p
         WHERE p.tvgId = :guideKey AND p.endTime > :from AND p.startTime < :to
         ORDER BY p.startTime
@@ -139,7 +142,7 @@ interface GuideDao {
     @Query(
         """
         SELECT c.id AS channelId, p.rowId, p.title, p.subTitle, p.description, p.startTime, p.endTime,
-               p.season, p.episode, p.isNew, p.isLive, p.isPremiere
+               p.season, p.episode, p.isNew, p.isLive, p.isPremiere, p.image
         FROM programs p JOIN channels c ON c.guideKey = p.tvgId
         WHERE p.endTime > :from AND p.title LIKE '%' || :q || '%'
         ORDER BY p.startTime, c.number IS NULL, c.number
@@ -188,7 +191,7 @@ interface GuideDao {
 
 @Database(
     entities = [ChannelEntity::class, GroupEntity::class, ProgramEntity::class],
-    version = 4,
+    version = 5,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {

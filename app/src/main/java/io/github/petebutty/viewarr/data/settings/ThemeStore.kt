@@ -15,7 +15,7 @@ import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
 
-private val Context.appearanceStore by preferencesDataStore(name = "appearance")
+internal val Context.appearanceStore by preferencesDataStore(name = "appearance")
 
 @Singleton
 class ThemeStore @Inject constructor(@ApplicationContext private val context: Context) {

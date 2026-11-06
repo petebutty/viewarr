@@ -92,6 +92,7 @@ class GuideRepository @Inject constructor(
                         isNew = false,
                         isLive = false,
                         isPremiere = false,
+                        image = programImage(p.props),
                     )
                 }
                 val next = page.next ?: break
@@ -303,6 +304,7 @@ class GuideRepository @Inject constructor(
         var isNew = false
         var isLive = false
         var isPremiere = false
+        var image: String? = null
         r.beginObject()
         while (r.hasNext()) {
             when (r.nextName()) {
@@ -317,6 +319,7 @@ class GuideRepository @Inject constructor(
                 "is_new" -> isNew = r.nullableBoolean()
                 "is_live" -> isLive = r.nullableBoolean()
                 "is_premiere" -> isPremiere = r.nullableBoolean()
+                "custom_properties" -> image = readImage(r)
                 else -> r.skipValue()
             }
         }
@@ -334,7 +337,55 @@ class GuideRepository @Inject constructor(
             isNew = isNew,
             isLive = isLive,
             isPremiere = isPremiere,
+            image = image,
         )
+    }
+
+    /** custom_properties as it streams past: the programme's picture ("icon", or the first of "images"). */
+    private fun readImage(r: JsonReader): String? {
+        if (r.peek() != JsonToken.BEGIN_OBJECT) { r.skipValue(); return null }
+        var icon: String? = null
+        var first: String? = null
+        r.beginObject()
+        while (r.hasNext()) {
+            when (r.nextName()) {
+                "icon" -> icon = if (r.peek() == JsonToken.STRING) r.nextString() else { r.skipValue(); null }
+                "images" -> if (r.peek() == JsonToken.BEGIN_ARRAY) {
+                    r.beginArray()
+                    while (r.hasNext()) {
+                        if (r.peek() == JsonToken.BEGIN_OBJECT) {
+                            r.beginObject()
+                            while (r.hasNext()) {
+                                if (r.nextName() == "url" && r.peek() == JsonToken.STRING) { val u = r.nextString(); if (first == null) first = u } else r.skipValue()
+                            }
+                            r.endObject()
+                        } else r.skipValue()
+                    }
+                    r.endArray()
+                } else r.skipValue()
+                else -> r.skipValue()
+            }
+        }
+        r.endObject()
+        return usableImage(icon) ?: usableImage(first)
+    }
+
+    private fun programImage(props: JsonObject?): String? {
+        props ?: return null
+        val icon = (props["icon"] as? JsonPrimitive)?.contentOrNull
+        val first = (props["images"] as? kotlinx.serialization.json.JsonArray)?.firstOrNull()
+            ?.let { (it as? JsonObject)?.get("url") as? JsonPrimitive }?.contentOrNull
+        return usableImage(icon) ?: usableImage(first)
+    }
+
+    /** Web addresses only, and not ones inside the server's own Docker network (the TV can't reach those). */
+    private fun usableImage(url: String?): String? {
+        val u = url?.trim()?.takeIf { it.startsWith("http://") || it.startsWith("https://") } ?: return null
+        val host = u.substringAfter("://").substringBefore('/').substringBefore(':')
+        val octets = host.split('.').mapNotNull { it.toIntOrNull() }
+        val dockerNet = octets.size == 4 && octets[0] == 172 && octets[1] in 16..31
+        if (dockerNet || host == "localhost" || host.startsWith("127.")) return null
+        return u
     }
 
     private fun parseTime(s: String): Long? = runCatching { OffsetDateTime.parse(s).toInstant().toEpochMilli() }.getOrNull()

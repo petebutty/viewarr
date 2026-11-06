@@ -125,7 +125,7 @@ data class RemoteSettings(
 /** Read anywhere in the UI; provided at the app root and updated live when a setting changes. */
 val LocalRemote = staticCompositionLocalOf { RemoteSettings() }
 
-private val Context.remoteStore by preferencesDataStore(name = "remote")
+internal val Context.remoteStore by preferencesDataStore(name = "remote")
 
 @Singleton
 class RemoteStore @Inject constructor(@ApplicationContext private val context: Context) {

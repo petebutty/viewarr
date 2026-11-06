@@ -43,7 +43,9 @@ class AppViewModel @Inject constructor(
     private val guide: GuideRepository,
     remoteStore: io.github.petebutty.viewarr.data.settings.RemoteStore,
     playbackStore: io.github.petebutty.viewarr.data.settings.PlaybackStore,
+    private val settingsSync: io.github.petebutty.viewarr.data.sync.SettingsSync,
 ) : ViewModel() {
+    init { settingsSync.start() }
     val playback = playbackStore.settings.stateIn(viewModelScope, SharingStarted.Eagerly, io.github.petebutty.viewarr.data.settings.PlaybackSettings())
     val remote = remoteStore.settings.stateIn(viewModelScope, SharingStarted.Eagerly, io.github.petebutty.viewarr.data.settings.RemoteSettings())
 
@@ -63,6 +65,8 @@ class AppViewModel @Inject constructor(
             accounts.clear()
             auth.signOut()
             accounts.setSetupComplete(false)
+            // Signing in again offers the saved copy rather than overwriting it with an empty setup.
+            settingsSync.reset()
         }
     }
 }
@@ -96,7 +100,11 @@ fun AppRoot(vm: AppViewModel = hiltViewModel()) {
     ) {
         when (val s = state) {
             StartState.Loading -> Unit
-            StartState.NeedsSetup -> if (!splashShown) SetupWizard()
+            StartState.NeedsSetup -> if (!splashShown) {
+                SetupWizard()
+                // Signed in to a Dispatcharr user another TV saved its setup to: offer it.
+                io.github.petebutty.viewarr.ui.sync.SyncOfferHost()
+            }
             is StartState.Ready -> {
                 // Composed straight away, under the splash, so rows and the guide load while it shows.
                 HomeScreen(session = s.session, onSignOut = vm::signOut)
@@ -104,6 +112,7 @@ fun AppRoot(vm: AppViewModel = hiltViewModel()) {
                 if (!splashShown) io.github.petebutty.viewarr.ui.update.UpdateHost()
                 // Once after an update: a few lines on what's new.
                 if (!splashShown) io.github.petebutty.viewarr.ui.update.WhatsNewHost()
+                if (!splashShown) io.github.petebutty.viewarr.ui.sync.SyncOfferHost()
             }
         }
         if (splashAlpha > 0f) Box(Modifier.fillMaxSize().graphicsLayer { alpha = splashAlpha }) {

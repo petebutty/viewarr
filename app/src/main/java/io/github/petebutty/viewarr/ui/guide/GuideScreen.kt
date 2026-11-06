@@ -203,7 +203,9 @@ fun GuideScreen(
             },
     ) {
         // The highlighted programme's picture (looked up once you rest on it a moment), else the channel logo.
-        val art by androidx.compose.runtime.produceState<String?>(null, focused?.title) {
+        val art by androidx.compose.runtime.produceState<String?>(null, focused?.rowId) {
+            // The guide's own picture first (from Dispatcharr / the guide source), else a lookup by title.
+            focused?.image?.let { value = it; return@produceState }
             val t = focused?.title ?: run { value = null; return@produceState }
             kotlinx.coroutines.delay(350)
             value = vm.artFor(t)

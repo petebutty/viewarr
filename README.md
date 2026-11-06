@@ -24,7 +24,7 @@ Viewarr doesn't provide any content. It plays only what your own servers and acc
 - A TiviMate-style TV guide with channel logos, categories, programmes going back and forward in time, and a progress bar under what's on now.
 - Catch-up: replay programmes from the past, where the channel supports it.
 - Reminders: get a pop-up when a programme starts; small cards when a recording starts, finishes or fails.
-- The guide shows a picture of the highlighted programme.
+- The guide shows a picture of the highlighted programme: the guide's own artwork from Dispatcharr when it has some, otherwise one found on TMDB.
 - **Source switching:** see every stream behind a channel (and which provider it's from) and switch Dispatcharr to another one from the remote. **Stream info** shows Dispatcharr's live view: source, provider, resolution, codecs, bitrate and viewers. *(Admin users.)*
 - **Dispatcharr plugins** (Settings → Dispatcharr plugins): switch installed plugins on and off, press their action buttons, change simple settings, and install or update plugins from your server's plugin store. *(Admin users.)*
 - Recordings on your Dispatcharr server: record one programme or a whole series (every episode, or new ones only). Then watch, stop or delete recordings from the app.
@@ -48,6 +48,7 @@ Viewarr doesn't provide any content. It plays only what your own servers and acc
 - **Seerr requests:** hold OK on a poster to request a film or show you don't have yet (Stremio addon titles too).
 
 **Easy setup**
+- **Your setup, saved on Dispatcharr:** Viewarr keeps a copy of its setup (your services, home rows, appearance, playback and remote settings) on your Dispatcharr server, for your user. Sign in to the same Dispatcharr user on another TV, or after a reinstall, and Viewarr offers to restore it all. Sign-ins are encrypted on the TV before they're saved; settings that depend on the box (surround sound, frame rate, decoding) stay on each TV. Turn it off, or leave sign-ins out, in **Settings**. *(Needs Dispatcharr 0.33 or newer.)*
 - Scan a QR code on the TV and set everything up on your phone. Passwords and keys are encrypted between your phone and the TV.
 - A big choice of colours (an **OLED black** theme by default), square or rounded guide corners, and remote-control options.
 - Only want live TV? Turn Movies & Shows off in **Settings → Appearance → Menu**.

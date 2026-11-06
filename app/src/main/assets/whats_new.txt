@@ -1,9 +1,8 @@
 # Shown once, the first time a new version opens (not on a fresh install). Keep it to the few things worth knowing.
 # Lines starting with "- " are the points; the first line without "#" or "-" is the heading.
-Browse your whole library
-- Movies and Shows in the menu now list your libraries and catalogues: open a library a page at a time
-- In a library: sort, filter by genre or unwatched, and search it (with voice)
-- Hide or reorder the menu's libraries in Settings → Home rows
-- Several Plex servers on one account are all used now
-- Channel list: press Right on a channel for its programmes, earlier ones playable from catch-up
-- Seerr requests work for titles from Stremio addons too
+Your setup, saved on Dispatcharr
+- Viewarr now keeps your setup on your Dispatcharr server: services, home rows, appearance and settings
+- A new TV signed in to the same Dispatcharr user offers to restore it, so there's no setup to do again
+- Sign-ins are encrypted before they're saved; turn it off or leave them out in Settings
+- The TV guide shows the programme's own picture from your guide when it has one
+- Hold OK on a recording in the menu to play, delete, stop or cancel it

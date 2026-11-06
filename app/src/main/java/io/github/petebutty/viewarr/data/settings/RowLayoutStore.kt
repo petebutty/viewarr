@@ -13,7 +13,7 @@ import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
 
-private val Context.rowLayoutStore by preferencesDataStore(name = "row_layout")
+internal val Context.rowLayoutStore by preferencesDataStore(name = "row_layout")
 
 /** Settings → Home rows: which rows the Films / Shows pages show, and in what order. */
 data class RowLayout(val order: List<String> = emptyList(), val hidden: Set<String> = emptySet()) {

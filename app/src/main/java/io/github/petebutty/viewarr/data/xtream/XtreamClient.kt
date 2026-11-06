@@ -198,6 +198,7 @@ class XtreamClient @Inject constructor(private val client: OkHttpClient, private
         var title: String? = null
         var sub: String? = null
         var desc: String? = null
+        var icon: String? = null
         var season: Int? = null
         var episode: Int? = null
         var field: String? = null
@@ -211,8 +212,9 @@ class XtreamClient @Inject constructor(private val client: OkHttpClient, private
                         start = parseXmltvTime(p.getAttributeValue(null, "start")) ?: 0
                         end = parseXmltvTime(p.getAttributeValue(null, "stop")) ?: 0
                         keep = channel != null && channel in wanted && end > from && start < to && end > start
-                        title = null; sub = null; desc = null; season = null; episode = null
+                        title = null; sub = null; desc = null; season = null; episode = null; icon = null
                     }
+                    "icon" -> if (keep && icon == null) icon = p.getAttributeValue(null, "src")?.takeIf { it.startsWith("http") }
                     "title", "sub-title", "desc" -> field = if (keep) p.name else null
                     "episode-num" -> field = if (keep && p.getAttributeValue(null, "system") == "xmltv_ns") "ep" else null
                 }
@@ -233,7 +235,7 @@ class XtreamClient @Inject constructor(private val client: OkHttpClient, private
                         batch += ProgramEntity(
                             tvgId = channel!!, title = title?.trim().orEmpty(), subTitle = sub?.trim()?.takeIf { it.isNotEmpty() },
                             description = desc?.trim()?.takeIf { it.isNotEmpty() }, startTime = start, endTime = end,
-                            season = season, episode = episode, isNew = false, isLive = false, isPremiere = false,
+                            season = season, episode = episode, isNew = false, isLive = false, isPremiere = false, image = icon,
                         )
                         if (batch.size >= BATCH) { onBatch(batch.toList()); batch.clear() }
                     }
