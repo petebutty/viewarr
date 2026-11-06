@@ -487,13 +487,64 @@ class CatalogRepository @Inject constructor(
         }
     }
 
+    /** A handful of the newest titles across your libraries (the menu's Movies / Shows panel). */
+    suspend fun recentlyAdded(type: MediaType, limit: Int = 12): List<MediaItem> = coroutineScope {
+        val a = store.current()
+        val parts = buildList {
+            a.plex?.let { p ->
+                add(async {
+                    runCatching {
+                        withTimeoutOrNull(15_000) {
+                            val sections = plexSections(a, p, type).mapNotNull { it.str("key") }
+                            sections.map { key ->
+                                async {
+                                    runCatching { plexGet(a, p, "/library/sections/$key/all?sort=addedAt:desc&includeGuids=1&X-Plex-Container-Start=0&X-Plex-Container-Size=4") }
+                                        .getOrNull()?.array("Metadata").orEmpty().mapNotNull { j -> plexItem(p, j, type)?.let { it to (j.long("addedAt") ?: 0L) } }
+                                }
+                            }.awaitAll().flatten()
+                        }
+                    }.getOrNull().orEmpty()
+                })
+            }
+            listOfNotNull(a.jellyfin?.let { it to false }, a.emby?.let { it to true }).forEach { (srv, emby) ->
+                add(async {
+                    runCatching {
+                        withTimeoutOrNull(15_000) {
+                            val name = if (emby) "Emby" else "Jellyfin"
+                            val kind = if (type == MediaType.Movie) "Movie" else "Series"
+                            http.get(
+                                "${srv.serverUrl}/Users/${srv.userId}/Items?IncludeItemTypes=$kind&SortBy=DateCreated&SortOrder=Descending&Recursive=true&Limit=8&Fields=ProviderIds,Overview,ProductionYear,DateCreated",
+                                mediaServers.headers(emby, a.deviceId, srv.token),
+                            ).takeIf { it.ok }?.body?.array("Items").orEmpty().mapNotNull { j ->
+                                val added = runCatching { java.time.Instant.parse(j.str("DateCreated")).epochSecond }.getOrDefault(0L)
+                                serverItem(srv, j, type, name)?.let { it to added }
+                            }
+                        }
+                    }.getOrNull().orEmpty()
+                })
+            }
+        }
+        parts.awaitAll().flatten().sortedByDescending { it.second }.map { it.first }.distinctBy { it.key }.take(limit)
+    }
+
+    /** Continue watching from every server (Plex On Deck, Jellyfin / Emby resume), for the TV's Watch Next row. */
+    suspend fun continueWatching(type: MediaType): List<MediaItem> = coroutineScope {
+        val a = store.current()
+        val parts = buildList {
+            a.plex?.let { p -> add(async { runCatching { withTimeoutOrNull(20_000) { plexOnDeck(a, p, type)?.items } }.getOrNull().orEmpty() }) }
+            a.jellyfin?.let { j -> add(async { runCatching { withTimeoutOrNull(20_000) { serverResume(a, j, emby = false, type)?.items } }.getOrNull().orEmpty() }) }
+            a.emby?.let { e -> add(async { runCatching { withTimeoutOrNull(20_000) { serverResume(a, e, emby = true, type)?.items } }.getOrNull().orEmpty() }) }
+        }
+        parts.awaitAll().flatten().distinctBy { it.key }
+    }
+
     private suspend fun plexOnDeck(a: Accounts, p: PlexAuth, type: MediaType): MediaRow? {
         val all = plexGet(a, p, "/library/onDeck?includeGuids=1")?.array("Metadata").orEmpty()
         val items = coroutineScope {
             all.filter { it.str("type") == if (type == MediaType.Movie) "movie" else "episode" }.take(20).map { j ->
                 async {
                     val progress = j.long("viewOffset")?.let { off -> j.long("duration")?.takeIf { it > 0 }?.let { off.toFloat() / it } }
-                    if (type == MediaType.Movie) plexItem(p, j, type)?.copy(progress = progress)
+                    if (type == MediaType.Movie) plexItem(p, j, type)?.copy(progress = progress, durationMs = j.long("duration"))
                     else {
                         // An episode: show the series, with the episode underneath.
                         val showKey = j.str("grandparentRatingKey") ?: return@async null
@@ -506,6 +557,7 @@ class CatalogRepository @Inject constructor(
                             subtitle = "S${j.int("parentIndex") ?: "?"} · E${j.int("index") ?: "?"}  ${j.str("title").orEmpty()}",
                             backdrop = plexImage(p, j.str("art") ?: j.str("grandparentArt"), 960, 540) ?: base.backdrop,
                             progress = progress,
+                            durationMs = j.long("duration"),
                         )
                     }
                 }
@@ -556,7 +608,8 @@ class CatalogRepository @Inject constructor(
         if (!r.ok) return null
         val items = r.body.array("Items").mapNotNull { j ->
             val pct = (j.child("UserData").child("PlayedPercentage") as? JsonPrimitive)?.doubleOrNull?.toFloat()?.div(100f)
-            if (type == MediaType.Movie) serverItem(s, j, type, name)?.copy(progress = pct)
+            val length = j.long("RunTimeTicks")?.div(10_000)
+            if (type == MediaType.Movie) serverItem(s, j, type, name)?.copy(progress = pct, durationMs = length)
             else serverItem(s, buildJsonObject {
                 put("Id", j.str("SeriesId"))
                 put("Name", j.str("SeriesName"))
@@ -566,6 +619,7 @@ class CatalogRepository @Inject constructor(
                 nextEpisode = j.int("IndexNumber"),
                 subtitle = "S${j.int("ParentIndexNumber") ?: "?"} · E${j.int("IndexNumber") ?: "?"}  ${j.str("Name").orEmpty()}",
                 progress = pct,
+                durationMs = length,
             )
         }
         return MediaRow("$name-resume-${type.name}", "Continue watching on $name", enrich(a, items))

@@ -60,6 +60,7 @@ class MediaViewModel @Inject constructor(
     val trailers: io.github.petebutty.viewarr.data.trailers.TrailerRepository,
     @dagger.hilt.android.qualifiers.ApplicationContext private val appContext: android.content.Context,
     private val rowLayouts: io.github.petebutty.viewarr.data.settings.RowLayoutStore,
+    private val watchNext: io.github.petebutty.viewarr.data.media.WatchNext,
 ) : ViewModel() {
 
     /** "Next episode in 10 s" after an episode ends (Settings → Playback → Play next episode). */
@@ -226,6 +227,19 @@ class MediaViewModel @Inject constructor(
 
     /** Quick picks under the search box (titles and names that match what's typed). */
     suspend fun suggestions(q: String): List<String> = if (q.trim().length < 2) emptyList() else runCatching { repo.suggestions(q.trim()) }.getOrDefault(emptyList())
+
+    /** The menu's Movies / Shows panel: newest titles in your libraries (loaded once, refreshed every 10 min). */
+    private val _recent = MutableStateFlow<List<MediaItem>?>(null)
+    val recent = _recent.asStateFlow()
+    private var recentAt = 0L
+    fun loadRecent(type: MediaType) {
+        if (_recent.value != null && System.currentTimeMillis() - recentAt < 10 * 60_000L) return
+        recentAt = System.currentTimeMillis()
+        viewModelScope.launch { _recent.value = runCatching { repo.recentlyAdded(type) }.getOrDefault(emptyList()) }
+    }
+
+    /** The TV home screen's Watch Next row (Continue watching), brought up to date. */
+    fun refreshWatchNext() { viewModelScope.launch { watchNext.refresh() } }
 
     fun open(item: MediaItem) {
         if (item.key.startsWith("person:")) return openPerson(item)
@@ -502,6 +516,8 @@ class MediaViewModel @Inject constructor(
         val target = _playing.value?.watch ?: return
         // Set straight away (not in the coroutine): the player closes right after reporting the end.
         if (state == "stopped" && durationMs > 0 && positionMs >= durationMs * 0.95) endedNearEnd = target
+        // The TV home screen's Watch Next row follows: once the servers have the new position, refresh it.
+        if (state == "stopped") viewModelScope.launch { kotlinx.coroutines.delay(5_000); watchNext.refresh() }
         viewModelScope.launch {
             target.plexRatingKey?.let { repo.reportPlex(it, state, positionMs, durationMs) }
             if (target.serverSource != null && target.serverItemId != null) repo.reportServer(target.serverSource, target.serverItemId, state, positionMs)

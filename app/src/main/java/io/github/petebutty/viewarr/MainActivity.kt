@@ -18,9 +18,16 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        io.github.petebutty.viewarr.data.media.DeepLink.parse(intent?.data)?.let { io.github.petebutty.viewarr.data.media.DeepLink.pending.value = it }
         lifecycleScope.launch { themeStore.palette.collect { AppColors.palette = it } }
         setContent {
             ViewarrTheme { AppRoot() }
         }
+    }
+
+    /** Already running: a Watch Next card on the home screen opens its title here. */
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        io.github.petebutty.viewarr.data.media.DeepLink.parse(intent.data)?.let { io.github.petebutty.viewarr.data.media.DeepLink.pending.value = it }
     }
 }

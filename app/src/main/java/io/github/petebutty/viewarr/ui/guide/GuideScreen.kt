@@ -251,9 +251,10 @@ fun GuideScreen(
                 Box(
                     Modifier
                         .offset(x = ChannelColumn + xOf(now, cursor.windowStart, gridWidth))
-                        .width(2.dp)
+                        // The "now" line: a hairline, so it doesn't cover programme names.
+                        .width(1.dp)
                         .fillMaxHeight()
-                        .background(AppColors.Accent)
+                        .background(AppColors.Accent.copy(alpha = 0.8f))
                 )
             }
         }

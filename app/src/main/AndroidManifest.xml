@@ -2,6 +2,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Puts Viewarr's Continue watching into the TV home screen's Watch Next row. -->
+    <uses-permission android:name="com.android.providers.tv.permission.WRITE_EPG_DATA" />
     <!-- In-app updates (Settings → Updates): hands the downloaded APK to Android's installer. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
@@ -30,11 +32,19 @@
             android:name=".MainActivity"
             android:exported="true"
             android:screenOrientation="landscape"
+            android:launchMode="singleTask"
             android:windowSoftInputMode="adjustPan">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
+            </intent-filter>
+            <!-- A Watch Next card on the TV home screen opens that title in Viewarr. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="viewarr" android:host="title" />
             </intent-filter>
         </activity>
         <receiver android:name=".data.update.InstallReceiver" android:exported="false" />
