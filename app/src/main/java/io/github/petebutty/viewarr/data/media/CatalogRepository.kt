@@ -82,8 +82,8 @@ class CatalogRepository @Inject constructor(
             a.emby?.let { e -> add { listOfNotNull(serverResume(a, e, emby = true, type)) } }
             traktAuth?.let { t -> add { listOfNotNull(traktWatchlistRow(a, t, type)) } }
             a.plex?.let { p -> add { plexRecent(a, p, type) } }
-            a.jellyfin?.let { j -> add { listOfNotNull(serverLatest(a, j, emby = false, type)) } }
-            a.emby?.let { e -> add { listOfNotNull(serverLatest(a, e, emby = true, type)) } }
+            a.jellyfin?.let { j -> add { serverLibraryRows(a, j, emby = false, type) } }
+            a.emby?.let { e -> add { serverLibraryRows(a, e, emby = true, type) } }
             traktAuth?.let { t -> add { listOfNotNull(traktRecommended(a, t, type)) } }
             a.tmdbKey?.let { k ->
                 val t = if (type == MediaType.Movie) "movie" else "tv"
@@ -104,7 +104,7 @@ class CatalogRepository @Inject constructor(
             launch {
                 val result = runCatching { withTimeoutOrNull(25_000) { slot() } }
                     .onFailure { Log.w(TAG, "row ${type.name}#$i failed: ${it.javaClass.simpleName} ${it.message}") }
-                    .getOrNull().orEmpty().filter { it.items.isNotEmpty() }
+                    .getOrNull().orEmpty().map { r -> r.copy(items = r.items.distinctBy { it.key }) }.filter { it.items.isNotEmpty() }
                 lock.withLock {
                     found[i] = result
                     finished++
@@ -137,7 +137,7 @@ class CatalogRepository @Inject constructor(
             launch {
                 val result = runCatching { withTimeoutOrNull(20_000) { slot() } }
                     .onFailure { Log.w(TAG, "search #$i failed: ${it.javaClass.simpleName}") }
-                    .getOrNull().orEmpty().filter { it.items.isNotEmpty() }
+                    .getOrNull().orEmpty().map { r -> r.copy(items = r.items.distinctBy { it.key }) }.filter { it.items.isNotEmpty() }
                 lock.withLock {
                     found[i] = result
                     finished++
@@ -362,13 +362,75 @@ class CatalogRepository @Inject constructor(
             sections.map { s ->
                 async {
                     val key = s.str("key") ?: return@async null
-                    val items = plexGet(a, p, "/library/sections/$key/all?sort=addedAt:desc&includeGuids=1&X-Plex-Container-Start=0&X-Plex-Container-Size=40")
-                        ?.array("Metadata").orEmpty().mapNotNull { plexItem(p, it, type) }
                     val name = s.str("title") ?: "Plex"
-                    MediaRow("plex-recent-$key", if (sections.size == 1) "Recently added" else "Recently added in $name", items)
+                    // Each library on its own clock: one slow library (big, or a remote server) mustn't hold up the rest.
+                    val items = runCatching {
+                        withTimeoutOrNull(15_000) {
+                            plexGet(a, p, "/library/sections/$key/all?sort=addedAt:desc&includeGuids=1&X-Plex-Container-Start=0&X-Plex-Container-Size=40")
+                                ?.array("Metadata").orEmpty().mapNotNull { plexItem(p, it, type) }
+                        }
+                    }.getOrNull() ?: run { Log.w(TAG, "plex library '$name' didn't answer in time"); return@async null }
+                    MediaRow("plex-recent-$key", if (sections.size == 1) "Recently added" else "Recently added in $name", items,
+                        library = MediaLibrary("plex:$key", name, "Plex", key))
                 }
             }.awaitAll().filterNotNull()
         }
+    }
+
+    /** The user's film or show libraries on Plex, Jellyfin and Emby, for browsing a whole library (menu → Movies / Shows). */
+    suspend fun libraries(type: MediaType): List<MediaLibrary> = coroutineScope {
+        val a = store.current()
+        val plexLibs = async {
+            val p = a.plex ?: return@async emptyList()
+            runCatching { withTimeoutOrNull(15_000) { plexSections(a, p, type) } }.getOrNull().orEmpty().mapNotNull { s ->
+                val k = s.str("key") ?: return@mapNotNull null
+                MediaLibrary("plex:$k", s.str("title") ?: "Plex", "Plex", k)
+            }
+        }
+        val servers = listOfNotNull(a.jellyfin?.let { it to false }, a.emby?.let { it to true }).map { (srv, emby) ->
+            async {
+                val name = if (emby) "Emby" else "Jellyfin"
+                val r = runCatching { withTimeoutOrNull(15_000) { http.get("${srv.serverUrl}/Users/${srv.userId}/Views", mediaServers.headers(emby, a.deviceId, srv.token)) } }
+                    .getOrNull()?.takeIf { it.ok } ?: return@async emptyList()
+                val want = if (type == MediaType.Movie) "movies" else "tvshows"
+                r.body.array("Items").filter { it.str("CollectionType") == want }.mapNotNull { v ->
+                    val id = v.str("Id") ?: return@mapNotNull null
+                    MediaLibrary("${name.lowercase()}:$id", v.str("Name") ?: name, name, id)
+                }
+            }
+        }
+        plexLibs.await() + servers.awaitAll().flatten()
+    }
+
+    /** One page of a whole library, and how many titles it has in all. Null if the server didn't answer. */
+    suspend fun libraryPage(lib: MediaLibrary, type: MediaType, sort: LibrarySort, start: Int, size: Int): Pair<List<MediaItem>, Int>? {
+        val a = store.current()
+        if (lib.source == "Plex") {
+            val p = a.plex ?: return null
+            val c = runCatching {
+                plexGet(a, p, "/library/sections/${lib.id}/all?sort=${sort.plex}&includeGuids=1&X-Plex-Container-Start=$start&X-Plex-Container-Size=$size")
+            }.getOrNull() ?: return null
+            val items = c.array("Metadata").mapNotNull { plexItem(p, it, type) }
+            return items to (c.int("totalSize") ?: c.int("size") ?: items.size)
+        }
+        val emby = lib.source == "Emby"
+        val srv = (if (emby) a.emby else a.jellyfin) ?: return null
+        val kind = if (type == MediaType.Movie) "Movie" else "Series"
+        val (by, order) = when (sort) {
+            LibrarySort.Title -> "SortName" to "Ascending"
+            LibrarySort.Added -> "DateCreated" to "Descending"
+            LibrarySort.Year -> "ProductionYear,SortName" to "Descending"
+            LibrarySort.Rating -> "CommunityRating,SortName" to "Descending"
+        }
+        val r = runCatching {
+            http.get(
+                "${srv.serverUrl}/Users/${srv.userId}/Items?ParentId=${enc(lib.id)}&IncludeItemTypes=$kind&Recursive=true" +
+                    "&SortBy=$by&SortOrder=$order&StartIndex=$start&Limit=$size&Fields=ProviderIds,Overview,ProductionYear",
+                mediaServers.headers(emby, a.deviceId, srv.token),
+            )
+        }.getOrNull()?.takeIf { it.ok } ?: return null
+        val items = r.body.array("Items").mapNotNull { serverItem(srv, it, type, lib.source) }
+        return items to (r.body.int("TotalRecordCount") ?: items.size)
     }
 
     private suspend fun plexOnDeck(a: Accounts, p: PlexAuth, type: MediaType): MediaRow? {
@@ -428,6 +490,37 @@ class CatalogRepository @Inject constructor(
         if (!r.ok) return null
         val items = r.body.array("Items").mapNotNull { serverItem(s, it, type, name) }
         return MediaRow("$name-latest-${type.name}", "Recently added on $name", items)
+    }
+
+    /**
+     * Jellyfin / Emby: one row per film or show library (like Plex), newest first, each ending in "All titles".
+     * Servers that don't list their libraries get the single "Recently added" row instead.
+     */
+    private suspend fun serverLibraryRows(a: Accounts, s: MediaServerAuth, emby: Boolean, type: MediaType): List<MediaRow> {
+        val name = if (emby) "Emby" else "Jellyfin"
+        val headers = mediaServers.headers(emby, a.deviceId, s.token)
+        val want = if (type == MediaType.Movie) "movies" else "tvshows"
+        val views = runCatching { http.get("${s.serverUrl}/Users/${s.userId}/Views", headers) }.getOrNull()?.takeIf { it.ok }
+            ?.body?.array("Items").orEmpty().filter { it.str("CollectionType") == want }
+        if (views.isEmpty()) return listOfNotNull(serverLatest(a, s, emby, type))
+        val kind = if (type == MediaType.Movie) "Movie" else "Series"
+        return coroutineScope {
+            views.map { v ->
+                async {
+                    val id = v.str("Id") ?: return@async null
+                    val title = v.str("Name") ?: name
+                    val items = runCatching {
+                        withTimeoutOrNull(15_000) {
+                            http.get(
+                                "${s.serverUrl}/Users/${s.userId}/Items?ParentId=${enc(id)}&IncludeItemTypes=$kind&Recursive=true&SortBy=DateCreated&SortOrder=Descending&Limit=40&Fields=ProviderIds,Overview,ProductionYear",
+                                headers,
+                            ).takeIf { it.ok }?.body?.array("Items").orEmpty().mapNotNull { serverItem(s, it, type, name) }
+                        }
+                    }.getOrNull() ?: return@async null
+                    MediaRow("${name.lowercase()}-lib-$id", "Recently added in $title", items, library = MediaLibrary("${name.lowercase()}:$id", title, name, id))
+                }
+            }.awaitAll().filterNotNull()
+        }
     }
 
     private suspend fun serverResume(a: Accounts, s: MediaServerAuth, emby: Boolean, type: MediaType): MediaRow? {

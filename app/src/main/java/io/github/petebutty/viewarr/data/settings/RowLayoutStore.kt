@@ -53,13 +53,24 @@ class RowLayoutStore @Inject constructor(@ApplicationContext private val context
         }
     }
 
+    /** Plex libraries switched off in Settings → Home rows: left out of the menu's library list. */
+    fun hiddenLibraries(type: MediaType): Flow<Set<String>> = context.rowLayoutStore.data.map { it[hiddenLibKey(type)].orEmpty() }
+
+    suspend fun setLibraryHidden(type: MediaType, key: String, hidden: Boolean) {
+        context.rowLayoutStore.edit { p ->
+            val now = p[hiddenLibKey(type)].orEmpty()
+            p[hiddenLibKey(type)] = if (hidden) now + key else now - key
+        }
+    }
+
     suspend fun reset(type: MediaType) {
-        context.rowLayoutStore.edit { it.remove(orderKey(type)); it.remove(hiddenKey(type)) }
+        context.rowLayoutStore.edit { it.remove(orderKey(type)); it.remove(hiddenKey(type)); it.remove(hiddenLibKey(type)) }
     }
 
     private companion object {
         const val SEP = "\u001F"
         fun orderKey(t: MediaType) = stringPreferencesKey("order_${t.name}")
         fun hiddenKey(t: MediaType) = stringSetPreferencesKey("hidden_${t.name}")
+        fun hiddenLibKey(t: MediaType) = stringSetPreferencesKey("hidden_lib_${t.name}")
     }
 }

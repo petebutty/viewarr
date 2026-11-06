@@ -6,6 +6,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.lazy.grid.itemsIndexed as gridItemsIndexed
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -104,6 +105,10 @@ fun MediaScreen(
     val scope = rememberCoroutineScope()
     val detail by vm.detail.collectAsStateWithLifecycle()
     val playing by vm.playing.collectAsStateWithLifecycle()
+    // A whole Plex library being browsed (menu → Movies / Shows → a library), shown instead of the rows.
+    val browse by vm.browse.collectAsStateWithLifecycle()
+    val gridState = remember(browse?.library?.key, browse?.sort) { androidx.compose.foundation.lazy.grid.LazyGridState() }
+    var gridFocusKey by remember(browse?.library?.key, browse?.sort) { mutableStateOf<String?>(null) }
     var focused by remember { mutableStateOf<MediaItem?>(null) }
     var lastCard by remember { mutableStateOf<String?>(null) }
     var hasFocus by remember { mutableStateOf(false) }
@@ -114,6 +119,13 @@ fun MediaScreen(
     }
 
     LaunchedEffect(type) { if (searchHeader == null) vm.load(type) }
+    // A library just opened (or re-sorted): focus its first title once it arrives.
+    LaunchedEffect(browse?.library?.key, browse?.sort, browse?.items?.isNotEmpty(), focusEnabled, detail == null) {
+        val b = browse ?: return@LaunchedEffect
+        if (!focusEnabled || detail != null || b.items.isEmpty()) return@LaunchedEffect
+        awaitFrame(); awaitFrame()
+        runCatching { focusRequester.requestFocus() }
+    }
     // Rows arrive after the screen opens: grab focus once there's something to focus.
     LaunchedEffect(state.rows.isNotEmpty(), focusEnabled, detail == null) {
         if (searchHeader != null || !focusEnabled || detail != null || state.rows.isEmpty() || hasFocus) return@LaunchedEffect
@@ -156,6 +168,22 @@ fun MediaScreen(
     var quick by remember { mutableStateOf<MediaItem?>(null) }
     var quickTrailer by remember { mutableStateOf<MediaItem?>(null) }
     BackHandler(enabled = focusEnabled && detail == null && quick == null && quickTrailer == null) {
+        // In a library: first back to its first title, then out to the page's rows.
+        browse?.let { b ->
+            val first = b.items.firstOrNull()
+            if (hasFocus && first != null && gridFocusKey != null && gridFocusKey != first.key) {
+                gridFocusKey = first.key
+                scope.launch {
+                    gridState.scrollToItem(0)
+                    awaitFrame(); awaitFrame()
+                    runCatching { focusRequester.requestFocus() }
+                }
+            } else {
+                vm.openLibrary(null, type)
+                scope.launch { awaitFrame(); awaitFrame(); runCatching { focusRequester.requestFocus() } }
+            }
+            return@BackHandler
+        }
         val top = rows.firstOrNull()
         if (searchHeader == null && hasFocus && top != null && (focusedRow > 0 || focusedIndex > 0)) {
             rowPos[top.id] = 0
@@ -183,7 +211,23 @@ fun MediaScreen(
         ?: rows.firstOrNull()?.let { r -> r.items.firstOrNull()?.let { cardId(r, it) } }
 
     Box(Modifier.fillMaxSize().background(AppColors.Background)) {
-        Column(Modifier.fillMaxSize()) {
+        browse?.let { b ->
+            LibraryGrid(
+                b = b,
+                gridState = gridState,
+                focusKey = gridFocusKey,
+                focusRequester = focusRequester,
+                focused = focused,
+                onFocus = { item -> focused = item; gridFocusKey = item.key },
+                onHasFocus = { hasFocus = it },
+                onSort = vm::setLibrarySort,
+                onMore = vm::loadMoreLibrary,
+                onOpen = vm::open,
+                onLong = { quick = it },
+                onLeftEdge = onOpenMenu,
+            )
+        }
+        if (browse == null) Column(Modifier.fillMaxSize()) {
             if (searchHeader != null) searchHeader() else Hero(
                 item = hero ?: rows.firstOrNull()?.items?.firstOrNull(),
                 type = type,
@@ -231,6 +275,7 @@ fun MediaScreen(
                                 lastCard = id
                             },
                             onOpen = vm::open,
+                            onAll = row.library?.let { lib -> { vm.openLibrary(lib, type) } },
                         )
                     }
                 } }
@@ -340,6 +385,92 @@ private fun Hero(
     }
 }
 
+private const val GRID_COLUMNS = 7
+
+/** A whole library (Plex, Jellyfin or Emby) as a poster grid, with sort choices along the top. More titles load as you scroll. */
+@Composable
+private fun LibraryGrid(
+    b: MediaViewModel.LibraryBrowse,
+    gridState: androidx.compose.foundation.lazy.grid.LazyGridState,
+    focusKey: String?,
+    focusRequester: FocusRequester,
+    focused: MediaItem?,
+    onFocus: (MediaItem) -> Unit,
+    onHasFocus: (Boolean) -> Unit,
+    onSort: (io.github.petebutty.viewarr.data.media.LibrarySort) -> Unit,
+    onMore: () -> Unit,
+    onOpen: (MediaItem) -> Unit,
+    onLong: (MediaItem) -> Unit,
+    onLeftEdge: () -> Unit,
+) {
+    // Near the end of what's loaded: fetch the next page.
+    LaunchedEffect(gridState, b.items.size) {
+        androidx.compose.runtime.snapshotFlow { gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0 }
+            .collect { last -> if (last >= b.items.size - GRID_COLUMNS * 3) onMore() }
+    }
+    val entryKey = focusKey?.takeIf { k -> b.items.any { it.key == k } } ?: b.items.firstOrNull()?.key
+    Column(Modifier.fillMaxSize().padding(top = 28.dp)) {
+        Row(Modifier.padding(horizontal = 48.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(b.library.title, fontSize = 26.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(
+                    when {
+                        b.failed && b.items.isEmpty() -> "The server didn't answer. Press Back and try again."
+                        b.total >= 0 -> "${b.total} titles"
+                        else -> "Loading…"
+                    },
+                    fontSize = 13.sp, color = AppColors.TextSecondary,
+                )
+            }
+            io.github.petebutty.viewarr.data.media.LibrarySort.entries.forEach { s ->
+                Surface(
+                    onClick = { onSort(s) },
+                    modifier = Modifier.padding(start = 8.dp),
+                    scale = ClickableSurfaceDefaults.scale(scale = 1f, focusedScale = 1f, pressedScale = 1f),
+                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(18.dp)),
+                    colors = ClickableSurfaceDefaults.colors(
+                        containerColor = if (s == b.sort) AppColors.Panel else Color.Transparent,
+                        contentColor = if (s == b.sort) AppColors.TextPrimary else AppColors.TextSecondary,
+                        focusedContainerColor = AppColors.Accent,
+                        focusedContentColor = AppColors.OnAccent,
+                    ),
+                ) { Text(s.label, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp)) }
+            }
+        }
+        // The highlighted title, so you know what you're on without opening it.
+        Text(
+            focused?.takeIf { f -> b.items.any { it.key == f.key } }?.let { "${it.title}   ${metaLine(it)}" } ?: " ",
+            fontSize = 15.sp, color = AppColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(start = 48.dp, end = 48.dp, top = 14.dp, bottom = 10.dp),
+        )
+        androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
+            columns = androidx.compose.foundation.lazy.grid.GridCells.Fixed(GRID_COLUMNS),
+            state = gridState,
+            modifier = Modifier.fillMaxWidth().weight(1f).onFocusChanged { onHasFocus(it.hasFocus) },
+            contentPadding = PaddingValues(start = 48.dp, end = 48.dp, top = 4.dp, bottom = 60.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            gridItemsIndexed(b.items, key = { _, it -> it.key }) { index, item ->
+                PosterCard(
+                    item = item,
+                    modifier = (if (item.key == entryKey) Modifier.focusRequester(focusRequester) else Modifier)
+                        .onFocusChanged { if (it.isFocused) onFocus(item) }
+                        .onPreviewKeyEvent { e ->
+                            // Left on the first column: the menu (pick another library).
+                            if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionLeft && index % GRID_COLUMNS == 0) { onLeftEdge(); true } else false
+                        },
+                    onClick = { onOpen(item) },
+                    onLongClick = { onLong(item) },
+                )
+            }
+            if (b.loading) item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(GRID_COLUMNS) }) {
+                Text("Loading…", fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(8.dp))
+            }
+        }
+    }
+}
+
 private fun metaLine(item: MediaItem) = listOfNotNull(
     item.year?.toString(),
     item.rating?.let { "★ %.1f".format(it) },
@@ -361,6 +492,7 @@ private fun PosterRow(
     onFocus: (MediaItem, String) -> Unit,
     onOpen: (MediaItem) -> Unit,
     onLongOpen: (MediaItem) -> Unit = {},
+    onAll: (() -> Unit)? = null,
 ) {
     Column {
         Text(row.title, fontSize = 16.sp, fontWeight = FontWeight.Medium, color = AppColors.TextPrimary, modifier = Modifier.padding(start = 48.dp, bottom = 6.dp))
@@ -407,6 +539,23 @@ private fun PosterRow(
                     onClick = { onOpen(item) },
                     onLongClick = { onLongOpen(item) },
                 )
+            }
+            // A library's row: the last card opens the whole library.
+            if (onAll != null) item(key = "all-titles") {
+                Surface(
+                    onClick = onAll,
+                    modifier = Modifier.free().size(width = 100.dp, height = 150.dp),
+                    scale = ClickableSurfaceDefaults.scale(scale = 1f, focusedScale = 1f, pressedScale = 1f),
+                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+                    border = ClickableSurfaceDefaults.border(focusedBorder = Border(BorderStroke(3.dp, AppColors.Accent), shape = RoundedCornerShape(8.dp))),
+                    colors = ClickableSurfaceDefaults.colors(containerColor = AppColors.Panel, focusedContainerColor = AppColors.Panel),
+                ) {
+                    Column(Modifier.fillMaxSize().padding(8.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("▦", fontSize = 28.sp, color = AppColors.Accent)
+                        Text("All titles", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = AppColors.TextPrimary, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 6.dp))
+                        Text(row.library?.title.orEmpty(), fontSize = 11.sp, color = AppColors.TextSecondary, textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    }
+                }
             }
         } }
     }

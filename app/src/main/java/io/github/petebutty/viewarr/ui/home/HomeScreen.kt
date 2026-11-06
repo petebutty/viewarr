@@ -630,6 +630,9 @@ private fun MenuOverlay(
     val navFocus = remember { Section.entries.associateWith { FocusRequester() } }
     val settingsFirst = remember { FocusRequester() }
     val groupsFocus = remember { FocusRequester() }
+    // Movies / Shows: the Plex libraries, so a whole library can be browsed.
+    val libraryFocus = remember { FocusRequester() }
+    val libraryCount = remember { androidx.compose.runtime.mutableStateMapOf<MediaType, Int>() }
     // From the guide the menu opens on the channel groups alone; Left again slides the main menu out beside them.
     var showMain by remember { mutableStateOf(!(remote.menuOpensOn == MenuOpensOn.PageList && page == Page.Tv && session != null)) }
     val menuScope = androidx.compose.runtime.rememberCoroutineScope()
@@ -713,7 +716,9 @@ private fun MenuOverlay(
                         .onPreviewKeyEvent { e ->
                             // Right does the same as OK: open what's inside this entry.
                             if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionRight && !(s == Section.Settings && (showAppearance || showRemote || showPlayback || showAddons || showUpdates || showHomeRows || showPlugins))) {
-                                enter(s)
+                                // Movies / Shows with Plex libraries: Right goes into the library list (OK opens the page).
+                                val t = if (s == Section.Movies) MediaType.Movie else if (s == Section.Shows) MediaType.Show else null
+                                if (t != null && (libraryCount[t] ?: 0) > 0) runCatching { libraryFocus.requestFocus() } else enter(s)
                                 true
                             } else false
                         },
@@ -731,7 +736,7 @@ private fun MenuOverlay(
                     if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                     when {
                         // Left goes back to this section's menu entry, not whichever one is geometrically closest.
-                        e.key == Key.DirectionLeft && (section == Section.Tv ||
+                        e.key == Key.DirectionLeft && (section == Section.Tv || section == Section.Movies || section == Section.Shows ||
                             (section == Section.Settings && !showAppearance && !showRemote && !showPlayback && !showAddons && !showUpdates && !showHomeRows && !showPlugins)) -> {
                             revealMain()
                             true
@@ -811,11 +816,11 @@ private fun MenuOverlay(
                     color = AppColors.TextSecondary,
                     modifier = Modifier.padding(12.dp),
                 )
-                Section.Movies, Section.Shows -> Text(
-                    "Press OK to open ${if (section == Section.Movies) "films" else "shows"}. Choose and order the rows in Settings → Home rows.",
-                    fontSize = 15.sp,
-                    color = AppColors.TextSecondary,
-                    modifier = Modifier.padding(12.dp),
+                Section.Movies, Section.Shows -> LibraryList(
+                    type = if (section == Section.Movies) MediaType.Movie else MediaType.Show,
+                    focusRequester = libraryFocus,
+                    onCount = { t, n -> libraryCount[t] = n },
+                    onOpen = { onOpenPage(if (section == Section.Movies) Page.Movies else Page.Shows) },
                 )
                 else -> Text(
                     "${section.label} is coming in a later update.",
@@ -904,6 +909,57 @@ private fun GroupList(focusRequester: FocusRequester, groups: List<GroupWithCoun
                 selected = g.id == selectedId,
                 modifier = if (g.id == selectedId) Modifier.focusRequester(selectedFocus) else Modifier,
                 onClick = { onSelect(g.id) },
+            )
+        }
+    }
+}
+
+/**
+ * Movies / Shows in the menu: the page's home, then each Plex / Jellyfin / Emby library. Choosing a library shows all of it on the
+ * page (a poster grid); without Plex there's just a hint.
+ */
+@Composable
+private fun LibraryList(type: MediaType, focusRequester: FocusRequester, onCount: (MediaType, Int) -> Unit, onOpen: () -> Unit) {
+    // Same instance as the page's (same key, same owner), so choosing a library shows on the page at once.
+    val media: MediaViewModel = hiltViewModel(key = "media-${type.name}")
+    LaunchedEffect(type) { media.loadLibraries(type) }
+    val libraries by media.libraries.collectAsStateWithLifecycle()
+    val browse by media.browse.collectAsStateWithLifecycle()
+    val libs = libraries.orEmpty()
+    LaunchedEffect(libs.size) { onCount(type, libs.size) }
+    if (libs.isEmpty()) {
+        Text(
+            if (libraries == null) "Loading…"
+            else "Press OK to open ${if (type == MediaType.Movie) "films" else "shows"}. Choose and order the rows in Settings → Home rows.",
+            fontSize = 15.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(12.dp),
+        )
+        return
+    }
+    val current = browse?.takeIf { it.type == type }?.library?.key
+    val selectedIndex = if (current == null) 0 else libs.indexOfFirst { it.key == current } + 1
+    val state = rememberLazyListState(initialFirstVisibleItemIndex = maxOf(0, selectedIndex - 3))
+    LazyColumn(state = state, verticalArrangement = Arrangement.spacedBy(1.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
+        item(key = "home") {
+            val go = { media.openLibrary(null, type); onOpen() }
+            MenuItem(
+                text = if (type == MediaType.Movie) "Movies home" else "Shows home",
+                selected = current == null,
+                onClick = go,
+                modifier = (if (current == null) Modifier.focusRequester(focusRequester) else Modifier).rightDoes(go),
+            )
+        }
+        item(key = "label") {
+            Text("Libraries", fontSize = 12.sp, color = AppColors.Accent, modifier = Modifier.padding(start = 12.dp, top = 10.dp, bottom = 2.dp))
+        }
+        items(libs, key = { it.key }) { lib ->
+            val go = { media.openLibrary(lib, type); onOpen() }
+            MenuItem(
+                text = lib.title,
+                // Several servers: say which one each library is on.
+                trailing = lib.source.takeIf { libs.any { it.source != lib.source } },
+                selected = lib.key == current,
+                onClick = go,
+                modifier = (if (lib.key == current) Modifier.focusRequester(focusRequester) else Modifier).rightDoes(go),
             )
         }
     }

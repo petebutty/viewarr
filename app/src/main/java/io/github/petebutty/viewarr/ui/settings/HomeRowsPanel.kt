@@ -89,8 +89,9 @@ fun HomeRowsSettingsScreen(onBack: () -> Unit) {
 @Composable
 private fun RowsEditor(type: MediaType, moving: String?, onMoving: (String?) -> Unit) {
     val media: MediaViewModel = hiltViewModel(key = "media-${type.name}")
-    LaunchedEffect(type) { media.load(type) }
+    LaunchedEffect(type) { media.load(type); media.loadLibraries(type) }
     val state by media.editableRows.collectAsStateWithLifecycle()
+    val libraries by media.allLibraries.collectAsStateWithLifecycle()
     val (rows, done) = state
     val focus = remember { HashMap<String, FocusRequester>() }
     val listState = rememberLazyListState()
@@ -107,7 +108,7 @@ private fun RowsEditor(type: MediaType, moving: String?, onMoving: (String?) -> 
     Column(Modifier.fillMaxHeight()) {
         Text(
             if (moving != null) "Moving: Up / Down to place it, then OK to put it down."
-            else "OK shows or hides a row. Right picks a row up to move it.",
+            else "OK shows or hides a row. Right picks a row up to move it. Libraries for the menu are further down.",
             fontSize = 14.sp, color = if (moving != null) AppColors.Accent else AppColors.TextSecondary,
             modifier = Modifier.padding(top = 26.dp, bottom = 14.dp, start = 4.dp),
         )
@@ -161,6 +162,45 @@ private fun RowsEditor(type: MediaType, moving: String?, onMoving: (String?) -> 
             }
             if (!done) item(key = "loading") {
                 Text("Loading rows…", fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(12.dp))
+            }
+            // Plex libraries: which ones the menu offers for browsing (menu → Movies / Shows → Right).
+            val libs = libraries.orEmpty()
+            if (libs.isNotEmpty()) {
+                item(key = "libs-head") {
+                    Column(Modifier.padding(start = 4.dp, top = 18.dp, bottom = 4.dp)) {
+                        Text("Libraries in the menu", fontSize = 15.sp, fontWeight = FontWeight.Medium, color = AppColors.Accent)
+                        Text("Switched on: browse the whole library from the menu (Movies / Shows, then Right). OK switches one on or off.",
+                            fontSize = 12.sp, color = AppColors.TextSecondary)
+                    }
+                }
+                itemsIndexed(libs, key = { _, it -> "lib:" + it.first.key }) { _, (lib, off) ->
+                    Surface(
+                        onClick = { media.setLibraryHidden(type, lib.key, !off) },
+                        modifier = Modifier.fillMaxWidth().onPreviewKeyEvent { e -> moving != null && e.type == KeyEventType.KeyDown },
+                        scale = ClickableSurfaceDefaults.scale(scale = 1f, focusedScale = 1f, pressedScale = 1f),
+                        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
+                        colors = ClickableSurfaceDefaults.colors(
+                            containerColor = AppColors.Panel,
+                            contentColor = if (off) AppColors.TextSecondary else AppColors.TextPrimary,
+                            focusedContainerColor = AppColors.Accent,
+                            focusedContentColor = AppColors.OnAccent,
+                        ),
+                    ) {
+                        Row(Modifier.padding(horizontal = 18.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text("▤", fontSize = 14.sp, modifier = Modifier.width(36.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(lib.title, fontSize = 16.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(lib.source + "  ·  " + (if (off) "Not in the menu" else "In the menu"), fontSize = 12.sp)
+                            }
+                            Box(
+                                Modifier.size(width = 48.dp, height = 26.dp)
+                                    .background(if (!off) Color(0xFF2EBD5A) else Color(0xFF6B6F7A), RoundedCornerShape(13.dp))
+                                    .padding(3.dp),
+                                contentAlignment = if (!off) Alignment.CenterEnd else Alignment.CenterStart,
+                            ) { Box(Modifier.size(20.dp).background(Color.White, CircleShape)) }
+                        }
+                    }
+                }
             }
             if (done) item(key = "reset") {
                 var confirm by remember { mutableStateOf(false) }
