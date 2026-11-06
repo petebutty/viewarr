@@ -26,6 +26,12 @@ data class RowLayout(val order: List<String> = emptyList(), val hidden: Set<Stri
     }
 
     fun visible(rows: List<MediaRow>) = ordered(rows).filter { it.id !in hidden }
+
+    /** Any list in this order (by [id]); ones never placed keep their own order after the placed ones. */
+    fun <T> orderedBy(list: List<T>, id: (T) -> String): List<T> {
+        val pos = order.withIndex().associate { it.value to it.index }
+        return list.withIndex().sortedWith(compareBy({ pos[id(it.value)] ?: (order.size + it.index) }, { it.index })).map { it.value }
+    }
 }
 
 @Singleton
@@ -53,13 +59,37 @@ class RowLayoutStore @Inject constructor(@ApplicationContext private val context
         }
     }
 
+    /** The menu's library list: order and hidden ones (Settings → Home rows → Libraries). */
+    fun libraryLayout(type: MediaType): Flow<RowLayout> = context.rowLayoutStore.data.map { p ->
+        RowLayout(
+            order = p[libOrderKey(type)]?.split(SEP)?.filter { it.isNotEmpty() }.orEmpty(),
+            hidden = p[libHiddenKey(type)].orEmpty(),
+        )
+    }
+
+    suspend fun setLibraryHidden(type: MediaType, key: String, hidden: Boolean) {
+        context.rowLayoutStore.edit { p ->
+            val now = p[libHiddenKey(type)].orEmpty()
+            p[libHiddenKey(type)] = if (hidden) now + key else now - key
+        }
+    }
+
+    suspend fun setLibraryOrder(type: MediaType, keys: List<String>) {
+        context.rowLayoutStore.edit { p ->
+            val before = p[libOrderKey(type)]?.split(SEP)?.filter { it.isNotEmpty() }.orEmpty()
+            p[libOrderKey(type)] = (keys + before.filter { it !in keys }).joinToString(SEP)
+        }
+    }
+
     suspend fun reset(type: MediaType) {
-        context.rowLayoutStore.edit { it.remove(orderKey(type)); it.remove(hiddenKey(type)) }
+        context.rowLayoutStore.edit { it.remove(orderKey(type)); it.remove(hiddenKey(type)); it.remove(libOrderKey(type)); it.remove(libHiddenKey(type)) }
     }
 
     private companion object {
         const val SEP = "\u001F"
         fun orderKey(t: MediaType) = stringPreferencesKey("order_${t.name}")
         fun hiddenKey(t: MediaType) = stringSetPreferencesKey("hidden_${t.name}")
+        fun libOrderKey(t: MediaType) = stringPreferencesKey("lib_order_${t.name}")
+        fun libHiddenKey(t: MediaType) = stringSetPreferencesKey("lib_hidden_${t.name}")
     }
 }

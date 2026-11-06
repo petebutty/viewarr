@@ -89,15 +89,16 @@ fun HomeRowsSettingsScreen(onBack: () -> Unit) {
 @Composable
 private fun RowsEditor(type: MediaType, moving: String?, onMoving: (String?) -> Unit) {
     val media: MediaViewModel = hiltViewModel(key = "media-${type.name}")
-    LaunchedEffect(type) { media.load(type) }
+    LaunchedEffect(type) { media.load(type); media.loadLibraries(type) }
+    val libs = media.allLibraries.collectAsStateWithLifecycle().value.orEmpty()
     val state by media.editableRows.collectAsStateWithLifecycle()
     val (rows, done) = state
     val focus = remember { HashMap<String, FocusRequester>() }
     val listState = rememberLazyListState()
     // After a move, keep focus on the row being carried.
-    LaunchedEffect(moving, rows.map { it.first.id }) {
+    LaunchedEffect(moving, rows.map { it.first.id }, libs.map { it.first.key }) {
         val id = moving ?: return@LaunchedEffect
-        val idx = rows.indexOfFirst { it.first.id == id }
+        val idx = if (id.startsWith("lib:")) rows.size + 2 + libs.indexOfFirst { "lib:" + it.first.key == id } else rows.indexOfFirst { it.first.id == id }
         if (idx >= 0) {
             listState.animateScrollToItem(maxOf(0, idx - 3))
             awaitFrame()
@@ -161,6 +162,58 @@ private fun RowsEditor(type: MediaType, moving: String?, onMoving: (String?) -> 
             }
             if (!done) item(key = "loading") {
                 Text("Loading rows…", fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(12.dp))
+            }
+            // The menu's library list (Movies / Shows → Right): show / hide and order, the same way.
+            if (libs.isNotEmpty()) item(key = "libs-head") {
+                Text("Libraries in the menu", fontSize = 15.sp, fontWeight = FontWeight.Medium, color = AppColors.Accent, modifier = Modifier.padding(start = 4.dp, top = 18.dp, bottom = 4.dp))
+            }
+            itemsIndexed(libs, key = { _, it -> "lib:" + it.first.key }) { i, (lib, hidden) ->
+                val id = "lib:" + lib.key
+                val fr = focus.getOrPut(id) { FocusRequester() }
+                val carried = id == moving
+                fun move(by: Int) {
+                    val j = i + by
+                    if (j !in libs.indices) return
+                    val keys = libs.map { it.first.key }.toMutableList()
+                    keys.add(j, keys.removeAt(i))
+                    media.setLibraryOrder(keys)
+                }
+                Surface(
+                    onClick = { if (moving != null) onMoving(null) else media.setLibraryHidden(lib.key, !hidden) },
+                    modifier = Modifier.fillMaxWidth().focusRequester(fr).onPreviewKeyEvent { e ->
+                        if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                        when {
+                            moving == null && e.key == Key.DirectionRight -> { onMoving(id); true }
+                            carried && (e.key == Key.DirectionRight || e.key == Key.DirectionLeft) -> { onMoving(null); true }
+                            carried && e.key == Key.DirectionUp -> { move(-1); true }
+                            carried && e.key == Key.DirectionDown -> { move(1); true }
+                            moving != null && !carried -> true
+                            else -> false
+                        }
+                    },
+                    scale = ClickableSurfaceDefaults.scale(scale = 1f, focusedScale = 1f, pressedScale = 1f),
+                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
+                    colors = ClickableSurfaceDefaults.colors(
+                        containerColor = AppColors.Panel,
+                        contentColor = if (hidden) AppColors.TextSecondary else AppColors.TextPrimary,
+                        focusedContainerColor = AppColors.Accent,
+                        focusedContentColor = AppColors.OnAccent,
+                    ),
+                ) {
+                    Row(Modifier.padding(horizontal = 18.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text(if (carried) "↕" else "▤", fontSize = 14.sp, modifier = Modifier.width(36.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(lib.title, fontSize = 16.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(lib.source + "  ·  " + if (hidden) "Hidden" else "In the menu", fontSize = 12.sp)
+                        }
+                        Box(
+                            Modifier.size(width = 48.dp, height = 26.dp)
+                                .background(if (!hidden) Color(0xFF2EBD5A) else Color(0xFF6B6F7A), RoundedCornerShape(13.dp))
+                                .padding(3.dp),
+                            contentAlignment = if (!hidden) Alignment.CenterEnd else Alignment.CenterStart,
+                        ) { Box(Modifier.size(20.dp).background(Color.White, CircleShape)) }
+                    }
+                }
             }
             if (done) item(key = "reset") {
                 var confirm by remember { mutableStateOf(false) }

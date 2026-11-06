@@ -271,6 +271,96 @@ class MediaViewModel @Inject constructor(
         viewModelScope.launch { _recent.value = runCatching { repo.recentlyAdded(type) }.getOrDefault(emptyList()) }
     }
 
+    // ---- Browsing a whole library (menu → Movies / Shows → a library), one page at a time
+
+    /** A library being browsed: one page of it (so the box only ever holds [LIBRARY_PAGE] titles), sorted. */
+    data class LibraryBrowse(
+        val library: io.github.petebutty.viewarr.data.media.MediaLibrary,
+        val type: MediaType,
+        val sort: io.github.petebutty.viewarr.data.media.LibrarySort,
+        val page: Int = 0,
+        val items: List<MediaItem> = emptyList(),
+        val total: Int = -1,
+        val loading: Boolean = true,
+        val failed: Boolean = false,
+        /** Search within the library ("" = everything). */
+        val query: String = "",
+    ) {
+        val pages get() = if (total <= 0) 1 else (total + LIBRARY_PAGE - 1) / LIBRARY_PAGE
+        val hasNext get() = page + 1 < pages
+    }
+
+    private val _libraries = MutableStateFlow<List<io.github.petebutty.viewarr.data.media.MediaLibrary>?>(null)
+    private var librariesFor: MediaType? = null
+    private val libType = MutableStateFlow<MediaType?>(null)
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    private val libLayout = libType.flatMapLatest { t -> if (t == null) kotlinx.coroutines.flow.flowOf(io.github.petebutty.viewarr.data.settings.RowLayout()) else rowLayouts.libraryLayout(t) }
+    /** Every library in the chosen order, with whether it's hidden (Settings → Home rows). */
+    val allLibraries: kotlinx.coroutines.flow.StateFlow<List<Pair<io.github.petebutty.viewarr.data.media.MediaLibrary, Boolean>>?> =
+        kotlinx.coroutines.flow.combine(_libraries, libLayout) { libs, l -> libs?.let { l.orderedBy(it) { x -> x.key }.map { x -> x to (x.key in l.hidden) } } }
+            .stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, null)
+    /** The libraries the menu lists (null until loaded). */
+    val libraries: kotlinx.coroutines.flow.StateFlow<List<io.github.petebutty.viewarr.data.media.MediaLibrary>?> =
+        kotlinx.coroutines.flow.combine(_libraries, libLayout) { libs, l -> libs?.let { l.orderedBy(it) { x -> x.key }.filter { x -> x.key !in l.hidden } } }
+            .stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, null)
+    fun setLibraryHidden(key: String, hidden: Boolean) { val t = libType.value ?: return; viewModelScope.launch { rowLayouts.setLibraryHidden(t, key, hidden) } }
+    fun setLibraryOrder(keys: List<String>) { val t = libType.value ?: return; viewModelScope.launch { rowLayouts.setLibraryOrder(t, keys) } }
+    fun loadLibraries(type: MediaType) {
+        libType.value = type
+        if (librariesFor == type && _libraries.value != null) return
+        librariesFor = type
+        viewModelScope.launch { _libraries.value = runCatching { repo.libraries(type) }.getOrDefault(emptyList()) }
+    }
+
+    private val _browse = MutableStateFlow<LibraryBrowse?>(null)
+    val browse = _browse.asStateFlow()
+    private var browseJob: kotlinx.coroutines.Job? = null
+
+    /** Opens a library on its first page, or (null) goes back to the page's rows. */
+    fun openLibrary(library: io.github.petebutty.viewarr.data.media.MediaLibrary?, type: MediaType) {
+        browseJob?.cancel()
+        if (library == null) { _browse.value = null; return }
+        val sort = _browse.value?.takeIf { it.library.key == library.key }?.sort ?: io.github.petebutty.viewarr.data.media.LibrarySort.Title
+        showLibraryPage(LibraryBrowse(library, type, sort), 0)
+    }
+
+    fun setLibrarySort(sort: io.github.petebutty.viewarr.data.media.LibrarySort) {
+        val b = _browse.value ?: return
+        if (b.sort != sort) showLibraryPage(b.copy(sort = sort, total = -1), 0)
+    }
+
+    private var queryJob: kotlinx.coroutines.Job? = null
+    /** Search this library: results a page at a time, as you type (short pause first). */
+    fun setLibraryQuery(q: String) {
+        val b = _browse.value ?: return
+        if (b.query == q) return
+        _browse.value = b.copy(query = q)
+        queryJob?.cancel()
+        queryJob = viewModelScope.launch {
+            kotlinx.coroutines.delay(450)
+            _browse.value?.let { showLibraryPage(it.copy(total = -1), 0) }
+        }
+    }
+
+    fun libraryPage(delta: Int) {
+        val b = _browse.value ?: return
+        val to = (b.page + delta).coerceIn(0, b.pages - 1)
+        if (to != b.page) showLibraryPage(b, to)
+    }
+
+    private fun showLibraryPage(b: LibraryBrowse, page: Int) {
+        browseJob?.cancel()
+        _browse.value = b.copy(page = page, items = emptyList(), loading = true, failed = false)
+        browseJob = viewModelScope.launch {
+            val got = runCatching { repo.libraryPage(b.library, b.type, b.sort, page * LIBRARY_PAGE, LIBRARY_PAGE, b.query) }.getOrNull()
+            _browse.update { now ->
+                if (now == null || now.library.key != b.library.key || now.sort != b.sort || now.page != page || now.query != b.query) now
+                else if (got == null) now.copy(loading = false, failed = true)
+                else now.copy(items = got.first.distinctBy { it.key }, total = got.second, loading = false)
+            }
+        }
+    }
+
     /** Picks up your other Plex servers (e.g. a second machine) so their titles count as yours. */
     fun refreshPlexServers() { viewModelScope.launch { runCatching { repo.refreshPlexServers() } } }
 
@@ -646,3 +736,6 @@ enum class SearchFilter(val label: String) {
         }
     }
 }
+
+/** Titles per library page: enough to browse, small enough for a weak box to hold. */
+const val LIBRARY_PAGE = 60

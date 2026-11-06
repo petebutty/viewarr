@@ -123,6 +123,18 @@ interface GuideDao {
     @Query("SELECT COUNT(*) FROM programs")
     suspend fun programCount(): Int
 
+    /** One channel's programmes between [from] and [to] (the channel list's programme panel). */
+    @Query(
+        """
+        SELECT :channelId AS channelId, p.rowId, p.title, p.subTitle, p.description, p.startTime, p.endTime,
+               p.season, p.episode, p.isNew, p.isLive, p.isPremiere
+        FROM programs p
+        WHERE p.tvgId = :guideKey AND p.endTime > :from AND p.startTime < :to
+        ORDER BY p.startTime
+        """
+    )
+    suspend fun programsFor(channelId: Int, guideKey: String, from: Long, to: Long): List<GuideProgram>
+
     /** Search: programmes whose title contains [q], on now or still to come, soonest first. */
     @Query(
         """

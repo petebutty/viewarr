@@ -595,6 +595,13 @@ fun HomeScreen(
                         showBanner()
                     },
                     onClose = { channelListOpen = false },
+                    onCatchup = { ch, prog ->
+                        channelListOpen = false
+                        playback.playCatchup(ch, prog, session)
+                        vm.selectChannel(ch.id)
+                        showBanner()
+                    },
+                    onFuture = { ch, prog -> channelListOpen = false; recordTarget = ch to prog },
                 )
             }
             if (osdVisible && channel != null) {
@@ -1001,7 +1008,7 @@ private fun MenuOverlay(
                     onOpenPage = { onOpenPage(Page.Recordings) },
                     onPlay = onPlayRecording,
                 )
-                Section.Movies, Section.Shows -> RecentPanel(
+                Section.Movies, Section.Shows -> MediaMenuPanel(
                     type = if (section == Section.Movies) MediaType.Movie else MediaType.Show,
                     focusRequester = recentFocus,
                     onCount = { t, n -> recentCount[t] = n },
@@ -1172,6 +1179,9 @@ private fun SearchPage(
     var query by rememberSaveable { mutableStateOf("") }
     val fieldFocus = remember { FocusRequester() }
     val rowsFocus = remember { FocusRequester() }
+    // Down from the box: quick picks first, then the filters, then the results.
+    val picksFocus = remember { FocusRequester() }
+    val filtersFocus = remember { FocusRequester() }
     val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
     val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
     val detailOpen by media.detail.collectAsStateWithLifecycle()
@@ -1287,7 +1297,12 @@ private fun SearchPage(
                                 return@onPreviewKeyEvent true
                             }
                             if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionDown) {
-                                if (!focusManager.moveFocus(androidx.compose.ui.focus.FocusDirection.Down)) runCatching { rowsFocus.requestFocus() }
+                                val next = when {
+                                    picks.isNotEmpty() -> picksFocus
+                                    query.trim().length >= 2 -> filtersFocus
+                                    else -> rowsFocus
+                                }
+                                if (runCatching { next.requestFocus() }.isFailure) runCatching { rowsFocus.requestFocus() }
                                 true
                             } else false
                         },
@@ -1313,13 +1328,16 @@ private fun SearchPage(
                 if (picks.isNotEmpty() && headerFocused) {
                     Spacer(Modifier.height(10.dp))
                     androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        items(picks, key = { it }) { pick ->
+                        items(picks.size, key = { picks[it] }) { i ->
+                            val pick = picks[i]
                             androidx.tv.material3.Surface(
                                 onClick = {
                                     query = pick
                                     searchScope.launch { delay(900); runCatching { rowsFocus.requestFocus() } }
                                 },
-                                modifier = Modifier.focusProperties { canFocus = fieldFree && focusEnabled },
+                                modifier = (if (i == 0) Modifier.focusRequester(picksFocus) else Modifier).focusProperties { canFocus = fieldFree && focusEnabled },
+                                // No growing when highlighted: it was cut off at the edges of the strip.
+                                scale = androidx.tv.material3.ClickableSurfaceDefaults.scale(scale = 1f, focusedScale = 1f, pressedScale = 1f),
                                 shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(androidx.compose.foundation.shape.RoundedCornerShape(18.dp)),
                                 colors = androidx.tv.material3.ClickableSurfaceDefaults.colors(
                                     containerColor = AppColors.Panel, contentColor = AppColors.TextPrimary,
@@ -1340,7 +1358,8 @@ private fun SearchPage(
                             val on = f == filter
                             androidx.tv.material3.Surface(
                                 onClick = { media.setSearchFilter(f) },
-                                modifier = Modifier.focusProperties { canFocus = fieldFree && focusEnabled },
+                                modifier = (if (on) Modifier.focusRequester(filtersFocus) else Modifier).focusProperties { canFocus = fieldFree && focusEnabled },
+                                scale = androidx.tv.material3.ClickableSurfaceDefaults.scale(scale = 1f, focusedScale = 1f, pressedScale = 1f),
                                 shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(androidx.compose.foundation.shape.RoundedCornerShape(18.dp)),
                                 colors = androidx.tv.material3.ClickableSurfaceDefaults.colors(
                                     containerColor = if (on) AppColors.TextPrimary else Color.Transparent,
@@ -1415,8 +1434,25 @@ private fun ChannelListOverlay(
     now: Long,
     onPick: (ChannelListItem) -> Unit,
     onClose: () -> Unit,
+    /** A programme that's been on, from the programme panel: play it from catch-up. */
+    onCatchup: (ChannelListItem, GuideProgram) -> Unit = { _, _ -> },
+    /** A programme still to come: record / remind options. */
+    onFuture: (ChannelListItem, GuideProgram) -> Unit = { _, _ -> },
 ) {
     val channels by vm.channels.collectAsStateWithLifecycle()
+    // Right on a channel: its programmes in a panel beside the list (Left goes back).
+    var focusedCh by remember { mutableStateOf<ChannelListItem?>(null) }
+    var epgFor by remember { mutableStateOf<ChannelListItem?>(null) }
+    val epgFocus = remember { FocusRequester() }
+    // Closing the programme panel puts you back on the channel it was for.
+    var returnTo by remember { mutableStateOf<Int?>(null) }
+    val returnFocus = remember { FocusRequester() }
+    LaunchedEffect(epgFor) {
+        if (epgFor != null) { returnTo = epgFor?.id; return@LaunchedEffect }
+        if (returnTo == null) return@LaunchedEffect
+        awaitFrame()
+        runCatching { returnFocus.requestFocus() }
+    }
     val programs by vm.programs.collectAsStateWithLifecycle()
     val groups by vm.groups.collectAsStateWithLifecycle()
     val groupId by vm.groupId.collectAsStateWithLifecycle()
@@ -1426,7 +1462,7 @@ private fun ChannelListOverlay(
     val listState = rememberLazyListState(initialFirstVisibleItemIndex = maxOf(0, start - 4))
     val focus = remember { FocusRequester() }
     var activity by remember { mutableLongStateOf(System.nanoTime()) }
-    BackHandler { if (showGroups) showGroups = false else onClose() }
+    BackHandler { if (epgFor != null) epgFor = null else if (showGroups) showGroups = false else onClose() }
     // Focus: the current channel (or the first one after a group change), or the selected group.
     LaunchedEffect(showGroups, groupId) {
         awaitFrame()
@@ -1446,6 +1482,10 @@ private fun ChannelListOverlay(
         if (e.type == KeyEventType.KeyDown) activity = System.nanoTime()
         when {
             e.type != KeyEventType.KeyDown -> false
+            // The programme panel: Left closes it; Right on a channel opens it.
+            epgFor != null && e.key == Key.DirectionLeft -> { epgFor = null; true }
+            epgFor != null -> false
+            e.key == Key.DirectionRight && !showGroups -> { focusedCh?.let { epgFor = it }; true }
             // Left from the channels opens the groups; Right (or Back) from the groups returns.
             e.key == Key.DirectionLeft && !showGroups -> { showGroups = true; true }
             e.key == Key.DirectionRight && showGroups -> { showGroups = false; true }
@@ -1494,7 +1534,9 @@ private fun ChannelListOverlay(
                 Surface(
                     onClick = { onPick(ch) },
                     modifier = (if (ch.id == focusTarget) Modifier.focusRequester(focus) else Modifier)
-                        .focusProperties { canFocus = !showGroups }
+                        .then(if (ch.id == returnTo) Modifier.focusRequester(returnFocus) else Modifier)
+                        .focusProperties { canFocus = !showGroups && epgFor == null }
+                        .onFocusChanged { if (it.isFocused) focusedCh = ch }
                         .fillMaxWidth(),
                     scale = ClickableSurfaceDefaults.scale(scale = 1f, focusedScale = 1f, pressedScale = 1f),
                     shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(6.dp)),
@@ -1522,11 +1564,88 @@ private fun ChannelListOverlay(
                             Text(ch.name, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             nowOn?.let { Text(it, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
                         }
+                        if (ch.id == epgFor?.id) Text("›", fontSize = 18.sp, modifier = Modifier.padding(start = 6.dp))
                     }
                 }
             }
         }
     }
+    epgFor?.let { ch -> ChannelPrograms(vm, ch, now, epgFocus, onLive = { onPick(ch) }, onCatchup = { onCatchup(ch, it) }, onFuture = { onFuture(ch, it) }) }
+    }
+}
+
+/**
+ * The channel list's programme panel: one channel's earlier programmes (playable from catch-up when the channel has
+ * it), what's on now, and what's coming. Opens on now.
+ */
+@Composable
+private fun ChannelPrograms(
+    vm: GuideViewModel,
+    ch: ChannelListItem,
+    now: Long,
+    focusRequester: FocusRequester,
+    onLive: () -> Unit,
+    onCatchup: (GuideProgram) -> Unit,
+    onFuture: (GuideProgram) -> Unit,
+) {
+    val programs by androidx.compose.runtime.produceState<List<GuideProgram>?>(null, ch.id) { value = runCatching { vm.programsFor(ch) }.getOrDefault(emptyList()) }
+    val list = programs
+    val nowIndex = list?.indexOfFirst { it.endTime > now }?.coerceAtLeast(0) ?: 0
+    val state = rememberLazyListState()
+    LaunchedEffect(list != null) {
+        if (list.isNullOrEmpty()) return@LaunchedEffect
+        state.scrollToItem(maxOf(0, nowIndex - 2))
+        awaitFrame(); awaitFrame()
+        runCatching { focusRequester.requestFocus() }
+    }
+    val hhmm = java.time.format.DateTimeFormatter.ofPattern("HH:mm")
+    val day = java.time.format.DateTimeFormatter.ofPattern("EEE d")
+    val zone = java.time.ZoneId.systemDefault()
+    val today = java.time.LocalDate.now(zone)
+    val catchupFrom = if (ch.catchupDays > 0) now - ch.catchupDays * 86_400_000L else Long.MAX_VALUE
+    Box(
+        Modifier.fillMaxHeight().width(440.dp)
+            .background(AppColors.Panel.copy(alpha = 0.94f))
+            .padding(start = 16.dp, top = 24.dp, bottom = 24.dp, end = 20.dp),
+    ) {
+        Column {
+            Text(ch.name, fontSize = 13.sp, color = AppColors.Accent, modifier = Modifier.padding(start = 8.dp, bottom = 8.dp))
+            when {
+                list == null -> Text("Loading…", fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(8.dp))
+                list.isEmpty() -> Text("No programme information for this channel.", fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(8.dp))
+                else -> LazyColumn(state = state, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    items(list.size, key = { list[it].rowId }) { i ->
+                        val p = list[i]
+                        val live = p.startTime <= now && p.endTime > now
+                        val past = p.endTime <= now
+                        val canCatchup = past && p.startTime >= catchupFrom
+                        val start = java.time.Instant.ofEpochMilli(p.startTime).atZone(zone)
+                        val time = (if (start.toLocalDate() != today) start.format(day) + " " else "") + start.format(hhmm)
+                        Surface(
+                            onClick = { when { live -> onLive(); canCatchup -> onCatchup(p); !past -> onFuture(p) } },
+                            modifier = (if (i == nowIndex) Modifier.focusRequester(focusRequester) else Modifier).fillMaxWidth(),
+                            scale = ClickableSurfaceDefaults.scale(scale = 1f, focusedScale = 1f, pressedScale = 1f),
+                            shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(6.dp)),
+                            colors = ClickableSurfaceDefaults.colors(
+                                containerColor = if (live) AppColors.CellCurrent.copy(alpha = 0.8f) else Color.Transparent,
+                                contentColor = if (past && !canCatchup) AppColors.TextSecondary else AppColors.TextPrimary,
+                                focusedContainerColor = AppColors.Accent,
+                                focusedContentColor = AppColors.OnAccent,
+                            ),
+                        ) {
+                            Row(Modifier.padding(horizontal = 10.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Text(time, fontSize = 13.sp, modifier = Modifier.width(if (start.toLocalDate() != today) 92.dp else 52.dp))
+                                Column(Modifier.weight(1f)) {
+                                    Text(io.github.petebutty.viewarr.ui.guide.displayTitle(p), fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    val tag = when { live -> "● On now"; canCatchup -> "⟲ Catch-up: OK to play"; else -> null }
+                                    tag?.let { Text(it, fontSize = 11.sp, maxLines = 1) }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -1544,51 +1663,53 @@ private fun whenText(start: Long, now: Long): String {
 }
 
 /**
- * The menu's Movies / Shows panel: the newest titles in your Plex / Jellyfin / Emby libraries as small posters.
- * OK on one opens its page; without any servers it just says how to open the page.
+ * The menu's Movies / Shows panel: the page's home, its catalogues (the rows on the page: OK jumps to one) and your
+ * Plex / Jellyfin / Emby libraries (OK opens one as a grid, a page at a time, with sorting).
  */
 @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
-private fun RecentPanel(type: MediaType, focusRequester: FocusRequester, onCount: (MediaType, Int) -> Unit, onOpenPage: () -> Unit) {
-    // Same instance as the page's, so opening a title shows it there straight away.
+private fun MediaMenuPanel(type: MediaType, focusRequester: FocusRequester, onCount: (MediaType, Int) -> Unit, onOpenPage: () -> Unit) {
+    // Same instance as the page's, so what's picked here shows there straight away.
     val media: MediaViewModel = hiltViewModel(key = "media-${type.name}")
-    LaunchedEffect(type) { media.loadRecent(type) }
-    val recent by media.recent.collectAsStateWithLifecycle()
-    val items = recent.orEmpty()
-    LaunchedEffect(items.size) { onCount(type, items.size) }
-    Column {
-        Text(
-            if (items.isEmpty() && recent != null) "Press OK to open ${if (type == MediaType.Movie) "films" else "shows"}."
-            else "Recently added",
-            fontSize = 13.sp, color = AppColors.Accent, modifier = Modifier.padding(start = 6.dp, bottom = 8.dp),
-        )
-        if (recent == null) Text("Loading…", fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(start = 6.dp))
-        androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
-            columns = androidx.compose.foundation.lazy.grid.GridCells.Fixed(2),
-            // Right from the menu lands back on the poster you were on, even after scrolling down the grid.
-            modifier = Modifier.focusRequester(focusRequester).focusRestorer(),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            contentPadding = PaddingValues(start = 4.dp, end = 4.dp, bottom = 24.dp),
-        ) {
-            items(items.size, key = { items[it].key }) { i ->
-                val item = items[i]
-                androidx.tv.material3.Surface(
-                    onClick = { onOpenPage(); media.open(item) },
-                    modifier = Modifier.height(150.dp),
-                    scale = androidx.tv.material3.ClickableSurfaceDefaults.scale(scale = 1f, focusedScale = 1f, pressedScale = 1f),
-                    shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(RoundedCornerShape(6.dp)),
-                    border = androidx.tv.material3.ClickableSurfaceDefaults.border(
-                        focusedBorder = androidx.tv.material3.Border(androidx.compose.foundation.BorderStroke(3.dp, AppColors.Accent), shape = RoundedCornerShape(6.dp)),
-                    ),
-                    colors = androidx.tv.material3.ClickableSurfaceDefaults.colors(containerColor = AppColors.Panel, focusedContainerColor = AppColors.Panel),
-                ) {
-                    Box(Modifier.fillMaxSize()) {
-                        Text(item.title, fontSize = 11.sp, color = AppColors.TextSecondary, maxLines = 3, modifier = Modifier.align(Alignment.Center).padding(6.dp))
-                        item.poster?.let { coil.compose.AsyncImage(model = it, contentDescription = item.title, contentScale = androidx.compose.ui.layout.ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
-                    }
-                }
-            }
+    LaunchedEffect(type) { media.load(type); media.loadLibraries(type) }
+    val rowsState by media.rows.collectAsStateWithLifecycle()
+    val libraries by media.libraries.collectAsStateWithLifecycle()
+    val browse by media.browse.collectAsStateWithLifecycle()
+    val current by media.currentRow.collectAsStateWithLifecycle()
+    val rows = rowsState.rows
+    val libs = libraries.orEmpty()
+    LaunchedEffect(Unit) { onCount(type, 1) } // "home" is always there
+    val home = if (type == MediaType.Movie) "Movies home" else "Shows home"
+    LazyColumn(
+        Modifier.focusRequester(focusRequester).focusRestorer(),
+        verticalArrangement = Arrangement.spacedBy(1.dp), contentPadding = PaddingValues(bottom = 24.dp),
+    ) {
+        item(key = "home") {
+            val go = { media.openLibrary(null, type); media.jumpTo(null); onOpenPage() }
+            MenuItem(text = home, selected = browse == null && current == null, onClick = go, modifier = Modifier.rightDoes(go))
+        }
+        if (libs.isNotEmpty()) item(key = "h-lib") {
+            Text("Libraries", fontSize = 12.sp, color = AppColors.Accent, modifier = Modifier.padding(start = 12.dp, top = 10.dp, bottom = 2.dp))
+        }
+        items(libs, key = { "l-" + it.key }) { lib ->
+            val go = { media.openLibrary(lib, type); onOpenPage() }
+            MenuItem(
+                text = lib.title,
+                trailing = lib.source.removePrefix("Plex · ").takeIf { libs.map { l -> l.source }.distinct().size > 1 },
+                selected = browse?.library?.key == lib.key,
+                onClick = go,
+                modifier = Modifier.rightDoes(go),
+            )
+        }
+        if (rows.isNotEmpty()) item(key = "h-cat") {
+            Text("Catalogues", fontSize = 12.sp, color = AppColors.Accent, modifier = Modifier.padding(start = 12.dp, top = 10.dp, bottom = 2.dp))
+        }
+        items(rows, key = { "r-" + it.id }) { row ->
+            val go = { media.openLibrary(null, type); media.jumpTo(row.id); onOpenPage() }
+            MenuItem(text = row.title, trailing = row.items.size.toString(), selected = browse == null && row.id == current, onClick = go, modifier = Modifier.rightDoes(go))
+        }
+        if (!rowsState.done) item(key = "loading") {
+            Text("Loading…", fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(12.dp))
         }
     }
 }

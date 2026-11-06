@@ -44,6 +44,20 @@ data class PlexEpisode(val ratingKey: String, val viewOffsetMs: Long, val watche
 
 data class MediaRow(val id: String, val title: String, val items: List<MediaItem>)
 
+/**
+ * A library of films or shows on Plex, Jellyfin or Emby. [key] is unique across servers; [server] is the Plex server's
+ * id (several Plex servers), [id] the library's own id on its server.
+ */
+data class MediaLibrary(val key: String, val title: String, val source: String, val id: String, val server: String? = null)
+
+/** How a whole library is listed when browsing it. */
+enum class LibrarySort(val label: String, val plex: String, val jellyfin: Pair<String, String>) {
+    Title("A–Z", "titleSort:asc", "SortName" to "Ascending"),
+    Added("Date added", "addedAt:desc", "DateCreated" to "Descending"),
+    Released("Release date", "originallyAvailableAt:desc", "PremiereDate,SortName" to "Descending"),
+    Rating("Rating", "audienceRating:desc", "CommunityRating,SortName" to "Descending"),
+}
+
 /** A copy of a title on one of the user's own servers (Plex, Jellyfin, Emby). */
 data class LibraryCopy(val source: String, val detail: String? = null, val ref: String? = null)
 

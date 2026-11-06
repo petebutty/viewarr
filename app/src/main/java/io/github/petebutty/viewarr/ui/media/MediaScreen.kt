@@ -4,8 +4,10 @@ import io.github.petebutty.viewarr.ui.common.ignoreHeldOk
 import io.github.petebutty.viewarr.ui.common.trapFocus
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.border
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.lazy.grid.itemsIndexed as gridItemsIndexed
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -106,6 +108,10 @@ fun MediaScreen(
     val scope = rememberCoroutineScope()
     val detail by vm.detail.collectAsStateWithLifecycle()
     val playing by vm.playing.collectAsStateWithLifecycle()
+    // A whole library being browsed (menu → Movies / Shows → a library), shown instead of the rows.
+    val browse by vm.browse.collectAsStateWithLifecycle()
+    val gridState = remember(browse?.library?.key, browse?.sort, browse?.page) { androidx.compose.foundation.lazy.grid.LazyGridState() }
+    var gridFocusKey by remember(browse?.library?.key, browse?.sort, browse?.page) { mutableStateOf<String?>(null) }
     var focused by remember { mutableStateOf<MediaItem?>(null) }
     var lastCard by remember { mutableStateOf<String?>(null) }
     var hasFocus by remember { mutableStateOf(false) }
@@ -116,6 +122,27 @@ fun MediaScreen(
     }
 
     LaunchedEffect(type) { if (searchHeader == null) vm.load(type) }
+    // A library page arrived (opened, re-sorted, next / previous page): focus its first title.
+    LaunchedEffect(browse?.library?.key, browse?.sort, browse?.page, browse?.items?.isNotEmpty()) {
+        val b = browse ?: return@LaunchedEffect
+        if (!focusEnabled || detail != null || b.items.isEmpty()) return@LaunchedEffect
+        awaitFrame(); awaitFrame()
+        runCatching { focusRequester.requestFocus() }
+    }
+    // Back from a title opened in a library: straight back to that poster (scrolled into view first).
+    var openedFromGrid by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(detail == null) {
+        val key = openedFromGrid ?: return@LaunchedEffect
+        val b = browse ?: return@LaunchedEffect
+        if (detail != null) return@LaunchedEffect
+        openedFromGrid = null
+        val idx = b.items.indexOfFirst { it.key == key }
+        if (idx < 0) return@LaunchedEffect
+        gridFocusKey = key
+        runCatching { gridState.scrollToItem(idx + if (b.page > 0) 1 else 0) }
+        awaitFrame(); awaitFrame()
+        runCatching { focusRequester.requestFocus() }
+    }
     // Rows arrive after the screen opens: grab focus once there's something to focus.
     LaunchedEffect(state.rows.isNotEmpty(), focusEnabled, detail == null) {
         if (searchHeader != null || !focusEnabled || detail != null || state.rows.isEmpty() || hasFocus) return@LaunchedEffect
@@ -159,6 +186,12 @@ fun MediaScreen(
     var quickTrailer by remember { mutableStateOf<MediaItem?>(null) }
     val personShown by vm.person.collectAsStateWithLifecycle()
     BackHandler(enabled = focusEnabled && detail == null && quick == null && quickTrailer == null) {
+        // In a library: Back returns to the page's rows.
+        if (browse != null) {
+            vm.openLibrary(null, type)
+            scope.launch { awaitFrame(); awaitFrame(); runCatching { focusRequester.requestFocus() } }
+            return@BackHandler
+        }
         // Search, a person's films and shows: Back to the results.
         if (personShown != null) {
             vm.closePerson()
@@ -199,7 +232,7 @@ fun MediaScreen(
     val upNextShown by vm.upNext.collectAsStateWithLifecycle()
     LaunchedEffect(hasFocus, focusEnabled, detail == null, quick == null, quickTrailer == null, playing == null, rows.size, upNextShown == null) {
         if (searchHeader != null || upNextShown != null || hasFocus || !focusEnabled || detail != null || quick != null || quickTrailer != null || playing != null) return@LaunchedEffect
-        if (rows.isEmpty()) return@LaunchedEffect
+        if (rows.isEmpty() || browse != null) return@LaunchedEffect
         delay(400)
         if (hasFocus) return@LaunchedEffect
         // The poster that takes focus has to be on screen: bring its row in first.
@@ -210,7 +243,24 @@ fun MediaScreen(
     }
 
     Box(Modifier.fillMaxSize().background(if (searchHeader != null) Color.Transparent else AppColors.Background)) {
-        Column(Modifier.fillMaxSize()) {
+        browse?.let { b ->
+            LibraryGrid(
+                b = b,
+                gridState = gridState,
+                focusKey = gridFocusKey,
+                focusRequester = focusRequester,
+                focused = focused,
+                onFocus = { item -> focused = item; gridFocusKey = item.key },
+                onHasFocus = { hasFocus = it },
+                onSort = vm::setLibrarySort,
+                onQuery = vm::setLibraryQuery,
+                onPage = vm::libraryPage,
+                onOpen = { openedFromGrid = it.key; vm.open(it) },
+                onLong = { quick = it },
+                onLeftEdge = onOpenMenu,
+            )
+        }
+        if (browse == null) Column(Modifier.fillMaxSize()) {
             if (searchHeader != null) searchHeader() else Hero(
                 item = hero ?: rows.firstOrNull()?.items?.firstOrNull(),
                 type = type,
@@ -374,6 +424,164 @@ private fun Hero(
                     Text(it, fontSize = 14.sp, lineHeight = 20.sp, color = AppColors.TextPrimary, maxLines = 3, overflow = TextOverflow.Ellipsis)
                 }
             }
+        }
+    }
+}
+
+private const val GRID_COLUMNS = 7
+
+/**
+ * A whole library as a poster grid, one page at a time (so a big library never weighs on the box), with the sort
+ * choices along the top. The last card goes to the next page, the first (after page 1) to the previous one.
+ */
+@Composable
+private fun LibraryGrid(
+    b: MediaViewModel.LibraryBrowse,
+    gridState: androidx.compose.foundation.lazy.grid.LazyGridState,
+    focusKey: String?,
+    focusRequester: FocusRequester,
+    focused: MediaItem?,
+    onFocus: (MediaItem) -> Unit,
+    onHasFocus: (Boolean) -> Unit,
+    onSort: (io.github.petebutty.viewarr.data.media.LibrarySort) -> Unit,
+    onQuery: (String) -> Unit,
+    onPage: (Int) -> Unit,
+    onOpen: (MediaItem) -> Unit,
+    onLong: (MediaItem) -> Unit,
+    onLeftEdge: () -> Unit,
+) {
+    val entryKey = focusKey?.takeIf { k -> b.items.any { it.key == k } } ?: b.items.firstOrNull()?.key
+    val prev = b.page > 0
+    Column(Modifier.fillMaxSize().padding(top = 28.dp)) {
+        Row(Modifier.padding(horizontal = 48.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(b.library.title, fontSize = 26.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(
+                    when {
+                        b.failed -> "The server didn't answer. Press Back and try again."
+                        b.total == 0 && b.query.isNotBlank() -> "Nothing in this library matches \"${b.query}\""
+                        b.total >= 0 -> "${b.library.source}  ·  ${b.total} ${if (b.query.isNotBlank()) "matches" else "titles"}  ·  page ${b.page + 1} of ${b.pages}"
+                        else -> "Loading…"
+                    },
+                    fontSize = 13.sp, color = AppColors.TextSecondary,
+                )
+            }
+            LibrarySearchBox(b.query, onQuery, onDone = { runCatching { focusRequester.requestFocus() } })
+            io.github.petebutty.viewarr.data.media.LibrarySort.entries.forEach { s ->
+                Surface(
+                    onClick = { onSort(s) },
+                    modifier = Modifier.padding(start = 8.dp),
+                    scale = ClickableSurfaceDefaults.scale(scale = 1f, focusedScale = 1f, pressedScale = 1f),
+                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(18.dp)),
+                    colors = ClickableSurfaceDefaults.colors(
+                        containerColor = if (s == b.sort) AppColors.TextPrimary else AppColors.Panel,
+                        contentColor = if (s == b.sort) AppColors.Background else AppColors.TextSecondary,
+                        focusedContainerColor = AppColors.Accent,
+                        focusedContentColor = AppColors.OnAccent,
+                    ),
+                ) { Text(s.label, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp)) }
+            }
+        }
+        // The highlighted title, so you know what you're on without opening it.
+        Text(
+            focused?.takeIf { f -> b.items.any { it.key == f.key } }?.let { "${it.title}   ${metaLine(it)}" } ?: " ",
+            fontSize = 15.sp, color = AppColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(start = 48.dp, end = 48.dp, top = 14.dp, bottom = 10.dp),
+        )
+        androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
+            columns = androidx.compose.foundation.lazy.grid.GridCells.Fixed(GRID_COLUMNS),
+            state = gridState,
+            modifier = Modifier.fillMaxWidth().weight(1f).onFocusChanged { onHasFocus(it.hasFocus) },
+            contentPadding = PaddingValues(start = 48.dp, end = 48.dp, top = 4.dp, bottom = 60.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            if (prev) item(key = "prev") { PageCard("‹", "Previous page", "Page ${b.page}") { onPage(-1) } }
+            gridItemsIndexed(b.items, key = { _, it -> it.key }) { index, item ->
+                val col = (index + if (prev) 1 else 0) % GRID_COLUMNS
+                PosterCard(
+                    item = item,
+                    modifier = (if (item.key == entryKey) Modifier.focusRequester(focusRequester) else Modifier)
+                        .onFocusChanged { if (it.isFocused) onFocus(item) }
+                        .onPreviewKeyEvent { e ->
+                            // Left on the first column: the menu (pick another library).
+                            if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionLeft && col == 0) { onLeftEdge(); true } else false
+                        },
+                    onClick = { onOpen(item) },
+                    onLongClick = { onLong(item) },
+                )
+            }
+            if (b.hasNext && !b.loading) item(key = "next") { PageCard("›", "Next page", "Page ${b.page + 2} of ${b.pages}") { onPage(1) } }
+            if (b.loading) item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(GRID_COLUMNS) }) {
+                Text("Loading…", fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(8.dp))
+            }
+        }
+    }
+}
+
+/**
+ * Search within a library: a slim box. The keyboard opens only on OK (moving through doesn't pop it up); Search /
+ * Done or Down returns to the titles.
+ */
+@Composable
+private fun LibrarySearchBox(query: String, onQuery: (String) -> Unit, onDone: () -> Unit) {
+    var text by remember { mutableStateOf(query) }
+    var editing by remember { mutableStateOf(false) }
+    var focusedBox by remember { mutableStateOf(false) }
+    val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+    androidx.compose.foundation.text.BasicTextField(
+        value = text,
+        onValueChange = { text = it; onQuery(it) },
+        singleLine = true,
+        readOnly = !editing,
+        cursorBrush = androidx.compose.ui.graphics.SolidColor(AppColors.Accent),
+        textStyle = androidx.compose.ui.text.TextStyle(fontSize = 14.sp, color = AppColors.TextPrimary),
+        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Search),
+        keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = { editing = false; keyboard?.hide(); onDone() }),
+        modifier = Modifier.padding(end = 8.dp).width(260.dp).height(36.dp)
+            .onFocusChanged { focusedBox = it.isFocused; if (!it.isFocused) { editing = false; keyboard?.hide() } }
+            .onPreviewKeyEvent { e ->
+                val ok = e.key == Key.DirectionCenter || e.key == Key.Enter || e.key == Key.NumPadEnter
+                when {
+                    ok && !editing -> { if (e.type == KeyEventType.KeyDown) { editing = true; keyboard?.show() }; true }
+                    e.type == KeyEventType.KeyDown && e.key == Key.DirectionDown -> { editing = false; keyboard?.hide(); onDone(); true }
+                    else -> false
+                }
+            },
+        decorationBox = { inner ->
+            Row(
+                Modifier.fillMaxSize()
+                    .background(AppColors.Panel, RoundedCornerShape(50))
+                    .border(if (focusedBox) 2.dp else 1.dp, if (focusedBox) AppColors.Accent else AppColors.TextSecondary.copy(alpha = 0.4f), RoundedCornerShape(50))
+                    .padding(horizontal = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                androidx.compose.material3.Icon(io.github.petebutty.viewarr.ui.common.AppIcons.Search, contentDescription = null, tint = AppColors.TextSecondary, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(8.dp))
+                Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+                    if (text.isEmpty()) Text("Search this library", fontSize = 14.sp, color = AppColors.TextSecondary, maxLines = 1)
+                    inner()
+                }
+            }
+        },
+    )
+}
+
+/** "Next page" / "Previous page" in a library grid: a poster-sized card. */
+@Composable
+private fun PageCard(arrow: String, label: String, sub: String, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        modifier = Modifier.size(width = 100.dp, height = 150.dp),
+        scale = ClickableSurfaceDefaults.scale(scale = 1f, focusedScale = 1f, pressedScale = 1f),
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+        border = ClickableSurfaceDefaults.border(focusedBorder = Border(BorderStroke(3.dp, AppColors.Accent), shape = RoundedCornerShape(8.dp))),
+        colors = ClickableSurfaceDefaults.colors(containerColor = AppColors.Panel, focusedContainerColor = AppColors.Panel),
+    ) {
+        Column(Modifier.fillMaxSize().padding(8.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(arrow, fontSize = 30.sp, color = AppColors.Accent)
+            Text(label, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = AppColors.TextPrimary, textAlign = TextAlign.Center)
+            Text(sub, fontSize = 11.sp, color = AppColors.TextSecondary, textAlign = TextAlign.Center)
         }
     }
 }

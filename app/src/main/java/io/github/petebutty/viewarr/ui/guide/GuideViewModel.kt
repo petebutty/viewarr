@@ -176,6 +176,30 @@ class GuideViewModel @Inject constructor(
     suspend fun channelById(id: Int): ChannelListItem? = repo.observeChannels(null).first().firstOrNull { it.id == id }
 
     /** Channels whose name or number matches a search, across all categories. */
+    /** A channel's programmes: back as far as its catch-up goes (else just earlier today), and the next day ahead. */
+    suspend fun programsFor(ch: ChannelListItem): List<io.github.petebutty.viewarr.data.local.GuideProgram> {
+        val now = System.currentTimeMillis()
+        // Earlier today at least (from midnight, or 6 hours if that's longer), more for catch-up channels.
+        val midnight = java.time.LocalDate.now().atStartOfDay(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
+        val back = maxOf(now - midnight, 6 * 3_600_000L, ch.catchupDays.coerceAtMost(2) * 86_400_000L)
+        val from = now - back
+        // Past programmes before the last full sync aren't stored until asked for: fetch them first.
+        val syncedFrom = repo.syncedFrom()
+        if (from < syncedFrom && ch.guideKey != ch.uuid) {
+            sessions.session.first()?.let { s ->
+                kotlinx.coroutines.coroutineScope {
+                    var chunk = Math.floorDiv(from, CHUNK_MS) * CHUNK_MS
+                    while (chunk < syncedFrom) {
+                        val c = chunk
+                        if (fetchedPast.add("${ch.guideKey}|$c")) launch { repo.loadPastChunk(s, ch.guideKey, c, c + CHUNK_MS) }
+                        chunk += CHUNK_MS
+                    }
+                }
+            }
+        }
+        return repo.programsFor(ch.id, ch.guideKey, from, now + 30 * 3_600_000L)
+    }
+
     /** Search: what's on now and coming up whose title matches, with its channel (one per showing). */
     suspend fun searchPrograms(q: String): List<Pair<ChannelListItem, io.github.petebutty.viewarr.data.local.GuideProgram>> {
         val t = q.trim()

@@ -111,6 +111,7 @@ class GuideRepository @Inject constructor(
         dao.observeProgramBlock(groupId, offset, count, start, end)
 
     suspend fun searchPrograms(q: String, from: Long, limit: Int) = dao.searchPrograms(q, from, limit)
+    suspend fun programsFor(channelId: Int, guideKey: String, from: Long, to: Long) = dao.programsFor(channelId, guideKey, from, to)
 
     suspend fun syncIfStale(session: Session) {
         val age = System.currentTimeMillis() - prefs.getLong(KEY_LAST_SYNC, 0)

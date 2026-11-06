@@ -457,6 +457,65 @@ class CatalogRepository @Inject constructor(
         return p?.let { it to rk }
     }
 
+    // ------------------------------------------------------------------ whole libraries (menu → Movies / Shows)
+
+    /** Your film or show libraries on every Plex server, Jellyfin and Emby. */
+    suspend fun libraries(type: MediaType): List<MediaLibrary> = coroutineScope {
+        val a = store.current()
+        val servers = plexServers(a)
+        val many = servers.size > 1
+        val plexParts = servers.map { p ->
+            async {
+                runCatching { withTimeoutOrNull(15_000) { plexSections(a, p, type) } }.getOrNull().orEmpty().mapNotNull { s ->
+                    val k = s.str("key") ?: return@mapNotNull null
+                    MediaLibrary("plex:${p.machineId}:$k", s.str("title") ?: "Plex", if (many && !isMainPlex(p)) "Plex · ${p.serverName}" else "Plex", k, p.machineId)
+                }
+            }
+        }
+        val others = listOfNotNull(a.jellyfin?.let { it to false }, a.emby?.let { it to true }).map { (srv, emby) ->
+            async {
+                val name = if (emby) "Emby" else "Jellyfin"
+                val r = runCatching { withTimeoutOrNull(15_000) { http.get("${srv.serverUrl}/Users/${srv.userId}/Views", mediaServers.headers(emby, a.deviceId, srv.token)) } }
+                    .getOrNull()?.takeIf { it.ok } ?: return@async emptyList()
+                val want = if (type == MediaType.Movie) "movies" else "tvshows"
+                r.body.array("Items").filter { it.str("CollectionType") == want }.mapNotNull { v ->
+                    val id = v.str("Id") ?: return@mapNotNull null
+                    MediaLibrary("${name.lowercase()}:$id", v.str("Name") ?: name, name, id)
+                }
+            }
+        }
+        (plexParts + others).awaitAll().flatten()
+    }
+
+    /** One page of a library and how many titles it has in all; null if the server didn't answer. */
+    suspend fun libraryPage(lib: MediaLibrary, type: MediaType, sort: LibrarySort, start: Int, size: Int, query: String = ""): Pair<List<MediaItem>, Int>? {
+        val q = query.trim()
+        val a = store.current()
+        if (lib.server != null) {
+            val p = plexServers(a).firstOrNull { it.machineId == lib.server } ?: return null
+            val c = runCatching {
+                plexGet(a, p, "/library/sections/${lib.id}/all?sort=${sort.plex}&includeGuids=1&X-Plex-Container-Start=$start&X-Plex-Container-Size=$size" +
+                    (if (q.isNotEmpty()) "&title=${enc(q)}" else ""))
+            }.getOrNull() ?: return null
+            val items = c.array("Metadata").mapNotNull { plexItem(p, it, type) }
+            return items to (c.int("totalSize") ?: c.int("size") ?: items.size)
+        }
+        val emby = lib.source == "Emby"
+        val srv = (if (emby) a.emby else a.jellyfin) ?: return null
+        val kind = if (type == MediaType.Movie) "Movie" else "Series"
+        val (by, order) = sort.jellyfin
+        val r = runCatching {
+            http.get(
+                "${srv.serverUrl}/Users/${srv.userId}/Items?ParentId=${enc(lib.id)}&IncludeItemTypes=$kind&Recursive=true" +
+                    "&SortBy=$by&SortOrder=$order&StartIndex=$start&Limit=$size&Fields=ProviderIds,Overview,ProductionYear" +
+                    (if (q.isNotEmpty()) "&SearchTerm=${enc(q)}" else ""),
+                mediaServers.headers(emby, a.deviceId, srv.token),
+            )
+        }.getOrNull()?.takeIf { it.ok } ?: return null
+        val items = r.body.array("Items").mapNotNull { serverItem(srv, it, type, lib.source) }
+        return items to (r.body.int("TotalRecordCount") ?: items.size)
+    }
+
     /** Finds your other Plex servers on the account (e.g. a second machine) and remembers them. */
     suspend fun refreshPlexServers() {
         val a = store.current()
