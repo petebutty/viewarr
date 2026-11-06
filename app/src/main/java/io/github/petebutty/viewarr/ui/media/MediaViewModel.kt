@@ -285,7 +285,11 @@ class MediaViewModel @Inject constructor(
         val failed: Boolean = false,
         /** Search within the library ("" = everything). */
         val query: String = "",
+        /** Genre filter (server id to name), and unwatched only. */
+        val genre: Pair<String, String>? = null,
+        val unwatched: Boolean = false,
     ) {
+        val filtered get() = query.isNotBlank() || genre != null || unwatched
         val pages get() = if (total <= 0) 1 else (total + LIBRARY_PAGE - 1) / LIBRARY_PAGE
         val hasNext get() = page + 1 < pages
     }
@@ -329,6 +333,26 @@ class MediaViewModel @Inject constructor(
         if (b.sort != sort) showLibraryPage(b.copy(sort = sort, total = -1), 0)
     }
 
+    /** The open library's genres (null while loading). */
+    private val _genres = MutableStateFlow<List<Pair<String, String>>?>(null)
+    val genres = _genres.asStateFlow()
+    private var genresFor: String? = null
+    fun loadGenres() {
+        val b = _browse.value ?: return
+        if (genresFor == b.library.key && _genres.value != null) return
+        genresFor = b.library.key
+        _genres.value = null
+        viewModelScope.launch { _genres.value = runCatching { repo.libraryGenres(b.library, b.type) }.getOrDefault(emptyList()) }
+    }
+    fun setLibraryGenre(g: Pair<String, String>?) {
+        val b = _browse.value ?: return
+        if (b.genre != g) showLibraryPage(b.copy(genre = g, total = -1), 0)
+    }
+    fun toggleUnwatched() {
+        val b = _browse.value ?: return
+        showLibraryPage(b.copy(unwatched = !b.unwatched, total = -1), 0)
+    }
+
     private var queryJob: kotlinx.coroutines.Job? = null
     /** Search this library: results a page at a time, as you type (short pause first). */
     fun setLibraryQuery(q: String) {
@@ -352,9 +376,9 @@ class MediaViewModel @Inject constructor(
         browseJob?.cancel()
         _browse.value = b.copy(page = page, items = emptyList(), loading = true, failed = false)
         browseJob = viewModelScope.launch {
-            val got = runCatching { repo.libraryPage(b.library, b.type, b.sort, page * LIBRARY_PAGE, LIBRARY_PAGE, b.query) }.getOrNull()
+            val got = runCatching { repo.libraryPage(b.library, b.type, b.sort, page * LIBRARY_PAGE, LIBRARY_PAGE, b.query, b.genre?.first, b.unwatched) }.getOrNull()
             _browse.update { now ->
-                if (now == null || now.library.key != b.library.key || now.sort != b.sort || now.page != page || now.query != b.query) now
+                if (now == null || now.library.key != b.library.key || now.sort != b.sort || now.page != page || now.query != b.query || now.genre != b.genre || now.unwatched != b.unwatched) now
                 else if (got == null) now.copy(loading = false, failed = true)
                 else now.copy(items = got.first.distinctBy { it.key }, total = got.second, loading = false)
             }

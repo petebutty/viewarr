@@ -29,6 +29,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.composed
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusProperties
@@ -910,7 +911,12 @@ private fun MenuOverlay(
                             if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionRight && !(s == Section.Settings && (showAppearance || showRemote || showPlayback || showAddons || showUpdates || showHomeRows || showPlugins))) {
                                 // Movies / Shows with recently added posters showing: Right goes onto them (OK opens the page).
                                 val t = if (s == Section.Movies) MediaType.Movie else if (s == Section.Shows) MediaType.Show else null
-                                if ((t != null && (recentCount[t] ?: 0) > 0) || (s == Section.Recordings && recordingsCount > 0)) runCatching { recentFocus.requestFocus() } else enter(s)
+                                // (Movies / Shows always have their list: home, libraries, catalogues.)
+                                if (t != null || (s == Section.Recordings && recordingsCount > 0)) {
+                                    if (runCatching { recentFocus.requestFocus() }.isFailure) {
+                                        menuScope.launch { awaitFrame(); awaitFrame(); runCatching { recentFocus.requestFocus() } }
+                                    }
+                                } else enter(s)
                                 true
                             } else false
                         },
@@ -1112,12 +1118,20 @@ private fun GroupItem(name: String, count: Int?, selected: Boolean, modifier: Mo
 }
 
 /** In the menu's right-hand lists, Right does the same as OK: go to that page. */
-private fun Modifier.rightDoes(action: () -> Unit): Modifier = onPreviewKeyEvent { e ->
-    if (e.key == Key.DirectionRight) {
-        if (e.type == KeyEventType.KeyDown) action()
-        true
-    } else false
-}
+private fun Modifier.rightDoes(action: () -> Unit): Modifier = this.composed(factory = {
+    // Acts when Right is released, and only if it was also pressed here: the Right that moved focus onto this entry
+    // (from the menu, or held down) mustn't open it straight away.
+    var pressedHere by remember { mutableStateOf(false) }
+    onFocusChanged { if (!it.isFocused) pressedHere = false }.onPreviewKeyEvent { e ->
+        if (e.key == Key.DirectionRight) {
+            when (e.type) {
+                KeyEventType.KeyDown -> if (e.nativeKeyEvent.repeatCount == 0) pressedHere = true
+                KeyEventType.KeyUp -> if (pressedHere) { pressedHere = false; action() }
+            }
+            true
+        } else false
+    }
+})
 
 /** Right does nothing on menu actions that aren't pages (refresh, sign out), so a stray press can't trigger them. */
 private fun Modifier.rightIgnored(): Modifier = onPreviewKeyEvent { e -> e.key == Key.DirectionRight }
@@ -1678,7 +1692,7 @@ private fun MediaMenuPanel(type: MediaType, focusRequester: FocusRequester, onCo
     val current by media.currentRow.collectAsStateWithLifecycle()
     val rows = rowsState.rows
     val libs = libraries.orEmpty()
-    LaunchedEffect(Unit) { onCount(type, 1) } // "home" is always there
+    LaunchedEffect(type) { onCount(type, 1) } // "home" is always there
     val home = if (type == MediaType.Movie) "Movies home" else "Shows home"
     LazyColumn(
         Modifier.focusRequester(focusRequester).focusRestorer(),

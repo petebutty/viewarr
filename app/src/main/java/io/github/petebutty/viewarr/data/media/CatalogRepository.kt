@@ -488,14 +488,36 @@ class CatalogRepository @Inject constructor(
     }
 
     /** One page of a library and how many titles it has in all; null if the server didn't answer. */
-    suspend fun libraryPage(lib: MediaLibrary, type: MediaType, sort: LibrarySort, start: Int, size: Int, query: String = ""): Pair<List<MediaItem>, Int>? {
+    /** A library's genres, from the server itself (id to name), for filtering. */
+    suspend fun libraryGenres(lib: MediaLibrary, type: MediaType): List<Pair<String, String>> {
+        val a = store.current()
+        if (lib.server != null) {
+            val p = plexServers(a).firstOrNull { it.machineId == lib.server } ?: return emptyList()
+            val c = runCatching { plexGet(a, p, "/library/sections/${lib.id}/genre") }.getOrNull() ?: return emptyList()
+            return c.array("Directory").mapNotNull { d -> val k = d.str("key") ?: return@mapNotNull null; k to (d.str("title") ?: k) }
+        }
+        val emby = lib.source == "Emby"
+        val srv = (if (emby) a.emby else a.jellyfin) ?: return emptyList()
+        val kind = if (type == MediaType.Movie) "Movie" else "Series"
+        val r = runCatching {
+            http.get("${srv.serverUrl}/Genres?ParentId=${enc(lib.id)}&UserId=${srv.userId}&IncludeItemTypes=$kind&Recursive=true&SortBy=SortName", mediaServers.headers(emby, a.deviceId, srv.token))
+        }.getOrNull()?.takeIf { it.ok } ?: return emptyList()
+        return r.body.array("Items").mapNotNull { g -> val id = g.str("Id") ?: return@mapNotNull null; id to (g.str("Name") ?: id) }
+    }
+
+    suspend fun libraryPage(
+        lib: MediaLibrary, type: MediaType, sort: LibrarySort, start: Int, size: Int, query: String = "",
+        genre: String? = null, unwatched: Boolean = false,
+    ): Pair<List<MediaItem>, Int>? {
         val q = query.trim()
         val a = store.current()
         if (lib.server != null) {
             val p = plexServers(a).firstOrNull { it.machineId == lib.server } ?: return null
             val c = runCatching {
                 plexGet(a, p, "/library/sections/${lib.id}/all?sort=${sort.plex}&includeGuids=1&X-Plex-Container-Start=$start&X-Plex-Container-Size=$size" +
-                    (if (q.isNotEmpty()) "&title=${enc(q)}" else ""))
+                    (if (q.isNotEmpty()) "&title=${enc(q)}" else "") +
+                    (if (genre != null) "&genre=${enc(genre)}" else "") +
+                    (if (unwatched) (if (type == MediaType.Movie) "&unwatched=1" else "&unwatchedLeaves=1") else ""))
             }.getOrNull() ?: return null
             val items = c.array("Metadata").mapNotNull { plexItem(p, it, type) }
             return items to (c.int("totalSize") ?: c.int("size") ?: items.size)
@@ -508,7 +530,9 @@ class CatalogRepository @Inject constructor(
             http.get(
                 "${srv.serverUrl}/Users/${srv.userId}/Items?ParentId=${enc(lib.id)}&IncludeItemTypes=$kind&Recursive=true" +
                     "&SortBy=$by&SortOrder=$order&StartIndex=$start&Limit=$size&Fields=ProviderIds,Overview,ProductionYear" +
-                    (if (q.isNotEmpty()) "&SearchTerm=${enc(q)}" else ""),
+                    (if (q.isNotEmpty()) "&SearchTerm=${enc(q)}" else "") +
+                    (if (genre != null) "&GenreIds=${enc(genre)}" else "") +
+                    (if (unwatched) "&IsPlayed=false" else ""),
                 mediaServers.headers(emby, a.deviceId, srv.token),
             )
         }.getOrNull()?.takeIf { it.ok } ?: return null
