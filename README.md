@@ -15,6 +15,8 @@ Viewarr doesn't provide any content. It plays only what your own servers and acc
 **Live TV (Dispatcharr)**
 - A TiviMate-style TV guide with channel logos, categories, programmes going back and forward in time, and a progress bar under what's on now.
 - Catch-up: replay programmes from the past, where the channel supports it.
+- Reminders: get a pop-up when a programme starts; small cards when a recording starts, finishes or fails.
+- The guide shows a picture of the highlighted programme.
 - **Source switching:** see every stream behind a channel (and which provider it's from) and switch Dispatcharr to another one from the remote. **Stream info** shows Dispatcharr's live view: source, provider, resolution, codecs, bitrate and viewers. *(Admin users.)*
 - **Dispatcharr plugins** (Settings → Dispatcharr plugins): switch installed plugins on and off, press their action buttons, change simple settings, and install or update plugins from your server's plugin store. *(Admin users.)*
 - Recordings on your Dispatcharr server: record one programme or a whole series (every episode, or new ones only). Then watch, stop or delete recordings from the app.
@@ -31,7 +33,9 @@ Viewarr doesn't provide any content. It plays only what your own servers and acc
 - **Seek bar with preview pictures:** press Down while watching, scrub with Left/Right, OK to jump. Previews come from Plex / Emby / Jellyfin when the server made them, otherwise the box takes them from the film itself.
 - **Smooth playback on weak boxes:** mpv draws straight to the screen by default, the TV can switch to the film's frame rate, and surround passthrough only uses formats your TV or receiver really accepts.
 - **Playback settings:** audio and subtitle language, surround passthrough to a receiver, stereo downmix, night mode, subtitle size, resume, and Plex quality.
-- Search across films, shows, your Plex library, addons and TV channels.
+- **Search** pops up over any screen (hold Menu, or pick a button in Settings → Remote & navigation): your Plex, Jellyfin and Emby titles in one row, people with their films and shows, TV channels and what's on the guide (watch it, record it or get a reminder), quick picks as you type, filters and voice search.
+- **Watch Next:** your Continue watching appears in the Android TV home screen's Watch Next row.
+- **Seerr requests:** hold OK on a poster to request a film or show you don't have yet.
 
 **Easy setup**
 - Scan a QR code on the TV and set everything up on your phone. Passwords and keys are encrypted between your phone and the TV.
@@ -49,6 +53,7 @@ Viewarr doesn't provide any content. It plays only what your own servers and acc
   - A Plex server.
   - A Stremio addon manifest link.
   - A Jellyfin or Emby server.
+  - A Seerr (Overseerr / Jellyseerr) server, for requests.
 
 ## Install
 

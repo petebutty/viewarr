@@ -5,5 +5,5 @@ New search, Watch Next and more
 - Search finds your Plex, Jellyfin and Emby titles, people, channels and what's on TV, with voice search
 - From search or the guide: record a programme, or have Viewarr remind you when it starts
 - Your Continue watching now shows in the TV home screen's Watch Next row
+- Request films and shows on Seerr: hold OK on a poster (connect Seerr in Accounts & sources)
 - The TV guide shows a picture of the highlighted programme
-- Fixed: title pages stuck on "Checking your library…" with big libraries

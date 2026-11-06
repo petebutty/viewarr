@@ -70,6 +70,8 @@ When you're done, tap **Finish on the TV**. The guide loads, which takes a minut
   - **Appearance:** colours (OLED black by default), menu transparency, guide corners, channel numbers, and Movies & Shows on/off.
   - **Home rows:** which rows the Movies and Shows pages show, and in what order.
   - **Dispatcharr plugins** (admin users): turn plugins on and off, run their actions, and install new ones.
+- **Search from anywhere:** hold **Menu (≡)** on any screen (or choose a button in Settings → Remote & navigation → Search button). Back closes it and you're where you were.
+- **Seerr:** connect it in Accounts & sources (address plus the API key from Seerr → Settings → General), then hold OK on a poster → **Request on Seerr**.
   - **Playback:** which player to use, audio and subtitle language, passthrough to a receiver, and Plex quality.
   - **Remote & navigation:** what the buttons do, and which page the app opens on.
 
