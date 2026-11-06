@@ -23,7 +23,6 @@ Viewarr doesn't provide any content. It plays only what your own servers and acc
 
 **Films & shows**
 - Netflix-style rows: Continue watching, your Trakt watchlist and recommendations, recently added on Plex, and trending, popular and top-rated titles from TMDB. Choose which rows show, and their order, in **Settings → Home rows**.
-- **Your whole Plex, Jellyfin or Emby library:** every library gets its own row ending in an *All titles* card, and the menu lists your libraries (Movies / Shows, then Right). A library opens as a poster grid you can sort A–Z, by date added, year or rating.
 - Detail pages with cast, rating, and "In your library" badges.
 - Seasons and episodes for shows.
 - Play from **Plex** (converted by Plex automatically when the TV can't play the file itself), from **Jellyfin / Emby**, or search your **Stremio addons** (e.g. AIOStreams) for streams.

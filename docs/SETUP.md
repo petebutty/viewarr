@@ -68,8 +68,7 @@ When you're done, tap **Finish on the TV**. The guide loads, which takes a minut
 - **Settings:**
   - **Accounts & sources:** add or change anything you set up. *Set up on your phone* brings back the QR code.
   - **Appearance:** colours (OLED black by default), menu transparency, guide corners, channel numbers, and Movies & Shows on/off.
-  - **Home rows:** which rows the Movies and Shows pages show (including one per Plex / Jellyfin / Emby library), in what order, and which libraries the menu lists.
-- **Browse a whole library:** in the menu, highlight Movies or Shows and press **Right** to pick a library, or press OK on the *All titles* card at the end of a library's row.
+  - **Home rows:** which rows the Movies and Shows pages show, and in what order.
   - **Dispatcharr plugins** (admin users): turn plugins on and off, run their actions, and install new ones.
   - **Playback:** which player to use, audio and subtitle language, passthrough to a receiver, and Plex quality.
   - **Remote & navigation:** what the buttons do, and which page the app opens on.

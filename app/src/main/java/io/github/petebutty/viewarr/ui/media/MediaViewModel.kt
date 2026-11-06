@@ -127,89 +127,6 @@ class MediaViewModel @Inject constructor(
         val t = layoutType.value ?: return
         viewModelScope.launch { rowLayouts.reset(t) }
     }
-    // ---- Browsing a whole Plex library (menu → Movies / Shows → a library)
-
-    /** A library being browsed: everything in it, loaded a page at a time. */
-    data class LibraryBrowse(
-        val library: io.github.petebutty.viewarr.data.media.MediaLibrary,
-        val type: MediaType,
-        val sort: io.github.petebutty.viewarr.data.media.LibrarySort,
-        val items: List<MediaItem> = emptyList(),
-        val total: Int = -1,
-        val loading: Boolean = true,
-        val failed: Boolean = false,
-        /** How far into Plex's list we've read (can differ from items.size when duplicates are merged). */
-        val offset: Int = 0,
-    ) {
-        val more get() = total < 0 || offset < total
-    }
-
-    private val _libraries = MutableStateFlow<List<io.github.petebutty.viewarr.data.media.MediaLibrary>?>(null)
-    private var librariesFor: MediaType? = null
-    private val librariesType = MutableStateFlow<MediaType?>(null)
-    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-    private val hiddenLibraries = librariesType.flatMapLatest { t -> if (t == null) kotlinx.coroutines.flow.flowOf(emptySet()) else rowLayouts.hiddenLibraries(t) }
-    /** Every Plex library for this page's type with whether it's switched off (Settings → Home rows); null until loaded. */
-    val allLibraries: kotlinx.coroutines.flow.StateFlow<List<Pair<io.github.petebutty.viewarr.data.media.MediaLibrary, Boolean>>?> =
-        kotlinx.coroutines.flow.combine(_libraries, hiddenLibraries) { libs, hidden -> libs?.map { it to (it.key in hidden) } }
-            .stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, null)
-    /** The libraries the menu lists (null until loaded). */
-    val libraries: kotlinx.coroutines.flow.StateFlow<List<io.github.petebutty.viewarr.data.media.MediaLibrary>?> =
-        kotlinx.coroutines.flow.combine(_libraries, hiddenLibraries) { libs, hidden -> libs?.filter { it.key !in hidden } }
-            .stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, null)
-
-    fun setLibraryHidden(type: MediaType, key: String, hidden: Boolean) {
-        viewModelScope.launch { rowLayouts.setLibraryHidden(type, key, hidden) }
-    }
-
-    fun loadLibraries(type: MediaType) {
-        if (librariesFor == type && _libraries.value != null) return
-        librariesFor = type
-        librariesType.value = type
-        viewModelScope.launch { _libraries.value = runCatching { repo.libraries(type) }.getOrDefault(emptyList()) }
-    }
-
-    private val _browse = MutableStateFlow<LibraryBrowse?>(null)
-    val browse = _browse.asStateFlow()
-    private var browseJob: kotlinx.coroutines.Job? = null
-
-    /** Opens a whole library, or (null) goes back to the page's rows. */
-    fun openLibrary(library: io.github.petebutty.viewarr.data.media.MediaLibrary?, type: MediaType) {
-        browseJob?.cancel()
-        if (library == null) { _browse.value = null; return }
-        val sort = _browse.value?.takeIf { it.library.key == library.key }?.sort ?: io.github.petebutty.viewarr.data.media.LibrarySort.Title
-        _browse.value = LibraryBrowse(library, type, sort)
-        loadMoreLibrary()
-    }
-
-    fun setLibrarySort(sort: io.github.petebutty.viewarr.data.media.LibrarySort) {
-        val b = _browse.value ?: return
-        if (b.sort == sort) return
-        browseJob?.cancel()
-        _browse.value = LibraryBrowse(b.library, b.type, sort)
-        loadMoreLibrary()
-    }
-
-    /** The next page, if there's more and one isn't already on its way. */
-    fun loadMoreLibrary() {
-        val b = _browse.value ?: return
-        if (!b.more || (browseJob?.isActive == true)) return
-        _browse.value = b.copy(loading = true, failed = false)
-        browseJob = viewModelScope.launch {
-            val page = repo.libraryPage(b.library, b.type, b.sort, b.offset, LIBRARY_PAGE)
-            _browse.update { now ->
-                if (now == null || now.library.key != b.library.key || now.sort != b.sort) now
-                else if (page == null) now.copy(loading = false, failed = true)
-                else {
-                    val items = (now.items + page.first).distinctBy { it.key }
-                    val offset = now.offset + page.first.size
-                    // A short page means the end, whatever the total said.
-                    now.copy(items = items, offset = offset, total = if (page.first.size < LIBRARY_PAGE) offset else page.second, loading = false)
-                }
-            }
-        }
-    }
-
     private val _detail = MutableStateFlow<DetailUi?>(null)
     val detail = _detail.asStateFlow()
     private val _playing = MutableStateFlow<io.github.petebutty.viewarr.data.media.VodStream?>(null)
@@ -618,5 +535,3 @@ class MediaViewModel @Inject constructor(
         }
     }
 }
-
-private const val LIBRARY_PAGE = 60
