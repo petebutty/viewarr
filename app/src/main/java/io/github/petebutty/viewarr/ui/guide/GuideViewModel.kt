@@ -32,7 +32,11 @@ data class GuideCursor(val row: Int, val focusTime: Long, val windowStart: Long)
 class GuideViewModel @Inject constructor(
     private val repo: GuideRepository,
     private val sessions: SessionStore,
+    private val programArt: io.github.petebutty.viewarr.data.media.ProgramArt,
 ) : ViewModel() {
+    /** The highlighted programme's artwork (TMDB), or null to show the channel logo. */
+    suspend fun artFor(title: String): String? = programArt.imageFor(title)
+
 
     val sync = repo.sync
     val groups = repo.observeGroups().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())

@@ -102,6 +102,8 @@ fun AppRoot(vm: AppViewModel = hiltViewModel()) {
                 HomeScreen(session = s.session, onSignOut = vm::signOut)
                 // Over everything: the "update available" pop-up (and the automatic check on start).
                 if (!splashShown) io.github.petebutty.viewarr.ui.update.UpdateHost()
+                // Once after an update: a few lines on what's new.
+                if (!splashShown) io.github.petebutty.viewarr.ui.update.WhatsNewHost()
             }
         }
         if (splashAlpha > 0f) Box(Modifier.fillMaxSize().graphicsLayer { alpha = splashAlpha }) {

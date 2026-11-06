@@ -69,7 +69,15 @@ class WatchNext @Inject constructor(
             .setInternalProviderId(key)
             .setIntentUri(DeepLink.uriFor(item))
         b.setTitle(item.title)
-        item.overview?.let { b.setDescription(it) }
+        // The home screen's own line is the full length; the description says how far through you are.
+        val length = item.durationMs?.takeIf { it > 0 }
+        val at = item.progress?.takeIf { it > 0f }?.let { p -> length?.let { (p * it).toLong() } }
+        val where = when {
+            at != null && length != null -> "Stopped at ${clock(at)} of ${clock(length)}"
+            item.progress != null && item.progress > 0f -> "${(item.progress * 100).toInt()}% watched"
+            else -> null
+        }
+        listOfNotNull(where, item.overview).joinToString("\n").takeIf { it.isNotBlank() }?.let { b.setDescription(it) }
         (item.backdrop ?: item.poster)?.let { b.setPosterArtUri(Uri.parse(it)) }
         b.setPosterArtAspectRatio(if (wide) TvContractCompat.PreviewPrograms.ASPECT_RATIO_16_9 else TvContractCompat.PreviewPrograms.ASPECT_RATIO_2_3)
         if (episode) {
@@ -78,12 +86,17 @@ class WatchNext @Inject constructor(
             item.subtitle?.substringAfter("  ", "")?.takeIf { it.isNotBlank() }?.let { b.setEpisodeTitle(it) }
         }
         // The real length when the server gave it (the home screen shows it, and the bar is measured against it).
-        val length = item.durationMs?.takeIf { it > 0 }
         if (length != null) {
             b.setDurationMillis(length.coerceAtMost(Int.MAX_VALUE.toLong()).toInt())
             item.progress?.let { p -> b.setLastPlaybackPositionMillis((p.coerceIn(0f, 1f) * length).toLong().coerceAtMost(Int.MAX_VALUE.toLong()).toInt()) }
         }
         return b.build()
+    }
+
+    /** 45 min, 1h 05m. */
+    private fun clock(ms: Long): String {
+        val m = ms / 60_000
+        return if (m >= 60) "%dh %02dm".format(m / 60, m % 60) else "$m min"
     }
 
     private companion object {

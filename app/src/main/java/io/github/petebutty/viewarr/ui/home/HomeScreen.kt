@@ -73,6 +73,7 @@ import io.github.petebutty.viewarr.ui.media.MediaScreen
 import io.github.petebutty.viewarr.ui.media.MediaViewModel
 import io.github.petebutty.viewarr.ui.media.VodPlayer
 import io.github.petebutty.viewarr.ui.dvr.DvrViewModel
+import androidx.compose.ui.focus.focusRestorer
 import io.github.petebutty.viewarr.ui.dvr.RecordDialog
 import io.github.petebutty.viewarr.ui.dvr.ProgramInfoDialog
 import io.github.petebutty.viewarr.ui.dvr.RecordingsScreen
@@ -597,6 +598,7 @@ fun HomeScreen(
 
         if (menuOpen) Box(Modifier.fillMaxSize().slideInFromLeft()) {
             MenuOverlay(
+                onPlayRecording = { menuOpen = false; recordingPlayback = it },
                 // See-through only over full-screen video; over the guide and other pages it's solid (tidier).
                 seeThrough = fullscreen,
                 vm = vm,
@@ -715,6 +717,8 @@ private fun NoLiveTv(focusRequester: FocusRequester, focusEnabled: Boolean, onSe
 
 @Composable
 private fun MenuOverlay(
+    /** Recordings panel: play a recording straight from the menu. */
+    onPlayRecording: (VodStream) -> Unit,
     seeThrough: Boolean,
     vm: GuideViewModel,
     session: Session?,
@@ -763,6 +767,7 @@ private fun MenuOverlay(
     // Movies / Shows: the newest titles in your libraries, beside the menu.
     val recentFocus = remember { FocusRequester() }
     val recentCount = remember { androidx.compose.runtime.mutableStateMapOf<MediaType, Int>() }
+    var recordingsCount by remember { mutableStateOf(0) }
     // From the guide the menu opens on the channel groups alone; Left again slides the main menu out beside them.
     var showMain by remember { mutableStateOf(!(remote.menuOpensOn == MenuOpensOn.PageList && page == Page.Tv && session != null)) }
     val menuScope = androidx.compose.runtime.rememberCoroutineScope()
@@ -848,7 +853,7 @@ private fun MenuOverlay(
                             if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionRight && !(s == Section.Settings && (showAppearance || showRemote || showPlayback || showAddons || showUpdates || showHomeRows || showPlugins))) {
                                 // Movies / Shows with recently added posters showing: Right goes onto them (OK opens the page).
                                 val t = if (s == Section.Movies) MediaType.Movie else if (s == Section.Shows) MediaType.Show else null
-                                if (t != null && (recentCount[t] ?: 0) > 0) runCatching { recentFocus.requestFocus() } else enter(s)
+                                if ((t != null && (recentCount[t] ?: 0) > 0) || (s == Section.Recordings && recordingsCount > 0)) runCatching { recentFocus.requestFocus() } else enter(s)
                                 true
                             } else false
                         },
@@ -866,7 +871,7 @@ private fun MenuOverlay(
                     if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                     when {
                         // Left goes back to this section's menu entry, not whichever one is geometrically closest.
-                        e.key == Key.DirectionLeft && (section == Section.Tv || section == Section.Movies || section == Section.Shows ||
+                        e.key == Key.DirectionLeft && (section == Section.Tv || section == Section.Movies || section == Section.Shows || section == Section.Recordings ||
                             (section == Section.Settings && !showAppearance && !showRemote && !showPlayback && !showAddons && !showUpdates && !showHomeRows && !showPlugins)) -> {
                             revealMain()
                             true
@@ -940,11 +945,11 @@ private fun MenuOverlay(
                     color = AppColors.TextSecondary,
                     modifier = Modifier.padding(12.dp),
                 )
-                Section.Recordings -> Text(
-                    "Press OK to see what's recorded and scheduled on your Dispatcharr server.",
-                    fontSize = 15.sp,
-                    color = AppColors.TextSecondary,
-                    modifier = Modifier.padding(12.dp),
+                Section.Recordings -> RecordingsPanel(
+                    focusRequester = recentFocus,
+                    onCount = { n -> recordingsCount = n },
+                    onOpenPage = { onOpenPage(Page.Recordings) },
+                    onPlay = onPlayRecording,
                 )
                 Section.Movies, Section.Shows -> RecentPanel(
                     type = if (section == Section.Movies) MediaType.Movie else MediaType.Show,
@@ -1492,6 +1497,7 @@ private fun whenText(start: Long, now: Long): String {
  * The menu's Movies / Shows panel: the newest titles in your Plex / Jellyfin / Emby libraries as small posters.
  * OK on one opens its page; without any servers it just says how to open the page.
  */
+@OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
 private fun RecentPanel(type: MediaType, focusRequester: FocusRequester, onCount: (MediaType, Int) -> Unit, onOpenPage: () -> Unit) {
     // Same instance as the page's, so opening a title shows it there straight away.
@@ -1509,6 +1515,8 @@ private fun RecentPanel(type: MediaType, focusRequester: FocusRequester, onCount
         if (recent == null) Text("Loading…", fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(start = 6.dp))
         androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
             columns = androidx.compose.foundation.lazy.grid.GridCells.Fixed(2),
+            // Right from the menu lands back on the poster you were on, even after scrolling down the grid.
+            modifier = Modifier.focusRequester(focusRequester).focusRestorer(),
             verticalArrangement = Arrangement.spacedBy(8.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             contentPadding = PaddingValues(start = 4.dp, end = 4.dp, bottom = 24.dp),
@@ -1517,7 +1525,7 @@ private fun RecentPanel(type: MediaType, focusRequester: FocusRequester, onCount
                 val item = items[i]
                 androidx.tv.material3.Surface(
                     onClick = { onOpenPage(); media.open(item) },
-                    modifier = (if (i == 0) Modifier.focusRequester(focusRequester) else Modifier).then(Modifier.height(150.dp)),
+                    modifier = Modifier.height(150.dp),
                     scale = androidx.tv.material3.ClickableSurfaceDefaults.scale(scale = 1f, focusedScale = 1f, pressedScale = 1f),
                     shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(RoundedCornerShape(6.dp)),
                     border = androidx.tv.material3.ClickableSurfaceDefaults.border(
@@ -1531,6 +1539,48 @@ private fun RecentPanel(type: MediaType, focusRequester: FocusRequester, onCount
                     }
                 }
             }
+        }
+    }
+}
+
+/**
+ * The menu's Recordings panel: your newest Dispatcharr recordings (OK plays one) and what's coming up next
+ * (OK opens the Recordings page).
+ */
+@OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
+@Composable
+private fun RecordingsPanel(focusRequester: FocusRequester, onCount: (Int) -> Unit, onOpenPage: () -> Unit, onPlay: (VodStream) -> Unit) {
+    val dvr: DvrViewModel = hiltViewModel()
+    val all by dvr.recordings.collectAsStateWithLifecycle()
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val recorded = all.filter { (it.state == io.github.petebutty.viewarr.data.dvr.DvrState.Recorded || it.state == io.github.petebutty.viewarr.data.dvr.DvrState.Recording) && it.hasFile }
+        .sortedByDescending { it.start }.take(8)
+    val upcoming = all.filter { it.state == io.github.petebutty.viewarr.data.dvr.DvrState.Scheduled }.sortedBy { it.start }.take(4)
+    LaunchedEffect(recorded.size + upcoming.size) { onCount(recorded.size + upcoming.size) }
+    val day = java.time.format.DateTimeFormatter.ofPattern("EEE d MMM")
+    val time = java.time.format.DateTimeFormatter.ofPattern("EEE HH:mm")
+    fun at(ms: Long, f: java.time.format.DateTimeFormatter) = java.time.Instant.ofEpochMilli(ms).atZone(java.time.ZoneId.systemDefault()).format(f)
+    if (recorded.isEmpty() && upcoming.isEmpty()) {
+        Text("Press OK to see what's recorded and scheduled on your Dispatcharr server.", fontSize = 15.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(12.dp))
+        return
+    }
+    LazyColumn(Modifier.focusRequester(focusRequester).focusRestorer(), verticalArrangement = Arrangement.spacedBy(1.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
+        if (recorded.isNotEmpty()) item(key = "h-rec") {
+            Text("Recorded", fontSize = 13.sp, color = AppColors.Accent, modifier = Modifier.padding(start = 12.dp, bottom = 4.dp))
+        }
+        items(recorded, key = { "r${it.id}" }) { r ->
+            MenuItem(
+                text = (if (r.state == io.github.petebutty.viewarr.data.dvr.DvrState.Recording) "● " else "") + r.title,
+                trailing = at(r.start, day),
+                selected = false,
+                onClick = { scope.launch { dvr.playback(r)?.let(onPlay) } },
+            )
+        }
+        if (upcoming.isNotEmpty()) item(key = "h-up") {
+            Text("Coming up", fontSize = 13.sp, color = AppColors.Accent, modifier = Modifier.padding(start = 12.dp, top = 10.dp, bottom = 4.dp))
+        }
+        items(upcoming, key = { "u${it.id}" }) { r ->
+            MenuItem(text = r.title, trailing = at(r.start, time), selected = false, onClick = onOpenPage)
         }
     }
 }

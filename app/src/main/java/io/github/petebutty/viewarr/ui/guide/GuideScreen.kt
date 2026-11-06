@@ -40,6 +40,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
@@ -201,7 +202,13 @@ fun GuideScreen(
                 true
             },
     ) {
-        InfoPanel(selectedChannel, focused, now, serverUrl)
+        // The highlighted programme's picture (looked up once you rest on it a moment), else the channel logo.
+        val art by androidx.compose.runtime.produceState<String?>(null, focused?.title) {
+            val t = focused?.title ?: run { value = null; return@produceState }
+            kotlinx.coroutines.delay(350)
+            value = vm.artFor(t)
+        }
+        InfoPanel(selectedChannel, focused, now, serverUrl, art)
         Spacer(Modifier.height(10.dp))
 
         if (channels.isEmpty()) {
@@ -262,7 +269,7 @@ fun GuideScreen(
 }
 
 @Composable
-private fun InfoPanel(channel: ChannelListItem?, program: GuideProgram?, now: Long, serverUrl: String) {
+private fun InfoPanel(channel: ChannelListItem?, program: GuideProgram?, now: Long, serverUrl: String, art: String? = null) {
     Row(Modifier.fillMaxWidth().height(180.dp)) {
         Box(
             Modifier
@@ -271,7 +278,21 @@ private fun InfoPanel(channel: ChannelListItem?, program: GuideProgram?, now: Lo
                 .background(AppColors.PreviewBox, RoundedCornerShape(8.dp)),
             contentAlignment = Alignment.Center,
         ) {
-            if (channel != null && (channel.logoId != null || channel.logoUrl != null)) {
+            if (art != null) {
+                // The show's own picture, with the channel's logo small in the corner.
+                AsyncImage(
+                    model = art,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(8.dp)),
+                )
+                if (channel != null && (channel.logoId != null || channel.logoUrl != null)) Box(
+                    Modifier.align(Alignment.BottomEnd).padding(8.dp)
+                        .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(6.dp)).padding(horizontal = 8.dp, vertical = 4.dp),
+                ) {
+                    AsyncImage(model = channelLogo(serverUrl, channel), contentDescription = null, contentScale = ContentScale.Fit, modifier = Modifier.size(width = 64.dp, height = 32.dp))
+                }
+            } else if (channel != null && (channel.logoId != null || channel.logoUrl != null)) {
                 AsyncImage(
                     model = channelLogo(serverUrl, channel),
                     contentDescription = null,
