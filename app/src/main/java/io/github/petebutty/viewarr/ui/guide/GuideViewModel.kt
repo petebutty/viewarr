@@ -187,14 +187,16 @@ class GuideViewModel @Inject constructor(
         val syncedFrom = repo.syncedFrom()
         if (from < syncedFrom && ch.guideKey != ch.uuid) {
             sessions.session.first()?.let { s ->
-                kotlinx.coroutines.coroutineScope {
-                    var chunk = Math.floorDiv(from, CHUNK_MS) * CHUNK_MS
-                    while (chunk < syncedFrom) {
-                        val c = chunk
-                        if (fetchedPast.add("${ch.guideKey}|$c")) launch { repo.loadPastChunk(s, ch.guideKey, c, c + CHUNK_MS) }
-                        chunk += CHUNK_MS
-                    }
+                // Don't keep the panel on "Loading…" if the server is slow: show what's stored after a few seconds.
+                // (The fetches carry on in the background, so the guide gets them even if the panel stops waiting.)
+                val jobs = ArrayList<kotlinx.coroutines.Job>()
+                var chunk = Math.floorDiv(from, CHUNK_MS) * CHUNK_MS
+                while (chunk < syncedFrom) {
+                    val c = chunk
+                    if (fetchedPast.add("${ch.guideKey}|$c")) jobs += viewModelScope.launch { repo.loadPastChunk(s, ch.guideKey, c, c + CHUNK_MS) }
+                    chunk += CHUNK_MS
                 }
+                kotlinx.coroutines.withTimeoutOrNull(8_000) { jobs.forEach { it.join() } }
             }
         }
         return repo.programsFor(ch.id, ch.guideKey, from, now + 30 * 3_600_000L)

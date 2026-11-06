@@ -483,7 +483,10 @@ private fun LibraryGrid(
                     fontSize = 13.sp, color = AppColors.TextSecondary,
                 )
             }
-            LibrarySearchBox(b.query, onQuery, onSearchFocus, onDone = { runCatching { focusRequester.requestFocus() } })
+            // Keyed by library: another library starts with an empty box.
+            androidx.compose.runtime.key(b.library.key) {
+                LibrarySearchBox(b.query, onQuery, onSearchFocus, onDone = { runCatching { focusRequester.requestFocus() } })
+            }
             io.github.petebutty.viewarr.data.media.LibrarySort.entries.forEach { s ->
                 Surface(
                     onClick = { onSort(s) },

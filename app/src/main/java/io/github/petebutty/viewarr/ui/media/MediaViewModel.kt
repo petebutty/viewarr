@@ -323,6 +323,7 @@ class MediaViewModel @Inject constructor(
     /** Opens a library on its first page, or (null) goes back to the page's rows. */
     fun openLibrary(library: io.github.petebutty.viewarr.data.media.MediaLibrary?, type: MediaType) {
         browseJob?.cancel()
+        queryJob?.cancel()
         if (library == null) { _browse.value = null; return }
         val sort = _browse.value?.takeIf { it.library.key == library.key }?.sort ?: io.github.petebutty.viewarr.data.media.LibrarySort.Title
         showLibraryPage(LibraryBrowse(library, type, sort), 0)
@@ -342,7 +343,10 @@ class MediaViewModel @Inject constructor(
         if (genresFor == b.library.key && _genres.value != null) return
         genresFor = b.library.key
         _genres.value = null
-        viewModelScope.launch { _genres.value = runCatching { repo.libraryGenres(b.library, b.type) }.getOrDefault(emptyList()) }
+        viewModelScope.launch {
+            val got = runCatching { repo.libraryGenres(b.library, b.type) }.getOrDefault(emptyList())
+            if (genresFor == b.library.key) _genres.value = got
+        }
     }
     fun setLibraryGenre(g: Pair<String, String>?) {
         val b = _browse.value ?: return

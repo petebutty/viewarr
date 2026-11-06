@@ -74,7 +74,6 @@ import io.github.petebutty.viewarr.ui.media.MediaScreen
 import io.github.petebutty.viewarr.ui.media.MediaViewModel
 import io.github.petebutty.viewarr.ui.media.VodPlayer
 import io.github.petebutty.viewarr.ui.dvr.DvrViewModel
-import androidx.compose.ui.focus.focusRestorer
 import io.github.petebutty.viewarr.ui.dvr.RecordDialog
 import io.github.petebutty.viewarr.ui.dvr.ProgramInfoDialog
 import io.github.petebutty.viewarr.ui.dvr.RecordingsScreen
@@ -1695,7 +1694,7 @@ private fun MediaMenuPanel(type: MediaType, focusRequester: FocusRequester, onCo
     LaunchedEffect(type) { onCount(type, 1) } // "home" is always there
     val home = if (type == MediaType.Movie) "Movies home" else "Shows home"
     LazyColumn(
-        Modifier.focusRequester(focusRequester).focusRestorer(),
+        Modifier.focusRequester(focusRequester),
         verticalArrangement = Arrangement.spacedBy(1.dp), contentPadding = PaddingValues(bottom = 24.dp),
     ) {
         item(key = "home") {
@@ -1749,7 +1748,7 @@ private fun RecordingsPanel(focusRequester: FocusRequester, onCount: (Int) -> Un
         Text("Press OK to see what's recorded and scheduled on your Dispatcharr server.", fontSize = 15.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(12.dp))
         return
     }
-    LazyColumn(Modifier.focusRequester(focusRequester).focusRestorer(), verticalArrangement = Arrangement.spacedBy(1.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
+    LazyColumn(Modifier.focusRequester(focusRequester), verticalArrangement = Arrangement.spacedBy(1.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
         if (recorded.isNotEmpty()) item(key = "h-rec") {
             Text("Recorded", fontSize = 13.sp, color = AppColors.Accent, modifier = Modifier.padding(start = 12.dp, bottom = 4.dp))
         }
