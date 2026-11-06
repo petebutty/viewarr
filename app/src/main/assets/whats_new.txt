@@ -1,9 +1,9 @@
 # Shown once, the first time a new version opens (not on a fresh install). Keep it to the few things worth knowing.
 # Lines starting with "- " are the points; the first line without "#" or "-" is the heading.
-New search, Watch Next and more
-- Search pops up over any screen: hold Menu (≡), or pick a button in Settings → Remote & navigation
-- Search finds your Plex, Jellyfin and Emby titles, people, channels and what's on TV, with voice search
-- From search or the guide: record a programme, or have Viewarr remind you when it starts
-- Your Continue watching now shows in the TV home screen's Watch Next row
-- Request films and shows on Seerr: hold OK on a poster (connect Seerr in Accounts & sources)
-- The TV guide shows a picture of the highlighted programme
+Browse your whole library
+- Movies and Shows in the menu now list your libraries and catalogues: open a library a page at a time
+- In a library: sort, filter by genre or unwatched, and search it (with voice)
+- Hide or reorder the menu's libraries in Settings → Home rows
+- Several Plex servers on one account are all used now
+- Channel list: press Right on a channel for its programmes, earlier ones playable from catch-up
+- Seerr requests work for titles from Stremio addons too

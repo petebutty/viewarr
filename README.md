@@ -8,6 +8,14 @@ Viewarr is an Android TV app that brings your live TV and your films and shows t
 
 Viewarr doesn't provide any content. It plays only what your own servers and accounts give it.
 
+<p align="center">
+  <img src="docs/screenshots/guide.png" alt="TV guide" width="49%">
+  <img src="docs/screenshots/search.png" alt="Search" width="49%">
+  <img src="docs/screenshots/menu.png" alt="Menu with your libraries" width="49%">
+  <img src="docs/screenshots/library.png" alt="A library, with sorting, filters and search" width="49%">
+</p>
+<p align="center"><sub>Artwork in the screenshots is blurred: posters, programme pictures and channel logos belong to their owners.</sub></p>
+
 > **Status: early beta.** It's tested on an Amlogic Android TV box (2 GB). For the smoothest films and full surround sound, a stronger box such as an Nvidia Shield TV Pro helps. Things may break; please report anything odd in [Issues](../../issues).
 
 ## Features
@@ -20,11 +28,13 @@ Viewarr doesn't provide any content. It plays only what your own servers and acc
 - **Source switching:** see every stream behind a channel (and which provider it's from) and switch Dispatcharr to another one from the remote. **Stream info** shows Dispatcharr's live view: source, provider, resolution, codecs, bitrate and viewers. *(Admin users.)*
 - **Dispatcharr plugins** (Settings → Dispatcharr plugins): switch installed plugins on and off, press their action buttons, change simple settings, and install or update plugins from your server's plugin store. *(Admin users.)*
 - Recordings on your Dispatcharr server: record one programme or a whole series (every episode, or new ones only). Then watch, stop or delete recordings from the app.
-- A channel list over the picture (Up/Down while watching), channel groups, and number keys to type a channel number.
+- A channel list over the picture (Up/Down while watching), channel groups, and number keys to type a channel number. Press Right on a channel to see its programmes, earlier and coming up; earlier ones play from catch-up.
 - No Dispatcharr? Sign in with your **IPTV provider's (Xtream Codes) login** for channels, guide, catch-up and the provider's films and series.
 
 **Films & shows**
 - Netflix-style rows: Continue watching, your Trakt watchlist and recommendations, recently added on Plex, and trending, popular and top-rated titles from TMDB. Choose which rows show, and their order, in **Settings → Home rows**.
+- **Your whole library:** Movies and Shows in the menu list your Plex, Jellyfin and Emby libraries and your catalogues. A library opens a page at a time, with sorting (A–Z, date added, release date, rating), genre and unwatched filters, and search with voice. Hide or reorder the libraries in **Settings → Home rows**.
+- **Several Plex servers:** every server on your Plex account is used, in rows, search and "In your library".
 - Detail pages with cast, rating, and "In your library" badges.
 - Seasons and episodes for shows.
 - Play from **Plex** (converted by Plex automatically when the TV can't play the file itself), from **Jellyfin / Emby**, or search your **Stremio addons** (e.g. AIOStreams) for streams.
@@ -35,7 +45,7 @@ Viewarr doesn't provide any content. It plays only what your own servers and acc
 - **Playback settings:** audio and subtitle language, surround passthrough to a receiver, stereo downmix, night mode, subtitle size, resume, and Plex quality.
 - **Search** pops up over any screen (hold Menu, or pick a button in Settings → Remote & navigation): your Plex, Jellyfin and Emby titles in one row, people with their films and shows, TV channels and what's on the guide (watch it, record it or get a reminder), quick picks as you type, filters and voice search.
 - **Watch Next:** your Continue watching appears in the Android TV home screen's Watch Next row.
-- **Seerr requests:** hold OK on a poster to request a film or show you don't have yet.
+- **Seerr requests:** hold OK on a poster to request a film or show you don't have yet (Stremio addon titles too).
 
 **Easy setup**
 - Scan a QR code on the TV and set everything up on your phone. Passwords and keys are encrypted between your phone and the TV.
