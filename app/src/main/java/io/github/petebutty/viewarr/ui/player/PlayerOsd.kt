@@ -26,6 +26,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
+import io.github.petebutty.viewarr.ui.common.ignoreHeldOk
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
@@ -105,6 +106,9 @@ fun PlayerOsd(
             .fillMaxWidth()
             .background(Brush.verticalGradient(listOf(Color.Transparent, AppColors.Background.copy(alpha = 0.9f), AppColors.Background)))
             .onPreviewKeyEvent { onActivity(); false }
+            // Opened by OK: the release of that same press (Fire TV remotes send it a beat later) mustn't press
+            // "TV guide", the first button, and throw you out to the guide.
+            .ignoreHeldOk()
             .padding(start = 48.dp, end = 48.dp, top = 40.dp, bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
