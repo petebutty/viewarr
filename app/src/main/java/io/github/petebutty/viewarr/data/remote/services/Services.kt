@@ -199,6 +199,10 @@ class MediaServerService @Inject constructor(private val http: HttpJson) {
             val s = findServer(c, emby) ?: continue
             if (s.product.isBlank() || s.product.contains("Emby", ignoreCase = true) == emby) found.putIfAbsent(s.name, s)
         }
+        // Nothing answered the broadcast (e.g. Docker without UDP 7359 mapped): look for port 8096 on the network.
+        if (found.isEmpty()) lanScan(8096) { url -> findServer(url, emby) }.forEach { s ->
+            if (s.product.isBlank() || s.product.contains("Emby", ignoreCase = true) == emby) found.putIfAbsent(s.name, s)
+        }
         return found.values.toList()
     }
 

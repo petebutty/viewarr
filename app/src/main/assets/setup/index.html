@@ -308,6 +308,22 @@ a.link.alt{background:transparent;border:1px solid var(--line);color:var(--text)
         ${nav('<button class="primary" type="submit">Save</button>')}
       </form>`);
     wireNav();
+    // Fill in the address if the TV finds Seerr on the network, with a link straight to where its API key is.
+    (async () => {
+      const srv = view.querySelector('#server');
+      try {
+        const r = await api('seerr-discover');
+        const u = ((r && r.servers) || [])[0];
+        if (u && srv && !srv.value) {
+          srv.value = u.replace(/^http:\/\//, '');
+          const a = document.createElement('a');
+          a.className = 'link'; a.href = u + '/settings/main'; a.target = '_blank'; a.rel = 'noopener';
+          a.textContent = 'Open Seerr settings (API key is there)';
+          srv.insertAdjacentElement('afterend', a);
+          msg('✓ Found Seerr on your network', 'ok');
+        }
+      } catch (e) {}
+    })();
     form(async () => saved(await api('seerr', { server: val('server'), key: val('key') }), 'Seerr connected.'));
   }
 

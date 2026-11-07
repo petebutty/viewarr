@@ -28,6 +28,12 @@ class SeerrService @Inject constructor(private val http: HttpJson) {
     private fun h(a: SeerrAuth) = mapOf("X-Api-Key" to a.apiKey)
 
     /** The address as typed, then with Seerr's usual port: the first one that answers with this key wins. */
+    /** Seerr / Overseerr / Jellyseerr on the home network (port 5055, confirmed by its public status endpoint). */
+    suspend fun discover(): List<String> = lanScan(5055) { url ->
+        val r = kotlinx.coroutines.withTimeoutOrNull(3_000) { runCatching { http.get("$url/api/v1/status") }.getOrNull() }
+        url.takeIf { r?.ok == true && !r.body.str("version").isNullOrBlank() }
+    }
+
     suspend fun connect(input: String, apiKey: String): Result<SeerrAuth> {
         val raw = input.trim().trimEnd('/')
         if (raw.isEmpty()) return Result.failure(IllegalStateException("Enter your Seerr address."))

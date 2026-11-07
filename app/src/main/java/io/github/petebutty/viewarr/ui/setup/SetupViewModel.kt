@@ -231,11 +231,12 @@ class SetupViewModel @Inject constructor(
         }
         when (step) {
             SetupStep.Phone -> startPhone()
-            SetupStep.Stremio, SetupStep.Tmdb, SetupStep.Seerr, SetupStep.Mdblist -> startPhone()
+            SetupStep.Stremio, SetupStep.Tmdb, SetupStep.Mdblist -> startPhone()
             SetupStep.Trakt -> startTrakt()
             SetupStep.Plex -> startPlex()
             SetupStep.Vod -> checkVod()
             SetupStep.Jellyfin, SetupStep.Emby -> { startPhone(); findMediaServer(step == SetupStep.Emby) }
+            SetupStep.Seerr -> { startPhone(); findSeerr() }
             SetupStep.Server -> if (_state.value.serverInput.isBlank()) viewModelScope.launch {
                 _state.update { it.copy(info = "Looking for Dispatcharr on your network…") }
                 val found = runCatching { auth.discover() }.getOrDefault(emptyList())
@@ -250,6 +251,21 @@ class SetupViewModel @Inject constructor(
             }
             else -> Unit
         }
+    }
+
+    private fun findSeerr() {
+        viewModelScope.launch {
+                _state.update { it.copy(info = "Looking for Seerr on your network…") }
+                val found = runCatching { seerr.discover() }.getOrDefault(emptyList()).firstOrNull()
+                if (_state.value.step != SetupStep.Seerr || !_state.value.fields[SERVER].isNullOrBlank()) return@launch
+                _state.update {
+                    if (found == null) it.copy(info = "Couldn't find Seerr automatically. Type its address (usually port 5055).")
+                    else it.copy(
+                        fields = it.fields + (SERVER to found.removePrefix("http://")),
+                        info = "Found Seerr at ${found.removePrefix("http://")}. Now its API key: scan the code, or in Seerr open Settings → General.",
+                    )
+                }
+            }
     }
 
     /** Hosts worth trying for Jellyfin / Emby when nothing answers the broadcast: the box Dispatcharr is on. */
@@ -571,6 +587,10 @@ class SetupViewModel @Inject constructor(
                         }
                     }
                 }
+            }
+            "seerr-discover" -> {
+                val found = runCatching { seerr.discover() }.getOrDefault(emptyList())
+                reply(true) { putJsonArray("servers") { found.forEach { add(JsonPrimitive(it)) } } }
             }
             "media-discover" -> {
                 val emby = v["kind"] == "emby"
