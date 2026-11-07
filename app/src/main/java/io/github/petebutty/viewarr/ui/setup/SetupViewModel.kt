@@ -81,6 +81,8 @@ data class SetupUiState(
     val codeUrl: String? = null,
     val qrUrl: String? = null,
     val plexChoices: List<PlexServerChoice> = emptyList(),
+    /** Machine ids of the Plex servers ticked on the chooser (all of them to start with). */
+    val plexOn: Set<String> = emptySet(),
     val vodCount: Int? = null,
     /** Phone setup: the phone has talked to the TV at least once. */
     val phoneConnected: Boolean = false,
@@ -406,7 +408,7 @@ class SetupViewModel @Inject constructor(
                 when (servers.size) {
                     0 -> fail("No Plex server could be reached from this TV.")
                     1 -> pickPlex(servers.first())
-                    else -> _state.update { it.copy(busy = false, plexChoices = servers, info = "Choose your server.") }
+                    else -> _state.update { it.copy(busy = false, plexChoices = servers, plexOn = servers.map { s -> s.machineId }.toSet(), info = "You have ${servers.size} Plex servers. Untick any you don't want, then Continue.") }
                 }
                 return@launch
             }
@@ -414,10 +416,23 @@ class SetupViewModel @Inject constructor(
         }
     }
 
-    fun pickPlex(choice: PlexServerChoice) {
+    fun pickPlex(choice: PlexServerChoice) = savePlexChoice(listOf(choice), listOf(choice))
+
+    fun togglePlexServer(machineId: String) = _state.update {
+        it.copy(plexOn = if (machineId in it.plexOn) it.plexOn - machineId else it.plexOn + machineId, error = null)
+    }
+
+    fun confirmPlex() {
+        val s = _state.value
+        val on = s.plexChoices.filter { it.machineId in s.plexOn }
+        if (on.isEmpty()) { _state.update { it.copy(error = "Tick at least one server.") }; return }
+        savePlexChoice(s.plexChoices, on)
+    }
+
+    private fun savePlexChoice(all: List<PlexServerChoice>, on: List<PlexServerChoice>) {
         viewModelScope.launch {
-            store.update { it.copy(plex = plex.toAuth(choice)) }
-            _state.update { it.copy(busy = false, plexChoices = emptyList(), info = "Connected to ${choice.name}.") }
+            savePlex(all, on)
+            _state.update { it.copy(busy = false, plexChoices = emptyList(), plexOn = emptySet(), info = "Connected to ${on.joinToString { c -> c.name }}.") }
             delay(1_200)
             advance()
         }
@@ -623,7 +638,7 @@ class SetupViewModel @Inject constructor(
                         val servers = plex.servers(deviceId, token)
                         plexLink = when (servers.size) {
                             0 -> PhoneLink("failed", "Plex linked, but no Plex server could be reached from the TV.")
-                            1 -> { savePlex(servers.first()); PhoneLink("done", "Connected to ${servers.first().name}.") }
+                            1 -> { savePlex(servers, servers); PhoneLink("done", "Connected to ${servers.first().name}.") }
                             else -> PhoneLink("choose", choices = servers)
                         }
                         return@launch
@@ -657,11 +672,13 @@ class SetupViewModel @Inject constructor(
             }
             "jellyfin-qc-status" -> linkReply(jellyfinLink)
             "plex-pick" -> {
-                val choice = plexLink?.choices?.getOrNull(v["index"]?.toIntOrNull() ?: -1)
-                    ?: return reply(false, "That server isn't available any more. Tap Back and try again.")
-                savePlex(choice)
-                plexLink = PhoneLink("done", "Connected to ${choice.name}.")
-                reply(true, "Connected to ${choice.name}.")
+                val all = plexLink?.choices.orEmpty()
+                val on = (v["indices"] ?: v["index"]).orEmpty().split(',').mapNotNull { it.trim().toIntOrNull()?.let(all::getOrNull) }.distinct()
+                if (on.isEmpty()) return reply(false, if (all.isEmpty()) "That server isn't available any more. Tap Back and try again." else "Tick at least one server.")
+                savePlex(all, on)
+                val names = on.joinToString { it.name }
+                plexLink = PhoneLink("done", "Connected to $names.")
+                reply(true, "Connected to $names.")
             }
             "stremio-list" -> { val list = store.current().addons; reply(true) { addons(list) } }
             "stremio" -> {
@@ -724,9 +741,18 @@ class SetupViewModel @Inject constructor(
         }
     }
 
-    private suspend fun savePlex(choice: PlexServerChoice) {
-        store.update { it.copy(plex = plex.toAuth(choice)) }
-        activity("Plex: connected to ${choice.name}")
+    /** The first ticked server is the main one; the rest are kept too, with unticked ones switched off (as in Settings). */
+    private suspend fun savePlex(all: List<PlexServerChoice>, on: List<PlexServerChoice>) {
+        val main = on.first()
+        val onIds = on.map { it.machineId }.toSet()
+        store.update { a ->
+            a.copy(
+                plex = plex.toAuth(main),
+                plexMore = all.filter { it.machineId != main.machineId }.map(plex::toAuth),
+                plexOff = a.plexOff - all.map { it.machineId }.toSet() + all.map { it.machineId }.filter { it !in onIds },
+            )
+        }
+        activity("Plex: connected to ${on.joinToString { it.name }}")
     }
 
     private fun linkReply(link: PhoneLink?) = if (link == null) reply(false, "Start again from the phone.") { put("state", "failed") }

@@ -129,8 +129,12 @@ fun SetupWizard(
                 )
                 SetupStep.SignIn -> TextStep(
                     // Dispatcharr's Users page, where the API key is: open it on the phone (same Wi-Fi) and copy the key.
-                    qrUrl = state.serverUrl?.takeIf { !state.xc && state.useKey }?.trimEnd('/')?.plus("/users"),
-                    qrCaption = "Scan to open Dispatcharr's Users page on your phone (on your home Wi-Fi), then edit your user to see the API key.",
+                    // API key: Dispatcharr's Users page, where the key is (phone on the same Wi-Fi).
+                    // Username & password: the phone setup page, straight at the Dispatcharr sign-in, to type them there.
+                    qrUrl = if (!state.xc && state.useKey) state.serverUrl?.trimEnd('/')?.plus("/users")
+                    else state.qrUrl?.let { u -> u.substringBefore('#') + "?go=livetv&pw=" + (if (state.xc) "xc" else "1") + "#" + u.substringAfter('#') },
+                    qrCaption = if (!state.xc && state.useKey) "Scan to open Dispatcharr's Users page on your phone (on your home Wi-Fi), then edit your user to see the API key."
+                    else "Scan to type your username and password on your phone instead.",
                     fields = {
                         if (!state.xc && state.useKey) {
                             WizardField(state.fields[SetupViewModel.API_KEY].orEmpty(), { vm.onField(SetupViewModel.API_KEY, it) }, "API key", firstFocus, KeyboardType.Text, ImeAction.Done, vm::submit)
@@ -395,13 +399,18 @@ private fun TextStep(qrUrl: String?, qrCaption: String = "Or scan with your phon
 private fun CodeStep(state: SetupUiState, firstFocus: FocusRequester, vm: SetupViewModel) {
     if (state.plexChoices.isNotEmpty()) {
         state.plexChoices.forEachIndexed { i, choice ->
+            val on = choice.machineId in state.plexOn
             MenuItem(
-                text = choice.name,
+                text = (if (on) "☑  " else "☐  ") + choice.name,
                 selected = false,
                 trailing = choice.url.substringAfter("://").substringBefore('/'),
-                onClick = { vm.pickPlex(choice) },
+                onClick = { vm.togglePlexServer(choice.machineId) },
                 modifier = if (i == 0) Modifier.focusRequester(firstFocus) else Modifier,
             )
+        }
+        Spacer(Modifier.height(8.dp))
+        Button(onClick = vm::confirmPlex, enabled = state.plexOn.isNotEmpty()) {
+            Text(if (state.plexOn.size > 1) "Continue with ${state.plexOn.size} servers" else "Continue")
         }
         return
     }

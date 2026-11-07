@@ -111,11 +111,13 @@ a.link.alt{background:transparent;border:1px solid var(--line);color:var(--text)
       if (s.state === 'done') { box.innerHTML = ''; return saved({ ok: true, message: s.message }); }
       if (s.state === 'failed') { box.innerHTML = ''; return msg(s.message, 'err'); }
       if (s.state === 'choose') {
-        box.innerHTML = `<p>Which Plex server should Viewarr use?</p>${s.choices.map((c, i) => `<div class="row"><span><b>${esc(c.name)}</b><br><small>${esc(c.address)}</small></span><button data-i="${i}" style="color:var(--accent)">Use</button></div>`).join('')}`;
-        box.querySelectorAll('[data-i]').forEach((b) => b.addEventListener('click', async () => {
-          b.disabled = true;
-          try { await saved(await api('plex-pick', { index: b.dataset.i })); } catch (e) { msg(e.message, 'err'); b.disabled = false; }
-        }));
+        box.innerHTML = `<p>You have ${s.choices.length} Plex servers. Untick any you don't want Viewarr to use.</p>${s.choices.map((c, i) => `<label class="row"><span><b>${esc(c.name)}</b><br><small>${esc(c.address)}</small></span><input type="checkbox" data-i="${i}" checked style="width:22px;height:22px"></label>`).join('')}<div class="btns"><button class="primary" id="plexgo">Continue</button></div>`;
+        box.querySelector('#plexgo').addEventListener('click', async (e) => {
+          const picked = [...box.querySelectorAll('[data-i]')].filter((c) => c.checked).map((c) => c.dataset.i);
+          if (!picked.length) return msg('Tick at least one server.', 'err');
+          e.target.disabled = true;
+          try { await saved(await api('plex-pick', { indices: picked.join(',') })); } catch (err) { msg(err.message, 'err'); e.target.disabled = false; }
+        });
         return;
       }
       poll = setTimeout(tick, 2500);
@@ -223,6 +225,8 @@ a.link.alt{background:transparent;border:1px solid var(--line);color:var(--text)
       try { await saved(await api('livetv-xc', values)); } catch (err) { msg(err.message, 'err'); } finally { busy(btn, false); }
     });
     let mode = 'key';
+    // From the TV's username & password QR (?pw=1): open on that form; ?pw=xc opens the IPTV provider tab.
+    const pwParam = new URLSearchParams(location.search).get('pw');
     // Look for Dispatcharr on the home network and offer what's found.
     (async () => {
       const box = view.querySelector('#found');
@@ -243,6 +247,8 @@ a.link.alt{background:transparent;border:1px solid var(--line);color:var(--text)
       view.querySelector('#pw').hidden = mode !== 'pw';
       view.querySelector('#key').hidden = mode !== 'key';
     }));
+    if (pwParam === '1') view.querySelector('[data-t="pw"]').click();
+    if (pwParam === 'xc') view.querySelector('[data-s="x"]').click();
     form(async (btn) => {
       busy(btn, true, 'Connecting…');
       const values = mode === 'key'
