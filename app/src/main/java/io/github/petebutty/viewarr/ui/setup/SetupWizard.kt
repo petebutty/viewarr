@@ -155,6 +155,17 @@ fun SetupWizard(
                         OutlinedButton(onClick = vm::advance) { Text("Skip") }
                     },
                 )
+                SetupStep.Mdblist -> TextStep(
+                    qrUrl = state.qrUrl?.let { u -> u.substringBefore('#') + "?go=mdblist#" + u.substringAfter('#') },
+                    qrCaption = "Scan to paste your MDBList key from your phone (easier than typing).",
+                    fields = {
+                        WizardField(state.fields[SetupViewModel.MDBLIST_KEY].orEmpty(), { vm.onField(SetupViewModel.MDBLIST_KEY, it) }, "MDBList API key", firstFocus, KeyboardType.Password, ImeAction.Done, vm::submit)
+                    },
+                    actions = {
+                        Button(onClick = vm::submit, enabled = !state.busy) { Text(if (state.busy) "Checking…" else "Save") }
+                        OutlinedButton(onClick = vm::advance) { Text("Skip") }
+                    },
+                )
                 SetupStep.Trakt, SetupStep.Plex -> CodeStep(state, firstFocus, vm)
                 SetupStep.Seerr -> TextStep(
                     qrUrl = state.qrUrl?.let { u -> u.substringBefore('#') + "?go=seerr#" + u.substringAfter('#') },
@@ -513,6 +524,7 @@ private fun titleFor(step: SetupStep, mode: SetupMode) = when (step) {
     SetupStep.Emby -> "Connect Emby"
     SetupStep.Vod -> "Provider VOD"
     SetupStep.Seerr -> "Connect Seerr"
+    SetupStep.Mdblist -> "MDBList ratings"
     SetupStep.Done -> "You're all set"
 }
 
@@ -539,6 +551,8 @@ private fun bodyFor(state: SetupUiState) = when (state.step) {
     SetupStep.Jellyfin -> "Sign in with your Jellyfin account, or use Quick Connect from the Jellyfin app."
     SetupStep.Emby -> "Sign in with your Emby account."
     SetupStep.Vod -> "Films and series from your IPTV provider, served through Dispatcharr."
+    SetupStep.Mdblist -> "Optional: a free MDBList key adds IMDb, Rotten Tomatoes, Metacritic and Letterboxd ratings to every film and show. " +
+        "Sign in at mdblist.com, open Preferences → API access, and copy your API key."
     SetupStep.Seerr -> "Your Seerr address (for example 192.168.1.50:5055) and its API key from Seerr → Settings → General. The key is long: the phone setup is easier."
     SetupStep.Done -> "Everything you connected is ready. You can change any of it in Settings → Accounts & sources."
 }

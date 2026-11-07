@@ -882,6 +882,7 @@ private fun DetailScreen(
         // One screen: a compact header (poster, logo, details, ratings, description, buttons), then tabs with one
         // row under them (cast & crew, reviews, more like this, details), as on other TV media apps.
         var reading by remember { mutableStateOf<io.github.petebutty.viewarr.data.media.Review?>(null) }
+        val tabFocus = remember { FocusRequester() }
         val sectionsFree = !ui.episodesOpen && ui.streams == null && !trailerOpen
         Column(Modifier.fillMaxSize().padding(start = 56.dp, end = 40.dp, top = 30.dp, bottom = 12.dp)) {
         Row(verticalAlignment = Alignment.Top) {
@@ -922,7 +923,10 @@ private fun DetailScreen(
                 val buttonsFree = !ui.episodesOpen && ui.streams == null && !trailerOpen
                 androidx.compose.runtime.CompositionLocalProvider(LocalButtonsFree provides buttonsFree) {
                 // The buttons may run past the text column into the free space on the right, rather than squash.
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.wrapContentWidth(Alignment.Start, unbounded = true)) {
+                // Down from any of them goes to the selected tab below (not just the nearest one).
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.wrapContentWidth(Alignment.Start, unbounded = true).onPreviewKeyEvent { e ->
+                    if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionDown && buttonsFree) runCatching { tabFocus.requestFocus() }.isSuccess else false
+                }) {
                     if (show) {
                         val next = item.nextSeason?.let { sn -> item.nextEpisode?.let { en -> sn to en } }?.takeIf { onPlex }
                         if (next != null) {
@@ -976,7 +980,7 @@ private fun DetailScreen(
             }
         }
         Spacer(Modifier.height(16.dp))
-        DetailTabs(d, show, sectionsFree, onPerson = { c -> vm.openCastMember(c) }, onReview = { reading = it }, onSimilar = { vm.open(it) })
+        DetailTabs(d, show, sectionsFree, tabFocus, onPerson = { c -> vm.openCastMember(c) }, onReview = { reading = it }, onSimilar = { vm.open(it) })
         }
         reading?.let { r -> ReviewDialog(r) { reading = null } }
         if (ui.episodesOpen) EpisodesPanel(ui, vm, onPlex)
@@ -1330,8 +1334,9 @@ private fun TitleLogo(item: MediaItem, logoOf: (suspend (MediaItem) -> String?)?
 @Composable
 private fun RatingsLine(tmdb: Double?, votes: Int?, more: List<io.github.petebutty.viewarr.data.media.RatingBadge>) {
     val all = buildList {
-        tmdb?.takeIf { it > 0 }?.let { add("TMDB" to ("%.1f".format(it) + (votes?.takeIf { v -> v > 0 }?.let { v -> " (" + (if (v >= 1000) "%.1fk".format(v / 1000.0) else v.toString()) + ")" } ?: ""))) }
-        more.forEach { add(it.source to (it.value + (it.votes?.let { v -> " ($v)" } ?: ""))) }
+        // Scores only (no vote counts), so up to seven sources fit on one line.
+        tmdb?.takeIf { it > 0 }?.let { add("TMDB" to "%.1f".format(it)) }
+        more.forEach { add(it.source to it.value) }
     }
     if (all.isEmpty()) return
     Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically, modifier = Modifier.wrapContentWidth(Alignment.Start, unbounded = true)) {
@@ -1351,6 +1356,8 @@ private fun ratingColour(source: String) = when (source) {
     "Rotten Tomatoes", "RT" -> Color(0xFFFA6C4F)
     "RT audience", "Audience" -> Color(0xFFF9D361)
     "Trakt" -> Color(0xFFED6E83)
+    "Metacritic" -> Color(0xFF66CC33)
+    "Letterboxd" -> Color(0xFF40BCF4)
     else -> Color(0xFF90CEA1)
 }
 
@@ -1365,6 +1372,8 @@ private fun DetailTabs(
     d: io.github.petebutty.viewarr.data.media.MediaDetail,
     show: Boolean,
     free: Boolean,
+    /** On the selected tab: where Down from the buttons above goes. */
+    tabFocus: FocusRequester,
     onPerson: (io.github.petebutty.viewarr.data.media.CastMember) -> Unit,
     onReview: (io.github.petebutty.viewarr.data.media.Review) -> Unit,
     onSimilar: (MediaItem) -> Unit,
@@ -1392,7 +1401,7 @@ private fun DetailTabs(
         tabs.forEach { t ->
             Surface(
                 onClick = { tab = t },
-                modifier = Modifier.onFocusChanged { if (it.isFocused) tab = t }.focusProperties { canFocus = free },
+                modifier = (if (t == tab) Modifier.focusRequester(tabFocus) else Modifier).onFocusChanged { if (it.isFocused) tab = t }.focusProperties { canFocus = free },
                 scale = ClickableSurfaceDefaults.scale(scale = 1f, focusedScale = 1f, pressedScale = 1f),
                 shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(16.dp)),
                 colors = ClickableSurfaceDefaults.colors(

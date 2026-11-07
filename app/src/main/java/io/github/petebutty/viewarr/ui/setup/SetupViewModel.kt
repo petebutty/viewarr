@@ -39,7 +39,7 @@ import javax.inject.Inject
 
 enum class SetupMode { FirstRun, Manage }
 
-enum class SetupStep { Phone, Welcome, Choose, Server, SignIn, Tmdb, Trakt, Plex, Stremio, Jellyfin, Emby, Vod, Seerr, Done }
+enum class SetupStep { Phone, Welcome, Choose, Server, SignIn, Tmdb, Trakt, Plex, Stremio, Jellyfin, Emby, Vod, Seerr, Mdblist, Done }
 
 enum class SetupItem(val id: String, val label: String, val description: String, val steps: List<SetupStep>) {
     LiveTv("livetv", "Live TV", "Dispatcharr or an IPTV provider: channels, TV guide and catch-up (recordings with Dispatcharr)", listOf(SetupStep.Server, SetupStep.SignIn)),
@@ -51,6 +51,7 @@ enum class SetupItem(val id: String, val label: String, val description: String,
     Emby("emby", "Emby", "Play from an Emby server", listOf(SetupStep.Emby)),
     Vod("vod", "Provider VOD", "Films and series from your IPTV provider, via Dispatcharr", listOf(SetupStep.Vod)),
     Seerr("seerr", "Seerr", "Request films and shows to keep (Overseerr / Jellyseerr)", listOf(SetupStep.Seerr)),
+    Mdblist("mdblist", "MDBList ratings", "IMDb, Rotten Tomatoes, Metacritic and Letterboxd ratings on every title (free key)", listOf(SetupStep.Mdblist)),
 }
 
 /** Trakt needs a client id built into the app (secrets.properties); without one it isn't offered. */
@@ -109,6 +110,7 @@ class SetupViewModel @Inject constructor(
     private val mediaServers: MediaServerService,
     private val stremio: StremioService,
     private val seerr: io.github.petebutty.viewarr.data.remote.services.SeerrService,
+    private val httpJson: io.github.petebutty.viewarr.data.remote.services.HttpJson,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(SetupUiState())
@@ -185,6 +187,7 @@ class SetupViewModel @Inject constructor(
                 SetupItem.Emby -> store.update { it.copy(emby = null) }
                 SetupItem.Vod -> store.update { it.copy(vodEnabled = false) }
                 SetupItem.Seerr -> store.update { it.copy(seerr = null) }
+                SetupItem.Mdblist -> store.update { it.copy(mdblistKey = null) }
             }
         }
     }
@@ -220,13 +223,13 @@ class SetupViewModel @Inject constructor(
 
     private fun go(step: SetupStep) {
         cleanUp()
-        if (step != SetupStep.Phone && step != SetupStep.Stremio && step != SetupStep.Tmdb && step != SetupStep.Seerr) stopPhone()
+        if (step != SetupStep.Phone && step != SetupStep.Stremio && step != SetupStep.Tmdb && step != SetupStep.Seerr && step != SetupStep.Mdblist) stopPhone()
         _state.update {
             it.copy(step = step, busy = false, error = null, info = null, code = null, codeUrl = null, plexChoices = emptyList(), fields = emptyMap())
         }
         when (step) {
             SetupStep.Phone -> startPhone()
-            SetupStep.Stremio, SetupStep.Tmdb, SetupStep.Seerr -> startPhone()
+            SetupStep.Stremio, SetupStep.Tmdb, SetupStep.Seerr, SetupStep.Mdblist -> startPhone()
             SetupStep.Trakt -> startTrakt()
             SetupStep.Plex -> startPlex()
             SetupStep.Vod -> checkVod()
@@ -283,6 +286,13 @@ class SetupViewModel @Inject constructor(
                 if (key.isEmpty()) return@work fail("Enter your TMDB API key.")
                 if (!tmdb.validate(key)) return@work fail("TMDB didn't accept that key. Check it and try again.")
                 store.update { it.copy(tmdbKey = key) }
+                advance()
+            }
+            SetupStep.Mdblist -> work {
+                val key = s.fields[MDBLIST_KEY].orEmpty().trim()
+                if (key.isEmpty()) return@work fail("Enter your MDBList API key.")
+                if (!mdblistValid(key)) return@work fail("MDBList didn't accept that key. Check it and try again.")
+                store.update { it.copy(mdblistKey = key) }
                 advance()
             }
             SetupStep.Seerr -> work {
@@ -450,6 +460,11 @@ class SetupViewModel @Inject constructor(
         }
     }
 
+    /** MDBList keys are checked against the account endpoint. */
+    private suspend fun mdblistValid(key: String): Boolean = runCatching {
+        httpJson.get("https://api.mdblist.com/user?apikey=" + java.net.URLEncoder.encode(key, "UTF-8")).ok
+    }.getOrDefault(false)
+
     fun toggleKey() = _state.update { it.copy(useKey = !it.useKey, error = null) }
 
     private fun signIn() {
@@ -542,6 +557,15 @@ class SetupViewModel @Inject constructor(
                         onSuccess = { s -> activity("Live TV: signed in as ${s.username}"); reply(true, "Signed in as ${s.username}.") },
                         onFailure = { e -> activity("Live TV sign-in failed"); reply(false, e.message ?: "Sign-in failed.") },
                     )
+                }
+            }
+            "mdblist" -> {
+                activity("Checking the MDBList key…")
+                val key = v["key"].orEmpty().trim()
+                when {
+                    key.isEmpty() -> reply(false, "Paste your MDBList API key.")
+                    !mdblistValid(key) -> reply(false, "MDBList didn't accept that key. Check it and try again.")
+                    else -> { store.update { it.copy(mdblistKey = key) }; activity("MDBList connected"); reply(true, "MDBList connected.") }
                 }
             }
             "tmdb" -> {
@@ -731,6 +755,7 @@ class SetupViewModel @Inject constructor(
 
     companion object {
         const val TMDB_KEY = "tmdb_key"
+        const val MDBLIST_KEY = "mdblist_key"
         const val ADDON_URLS = "addon_urls"
         const val SERVER = "server"
         const val USER = "username"
@@ -749,5 +774,6 @@ fun statusText(item: SetupItem, a: Accounts, session: io.github.petebutty.viewar
     SetupItem.Jellyfin -> a.jellyfin?.let { "${it.userName} on ${it.serverName}" }
     SetupItem.Emby -> a.emby?.let { "${it.userName} on ${it.serverName}" }
     SetupItem.Vod -> if (a.vodEnabled) "On" else null
+    SetupItem.Mdblist -> a.mdblistKey?.let { "Connected" }
     SetupItem.Seerr -> a.seerr?.let { s -> s.userName?.let { "Connected as $it" } ?: "Connected" }
 }

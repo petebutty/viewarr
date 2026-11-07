@@ -1230,8 +1230,46 @@ class CatalogRepository @Inject constructor(
         return got
     }
 
+    /**
+     * MDBList (with the user's key): IMDb, Rotten Tomatoes critics and audience, Metacritic, Letterboxd and Trakt for
+     * any title, by its IMDb or TMDB id. Null without a key or an answer.
+     */
+    private val mdbCache = ConcurrentHashMap<String, List<RatingBadge>>()
+
+    private suspend fun mdblistRatings(a: Accounts, item: MediaItem): List<RatingBadge>? {
+        val key = a.mdblistKey ?: return null
+        mdbCache[item.key]?.let { return it.ifEmpty { null } }
+        val got = fetchMdblist(key, item)
+        mdbCache[item.key] = got.orEmpty()
+        return got
+    }
+
+    private suspend fun fetchMdblist(key: String, item: MediaItem): List<RatingBadge>? {
+        val kind = if (item.type == MediaType.Movie) "movie" else "show"
+        val (provider, id) = item.imdbId?.let { "imdb" to it } ?: item.tmdbId?.let { "tmdb" to it.toString() } ?: return null
+        val r = runCatching { http.get("https://api.mdblist.com/$provider/$kind/$id?apikey=${enc(key)}") }.getOrNull()?.takeIf { it.ok } ?: return null
+        val values = r.body.array("ratings").mapNotNull { x ->
+            val v = (x.child("value") as? JsonPrimitive)?.doubleOrNull?.takeIf { it > 0 } ?: return@mapNotNull null
+            val votes = x.int("votes")?.takeIf { it > 0 }?.let(::compactCount)
+            when (x.str("source")) {
+                "imdb" -> "imdb" to RatingBadge("IMDb", "%.1f".format(v), votes)
+                "tomatoes" -> "rt" to RatingBadge("RT", "🍅 ${v.toInt()}%")
+                "popcorn", "audience", "tomatoesaudience" -> "rta" to RatingBadge("Audience", "🍿 ${v.toInt()}%")
+                "metacritic" -> "mc" to RatingBadge("Metacritic", v.toInt().toString())
+                "letterboxd" -> "lb" to RatingBadge("Letterboxd", "%.1f".format(if (v > 5) v / 20 else v))
+                "trakt" -> "trakt" to RatingBadge("Trakt", "${v.toInt()}%", votes)
+                else -> null
+            }
+        }.toMap()
+        return listOfNotNull(values["imdb"], values["rt"], values["rta"], values["mc"], values["lb"], values["trakt"]).takeIf { it.isNotEmpty() }
+    }
+
     private suspend fun fetchExtraRatings(item: MediaItem, copies: List<LibraryCopy>): List<RatingBadge> = coroutineScope {
         val a = store.current()
+        // With an MDBList key: everything in one call; Plex and Trakt only fill in what it lacks.
+        mdblistRatings(a, item)?.let { fromMdb ->
+            if (fromMdb.any { it.source == "RT" }) return@coroutineScope fromMdb
+        }
         val plexPart = async {
             val ref = copies.firstOrNull { it.source == "Plex" }?.ref ?: return@async emptyList()
             val (p, rk) = plexResolve(a, ref) ?: return@async emptyList()
@@ -1247,7 +1285,8 @@ class CatalogRepository @Inject constructor(
             val votes = r.body.int("votes") ?: 0
             if (votes < 5) null else RatingBadge("Trakt", "${(v * 10).toInt()}%", compactCount(votes))
         }
-        plexPart.await() + listOfNotNull(traktPart.await())
+        val mdb = mdblistRatings(a, item).orEmpty()
+        (mdb + plexPart.await() + listOfNotNull(traktPart.await())).distinctBy { it.source }
     }
 
     /** Trakt users' comments on a title (most liked first), as reviews. Spoilers are flagged. */

@@ -52,6 +52,8 @@ data class Accounts(
     val seerr: SeerrAuth? = null,
     /** Your other Plex servers (found on the same Plex account); [plex] stays the main one. */
     val plexMore: List<PlexAuth> = emptyList(),
+    /** MDBList API key (optional): IMDb, Rotten Tomatoes, Metacritic, Letterboxd and Trakt ratings for every title. */
+    val mdblistKey: String? = null,
 ) {
     /** The addons switched on in Settings → Addons. */
     val activeAddons: List<AddonInfo> get() = addons.filter { it.enabled }
