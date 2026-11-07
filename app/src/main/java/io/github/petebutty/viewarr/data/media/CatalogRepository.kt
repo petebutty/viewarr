@@ -440,7 +440,7 @@ class CatalogRepository @Inject constructor(
     /** Every Plex server: the one linked in setup first, then the others on the same account. */
     private fun plexServers(a: Accounts): List<PlexAuth> {
         mainPlexMachine = a.plex?.machineId
-        return listOfNotNull(a.plex) + a.plexMore.filter { m -> m.machineId != a.plex?.machineId }
+        return (listOfNotNull(a.plex) + a.plexMore.filter { m -> m.machineId != a.plex?.machineId }).filter { it.machineId !in a.plexOff }
     }
 
     private fun isMainPlex(p: PlexAuth) = mainPlexMachine == null || p.machineId == mainPlexMachine
@@ -453,7 +453,7 @@ class CatalogRepository @Inject constructor(
         val servers = plexServers(a)
         val rk = ref.substringBefore('@')
         val machine = ref.substringAfter('@', "")
-        val p = if (machine.isEmpty()) a.plex else servers.firstOrNull { it.machineId == machine }
+        val p = if (machine.isEmpty()) a.plex?.takeIf { it.machineId !in a.plexOff } else servers.firstOrNull { it.machineId == machine }
         return p?.let { it to rk }
     }
 
@@ -869,12 +869,17 @@ class CatalogRepository @Inject constructor(
         // Plex's own search is looser (accents, punctuation, alternative titles): last try, matched on the ids.
         val want = if (item.type == MediaType.Movie) "movie" else "show"
         val hubs = runCatching { plexGet(a, p, "/hubs/search?query=${enc(item.title)}&limit=20&includeGuids=1") }.getOrNull()?.array("Hub").orEmpty()
+        // Only real library items: Plex's search also returns online "Discover" titles that aren't on the server.
         val loose = hubs.filter { it.str("type") == want }.flatMap { it.array("Metadata") }
+            .filter { j -> j.str("librarySectionID") != null || j.int("librarySectionID") != null }
             .firstOrNull { j -> val (t, i) = guidIds(j); sameTitle(item, t, i, j.str("title"), j.int("year")) }
             ?: return emptyList()
         // Search results carry less detail (no resolution): read the item itself.
         val full = loose.str("ratingKey")?.let { rk -> runCatching { plexGet(a, p, "/library/metadata/$rk") }.getOrNull()?.array("Metadata")?.firstOrNull() }
-        return listOf(plexCopy(p, full ?: loose))
+            ?: return emptyList()
+        // And only when it has a file to play.
+        if (full.array("Media").firstOrNull()?.array("Part").isNullOrEmpty()) return emptyList()
+        return listOf(plexCopy(p, full))
     }
 
     private suspend fun serverCopies(a: Accounts, srv: MediaServerAuth, emby: Boolean, item: MediaItem): List<LibraryCopy> {

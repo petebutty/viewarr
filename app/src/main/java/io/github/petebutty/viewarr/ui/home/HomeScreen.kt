@@ -1158,6 +1158,7 @@ private fun SettingsPanel(playbackItem: FocusRequester, onPlayback: () -> Unit, 
         MenuItem(text = "Addons", selected = false, onClick = onAddons, modifier = Modifier.focusRequester(addonsItem).rightDoes(onAddons))
         MenuItem(text = "Remote & navigation", selected = false, onClick = onRemote, modifier = Modifier.focusRequester(remoteItem).rightDoes(onRemote))
         MenuItem(text = "Updates", selected = false, onClick = onUpdates, modifier = Modifier.focusRequester(updatesItem).rightDoes(onUpdates))
+        io.github.petebutty.viewarr.ui.settings.PlexServersItems()
         MenuItem(text = "Refresh channels & guide", selected = false, onClick = onRefresh, modifier = Modifier.rightIgnored())
         // Viewarr's setup kept on the Dispatcharr server (Dispatcharr sign-ins only).
         if (session != null && !session.isXc) io.github.petebutty.viewarr.ui.sync.SyncSettingsItems()

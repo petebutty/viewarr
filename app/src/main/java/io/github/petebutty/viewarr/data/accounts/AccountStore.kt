@@ -54,6 +54,8 @@ data class Accounts(
     val plexMore: List<PlexAuth> = emptyList(),
     /** MDBList API key (optional): IMDb, Rotten Tomatoes, Metacritic, Letterboxd and Trakt ratings for every title. */
     val mdblistKey: String? = null,
+    /** Plex servers switched off in Settings (by machine id): left out of rows, search, libraries and playback. */
+    val plexOff: Set<String> = emptySet(),
 ) {
     /** The addons switched on in Settings → Addons. */
     val activeAddons: List<AddonInfo> get() = addons.filter { it.enabled }
