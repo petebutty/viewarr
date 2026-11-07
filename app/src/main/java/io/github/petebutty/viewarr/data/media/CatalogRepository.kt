@@ -1158,7 +1158,7 @@ class CatalogRepository @Inject constructor(
         val tmdbId = item.tmdbId ?: item.imdbId?.let { findByImdb(key, it, item.type) } ?: return MediaDetail(item)
         val movie = item.type == MediaType.Movie
         val path = if (movie) "/movie/$tmdbId" else "/tv/$tmdbId"
-        val append = if (movie) "credits,release_dates,external_ids" else "credits,content_ratings,external_ids"
+        val append = if (movie) "credits,release_dates,external_ids,reviews,recommendations" else "credits,content_ratings,external_ids,reviews,recommendations"
         val r = runCatching { http.get(tmdb.url(path, key, mapOf("language" to "en-GB", "append_to_response" to append)), tmdb.headers(key)) }
             .getOrNull()?.takeIf { it.ok } ?: return MediaDetail(item)
         val j = r.body
@@ -1184,14 +1184,115 @@ class CatalogRepository @Inject constructor(
             genres = j.array("genres").mapNotNull { it.str("name") },
             runtimeMin = j.int("runtime") ?: j.array("episode_run_time").firstOrNull()?.let { (it as? JsonPrimitive)?.content?.toIntOrNull() },
             certification = cert,
-            cast = j.child("credits").array("cast").take(8).mapNotNull { c -> c.str("name")?.let { CastMember(it, c.str("character")) } },
+            cast = j.child("credits").array("cast").take(20).mapNotNull { c ->
+                c.str("name")?.let { CastMember(it, c.str("character")?.takeIf { ch -> ch.isNotBlank() }, c.str("profile_path")?.let { p -> "https://image.tmdb.org/t/p/w185$p" }, c.int("id")) }
+            },
             seasons = j.array("seasons").mapNotNull { s ->
                 val n = s.int("season_number") ?: return@mapNotNull null
                 if (n == 0) return@mapNotNull null
                 SeasonInfo(n, s.str("name") ?: "Season $n", s.int("episode_count") ?: 0, s.str("air_date")?.take(4)?.toIntOrNull())
             },
             status = j.str("status"),
+            directors = if (movie) j.child("credits").array("crew").filter { it.str("job") == "Director" }.mapNotNull { it.str("name") }.distinct()
+                else j.array("created_by").mapNotNull { it.str("name") },
+            writers = j.child("credits").array("crew").filter { it.str("department") == "Writing" }.mapNotNull { it.str("name") }.distinct().take(4),
+            studio = (if (movie) j.array("production_companies") else j.array("networks")).firstOrNull()?.str("name"),
+            released = (j.str("release_date") ?: j.str("first_air_date"))?.takeIf { it.isNotBlank() }?.let { d ->
+                runCatching { java.time.LocalDate.parse(d).format(java.time.format.DateTimeFormatter.ofPattern("d MMMM yyyy")) }.getOrDefault(d)
+            },
+            language = j.array("spoken_languages").firstOrNull()?.let { it.str("english_name") ?: it.str("name") },
+            budget = j.long("budget")?.takeIf { it > 0 },
+            revenue = j.long("revenue")?.takeIf { it > 0 },
+            voteCount = j.int("vote_count"),
+            reviews = j.child("reviews").array("results").take(10).mapNotNull { r ->
+                val text = r.str("content")?.trim()?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
+                Review(
+                    author = r.str("author") ?: "Someone",
+                    rating = (r.child("author_details").child("rating") as? JsonPrimitive)?.doubleOrNull,
+                    text = text,
+                    date = r.str("created_at")?.take(10)?.let { d -> runCatching { java.time.LocalDate.parse(d).format(java.time.format.DateTimeFormatter.ofPattern("d MMM yyyy")) }.getOrNull() },
+                )
+            },
+            similar = j.child("recommendations").array("results").mapNotNull { tmdbItem(it, item.type) }.filter { it.poster != null }.take(20),
         )
+    }
+
+    /**
+     * Ratings from more places: IMDb and Rotten Tomatoes (critics and audience) as your Plex server has them, and
+     * Trakt's. TMDB's own is on the detail already.
+     */
+    private val ratingsCache = ConcurrentHashMap<String, Pair<Long, List<RatingBadge>>>()
+
+    suspend fun extraRatings(item: MediaItem, copies: List<LibraryCopy>): List<RatingBadge> {
+        ratingsCache[item.key]?.takeIf { System.currentTimeMillis() - it.first < 30 * 60_000L }?.let { return it.second }
+        val got = fetchExtraRatings(item, copies)
+        ratingsCache[item.key] = System.currentTimeMillis() to got
+        return got
+    }
+
+    private suspend fun fetchExtraRatings(item: MediaItem, copies: List<LibraryCopy>): List<RatingBadge> = coroutineScope {
+        val a = store.current()
+        val plexPart = async {
+            val ref = copies.firstOrNull { it.source == "Plex" }?.ref ?: return@async emptyList()
+            val (p, rk) = plexResolve(a, ref) ?: return@async emptyList()
+            val m = runCatching { plexGet(a, p, "/library/metadata/$rk")?.array("Metadata")?.firstOrNull() }.getOrNull() ?: return@async emptyList()
+            plexRatings(m)
+        }
+        val traktPart = async {
+            val imdb = item.imdbId ?: return@async null
+            if (TraktService.CLIENT_ID.isBlank()) return@async null
+            val r = runCatching { http.get("https://api.trakt.tv/${if (item.type == MediaType.Movie) "movies" else "shows"}/$imdb/ratings", trakt.headers()) }
+                .getOrNull()?.takeIf { it.ok } ?: return@async null
+            val v = (r.body.child("rating") as? JsonPrimitive)?.doubleOrNull ?: return@async null
+            val votes = r.body.int("votes") ?: 0
+            if (votes < 5) null else RatingBadge("Trakt", "${(v * 10).toInt()}%", compactCount(votes))
+        }
+        plexPart.await() + listOfNotNull(traktPart.await())
+    }
+
+    /** Trakt users' comments on a title (most liked first), as reviews. Spoilers are flagged. */
+    suspend fun traktReviews(item: MediaItem): List<Review> {
+        val imdb = item.imdbId ?: return emptyList()
+        if (TraktService.CLIENT_ID.isBlank()) return emptyList()
+        val kind = if (item.type == MediaType.Movie) "movies" else "shows"
+        val r = runCatching { http.get("https://api.trakt.tv/$kind/$imdb/comments/likes?limit=15", trakt.headers()) }.getOrNull()?.takeIf { it.ok } ?: return emptyList()
+        return (r.body as? kotlinx.serialization.json.JsonArray).orEmpty().mapNotNull { c ->
+            val text = c.str("comment")?.trim()?.takeIf { it.length >= 40 } ?: return@mapNotNull null
+            Review(
+                author = c.child("user").str("username") ?: "Trakt user",
+                rating = (c.child("user_rating") as? JsonPrimitive)?.doubleOrNull,
+                text = text,
+                date = c.str("created_at")?.take(10)?.let { d -> runCatching { java.time.LocalDate.parse(d).format(java.time.format.DateTimeFormatter.ofPattern("d MMM yyyy")) }.getOrNull() },
+                source = "Trakt",
+                spoiler = c.str("spoiler") == "true",
+                likes = c.int("likes") ?: 0,
+            )
+        }.take(10)
+    }
+
+    /** IMDb / Rotten Tomatoes from a Plex item ("rating"/"audienceRating" with their images, or the Rating list). */
+    private fun plexRatings(m: JsonElement): List<RatingBadge> {
+        val found = linkedMapOf<String, RatingBadge>()
+        fun add(image: String?, value: Double?) {
+            if (image == null || value == null || value <= 0) return
+            when {
+                image.startsWith("imdb://") -> found.putIfAbsent("imdb", RatingBadge("IMDb", "%.1f".format(value)))
+                image.startsWith("rottentomatoes://image.rating.ripe") || image.startsWith("rottentomatoes://image.rating.rotten") ->
+                    found.putIfAbsent("rt", RatingBadge("RT", "🍅 ${(value * 10).toInt()}%"))
+                image.startsWith("rottentomatoes://image.rating.upright") || image.startsWith("rottentomatoes://image.rating.spilled") ->
+                    found.putIfAbsent("rta", RatingBadge("Audience", "🍿 ${(value * 10).toInt()}%"))
+            }
+        }
+        m.array("Rating").forEach { r -> add(r.str("image"), (r.child("value") as? JsonPrimitive)?.doubleOrNull) }
+        add(m.str("ratingImage"), (m.child("rating") as? JsonPrimitive)?.doubleOrNull)
+        add(m.str("audienceRatingImage"), (m.child("audienceRating") as? JsonPrimitive)?.doubleOrNull)
+        return listOfNotNull(found["imdb"], found["rt"], found["rta"])
+    }
+
+    private fun compactCount(n: Int) = when {
+        n >= 1_000_000 -> "%.1fM".format(n / 1_000_000.0)
+        n >= 1_000 -> "%.1fk".format(n / 1_000.0)
+        else -> n.toString()
     }
 
     private val trailerCache = ConcurrentHashMap<String, String>()

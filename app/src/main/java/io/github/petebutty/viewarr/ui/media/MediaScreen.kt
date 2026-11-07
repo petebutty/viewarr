@@ -5,6 +5,9 @@ import io.github.petebutty.viewarr.ui.common.trapFocus
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.gestures.animateScrollBy
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.lazy.grid.itemsIndexed as gridItemsIndexed
@@ -279,6 +282,7 @@ fun MediaScreen(
                 trailers = vm.trailers,
                 librarySourcesOf = vm::librarySources,
                 logoOf = vm::logoFor,
+                ratingsOf = vm::ratingsFor,
             )
             when {
                 searchHeader != null && rows.isEmpty() && state.done -> Unit
@@ -387,6 +391,7 @@ private fun Hero(
     /** Where a title from an addon row really is, e.g. "Plex" (AIOStreams can pass on your own library). */
     librarySourcesOf: (suspend (MediaItem) -> String?)? = null,
     logoOf: (suspend (MediaItem) -> String?)? = null,
+    ratingsOf: (suspend (MediaItem) -> List<io.github.petebutty.viewarr.data.media.RatingBadge>)? = null,
 ) {
     val inLibrary by produceState<String?>(null, item?.key) {
         value = null
@@ -427,6 +432,17 @@ private fun Hero(
                     inLibrary?.let { where -> metaLine(item.copy(origin = "$where · via ${item.origin}")) } ?: metaLine(item),
                     fontSize = 14.sp, color = AppColors.TextSecondary, maxLines = 1,
                 )
+                // IMDb / Rotten Tomatoes / Trakt for the highlighted title (after a short rest on it).
+                val heroRatings by produceState<List<io.github.petebutty.viewarr.data.media.RatingBadge>>(emptyList(), item.key) {
+                    value = emptyList()
+                    if (ratingsOf == null) return@produceState
+                    delay(600)
+                    value = ratingsOf(item)
+                }
+                if (heroRatings.isNotEmpty()) {
+                    Spacer(Modifier.height(6.dp))
+                    RatingsLine(null, null, heroRatings)
+                }
                 item.subtitle?.let {
                     Spacer(Modifier.height(4.dp))
                     Text(it, fontSize = 14.sp, color = AppColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -863,40 +879,45 @@ private fun DetailScreen(
         val bg = AppColors.Background
         Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(0.25f to bg, 0.6f to bg.copy(alpha = 0.6f), 1f to Color.Transparent)))
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.55f to Color.Transparent, 1f to bg)))
-        Row(Modifier.fillMaxSize().padding(horizontal = 56.dp, vertical = 48.dp), verticalAlignment = Alignment.CenterVertically) {
+        // One screen: a compact header (poster, logo, details, ratings, description, buttons), then tabs with one
+        // row under them (cast & crew, reviews, more like this, details), as on other TV media apps.
+        var reading by remember { mutableStateOf<io.github.petebutty.viewarr.data.media.Review?>(null) }
+        val sectionsFree = !ui.episodesOpen && ui.streams == null && !trailerOpen
+        Column(Modifier.fillMaxSize().padding(start = 56.dp, end = 40.dp, top = 30.dp, bottom = 12.dp)) {
+        Row(verticalAlignment = Alignment.Top) {
             item.poster?.let {
                 AsyncImage(
                     model = it, contentDescription = null, contentScale = ContentScale.Crop,
-                    modifier = Modifier.size(width = 200.dp, height = 300.dp).clip(RoundedCornerShape(10.dp)),
+                    modifier = Modifier.size(width = 140.dp, height = 210.dp).clip(RoundedCornerShape(10.dp)),
                 )
-                Spacer(Modifier.width(36.dp))
+                Spacer(Modifier.width(28.dp))
             }
-            Column(Modifier.fillMaxWidth(0.62f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                TitleLogo(item, vm::logoFor, height = 96.dp, maxWidth = 440.dp, fontSize = 34)
+            Column(Modifier.fillMaxWidth(0.68f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                TitleLogo(item, vm::logoFor, height = 64.dp, maxWidth = 360.dp, fontSize = 30)
                 val meta = listOfNotNull(
                     item.year?.toString(),
                     d.certification,
                     d.runtimeMin?.takeIf { it > 0 }?.let { if (it >= 60) "${it / 60}h ${it % 60}m" else "${it}m" },
                     d.seasons.takeIf { it.isNotEmpty() }?.let { s -> "${s.size} season${if (s.size == 1) "" else "s"} · ${s.sumOf { it.episodes }} episodes" },
-                    item.rating?.let { "★ %.1f".format(it) },
+                    d.genres.takeIf { it.isNotEmpty() }?.take(3)?.joinToString(", "),
                 ).joinToString("  ·  ")
-                if (meta.isNotEmpty()) Text(meta, fontSize = 15.sp, color = AppColors.TextSecondary)
-                if (d.genres.isNotEmpty()) Text(d.genres.joinToString(" · "), fontSize = 14.sp, color = AppColors.TextSecondary)
-                d.tagline?.let { Text(it, fontSize = 15.sp, fontStyle = FontStyle.Italic, color = AppColors.TextPrimary) }
-                item.subtitle?.let { Text("Up next: $it", fontSize = 15.sp, color = AppColors.Accent) }
-                item.overview?.let { Text(it, fontSize = 15.sp, lineHeight = 22.sp, color = AppColors.TextPrimary, maxLines = 6, overflow = TextOverflow.Ellipsis) }
-                if (d.cast.isNotEmpty()) {
-                    Text("Starring " + d.cast.take(5).joinToString(", ") { it.name }, fontSize = 13.sp, color = AppColors.TextSecondary, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                }
+                if (meta.isNotEmpty()) Text(meta, fontSize = 13.sp, color = AppColors.TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                RatingsLine(item.rating, d.voteCount, ui.ratings)
+                item.subtitle?.let { Text("Up next: $it", fontSize = 13.sp, color = AppColors.Accent, maxLines = 1) }
+                item.overview?.let { Text(it, fontSize = 14.sp, lineHeight = 20.sp, color = AppColors.TextPrimary, maxLines = 3, overflow = TextOverflow.Ellipsis) }
                 Text(
-                    when (val copies = ui.copies) {
-                        null -> "Checking your library…"
-                        else -> if (copies.isEmpty()) "Not in your library" else "In your library: " + copies.joinToString(" · ") { c -> c.detail?.let { "${c.source} ($it)" } ?: c.source }
-                    },
-                    fontSize = 14.sp,
+                    listOfNotNull(
+                        d.directors.takeIf { it.isNotEmpty() }?.let { (if (show) "Created by " else "Directed by ") + it.take(2).joinToString(", ") },
+                        when (val copies = ui.copies) {
+                            null -> "Checking your library…"
+                            else -> if (copies.isEmpty()) "Not in your library" else "In your library: " + copies.joinToString(" · ") { c -> c.detail?.let { "${c.source} ($it)" } ?: c.source }
+                        },
+                    ).joinToString("   ·   "),
+                    fontSize = 13.sp,
                     color = if (ui.copies.isNullOrEmpty()) AppColors.TextSecondary else AppColors.Accent,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(4.dp))
                 // Pop-ups and the episodes panel sit on top: the buttons below must not take focus then.
                 val buttonsFree = !ui.episodesOpen && ui.streams == null && !trailerOpen
                 androidx.compose.runtime.CompositionLocalProvider(LocalButtonsFree provides buttonsFree) {
@@ -954,6 +975,10 @@ private fun DetailScreen(
                 }
             }
         }
+        Spacer(Modifier.height(16.dp))
+        DetailTabs(d, show, sectionsFree, onPerson = { c -> vm.openCastMember(c) }, onReview = { reading = it }, onSimilar = { vm.open(it) })
+        }
+        reading?.let { r -> ReviewDialog(r) { reading = null } }
         if (ui.episodesOpen) EpisodesPanel(ui, vm, onPlex)
         ui.streams?.takeIf { it.isNotEmpty() }?.let { StreamPicker(it, onPickStream, Modifier.align(Alignment.CenterEnd)) }
         if (trailerOpen) {
@@ -1297,5 +1322,203 @@ private fun TitleLogo(item: MediaItem, logoOf: (suspend (MediaItem) -> String?)?
             )
         }
         if (!loaded) Text(item.title, fontSize = fontSize.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+
+/** "TMDB 8.6 (1.2k) · IMDb 7.9 · Rotten Tomatoes 87% · RT audience 91% · Trakt 82%". */
+@Composable
+private fun RatingsLine(tmdb: Double?, votes: Int?, more: List<io.github.petebutty.viewarr.data.media.RatingBadge>) {
+    val all = buildList {
+        tmdb?.takeIf { it > 0 }?.let { add("TMDB" to ("%.1f".format(it) + (votes?.takeIf { v -> v > 0 }?.let { v -> " (" + (if (v >= 1000) "%.1fk".format(v / 1000.0) else v.toString()) + ")" } ?: ""))) }
+        more.forEach { add(it.source to (it.value + (it.votes?.let { v -> " ($v)" } ?: ""))) }
+    }
+    if (all.isEmpty()) return
+    Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically, modifier = Modifier.wrapContentWidth(Alignment.Start, unbounded = true)) {
+        all.forEach { (src, v) ->
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(src, fontSize = 12.sp, maxLines = 1, softWrap = false, fontWeight = FontWeight.SemiBold, color = Color.Black,
+                    modifier = Modifier.background(ratingColour(src), RoundedCornerShape(4.dp)).padding(horizontal = 6.dp, vertical = 2.dp))
+                Spacer(Modifier.width(6.dp))
+                Text(v, fontSize = 14.sp, color = AppColors.TextPrimary, maxLines = 1, softWrap = false)
+            }
+        }
+    }
+}
+
+private fun ratingColour(source: String) = when (source) {
+    "IMDb" -> Color(0xFFF5C518)
+    "Rotten Tomatoes", "RT" -> Color(0xFFFA6C4F)
+    "RT audience", "Audience" -> Color(0xFFF9D361)
+    "Trakt" -> Color(0xFFED6E83)
+    else -> Color(0xFF90CEA1)
+}
+
+private enum class DetailTab(val label: String) { Cast("Cast & crew"), Reviews("Reviews"), Similar("More like this"), Details("Details") }
+
+/**
+ * Below the header: a row of tabs; moving onto one shows its row underneath (cast & crew, reviews, more like this,
+ * details). Down goes from a tab into its row.
+ */
+@Composable
+private fun DetailTabs(
+    d: io.github.petebutty.viewarr.data.media.MediaDetail,
+    show: Boolean,
+    free: Boolean,
+    onPerson: (io.github.petebutty.viewarr.data.media.CastMember) -> Unit,
+    onReview: (io.github.petebutty.viewarr.data.media.Review) -> Unit,
+    onSimilar: (MediaItem) -> Unit,
+) {
+    val facts = listOfNotNull(
+        d.released?.let { (if (show) "First aired" else "Released") to it },
+        d.runtimeMin?.takeIf { it > 0 }?.let { "Runtime" to (if (it >= 60) "${it / 60}h ${it % 60}m" else "${it}m") },
+        d.studio?.let { (if (show) "Network" else "Studio") to it },
+        d.language?.let { "Language" to it },
+        d.status?.let { "Status" to it },
+        d.budget?.let { "Budget" to money(it) },
+        d.revenue?.let { "Box office" to money(it) },
+        d.writers.takeIf { it.isNotEmpty() }?.let { "Written by" to it.take(3).joinToString(", ") },
+    )
+    val tabs = buildList {
+        if (d.cast.isNotEmpty()) add(DetailTab.Cast)
+        if (d.reviews.isNotEmpty()) add(DetailTab.Reviews)
+        if (d.similar.isNotEmpty()) add(DetailTab.Similar)
+        if (facts.isNotEmpty()) add(DetailTab.Details)
+    }
+    if (tabs.isEmpty()) return
+    var tab by remember(d.item.key) { mutableStateOf(tabs.first()) }
+    if (tab !in tabs) tab = tabs.first()
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        tabs.forEach { t ->
+            Surface(
+                onClick = { tab = t },
+                modifier = Modifier.onFocusChanged { if (it.isFocused) tab = t }.focusProperties { canFocus = free },
+                scale = ClickableSurfaceDefaults.scale(scale = 1f, focusedScale = 1f, pressedScale = 1f),
+                shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(16.dp)),
+                colors = ClickableSurfaceDefaults.colors(
+                    containerColor = if (t == tab) AppColors.TextPrimary.copy(alpha = 0.15f) else Color.Transparent,
+                    contentColor = if (t == tab) AppColors.TextPrimary else AppColors.TextSecondary,
+                    focusedContainerColor = AppColors.Accent, focusedContentColor = AppColors.OnAccent,
+                ),
+            ) { Text(t.label + if (t == DetailTab.Reviews) " (${d.reviews.size})" else "", fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)) }
+        }
+    }
+    Spacer(Modifier.height(12.dp))
+    val rowPadding = PaddingValues(end = 40.dp)
+    when (tab) {
+        DetailTab.Cast -> androidx.compose.foundation.lazy.LazyRow(contentPadding = rowPadding, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            items(d.cast, key = { "${it.id}-${it.name}" }) { c -> CastCard(c, free) { onPerson(c) } }
+        }
+        DetailTab.Reviews -> androidx.compose.foundation.lazy.LazyRow(contentPadding = rowPadding, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            items(d.reviews.size) { i -> ReviewCard(d.reviews[i], free) { onReview(d.reviews[i]) } }
+        }
+        DetailTab.Similar -> androidx.compose.foundation.lazy.LazyRow(contentPadding = rowPadding, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            items(d.similar, key = { it.key }) { m ->
+                Column(Modifier.width(86.dp)) {
+                    PosterCard(m, Modifier.focusProperties { canFocus = free }, onClick = { onSimilar(m) })
+                    Text(m.title, fontSize = 11.sp, color = AppColors.TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp))
+                }
+            }
+        }
+        DetailTab.Details -> Surface(
+            onClick = {}, modifier = Modifier.focusProperties { canFocus = free },
+            scale = ClickableSurfaceDefaults.scale(scale = 1f, focusedScale = 1f, pressedScale = 1f),
+            shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
+            colors = ClickableSurfaceDefaults.colors(containerColor = AppColors.Panel.copy(alpha = 0.6f), focusedContainerColor = AppColors.Panel),
+        ) {
+            Row(Modifier.padding(horizontal = 18.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(30.dp)) {
+                facts.forEach { (k, v) ->
+                    Column {
+                        Text(k, fontSize = 11.sp, color = AppColors.TextSecondary)
+                        Text(v, fontSize = 14.sp, color = AppColors.TextPrimary, maxLines = 1)
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun money(n: Long): String = when {
+    n >= 1_000_000_000 -> "$%.1fbn".format(n / 1e9)
+    n >= 1_000_000 -> "$%.0fm".format(n / 1e6)
+    else -> "$%,d".format(n)
+}
+
+/** A cast member: round photo (initials when TMDB has none), name and character. OK opens their films and shows. */
+@Composable
+private fun CastCard(c: io.github.petebutty.viewarr.data.media.CastMember, free: Boolean, onClick: () -> Unit) {
+    var focused by remember { mutableStateOf(false) }
+    Column(Modifier.width(96.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Surface(
+            onClick = onClick,
+            modifier = Modifier.size(76.dp).onFocusChanged { focused = it.isFocused }.focusProperties { canFocus = free },
+            scale = ClickableSurfaceDefaults.scale(scale = 1f, focusedScale = 1.06f, pressedScale = 1f),
+            shape = ClickableSurfaceDefaults.shape(androidx.compose.foundation.shape.CircleShape),
+            border = ClickableSurfaceDefaults.border(focusedBorder = Border(BorderStroke(3.dp, AppColors.Accent), shape = androidx.compose.foundation.shape.CircleShape)),
+            colors = ClickableSurfaceDefaults.colors(containerColor = AppColors.Panel, focusedContainerColor = AppColors.Panel),
+        ) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text(c.name.split(' ').mapNotNull { it.firstOrNull()?.uppercase() }.take(2).joinToString(""), fontSize = 20.sp, color = AppColors.TextSecondary)
+                c.photo?.let { AsyncImage(model = it, contentDescription = c.name, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
+            }
+        }
+        Text(c.name, fontSize = 12.sp, fontWeight = FontWeight.Medium, color = if (focused) AppColors.TextPrimary else AppColors.TextPrimary.copy(alpha = 0.85f),
+            maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 8.dp))
+        c.character?.let { Text(it, fontSize = 11.sp, color = AppColors.TextSecondary, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center) }
+    }
+}
+
+@Composable
+private fun ReviewCard(r: io.github.petebutty.viewarr.data.media.Review, free: Boolean, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        modifier = Modifier.size(width = 380.dp, height = 140.dp).focusProperties { canFocus = free },
+        scale = ClickableSurfaceDefaults.scale(scale = 1f, focusedScale = 1f, pressedScale = 1f),
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
+        border = ClickableSurfaceDefaults.border(focusedBorder = Border(BorderStroke(2.dp, AppColors.Accent), shape = RoundedCornerShape(10.dp))),
+        colors = ClickableSurfaceDefaults.colors(containerColor = AppColors.Panel.copy(alpha = 0.7f), focusedContainerColor = AppColors.Panel),
+    ) {
+        Column(Modifier.padding(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(r.author, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                r.rating?.let { Text("★ %.0f/10".format(it), fontSize = 13.sp, color = AppColors.Accent) }
+            }
+            Text(listOfNotNull(r.source, r.date, r.likes.takeIf { it > 0 }?.let { "♥ $it" }).joinToString("  ·  "), fontSize = 11.sp, color = AppColors.TextSecondary)
+            if (r.spoiler) Text("Contains spoilers: OK to read", fontSize = 13.sp, color = AppColors.Accent, modifier = Modifier.padding(top = 8.dp))
+            else Text(r.text.replace(Regex("\\s+"), " "), fontSize = 12.sp, lineHeight = 17.sp, color = AppColors.TextPrimary, maxLines = 4, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 8.dp))
+        }
+    }
+}
+
+/** A whole review, scrolled with Up/Down; Back or OK closes it. */
+@Composable
+private fun ReviewDialog(r: io.github.petebutty.viewarr.data.media.Review, onClose: () -> Unit) {
+    androidx.compose.ui.window.Dialog(onDismissRequest = onClose, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
+        val scroll = androidx.compose.foundation.rememberScrollState()
+        val f = remember { FocusRequester() }
+        val scope = rememberCoroutineScope()
+        LaunchedEffect(Unit) { awaitFrame(); runCatching { f.requestFocus() } }
+        Column(
+            Modifier.width(820.dp).heightIn(max = 600.dp).background(AppColors.Panel, RoundedCornerShape(14.dp)).padding(28.dp)
+                .focusRequester(f).then(Modifier.focusable())
+                .onPreviewKeyEvent { e ->
+                    if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                    when (e.key) {
+                        Key.DirectionDown -> { scope.launch { scroll.animateScrollBy(240f) }; true }
+                        Key.DirectionUp -> { scope.launch { scroll.animateScrollBy(-240f) }; true }
+                        Key.DirectionCenter, Key.Enter -> { onClose(); true }
+                        else -> false
+                    }
+                },
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(r.author, fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, modifier = Modifier.weight(1f))
+                r.rating?.let { Text("★ %.0f/10".format(it), fontSize = 16.sp, color = AppColors.Accent) }
+            }
+            r.date?.let { Text(it, fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(bottom = 12.dp)) }
+            Column(Modifier.verticalScroll(scroll)) {
+                Text(r.text, fontSize = 16.sp, lineHeight = 24.sp, color = AppColors.TextPrimary)
+            }
+        }
     }
 }

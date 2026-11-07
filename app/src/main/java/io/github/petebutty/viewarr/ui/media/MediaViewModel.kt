@@ -47,6 +47,8 @@ data class DetailUi(
     val providerEpisodes: Map<Pair<Int, Int>, String> = emptyMap(),
     /** The episode whose play options are open. */
     val episode: io.github.petebutty.viewarr.data.media.EpisodeInfo? = null,
+    /** IMDb / Rotten Tomatoes (from Plex) and Trakt, beside TMDB's. */
+    val ratings: List<io.github.petebutty.viewarr.data.media.RatingBadge> = emptyList(),
 )
 
 private val DetailUi.plexShowKey get() = copies?.firstOrNull { it.source == "Plex" }?.ref
@@ -170,6 +172,19 @@ class MediaViewModel @Inject constructor(
     val detail = _detail.asStateFlow()
     private val _playing = MutableStateFlow<io.github.petebutty.viewarr.data.media.VodStream?>(null)
     val playing = _playing.asStateFlow()
+
+    /** From a title page: a cast member's films and shows (the title page closes). */
+    fun openCastMember(c: io.github.petebutty.viewarr.data.media.CastMember) {
+        val id = c.id ?: return
+        close()
+        open(MediaItem(key = "person:$id", type = MediaType.Movie, title = c.name, poster = c.photo, origin = "TMDB"))
+    }
+
+    /** IMDb / Rotten Tomatoes (your Plex) and Trakt ratings for a title, cached for a while. */
+    suspend fun ratingsFor(item: MediaItem): List<io.github.petebutty.viewarr.data.media.RatingBadge> = runCatching {
+        val known = if (item.tmdbId == null && item.imdbId == null) item else item
+        repo.extraRatings(known, repo.copiesOf(known))
+    }.getOrDefault(emptyList())
 
     /** A title's logo (TMDB), cached; null when there isn't one. */
     suspend fun logoFor(item: MediaItem): String? = runCatching { repo.logoFor(item) }.getOrNull()
@@ -430,6 +445,16 @@ class MediaViewModel @Inject constructor(
             }
             val copies = runCatching { repo.copiesOf(full.item) }.getOrDefault(emptyList())
             _detail.update { it?.copy(copies = copies) }
+            launch {
+                val ratings = runCatching { repo.extraRatings(full.item, copies) }.getOrDefault(emptyList())
+                _detail.update { if (it?.detail?.item?.key == full.item.key) it.copy(ratings = ratings) else it }
+            }
+            launch {
+                val user = runCatching { repo.traktReviews(full.item) }.getOrDefault(emptyList())
+                if (user.isNotEmpty()) _detail.update { u ->
+                    if (u?.detail?.item?.key != full.item.key) u else u.copy(detail = u.detail.copy(reviews = user + u.detail.reviews))
+                }
+            }
             if (full.item.type == MediaType.Show) {
                 val showKey = copies.firstOrNull { it.source == "Plex" }?.ref
                 val plexEps = showKey?.let { runCatching { repo.plexEpisodes(it) }.getOrDefault(emptyMap()) }.orEmpty()

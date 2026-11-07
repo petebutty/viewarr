@@ -121,7 +121,13 @@ data class WatchTarget(
 /** One stream an addon offered for a title. */
 data class StreamOption(val addon: String, val name: String, val description: String, val url: String, val headers: Map<String, String>)
 
-data class CastMember(val name: String, val character: String?)
+data class CastMember(val name: String, val character: String?, val photo: String? = null, val id: Int? = null)
+
+/** One rating from one source, e.g. ("IMDb", "7.8") or ("Rotten Tomatoes", "87%"). */
+data class RatingBadge(val source: String, val value: String, val votes: String? = null)
+
+/** A review (TMDB): author, their score out of 10 if given, the text, and when. */
+data class Review(val author: String, val rating: Double?, val text: String, val date: String?, val source: String = "TMDB", val spoiler: Boolean = false, val likes: Int = 0)
 
 data class SeasonInfo(val number: Int, val name: String, val episodes: Int, val year: Int?)
 
@@ -134,6 +140,18 @@ data class MediaDetail(
     val cast: List<CastMember> = emptyList(),
     val seasons: List<SeasonInfo> = emptyList(),
     val status: String? = null,
+    /** Directors (films) or creators (shows), and writers. */
+    val directors: List<String> = emptyList(),
+    val writers: List<String> = emptyList(),
+    /** Studio (films) or network (shows). */
+    val studio: String? = null,
+    val released: String? = null,
+    val language: String? = null,
+    val budget: Long? = null,
+    val revenue: Long? = null,
+    val voteCount: Int? = null,
+    val reviews: List<Review> = emptyList(),
+    val similar: List<MediaItem> = emptyList(),
 )
 
 data class RowsState(val rows: List<MediaRow>, val done: Boolean)
