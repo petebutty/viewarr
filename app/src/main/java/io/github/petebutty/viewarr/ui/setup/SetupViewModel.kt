@@ -113,7 +113,11 @@ class SetupViewModel @Inject constructor(
     private val stremio: StremioService,
     private val seerr: io.github.petebutty.viewarr.data.remote.services.SeerrService,
     private val httpJson: io.github.petebutty.viewarr.data.remote.services.HttpJson,
+    private val rowLayouts: io.github.petebutty.viewarr.data.settings.RowLayoutStore,
 ) : ViewModel() {
+    /** Several Plex servers: show their repeated rows as one (also in Settings → Home page & menu). */
+    val mergeRows = rowLayouts.mergeRows.stateIn(viewModelScope, SharingStarted.Eagerly, true)
+    fun setMergeRows(on: Boolean) { viewModelScope.launch { rowLayouts.setMergeRows(on) } }
 
     private val _state = MutableStateFlow(SetupUiState())
     val state = _state.asStateFlow()

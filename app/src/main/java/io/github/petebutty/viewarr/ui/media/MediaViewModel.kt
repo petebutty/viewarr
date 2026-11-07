@@ -135,6 +135,13 @@ class MediaViewModel @Inject constructor(
     private suspend fun autoPick() = playbackStore.current().streamPick == io.github.petebutty.viewarr.data.settings.StreamPick.Auto
 
     private val _rows = MutableStateFlow(RowsState(emptyList(), done = false))
+    /** Settings → Home page & menu → Combine rows from different servers. */
+    val mergeRows = rowLayouts.mergeRows.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, true)
+    fun setMergeRows(on: Boolean) { viewModelScope.launch { rowLayouts.setMergeRows(on) } }
+    /** The rows as shown: repeats across servers combined when that's switched on. */
+    private val shownRows = kotlinx.coroutines.flow.combine(_rows, mergeRows) { r, merge ->
+        if (merge) r.copy(rows = io.github.petebutty.viewarr.data.media.mergeRows(r.rows)) else r
+    }
     /** A row opened from the menu that's switched off on the page: shown on the page anyway until Home is picked. */
     private val openedFromMenu = MutableStateFlow<String?>(null)
     /** Films / Shows: Settings → Home rows decides order and which are shown. Search results are left alone. */
@@ -146,24 +153,24 @@ class MediaViewModel @Inject constructor(
     val searchFilter = _searchFilter.asStateFlow()
     fun setSearchFilter(f: SearchFilter) { _searchFilter.value = f }
 
-    val rows: kotlinx.coroutines.flow.StateFlow<RowsState> = kotlinx.coroutines.flow.combine(_rows, layout, _searchFilter, openedFromMenu) { r, l, f, extra ->
+    val rows: kotlinx.coroutines.flow.StateFlow<RowsState> = kotlinx.coroutines.flow.combine(shownRows, layout, _searchFilter, openedFromMenu) { r, l, f, extra ->
         if (l != null) r.copy(rows = l.ordered(r.rows).filter { it.id !in l.hidden || it.id == extra }) else r.copy(rows = f.apply(r.rows))
     }.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, RowsState(emptyList(), done = false))
     /** Every row in the chosen order with whether it's hidden, for Settings → Home rows. */
     val editableRows: kotlinx.coroutines.flow.StateFlow<Pair<List<Pair<io.github.petebutty.viewarr.data.media.MediaRow, Boolean>>, Boolean>> =
-        kotlinx.coroutines.flow.combine(_rows, layout) { r, l ->
+        kotlinx.coroutines.flow.combine(shownRows, layout) { r, l ->
             val lay = l ?: io.github.petebutty.viewarr.data.settings.RowLayout()
             lay.ordered(r.rows).map { it to (it.id in lay.hidden) } to r.done
         }.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, emptyList<Pair<io.github.petebutty.viewarr.data.media.MediaRow, Boolean>>() to false)
 
     /** The menu's Catalogues list (Movies / Shows → Right): in the page's order, with its own on / off. */
-    val menuRows: kotlinx.coroutines.flow.StateFlow<RowsState> = kotlinx.coroutines.flow.combine(_rows, layout) { r, l ->
+    val menuRows: kotlinx.coroutines.flow.StateFlow<RowsState> = kotlinx.coroutines.flow.combine(shownRows, layout) { r, l ->
         val lay = l ?: io.github.petebutty.viewarr.data.settings.RowLayout()
         r.copy(rows = lay.ordered(r.rows).filter { it.id !in lay.menuHidden })
     }.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, RowsState(emptyList(), done = false))
     /** Every row with whether it's left out of the menu, for Settings → Menu list. */
     val editableMenuRows: kotlinx.coroutines.flow.StateFlow<List<Pair<io.github.petebutty.viewarr.data.media.MediaRow, Boolean>>> =
-        kotlinx.coroutines.flow.combine(_rows, layout) { r, l ->
+        kotlinx.coroutines.flow.combine(shownRows, layout) { r, l ->
             val lay = l ?: io.github.petebutty.viewarr.data.settings.RowLayout()
             lay.ordered(r.rows).map { it to (it.id in lay.menuHidden) }
         }.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, emptyList())
@@ -354,14 +361,21 @@ class MediaViewModel @Inject constructor(
     private val libType = MutableStateFlow<MediaType?>(null)
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     private val libLayout = libType.flatMapLatest { t -> if (t == null) kotlinx.coroutines.flow.flowOf(io.github.petebutty.viewarr.data.settings.RowLayout()) else rowLayouts.libraryLayout(t) }
-    /** Every library in the chosen order, with whether it's hidden (Settings → Home rows). */
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    private val libNames = libType.flatMapLatest { t -> if (t == null) kotlinx.coroutines.flow.flowOf(emptyMap()) else rowLayouts.libraryNames(t) }
+    /** The libraries with your own names applied (Settings → Home page & menu → Menu list → hold OK). */
+    private val namedLibraries = kotlinx.coroutines.flow.combine(_libraries, libNames) { libs, names ->
+        libs?.map { l -> names[l.key]?.let { l.copy(title = it) } ?: l }
+    }
+    /** Every library in the chosen order, with whether it's hidden (Settings → Home page & menu). */
     val allLibraries: kotlinx.coroutines.flow.StateFlow<List<Pair<io.github.petebutty.viewarr.data.media.MediaLibrary, Boolean>>?> =
-        kotlinx.coroutines.flow.combine(_libraries, libLayout) { libs, l -> libs?.let { l.orderedBy(it) { x -> x.key }.map { x -> x to (x.key in l.hidden) } } }
+        kotlinx.coroutines.flow.combine(namedLibraries, libLayout) { libs, l -> libs?.let { l.orderedBy(it) { x -> x.key }.map { x -> x to (x.key in l.hidden) } } }
             .stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, null)
     /** The libraries the menu lists (null until loaded). */
     val libraries: kotlinx.coroutines.flow.StateFlow<List<io.github.petebutty.viewarr.data.media.MediaLibrary>?> =
-        kotlinx.coroutines.flow.combine(_libraries, libLayout) { libs, l -> libs?.let { l.orderedBy(it) { x -> x.key }.filter { x -> x.key !in l.hidden } } }
+        kotlinx.coroutines.flow.combine(namedLibraries, libLayout) { libs, l -> libs?.let { l.orderedBy(it) { x -> x.key }.filter { x -> x.key !in l.hidden } } }
             .stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, null)
+    fun setLibraryName(key: String, name: String?) { val t = libType.value ?: return; viewModelScope.launch { rowLayouts.setLibraryName(t, key, name) } }
     fun setLibraryHidden(key: String, hidden: Boolean) { val t = libType.value ?: return; viewModelScope.launch { rowLayouts.setLibraryHidden(t, key, hidden) } }
     fun setLibraryOrder(keys: List<String>) { val t = libType.value ?: return; viewModelScope.launch { rowLayouts.setLibraryOrder(t, keys) } }
     fun loadLibraries(type: MediaType) {
@@ -606,7 +620,7 @@ class MediaViewModel @Inject constructor(
         val ref = d.copies?.firstOrNull { it.source == io.github.petebutty.viewarr.data.media.PROVIDER }?.ref ?: return
         viewModelScope.launch {
             val stream = repo.providerMovie(ref, d.detail.item.title, watchTarget(d.detail.item, null, null))
-            if (stream == null) _detail.update { it?.copy(message = "Couldn't open this from your provider.") }
+            if (stream == null) _detail.update { it?.copy(message = "Couldn't open this from IPTV.") }
             else { _detail.update { it?.copy(message = null) }; _playing.value = stream }
         }
     }
@@ -616,7 +630,7 @@ class MediaViewModel @Inject constructor(
         val d = _detail.value ?: return
         val url = d.providerEpisodes[season to episode]
         if (url == null) {
-            _detail.update { it?.copy(message = "Your provider doesn't have S$season E$episode.") }
+            _detail.update { it?.copy(message = "IPTV doesn't have S$season E$episode.") }
             return
         }
         _detail.update { it?.copy(message = null, episode = null) }

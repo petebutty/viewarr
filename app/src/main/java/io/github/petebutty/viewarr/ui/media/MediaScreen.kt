@@ -984,12 +984,12 @@ private fun DetailScreen(
                             Text(if (item.progress != null) "Resume on Plex" else "Play on Plex")
                         }
                         if (onServer) OutlinedButton(onClick = vm::playServer, modifier = Modifier.free()) { Text("Play on $serverName") }
-                        if (onProvider) OutlinedButton(onClick = vm::playProvider, modifier = Modifier.free()) { Text("Play from provider") }
+                        if (onProvider) OutlinedButton(onClick = vm::playProvider, modifier = Modifier.free()) { Text("Play from IPTV") }
                     } else if (onServer) {
                         Button(onClick = vm::playServer, modifier = (Modifier.focusRequester(playFocus)).free()) { Text("Play on $serverName") }
-                        if (onProvider) OutlinedButton(onClick = vm::playProvider, modifier = Modifier.free()) { Text("Play from provider") }
+                        if (onProvider) OutlinedButton(onClick = vm::playProvider, modifier = Modifier.free()) { Text("Play from IPTV") }
                     } else if (onProvider) {
-                        Button(onClick = vm::playProvider, modifier = (Modifier.focusRequester(playFocus)).free()) { Text("Play from provider") }
+                        Button(onClick = vm::playProvider, modifier = (Modifier.focusRequester(playFocus)).free()) { Text("Play from IPTV") }
                     }
                     if (ui.hasAddons && !show) {
                         val m = (if (onPlex || onProvider || onServer) Modifier else Modifier.focusRequester(playFocus)).free()
@@ -1209,9 +1209,9 @@ private fun EpisodeActions(
             fun m(): Modifier = if (!firstUsed) { firstUsed = true; Modifier.focusRequester(first) } else Modifier
             plexLabel?.let { io.github.petebutty.viewarr.ui.common.MenuItem(text = it, selected = false, onClick = onPlex, modifier = m()) }
             serverLabel?.let { io.github.petebutty.viewarr.ui.common.MenuItem(text = it, selected = false, onClick = onServer, modifier = m()) }
-            onProvider?.let { io.github.petebutty.viewarr.ui.common.MenuItem(text = "Play from provider", selected = false, onClick = it, modifier = m()) }
+            onProvider?.let { io.github.petebutty.viewarr.ui.common.MenuItem(text = "Play from IPTV", selected = false, onClick = it, modifier = m()) }
             if (hasAddons) io.github.petebutty.viewarr.ui.common.MenuItem(text = if (searching) "Searching…" else "Search addons", selected = false, onClick = onSearch, modifier = m())
-            if (plexLabel == null && serverLabel == null && onProvider == null && !hasAddons) Text("This episode isn't in Plex or from your provider, and no Stremio addon is connected.", fontSize = 13.sp, color = AppColors.TextSecondary)
+            if (plexLabel == null && serverLabel == null && onProvider == null && !hasAddons) Text("This episode isn't in Plex or on IPTV, and no Stremio addon is connected.", fontSize = 13.sp, color = AppColors.TextSecondary)
             io.github.petebutty.viewarr.ui.common.MenuItem(text = "Close", selected = false, onClick = onClose, modifier = m())
             message?.let { Text(it, fontSize = 13.sp, color = AppColors.Accent, modifier = Modifier.padding(top = 8.dp)) }
         }

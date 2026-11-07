@@ -1,6 +1,7 @@
 package io.github.petebutty.viewarr.data.settings
 
 import android.content.Context
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
@@ -87,6 +88,24 @@ class RowLayoutStore @Inject constructor(@ApplicationContext private val context
         )
     }
 
+    /** Combine rows that repeat across servers (continue watching, a library's recently added). On by default. */
+    val mergeRows: Flow<Boolean> = context.rowLayoutStore.data.map { it[MERGE_ROWS] ?: true }
+
+    suspend fun setMergeRows(on: Boolean) { context.rowLayoutStore.edit { it[MERGE_ROWS] = on } }
+
+    /** Your own names for libraries (Settings → Home page & menu → Menu list → hold OK), by library key. */
+    fun libraryNames(type: MediaType): Flow<Map<String, String>> = context.rowLayoutStore.data.map { p ->
+        p[libNamesKey(type)].orEmpty().split(REC).mapNotNull { r -> r.split(SEP).takeIf { it.size == 2 }?.let { it[0] to it[1] } }.toMap()
+    }
+
+    suspend fun setLibraryName(type: MediaType, key: String, name: String?) {
+        context.rowLayoutStore.edit { p ->
+            val now = p[libNamesKey(type)].orEmpty().split(REC).mapNotNull { r -> r.split(SEP).takeIf { it.size == 2 }?.let { it[0] to it[1] } }.toMap()
+            val next = if (name.isNullOrBlank()) now - key else now + (key to name.trim())
+            p[libNamesKey(type)] = next.entries.joinToString(REC) { it.key + SEP + it.value }
+        }
+    }
+
     suspend fun setLibraryHidden(type: MediaType, key: String, hidden: Boolean) {
         context.rowLayoutStore.edit { p ->
             val now = p[libHiddenKey(type)].orEmpty()
@@ -103,14 +122,18 @@ class RowLayoutStore @Inject constructor(@ApplicationContext private val context
 
     suspend fun reset(type: MediaType) {
         context.rowLayoutStore.edit { it.remove(orderKey(type)); it.remove(hiddenKey(type)); it.remove(libOrderKey(type)); it.remove(libHiddenKey(type)); it.remove(menuHiddenKey(type)) }
+    // (Library names are kept on reset: they're names, not layout.)
     }
 
     private companion object {
         const val SEP = "\u001F"
+        const val REC = "\u001E"
         fun orderKey(t: MediaType) = stringPreferencesKey("order_${t.name}")
         fun hiddenKey(t: MediaType) = stringSetPreferencesKey("hidden_${t.name}")
         fun libOrderKey(t: MediaType) = stringPreferencesKey("lib_order_${t.name}")
         fun libHiddenKey(t: MediaType) = stringSetPreferencesKey("lib_hidden_${t.name}")
         fun menuHiddenKey(t: MediaType) = stringSetPreferencesKey("menu_hidden_${t.name}")
+        fun libNamesKey(t: MediaType) = stringPreferencesKey("lib_names_${t.name}")
+        val MERGE_ROWS = booleanPreferencesKey("merge_rows")
     }
 }

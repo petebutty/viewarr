@@ -270,7 +270,7 @@ class XtreamClient @Inject constructor(private val client: OkHttpClient, private
 
     private fun base(s: Session) = s.serverUrl.trimEnd('/')
 
-    private companion object {
+    companion object {
         const val BATCH = 1000
         const val UA = "Viewarr"
         val TIMESHIFT: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd:HH-mm")

@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -84,6 +85,21 @@ fun HomeRowsSettingsScreen(onBack: () -> Unit) {
                         )
                     }
                 }
+                // Both pages: rows that repeat across servers shown once.
+                val mediaVm: MediaViewModel = hiltViewModel(key = "media-${MediaType.Movie.name}")
+                val merge by mediaVm.mergeRows.collectAsStateWithLifecycle()
+                Spacer(Modifier.height(18.dp))
+                MenuItem(
+                    text = "Combine rows from different servers",
+                    trailing = if (merge) "On" else "Off",
+                    selected = false,
+                    onClick = { mediaVm.setMergeRows(!merge) },
+                    modifier = Modifier.onFocusChanged { if (it.isFocused) moving = null },
+                )
+                Text(
+                    "One Continue watching, and one Recently added per library, instead of a row for each server.",
+                    fontSize = 12.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(horizontal = 12.dp),
+                )
             }
             Spacer(Modifier.width(40.dp))
             // Same view model as the Films / Shows page, so the rows are shared and changes show there at once.
@@ -120,7 +136,7 @@ private fun RowsEditor(type: MediaType, menu: Boolean, moving: String?, onMoving
     Column(Modifier.fillMaxHeight()) {
         Text(
             if (moving != null) "Moving: Up / Down to place it, then OK to put it down."
-            else if (menu) "What the menu lists when you press Right on $what. OK turns one on or off; Right picks a library up to move it."
+            else if (menu) "What the menu lists when you press Right on $what. OK turns one on or off, Right picks a library up to move it, and holding OK renames it."
             else "The rows on the $what page, top to bottom. OK turns a row on or off; Right picks it up to move it.",
             fontSize = 14.sp, color = if (moving != null) AppColors.Accent else AppColors.TextSecondary,
             modifier = Modifier.padding(top = 26.dp, bottom = 14.dp, start = 4.dp),
@@ -181,6 +197,8 @@ private fun RowsEditor(type: MediaType, menu: Boolean, moving: String?, onMoving
                 Text("Libraries", fontSize = 15.sp, fontWeight = FontWeight.Medium, color = AppColors.Accent, modifier = Modifier.padding(start = 4.dp, top = 18.dp, bottom = 4.dp))
             }
             if (menu) itemsIndexed(libs, key = { _, it -> "lib:" + it.first.key }) { i, (lib, hidden) ->
+                var renaming by remember { mutableStateOf(false) }
+                if (renaming) RenameLibraryDialog(lib.title, onDone = { name -> media.setLibraryName(lib.key, name); renaming = false }, onCancel = { renaming = false })
                 val id = "lib:" + lib.key
                 val fr = focus.getOrPut(id) { FocusRequester() }
                 val carried = id == moving
@@ -193,6 +211,7 @@ private fun RowsEditor(type: MediaType, menu: Boolean, moving: String?, onMoving
                 }
                 Surface(
                     onClick = { if (moving != null) onMoving(null) else media.setLibraryHidden(lib.key, !hidden) },
+                    onLongClick = { if (moving == null) renaming = true },
                     modifier = Modifier.fillMaxWidth().focusRequester(fr).onPreviewKeyEvent { e ->
                         if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                         when {
@@ -230,7 +249,7 @@ private fun RowsEditor(type: MediaType, menu: Boolean, moving: String?, onMoving
             }
             // The menu's Catalogues: on / off only; they follow the page's order.
             if (menu && menuRows.isNotEmpty()) item(key = "cat-head") {
-                Text("Catalogues (in the same order as the page)", fontSize = 15.sp, fontWeight = FontWeight.Medium, color = AppColors.Accent, modifier = Modifier.padding(start = 4.dp, top = 18.dp, bottom = 4.dp))
+                Text("Under \"Jump to a row\" (same order as the page)", fontSize = 15.sp, fontWeight = FontWeight.Medium, color = AppColors.Accent, modifier = Modifier.padding(start = 4.dp, top = 18.dp, bottom = 4.dp))
             }
             if (menu) itemsIndexed(menuRows, key = { _, it -> "cat:" + it.first.id }) { _, (row, off) ->
                 Surface(
@@ -269,6 +288,30 @@ private fun RowsEditor(type: MediaType, menu: Boolean, moving: String?, onMoving
                     onClick = { if (confirm) { media.resetRows(); confirm = false } else confirm = true },
                 )
             }
+        }
+    }
+}
+
+/** Hold OK on a library: give it your own name (empty puts the server's name back). */
+@Composable
+private fun RenameLibraryDialog(current: String, onDone: (String?) -> Unit, onCancel: () -> Unit) {
+    var name by remember { mutableStateOf(current) }
+    val first = remember { FocusRequester() }
+    LaunchedEffect(Unit) { awaitFrame(); runCatching { first.requestFocus() } }
+    androidx.compose.ui.window.Dialog(onDismissRequest = onCancel) {
+        Column(
+            Modifier.width(520.dp).background(AppColors.Panel, RoundedCornerShape(14.dp)).padding(22.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text("Rename library", fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary)
+            Text("Leave it empty to use the server's own name.", fontSize = 13.sp, color = AppColors.TextSecondary)
+            io.github.petebutty.viewarr.ui.setup.WizardField(
+                name, { name = it }, "Name", first,
+                androidx.compose.ui.text.input.KeyboardType.Text, androidx.compose.ui.text.input.ImeAction.Done,
+                onIme = { onDone(name.ifBlank { null }) },
+            )
+            MenuItem(text = "Save", selected = false, onClick = { onDone(name.ifBlank { null }) })
+            MenuItem(text = "Cancel", selected = false, onClick = onCancel)
         }
     }
 }

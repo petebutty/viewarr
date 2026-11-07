@@ -409,6 +409,17 @@ private fun CodeStep(state: SetupUiState, firstFocus: FocusRequester, vm: SetupV
                 modifier = if (i == 0) Modifier.focusRequester(firstFocus) else Modifier,
             )
         }
+        val merge by vm.mergeRows.collectAsStateWithLifecycle()
+        MenuItem(
+            text = "Combine rows from different servers",
+            trailing = if (merge) "On" else "Off",
+            selected = false,
+            onClick = { vm.setMergeRows(!merge) },
+        )
+        Text(
+            "On: one Continue watching and one Recently added per library, instead of a row for each server.",
+            fontSize = 12.sp, color = AppColors.TextSecondary,
+        )
         Spacer(Modifier.height(8.dp))
         Button(onClick = vm::confirmPlex, enabled = state.plexOn.isNotEmpty()) {
             Text(if (state.plexOn.size > 1) "Continue with ${state.plexOn.size} servers" else "Continue")
@@ -508,7 +519,7 @@ private fun WizardField(
 }
 
 @Composable
-private fun WizardField(
+internal fun WizardField(
     value: String,
     onValueChange: (String) -> Unit,
     label: String,

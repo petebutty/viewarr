@@ -42,7 +42,11 @@ data class EpisodeInfo(
 /** One episode in your Plex library: its item key, resume point and whether it's been watched. */
 data class PlexEpisode(val ratingKey: String, val viewOffsetMs: Long, val watched: Boolean)
 
-data class MediaRow(val id: String, val title: String, val items: List<MediaItem>)
+/**
+ * A row of titles. Rows with the same [group] are shown as one (e.g. continue watching on every server, or the
+ * same library's recently added on two Plex servers); [groupName] is the library name for the merged title.
+ */
+data class MediaRow(val id: String, val title: String, val items: List<MediaItem>, val group: String? = null, val groupName: String? = null)
 
 /**
  * A library of films or shows on Plex, Jellyfin or Emby. [key] is unique across servers; [server] is the Plex server's

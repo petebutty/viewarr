@@ -1716,6 +1716,7 @@ private fun MediaMenuPanel(type: MediaType, focusRequester: FocusRequester, onCo
     val libs = libraries.orEmpty()
     LaunchedEffect(type) { onCount(type, 1) } // "home" is always there
     val home = if (type == MediaType.Movie) "Movies home" else "Shows home"
+    var rowsOpen by remember(type) { mutableStateOf(false) }
     LazyColumn(
         Modifier.focusRequester(focusRequester),
         verticalArrangement = Arrangement.spacedBy(1.dp), contentPadding = PaddingValues(bottom = 24.dp),
@@ -1737,15 +1738,20 @@ private fun MediaMenuPanel(type: MediaType, focusRequester: FocusRequester, onCo
                 modifier = Modifier.rightDoes(go),
             )
         }
-        if (rows.isNotEmpty()) item(key = "h-cat") {
-            Text("Catalogues", fontSize = 12.sp, color = AppColors.Accent, modifier = Modifier.padding(start = 12.dp, top = 10.dp, bottom = 2.dp))
+        // The page's rows are on the page itself; here they're folded away under one entry (OK / Right opens it),
+        // so the menu stays a short list of libraries.
+        if (rows.isNotEmpty()) item(key = "jump") {
+            MenuItem(
+                text = "Jump to a row",
+                trailing = if (rowsOpen) "▾" else "›",
+                selected = false,
+                onClick = { rowsOpen = !rowsOpen },
+                modifier = Modifier.padding(top = 8.dp).rightDoes { rowsOpen = true },
+            )
         }
-        items(rows, key = { "r-" + it.id }) { row ->
+        if (rowsOpen) items(rows, key = { "r-" + it.id }) { row ->
             val go = { media.openLibrary(null, type); media.jumpTo(row.id); onOpenPage() }
-            MenuItem(text = row.title, trailing = row.items.size.toString(), selected = browse == null && row.id == current, onClick = go, modifier = Modifier.rightDoes(go))
-        }
-        if (!rowsState.done) item(key = "loading") {
-            Text("Loading…", fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(12.dp))
+            MenuItem(text = "   " + row.title, trailing = row.items.size.toString(), selected = browse == null && row.id == current, onClick = go, modifier = Modifier.rightDoes(go))
         }
     }
 }
