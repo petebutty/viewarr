@@ -1150,18 +1150,23 @@ private fun SettingsPanel(playbackItem: FocusRequester, onPlayback: () -> Unit, 
             Text(it, fontSize = 13.sp, color = AppColors.Accent, modifier = Modifier.padding(horizontal = 12.dp))
         }
         Spacer(Modifier.height(12.dp))
+        // Grouped: accounts, look & feel, remote, watching, live TV, then this TV (backup, updates, sign out).
+        SettingsGroup("Accounts")
         MenuItem(text = "Accounts & sources", selected = false, onClick = onAccounts, modifier = Modifier.focusRequester(firstItem).rightDoes(onAccounts))
+        SettingsGroup("Look & feel")
         MenuItem(text = "Appearance", selected = false, onClick = onAppearance, modifier = Modifier.focusRequester(appearanceItem).rightDoes(onAppearance))
-        MenuItem(text = "Home rows", selected = false, onClick = onHomeRows, modifier = Modifier.focusRequester(homeRowsItem).rightDoes(onHomeRows))
-        MenuItem(text = "Playback", selected = false, onClick = onPlayback, modifier = Modifier.focusRequester(playbackItem).rightDoes(onPlayback))
-        if (session != null && !session.isXc) MenuItem(text = "Dispatcharr plugins", selected = false, onClick = onPlugins, modifier = Modifier.focusRequester(pluginsItem).rightDoes(onPlugins))
-        MenuItem(text = "Addons", selected = false, onClick = onAddons, modifier = Modifier.focusRequester(addonsItem).rightDoes(onAddons))
+        MenuItem(text = "Home rows & libraries", selected = false, onClick = onHomeRows, modifier = Modifier.focusRequester(homeRowsItem).rightDoes(onHomeRows))
+        SettingsGroup("Remote")
         MenuItem(text = "Remote & navigation", selected = false, onClick = onRemote, modifier = Modifier.focusRequester(remoteItem).rightDoes(onRemote))
-        MenuItem(text = "Updates", selected = false, onClick = onUpdates, modifier = Modifier.focusRequester(updatesItem).rightDoes(onUpdates))
-        io.github.petebutty.viewarr.ui.settings.PlexServersItems()
+        SettingsGroup("Watching")
+        MenuItem(text = "Playback", selected = false, onClick = onPlayback, modifier = Modifier.focusRequester(playbackItem).rightDoes(onPlayback))
+        SettingsGroup("Live TV")
+        if (session != null && !session.isXc) MenuItem(text = "Dispatcharr plugins", selected = false, onClick = onPlugins, modifier = Modifier.focusRequester(pluginsItem).rightDoes(onPlugins))
         MenuItem(text = "Refresh channels & guide", selected = false, onClick = onRefresh, modifier = Modifier.rightIgnored())
+        SettingsGroup("This TV")
         // Viewarr's setup kept on the Dispatcharr server (Dispatcharr sign-ins only).
-        if (session != null && !session.isXc) io.github.petebutty.viewarr.ui.sync.SyncSettingsItems()
+        if (session != null && !session.isXc) io.github.petebutty.viewarr.ui.sync.BackupSyncItem()
+        MenuItem(text = "Updates", selected = false, onClick = onUpdates, modifier = Modifier.focusRequester(updatesItem).rightDoes(onUpdates))
         var confirmUntil by remember { mutableLongStateOf(0L) }
         LaunchedEffect(confirmUntil) {
             if (confirmUntil != 0L) {
@@ -1176,6 +1181,12 @@ private fun SettingsPanel(playbackItem: FocusRequester, onPlayback: () -> Unit, 
             modifier = Modifier.rightIgnored(),
         )
     }
+}
+
+/** A small heading between groups of settings. */
+@Composable
+private fun SettingsGroup(title: String) {
+    Text(title, fontSize = 12.sp, color = AppColors.Accent, modifier = Modifier.padding(start = 12.dp, top = 10.dp))
 }
 
 /** Search: a text box (the TV keyboard), then channel matches and poster rows of results. */

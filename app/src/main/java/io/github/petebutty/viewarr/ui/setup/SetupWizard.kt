@@ -308,6 +308,9 @@ private fun ServiceOptions(item: SetupItem, status: String, onChange: () -> Unit
             Text(item.label, fontSize = 20.sp, color = AppColors.TextPrimary)
             Text(status, fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(bottom = 10.dp))
             MenuItem(text = if (item == SetupItem.Stremio) "Add or remove addons" else "Change", selected = false, onClick = onChange, modifier = Modifier.focusRequester(first))
+            // The on/off switches that belong with the service: each Plex server, each Stremio addon.
+            if (item == SetupItem.Plex) io.github.petebutty.viewarr.ui.settings.PlexServersItems()
+            if (item == SetupItem.Stremio) io.github.petebutty.viewarr.ui.settings.AddonSwitches()
             MenuItem(
                 text = if (confirm) "Press OK again to disconnect" else "Disconnect",
                 selected = false,

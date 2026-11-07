@@ -135,3 +135,30 @@ fun SyncSettingsItems() {
         Text(it, fontSize = 12.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(horizontal = 12.dp))
     }
 }
+
+
+/** Settings → This TV → Backup & sync: one entry; OK opens its options (save on / off, sign-ins, restore). */
+@Composable
+fun BackupSyncItem() {
+    val vm: SyncViewModel = hiltViewModel()
+    val st by vm.status.collectAsStateWithLifecycle()
+    var open by remember { mutableStateOf(false) }
+    MenuItem(text = "Backup & sync", trailing = if (st.mode == SyncMode.On) "On" else "Off", selected = false, onClick = { open = true })
+    if (open) androidx.compose.ui.window.Dialog(onDismissRequest = { open = false }) {
+        val first = remember { FocusRequester() }
+        LaunchedEffect(Unit) { awaitFrame(); runCatching { first.requestFocus() } }
+        BackHandler { open = false }
+        Column(
+            Modifier.width(520.dp).background(AppColors.Panel, RoundedCornerShape(14.dp)).padding(22.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text("Backup & sync", fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary)
+            Text(
+                "Keeps this TV's setup on your Dispatcharr server, so another TV (or this one after a reinstall) can restore it.",
+                fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(bottom = 10.dp),
+            )
+            Box(Modifier.focusRequester(first)) { Column { SyncSettingsItems() } }
+            MenuItem(text = "Close", selected = false, onClick = { open = false })
+        }
+    }
+}

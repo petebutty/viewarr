@@ -1,6 +1,9 @@
 package io.github.petebutty.viewarr.ui.settings
 
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.getValue
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
@@ -55,4 +58,20 @@ fun AddonsSettingsScreen(onBack: () -> Unit, vm: AddonsSettingsViewModel = hiltV
         onBack = onBack,
         onReset = if (addons.isEmpty()) null else ({ vm.enableAll() }),
     )
+}
+
+
+/** Accounts & sources → Stremio addons: each addon on or off, in place. */
+@Composable
+fun AddonSwitches(vm: AddonsSettingsViewModel = hiltViewModel()) {
+    val a by vm.accounts.collectAsStateWithLifecycle()
+    val addons = a?.addons.orEmpty()
+    if (addons.isEmpty()) return
+    androidx.tv.material3.Text(
+        "Addons", fontSize = 13.sp, color = io.github.petebutty.viewarr.ui.theme.AppColors.Accent,
+        modifier = androidx.compose.ui.Modifier.padding(start = 12.dp, top = 6.dp),
+    )
+    addons.forEach { ad ->
+        io.github.petebutty.viewarr.ui.common.MenuItem(text = ad.name, trailing = if (ad.enabled) "On" else "Off", selected = false, dim = !ad.enabled, onClick = { vm.setEnabled(ad.baseUrl, !ad.enabled) })
+    }
 }
