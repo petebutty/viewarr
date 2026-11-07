@@ -50,6 +50,19 @@ private const val TMDB_IMG = "https://image.tmdb.org/t/p/"
 /** Library copies from the IPTV provider (Xtream Codes) are labelled with this source. */
 const val PROVIDER = "IPTV"
 
+/**
+ * A home-network address: 192.168.x / 10.x / 172.16–31.x, a .local or single-word name, or Plex's
+ * "192-168-1-5.<id>.plex.direct" form of those. Anything else (a domain, Tailscale) counts as away.
+ */
+fun isHomeAddress(url: String): Boolean {
+    val host = runCatching { java.net.URI(url).host }.getOrNull()?.lowercase() ?: return false
+    val ip = if (host.endsWith(".plex.direct")) host.substringBefore('.').replace('-', '.') else host
+    if (ip.endsWith(".local") || !ip.contains('.')) return true
+    val p = ip.split('.').mapNotNull { it.toIntOrNull() }
+    if (p.size != 4) return false
+    return p[0] == 10 || (p[0] == 192 && p[1] == 168) || (p[0] == 172 && p[1] in 16..31) || p[0] == 127
+}
+
 /** "movies" → "Movies": library names as the servers give them, tidied for display. */
 fun tidyLibraryName(name: String): String = name.trim().replaceFirstChar { it.uppercase() }
 
@@ -957,7 +970,8 @@ class CatalogRepository @Inject constructor(
                 add(async { runCatching { withTimeoutOrNull(20_000) { providerCopies(item) } }.getOrNull().orEmpty() })
             }
             jobs.awaitAll().flatten()
-        }.distinctBy { it.source }
+        // One copy per source, but every Plex server's own: if one server's file has gone, another's can play.
+        }.distinctBy { it.source + "|" + (if (it.source == "Plex") it.ref?.substringAfter('@', "") else "") }
         copyCache[item.key] = System.currentTimeMillis() to found
         return found
     }
@@ -1078,10 +1092,16 @@ class CatalogRepository @Inject constructor(
     suspend fun plexStream(ref: String, watch: WatchTarget? = null): VodStream? {
         val a = store.current()
         val (p, ratingKey) = plexResolve(a, ref) ?: return null
-        val m = plexGet(a, p, "/library/metadata/$ratingKey")?.array("Metadata")?.firstOrNull() ?: return null
+        // checkFiles: Plex says whether the file is really there (a library entry can outlive its file).
+        val m = plexGet(a, p, "/library/metadata/$ratingKey?checkFiles=1")?.array("Metadata")?.firstOrNull() ?: return null
         val media = m.array("Media").firstOrNull()
         val partObj = media?.array("Part")?.firstOrNull()
         val part = partObj?.str("key") ?: return null
+        val exists = (partObj.child("exists") as? JsonPrimitive)?.content
+        if (exists == "0" || exists == "false") {
+            Log.w(TAG, "plex: ${p.serverName} lists ${m.str("title")} but its file is missing")
+            return null
+        }
         // Plex's own previews, if "Generate video preview thumbnails" made them for this file.
         val thumbs = partObj.str("id")?.takeIf { partObj.str("indexes")?.contains("sd") == true }
             ?.let { ThumbSource.Bif("${p.serverUrl}/library/parts/$it/indexes/sd?X-Plex-Token=${enc(p.token)}") }
@@ -1129,6 +1149,18 @@ class CatalogRepository @Inject constructor(
     }
 
     /** A Jellyfin / Emby film or episode: the file itself (mpv plays almost anything), resuming where you left off. */
+    /** True when this copy's server is on the home network (tried first: quicker, and no internet upload needed). */
+    suspend fun isHomeCopy(copy: LibraryCopy): Boolean {
+        val a = store.current()
+        val url = when (copy.source) {
+            "Plex" -> copy.ref?.let { plexResolve(a, it)?.first?.serverUrl }
+            "Jellyfin" -> a.jellyfin?.serverUrl
+            "Emby" -> a.emby?.serverUrl
+            else -> null
+        } ?: return false
+        return isHomeAddress(url)
+    }
+
     suspend fun serverStream(source: String, itemId: String, title: String, watch: WatchTarget?): VodStream? {
         val (s, emby) = serverFor(source) ?: return null
         val a = store.current()

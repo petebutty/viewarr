@@ -645,7 +645,50 @@ class MediaViewModel @Inject constructor(
         val item = _detail.value?.detail?.item ?: return
         val s = item.nextSeason ?: return
         val e = item.nextEpisode ?: return
-        playPlexEpisode(s, e)
+        playBestEpisode(s, e)
+    }
+
+    /**
+     * One episode, from the best place that has it, the same order as a film's Play: your servers at home, then
+     * away, then addons, then IPTV. (Holding OK on an episode lists the sources instead.)
+     */
+    fun playBestEpisode(season: Int, episode: Int) {
+        val d = _detail.value ?: return
+        val item = d.detail.item
+        val title = "${item.title} · S$season E$episode"
+        val watch = watchTarget(item, season, episode)
+        viewModelScope.launch {
+            data class Try(val label: String, val home: Boolean, val get: suspend () -> io.github.petebutty.viewarr.data.media.VodStream?)
+            val tries = ArrayList<Try>()
+            val plexEps = d.plexEpisodes.ifEmpty { d.plexShowKey?.let { runCatching { repo.plexEpisodes(it) }.getOrNull() }.orEmpty() }
+            plexEps[season to episode]?.ratingKey?.let { rk ->
+                val c = d.copies?.firstOrNull { it.source == "Plex" }
+                tries += Try("Plex", c != null && runCatching { repo.isHomeCopy(c) }.getOrDefault(false)) { repo.plexStream(rk, watch)?.copy(title = title) }
+            }
+            serverCopy(d)?.let { c ->
+                d.serverEpisodes[season to episode]?.ratingKey?.let { id ->
+                    tries += Try(c.source, runCatching { repo.isHomeCopy(c) }.getOrDefault(false)) { repo.serverStream(c.source, id, title, watch) }
+                }
+            }
+            for (t in tries.sortedByDescending { it.home }) {
+                _detail.update { it?.copy(message = "Opening S$season E$episode on ${t.label}…") }
+                val stream = kotlinx.coroutines.withTimeoutOrNull(20_000) { runCatching { t.get() }.getOrNull() }
+                if (stream != null) { _detail.update { it?.copy(message = null, episode = null) }; _playing.value = stream; return@launch }
+            }
+            if (d.hasAddons && item.imdbId != null) {
+                _detail.update { it?.copy(searching = true, message = "Looking in your addons for S$season E$episode…") }
+                val found = kotlinx.coroutines.withTimeoutOrNull(30_000) { rank(runCatching { repo.addonStreams(item, season, episode) }.getOrDefault(emptyList())) }.orEmpty()
+                _detail.update { it?.copy(searching = false) }
+                if (found.isNotEmpty()) {
+                    val opt = found.first()
+                    _detail.update { it?.copy(message = null, episode = null) }
+                    _playing.value = io.github.petebutty.viewarr.data.media.VodStream(opt.url, title, opt.headers, watch = watch, boxPreviews = false)
+                    return@launch
+                }
+            }
+            d.providerEpisodes[season to episode]?.let { return@launch playProviderEpisode(season, episode) }
+            _detail.update { it?.copy(message = "Couldn't play S$season E$episode from any of your sources. Hold OK on it to pick one.") }
+        }
     }
 
     fun searchEpisode(ep: io.github.petebutty.viewarr.data.media.EpisodeInfo, forceAuto: Boolean = false) {
@@ -671,15 +714,81 @@ class MediaViewModel @Inject constructor(
     fun playPlex() {
         val d = _detail.value ?: return
         if (d.detail.item.type == MediaType.Show) return openEpisodes()
-        val ref = d.copies?.firstOrNull { it.source == "Plex" }?.ref ?: return
+        // Every Plex server that has it, in turn: one server's file can be missing while another's is fine.
+        val refs = d.copies?.filter { it.source == "Plex" }?.mapNotNull { it.ref }.orEmpty()
+        if (refs.isEmpty()) return
         viewModelScope.launch {
             _detail.update { it?.copy(message = "Opening on Plex…") }
-            val stream = runCatching { repo.plexStream(ref, watchTarget(d.detail.item, null, null)) }.getOrNull()
-            if (stream == null) _detail.update { it?.copy(message = "Couldn't open this on Plex.") }
+            var stream: io.github.petebutty.viewarr.data.media.VodStream? = null
+            for (ref in refs) {
+                stream = runCatching { repo.plexStream(ref, watchTarget(d.detail.item, null, null)) }.getOrNull()
+                if (stream != null) break
+            }
+            if (stream == null) _detail.update { it?.copy(message = "Couldn't open this on Plex: the file seems to be missing on your Plex server${if (refs.size > 1) "s" else ""}.") }
             else {
                 _detail.update { it?.copy(message = null) }
                 _playing.value = stream
             }
+        }
+    }
+
+    /**
+     * The one Play button for a film: tries every way you have of watching it, best first, and plays the first
+     * that works.
+     *  1. Your servers on the home network (Plex, Jellyfin, Emby): full quality, no internet needed.
+     *  2. Your servers away from home (another house, a remote Plex).
+     *  3. Stremio addons: the best-ranked stream (the stream ranking in Settings → Playback).
+     *  4. IPTV (your provider's copy through Dispatcharr).
+     * A source is skipped when its file has gone (Plex checks), it doesn't answer, or it has nothing; the
+     * message under the buttons says which one it's on.
+     */
+    fun playBest() {
+        val d = _detail.value ?: return
+        if (d.detail.item.type == MediaType.Show) return openEpisodes()
+        val item = d.detail.item
+        viewModelScope.launch {
+            val copies = d.copies.orEmpty()
+            val servers = copies.filter { it.ref != null && (it.source == "Plex" || it.source == "Jellyfin" || it.source == "Emby") }
+            val home = servers.filter { runCatching { repo.isHomeCopy(it) }.getOrDefault(false) }
+            for (c in home + (servers - home.toSet())) {
+                _detail.update { it?.copy(message = "Opening on ${copyLabel(c)}…") }
+                val stream = kotlinx.coroutines.withTimeoutOrNull(20_000) { runCatching { streamFor(c, item) }.getOrNull() }
+                if (stream != null) { _detail.update { it?.copy(message = null) }; _playing.value = stream; return@launch }
+            }
+            if (d.hasAddons && item.imdbId != null) {
+                _detail.update { it?.copy(searching = true, message = "Looking in your addons…") }
+                val found = kotlinx.coroutines.withTimeoutOrNull(30_000) { rank(runCatching { repo.addonStreams(item) }.getOrDefault(emptyList())) }.orEmpty()
+                _detail.update { it?.copy(searching = false) }
+                if (found.isNotEmpty()) { _detail.update { it?.copy(message = null) }; playStream(found.first()); return@launch }
+            }
+            copies.firstOrNull { it.source == io.github.petebutty.viewarr.data.media.PROVIDER }?.ref?.let { ref ->
+                _detail.update { it?.copy(message = "Opening from IPTV…") }
+                val stream = runCatching { repo.providerMovie(ref, item.title, watchTarget(item, null, null)) }.getOrNull()
+                if (stream != null) { _detail.update { it?.copy(message = null) }; _playing.value = stream; return@launch }
+            }
+            _detail.update {
+                it?.copy(message = if (copies.isEmpty() && !d.hasAddons) "This isn't in any of your libraries, and no addon is connected."
+                else "Couldn't play this from any of your sources. Hold OK on Play to pick one.")
+            }
+        }
+    }
+
+    /** A copy on one of your servers, ready to play (null when it can't be: e.g. Plex says the file has gone). */
+    private suspend fun streamFor(c: io.github.petebutty.viewarr.data.media.LibraryCopy, item: io.github.petebutty.viewarr.data.media.MediaItem) =
+        if (c.source == "Plex") repo.plexStream(c.ref!!, watchTarget(item, null, null))
+        else repo.serverStream(c.source, c.ref!!, item.title, watchTarget(item, null, null))
+
+    fun copyLabel(c: io.github.petebutty.viewarr.data.media.LibraryCopy) = listOfNotNull(c.source, c.detail).joinToString(" · ")
+
+    /** Other sources → one particular copy. */
+    fun playCopy(c: io.github.petebutty.viewarr.data.media.LibraryCopy) {
+        val d = _detail.value ?: return
+        if (c.source == io.github.petebutty.viewarr.data.media.PROVIDER) return playProvider()
+        viewModelScope.launch {
+            _detail.update { it?.copy(message = "Opening on ${copyLabel(c)}…") }
+            val stream = runCatching { streamFor(c, d.detail.item) }.getOrNull()
+            if (stream == null) _detail.update { it?.copy(message = "Couldn't open this on ${copyLabel(c)}.") }
+            else { _detail.update { it?.copy(message = null) }; _playing.value = stream }
         }
     }
 
@@ -803,12 +912,7 @@ class MediaViewModel @Inject constructor(
         viewModelScope.launch {
             detailJob?.join()
             val d = _detail.value ?: return@launch
-            when {
-                d.copies?.any { it.source == "Plex" && it.ref != null } == true -> playPlex()
-                serverCopy(d) != null -> playServer()
-                d.copies?.any { it.source == io.github.petebutty.viewarr.data.media.PROVIDER } == true -> playProvider()
-                d.hasAddons -> searchAddons()
-            }
+            if (d.copies != null) playBest()
         }
     }
 

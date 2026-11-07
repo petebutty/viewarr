@@ -901,6 +901,9 @@ private fun DetailScreen(
     val show = item.type == MediaType.Show
     val trailerId by produceState<String?>(null, item.key) { value = vm.trailers.youtubeId(item) }
     var trailerOpen by remember { mutableStateOf(false) }
+    // Other sources: every copy (each Plex server, Jellyfin / Emby, IPTV) and the addon search, to pick one by hand.
+    var sourcesOpen by remember { mutableStateOf(false) }
+    if (sourcesOpen) SourcesDialog(ui, vm, onSearch = { sourcesOpen = false; onSearch() }, onDone = { sourcesOpen = false })
     val trailerFocus = remember { FocusRequester() }
     BackHandler(enabled = !trailerOpen) {
         when {
@@ -972,29 +975,19 @@ private fun DetailScreen(
                     if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionDown && buttonsFree) runCatching { tabFocus.requestFocus() }.isSuccess else false
                 }) {
                     if (show) {
-                        val next = item.nextSeason?.let { sn -> item.nextEpisode?.let { en -> sn to en } }?.takeIf { onPlex }
+                        val next = item.nextSeason?.let { sn -> item.nextEpisode?.let { en -> sn to en } }?.takeIf { onPlex || onServer || onProvider || ui.hasAddons }
                         if (next != null) {
                             Button(onClick = vm::playNextUp, modifier = (Modifier.focusRequester(playFocus)).free()) { Text("Play S${next.first} · E${next.second}") }
                             OutlinedButton(onClick = vm::openEpisodes, modifier = Modifier.free()) { Text("Episodes") }
                         } else {
                             Button(onClick = vm::openEpisodes, modifier = (Modifier.focusRequester(playFocus)).free()) { Text("Episodes") }
                         }
-                    } else if (onPlex) {
-                        Button(onClick = onPlayPlex, modifier = (Modifier.focusRequester(playFocus)).free()) {
-                            Text(if (item.progress != null) "Resume on Plex" else "Play on Plex")
+                    } else if (onPlex || onServer || onProvider || ui.hasAddons) {
+                        // One Play: home servers, then away, then addons, then IPTV (MediaViewModel.playBest).
+                        // OK plays from the best source; holding OK lists every source to pick from.
+                        Button(onClick = vm::playBest, onLongClick = { sourcesOpen = true }, modifier = (Modifier.focusRequester(playFocus)).free()) {
+                            Text(if (ui.searching) "Looking…" else if (item.progress != null) "Resume" else "Play")
                         }
-                        if (onServer) OutlinedButton(onClick = vm::playServer, modifier = Modifier.free()) { Text("Play on $serverName") }
-                        if (onProvider) OutlinedButton(onClick = vm::playProvider, modifier = Modifier.free()) { Text("Play from IPTV") }
-                    } else if (onServer) {
-                        Button(onClick = vm::playServer, modifier = (Modifier.focusRequester(playFocus)).free()) { Text("Play on $serverName") }
-                        if (onProvider) OutlinedButton(onClick = vm::playProvider, modifier = Modifier.free()) { Text("Play from IPTV") }
-                    } else if (onProvider) {
-                        Button(onClick = vm::playProvider, modifier = (Modifier.focusRequester(playFocus)).free()) { Text("Play from IPTV") }
-                    }
-                    if (ui.hasAddons && !show) {
-                        val m = (if (onPlex || onProvider || onServer) Modifier else Modifier.focusRequester(playFocus)).free()
-                        if (onPlex || onProvider || onServer) OutlinedButton(onClick = onSearch, modifier = m) { Text(if (ui.searching) "Searching…" else "Search addons") }
-                        else Button(onClick = onSearch, modifier = m) { Text(if (ui.searching) "Searching…" else "Search addons") }
                     }
                     if (!show && !onPlex && !onProvider && !onServer && !ui.hasAddons && ui.copies != null) {
                         OutlinedButton(onClick = onClose, modifier = (Modifier.focusRequester(playFocus)).free()) { Text("Back") }
@@ -1122,7 +1115,9 @@ private fun EpisodesPanel(ui: DetailUi, vm: MediaViewModel, onPlex: Boolean) {
                         itemsIndexed(eps, key = { _, e -> "${e.season}-${e.number}" }) { i, ep ->
                             val plex = ui.plexEpisodes[ep.season to ep.number]
                             Surface(
-                                onClick = { vm.pickEpisode(ep) },
+                                // OK plays it from the best source; holding OK lists the sources.
+                                onClick = { vm.playBestEpisode(ep.season, ep.number) },
+                                onLongClick = { vm.pickEpisode(ep) },
                                 modifier = (if (i == target) Modifier.focusRequester(episodeFocus) else Modifier)
                                     .focusProperties { canFocus = panelFree }
                                     .onFocusChanged { if (it.isFocused) highlighted = ep }
@@ -1574,6 +1569,28 @@ private fun ReviewDialog(r: io.github.petebutty.viewarr.data.media.Review, onClo
             Column(Modifier.verticalScroll(scroll)) {
                 Text(r.text, fontSize = 16.sp, lineHeight = 24.sp, color = AppColors.TextPrimary)
             }
+        }
+    }
+}
+
+/** Other sources: play from one particular place instead of the automatic choice. */
+@Composable
+private fun SourcesDialog(ui: DetailUi, vm: MediaViewModel, onSearch: () -> Unit, onDone: () -> Unit) {
+    val first = remember { FocusRequester() }
+    LaunchedEffect(Unit) { awaitFrame(); runCatching { first.requestFocus() } }
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDone) {
+        Column(
+            Modifier.width(560.dp).background(AppColors.Panel, RoundedCornerShape(14.dp)).padding(22.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text("Play from", fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, modifier = Modifier.padding(bottom = 8.dp))
+            var firstUsed = false
+            fun mod(): Modifier = if (!firstUsed) { firstUsed = true; Modifier.focusRequester(first) } else Modifier
+            ui.copies.orEmpty().filter { it.ref != null || it.source == io.github.petebutty.viewarr.data.media.PROVIDER }.forEach { c ->
+                io.github.petebutty.viewarr.ui.common.MenuItem(text = vm.copyLabel(c), selected = false, onClick = { onDone(); vm.playCopy(c) }, modifier = mod())
+            }
+            if (ui.hasAddons) io.github.petebutty.viewarr.ui.common.MenuItem(text = "Search addons", selected = false, onClick = onSearch, modifier = mod())
+            io.github.petebutty.viewarr.ui.common.MenuItem(text = "Cancel", selected = false, onClick = onDone, modifier = mod())
         }
     }
 }
