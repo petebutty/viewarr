@@ -1072,9 +1072,12 @@ private fun EpisodesPanel(ui: DetailUi, vm: MediaViewModel, onPlex: Boolean) {
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
     // Nothing behind an open pop-up or stream list may take focus.
     val panelFree = ui.episode == null && ui.streams == null
+    // True while you're moving along the seasons: a season's episodes arriving mustn't pull you down into them.
+    var onSeasons by remember { mutableStateOf(false) }
     LaunchedEffect(ui.season, ui.episodes != null, ui.episode == null, ui.streams == null) {
         if (ui.episodes.isNullOrEmpty() || ui.episode != null || ui.streams != null || target < 0) return@LaunchedEffect
         listState.scrollToItem(maxOf(0, target - 1))
+        if (onSeasons) return@LaunchedEffect
         awaitFrame()
         runCatching { episodeFocus.requestFocus() }
     }
@@ -1107,7 +1110,7 @@ private fun EpisodesPanel(ui: DetailUi, vm: MediaViewModel, onPlex: Boolean) {
             }
             // Right: seasons + compact episodes.
             Column(Modifier.weight(0.58f).fillMaxHeight()) {
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                LazyRow(Modifier.onFocusChanged { onSeasons = it.hasFocus }, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     items(ui.seasons, key = { it.number }) { season ->
                         val selected = season.number == ui.season
                         Surface(
