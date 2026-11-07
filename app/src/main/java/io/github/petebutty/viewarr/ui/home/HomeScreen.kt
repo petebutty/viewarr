@@ -659,8 +659,9 @@ fun HomeScreen(
         // Search popped up from any screen: the same search page, on top; Back closes it.
         if (quickSearch) {
             BackHandler { quickSearch = false }
-            // Dimmed, not hidden: what you were on stays faintly in view. The remote stays inside search until it closes.
-            Box(Modifier.fillMaxSize().background(AppColors.Background.copy(alpha = 0.94f)).slideInFromLeft(60.dp, 150).then(if (infoTarget == null && recordTarget == null) Modifier.trapFocus() else Modifier)) {
+            // Solid: the screen underneath showing through between results (guide text, times) looked like a glitch.
+            // The remote stays inside search until it closes.
+            Box(Modifier.fillMaxSize().background(AppColors.Background).slideInFromLeft(60.dp, 150).then(if (infoTarget == null && recordTarget == null) Modifier.trapFocus() else Modifier)) {
                 SearchPage(
                     guide = vm,
                     focusEnabled = infoTarget == null && recordTarget == null,

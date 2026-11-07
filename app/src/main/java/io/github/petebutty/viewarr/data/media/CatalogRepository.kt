@@ -179,7 +179,10 @@ class CatalogRepository @Inject constructor(
             val t = m.title.lowercase()
             return when { t == needle -> 0; t.startsWith(needle) -> 1; t.contains(needle) -> 2; else -> 3 }
         }
-        MediaRow("search-library", "In your library", merged.withIndex().sortedWith(compareBy({ rank(it.value) }, { it.index })).map { it.value })
+        val sorted = merged.withIndex().sortedWith(compareBy({ rank(it.value) }, { it.index })).map { it.value }
+        // Copies with no poster of their own (a bare library item) borrow TMDB's, rather than a blank card.
+        val filled = enrich(a, sorted.filter { it.poster == null && it.tmdbId != null }).associateBy { it.key }
+        MediaRow("search-library", "In your library", sorted.map { filled[it.key] ?: it })
     }
 
     private suspend fun serverSearch(a: Accounts, srv: MediaServerAuth, emby: Boolean, q: String): List<MediaItem> {

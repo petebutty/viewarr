@@ -355,7 +355,8 @@ fun MediaScreen(
                 onWatchlist = vm::toggleWatchlist,
                 onClose = {
                     vm.close()
-                    runCatching { focusRequester.requestFocus() }
+                    // Back to the title it was opened from (More like this) keeps focus on that page.
+                    if (vm.detail.value == null) runCatching { focusRequester.requestFocus() }
                 },
             )
         }

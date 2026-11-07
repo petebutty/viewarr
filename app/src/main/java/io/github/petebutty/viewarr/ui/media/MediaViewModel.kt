@@ -450,8 +450,16 @@ class MediaViewModel @Inject constructor(
     /** The TV home screen's Watch Next row (Continue watching), brought up to date. */
     fun refreshWatchNext() { viewModelScope.launch { watchNext.refresh() } }
 
+    /** Titles opened from inside a title page (More like this): Back goes back through them, one at a time. */
+    private val detailStack = ArrayList<MediaItem>()
+
     fun open(item: MediaItem) {
         if (item.key.startsWith("person:")) return openPerson(item)
+        _detail.value?.detail?.item?.takeIf { it.key != item.key }?.let { detailStack.add(it) }
+        showDetail(item)
+    }
+
+    private fun showDetail(item: MediaItem) {
         detailJob?.cancel()
         _detail.value = DetailUi(MediaDetail(item))
         detailJob = viewModelScope.launch {
@@ -496,7 +504,8 @@ class MediaViewModel @Inject constructor(
 
     fun close() {
         detailJob?.cancel()
-        _detail.value = null
+        val previous = detailStack.removeLastOrNull()
+        if (previous != null) showDetail(previous) else _detail.value = null
     }
 
     // ---------------------------------------------------------------- shows: seasons & episodes
