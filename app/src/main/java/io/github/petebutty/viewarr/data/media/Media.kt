@@ -156,6 +156,9 @@ data class MediaDetail(
     val voteCount: Int? = null,
     val reviews: List<Review> = emptyList(),
     val similar: List<MediaItem> = emptyList(),
+    /** The collection a film belongs to ("Dune Collection") and all its films, in release order. */
+    val collectionName: String? = null,
+    val collection: List<MediaItem> = emptyList(),
 )
 
 data class RowsState(val rows: List<MediaRow>, val done: Boolean)

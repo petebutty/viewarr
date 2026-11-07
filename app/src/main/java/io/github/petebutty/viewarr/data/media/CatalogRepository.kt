@@ -1388,6 +1388,7 @@ class CatalogRepository @Inject constructor(
             .getOrNull()?.takeIf { it.ok } ?: return MediaDetail(item)
         val j = r.body
         val full = tmdbItem(j, item.type)
+        val collection = if (movie) runCatching { tmdbCollection(key, j) }.getOrNull() else null
         val merged = item.copy(
             tmdbId = tmdbId,
             imdbId = item.imdbId ?: full?.imdbId,
@@ -1439,7 +1440,20 @@ class CatalogRepository @Inject constructor(
                 )
             },
             similar = j.child("recommendations").array("results").mapNotNull { tmdbItem(it, item.type) }.filter { it.poster != null }.take(20),
+            collectionName = collection?.first,
+            collection = collection?.second.orEmpty(),
         )
+    }
+
+    /** A film's TMDB collection (e.g. all the Dune films), in release order; null when it isn't in one. */
+    private suspend fun tmdbCollection(key: String, j: JsonElement?): Pair<String, List<MediaItem>>? {
+        val id = j.child("belongs_to_collection").int("id") ?: return null
+        val c = runCatching { http.get(tmdb.url("/collection/$id", key, mapOf("language" to "en-GB")), tmdb.headers(key)) }.getOrNull()?.takeIf { it.ok }?.body ?: return null
+        val parts = c.array("parts")
+            .sortedWith(compareBy({ it.str("release_date").isNullOrBlank() }, { it.str("release_date") }))
+            .mapNotNull { tmdbItem(it, MediaType.Movie) }
+        if (parts.size < 2) return null
+        return (c.str("name") ?: j.child("belongs_to_collection").str("name") ?: "Collection") to parts
     }
 
     /**

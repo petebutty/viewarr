@@ -1207,7 +1207,8 @@ private fun EpisodeActions(
     val first = remember { FocusRequester() }
     LaunchedEffect(Unit) { awaitFrame(); runCatching { first.requestFocus() } }
     Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f)), contentAlignment = Alignment.Center) {
-        Column(Modifier.width(520.dp).background(AppColors.Panel, RoundedCornerShape(14.dp)).padding(24.dp).trapFocus(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        // Opened by holding OK on an episode: letting go of that OK mustn't pick the first source.
+        Column(Modifier.width(520.dp).background(AppColors.Panel, RoundedCornerShape(14.dp)).padding(24.dp).trapFocus().ignoreHeldOk(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(title, fontSize = 19.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(bottom = 10.dp))
             var firstUsed = false
             fun m(): Modifier = if (!firstUsed) { firstUsed = true; Modifier.focusRequester(first) } else Modifier
@@ -1411,7 +1412,7 @@ private fun ratingColour(source: String) = when (source) {
     else -> Color(0xFF90CEA1)
 }
 
-private enum class DetailTab(val label: String) { Cast("Cast & crew"), Reviews("Reviews"), Similar("More like this"), Details("Details") }
+private enum class DetailTab(val label: String) { Cast("Cast & crew"), Reviews("Reviews"), Collection("Collection"), Similar("More like this"), Details("Details") }
 
 /**
  * Below the header: a row of tabs; moving onto one shows its row underneath (cast & crew, reviews, more like this,
@@ -1441,6 +1442,7 @@ private fun DetailTabs(
     val tabs = buildList {
         if (d.cast.isNotEmpty()) add(DetailTab.Cast)
         if (d.reviews.isNotEmpty()) add(DetailTab.Reviews)
+        if (d.collection.isNotEmpty()) add(DetailTab.Collection)
         if (d.similar.isNotEmpty()) add(DetailTab.Similar)
         if (facts.isNotEmpty()) add(DetailTab.Details)
     }
@@ -1459,7 +1461,7 @@ private fun DetailTabs(
                     contentColor = if (t == tab) AppColors.TextPrimary else AppColors.TextSecondary,
                     focusedContainerColor = AppColors.Accent, focusedContentColor = AppColors.OnAccent,
                 ),
-            ) { Text(t.label + if (t == DetailTab.Reviews) " (${d.reviews.size})" else "", fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)) }
+            ) { Text((if (t == DetailTab.Collection) d.collectionName ?: t.label else t.label) + if (t == DetailTab.Reviews) " (${d.reviews.size})" else "", fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)) }
         }
     }
     Spacer(Modifier.height(12.dp))
@@ -1471,8 +1473,9 @@ private fun DetailTabs(
         DetailTab.Reviews -> androidx.compose.foundation.lazy.LazyRow(contentPadding = rowPadding, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
             items(d.reviews.size) { i -> ReviewCard(d.reviews[i], free) { onReview(d.reviews[i]) } }
         }
-        DetailTab.Similar -> androidx.compose.foundation.lazy.LazyRow(contentPadding = rowPadding, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            items(d.similar, key = { it.key }) { m ->
+        DetailTab.Similar, DetailTab.Collection -> androidx.compose.foundation.lazy.LazyRow(contentPadding = rowPadding, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            // The film you're on stays out of its own collection row.
+            items(if (tab == DetailTab.Collection) d.collection.filter { it.tmdbId != d.item.tmdbId } else d.similar, key = { it.key }) { m ->
                 Column(Modifier.width(86.dp)) {
                     PosterCard(m, Modifier.focusProperties { canFocus = free }, onClick = { onSimilar(m) })
                     Text(m.title, fontSize = 11.sp, color = AppColors.TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp))
@@ -1589,7 +1592,8 @@ private fun SourcesDialog(ui: DetailUi, vm: MediaViewModel, onSearch: () -> Unit
     LaunchedEffect(Unit) { awaitFrame(); runCatching { first.requestFocus() } }
     androidx.compose.ui.window.Dialog(onDismissRequest = onDone) {
         Column(
-            Modifier.width(560.dp).background(AppColors.Panel, RoundedCornerShape(14.dp)).padding(22.dp),
+            // Opened by holding OK: letting go of that OK mustn't pick the first source.
+            Modifier.width(560.dp).background(AppColors.Panel, RoundedCornerShape(14.dp)).padding(22.dp).ignoreHeldOk(),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             Text("Play from", fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, modifier = Modifier.padding(bottom = 8.dp))
