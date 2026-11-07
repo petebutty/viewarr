@@ -868,9 +868,9 @@ private fun MenuOverlay(
 
     Box(Modifier.fillMaxSize()) {
     Row(Modifier.fillMaxSize()) {
-        if (showMain) Column(
+        // Left again: the main list grows out beside the groups, easing them across rather than jumping.
+        if (showMain) io.github.petebutty.viewarr.ui.common.GrowFromLeft(180.dp) { Column(
             Modifier
-                .slideInFromLeft(180.dp)
                 .width(180.dp)
                 .fillMaxHeight()
                 .background(if (seeThrough) AppColors.MenuPanel else AppColors.palette.panel)
@@ -923,7 +923,7 @@ private fun MenuOverlay(
                         },
                 )
             }
-        }
+        } }
 
         Box(
             Modifier
@@ -1494,11 +1494,15 @@ private fun ChannelListOverlay(
     var activity by remember { mutableLongStateOf(System.nanoTime()) }
     BackHandler { if (epgFor != null) epgFor = null else if (showGroups) showGroups = false else onClose() }
     // Focus: the current channel (or the first one after a group change), or the selected group.
+    var groupSeen by remember { mutableStateOf(groupId) }
     LaunchedEffect(showGroups, groupId) {
+        val groupChanged = groupId != groupSeen
+        groupSeen = groupId
         awaitFrame()
         if (showGroups) {
-            // Previewing another group: show its channels from the top (or around the one playing).
-            listState.scrollToItem(maxOf(0, channels.indexOfFirst { it.id == current.id } - 4))
+            // Opening the groups leaves the channel list where it is (no jump); previewing another group shows its
+            // channels from the top (or around the one playing).
+            if (groupChanged) listState.scrollToItem(maxOf(0, channels.indexOfFirst { it.id == current.id } - 4))
             runCatching { groupFocus.requestFocus() }
         } else {
             listState.scrollToItem(maxOf(0, channels.indexOfFirst { it.id == current.id } - 4))
@@ -1529,7 +1533,7 @@ private fun ChannelListOverlay(
         previewJob?.cancel()
         previewJob = previewScope.launch { delay(250); if (vm.groupId.value != id) vm.selectGroup(id) }
     }
-    if (showGroups) {
+    if (showGroups) io.github.petebutty.viewarr.ui.common.GrowFromLeft(280.dp) {
         Box(Modifier.fillMaxHeight().width(280.dp).background(AppColors.Panel.copy(alpha = 0.92f)).padding(16.dp)) {
             LazyColumn(verticalArrangement = Arrangement.spacedBy(1.dp)) {
                 item(key = "all") {

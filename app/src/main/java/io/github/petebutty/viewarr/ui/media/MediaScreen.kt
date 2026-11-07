@@ -229,6 +229,20 @@ fun MediaScreen(
         runCatching { focusRequester.requestFocus() }
         vm.jumpDone()
     }
+    // Back from a title opened from the rows: straight back to that poster. Without this, focus fell to whichever
+    // poster grabbed it first as the title page went (the first card of the row above) and stayed there.
+    var openedCard by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(detail == null) {
+        if (detail != null || browse != null) return@LaunchedEffect
+        val key = openedCard ?: return@LaunchedEffect
+        openedCard = null
+        val rowIndex = rows.indexOfFirst { r -> r.items.any { cardId(r, it) == key } }
+        if (rowIndex < 0) return@LaunchedEffect
+        lastCard = key
+        if (listState.layoutInfo.visibleItemsInfo.none { it.index == rowIndex }) runCatching { listState.scrollToItem(rowIndex) }
+        awaitFrame(); awaitFrame()
+        runCatching { focusRequester.requestFocus() }
+    }
     val entryCard = lastCard?.takeIf { key -> rows.any { r -> r.items.any { cardId(r, it) == key } } }
         ?: rows.firstOrNull()?.let { r -> r.items.firstOrNull()?.let { cardId(r, it) } }
     // Rows keep arriving after the page opens (slow servers, many libraries) and can be put in above the one you're
@@ -322,7 +336,7 @@ fun MediaScreen(
                                 focused = item
                                 lastCard = id
                             },
-                            onOpen = vm::open,
+                            onOpen = { openedCard = lastCard; vm.open(it) },
                         )
                     }
                 } }
