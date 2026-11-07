@@ -49,6 +49,18 @@ private const val TAG = "Catalog"
 private const val TMDB_IMG = "https://image.tmdb.org/t/p/"
 /** Library copies from the IPTV provider (Xtream Codes) are labelled with this source. */
 const val PROVIDER = "Provider"
+/** The provider's films / series as a library in the menu (IPTV provider, or Dispatcharr's provider VOD). */
+const val PROVIDER_LIBRARY = "IPTV"
+
+/** "|EN| ACTION/THRILLER" → "Action/Thriller": provider category names, tidied for the genre picker. */
+fun tidyCategory(name: String): String {
+    val t = name.trim().replace(Regex("^\\|[A-Z]{2,5}\\|\\s*"), "").replace(Regex("^[A-Z]{2,3}\\s*[|:-]\\s*"), "").trim()
+    if (t.any { it.isLowerCase() }) return t
+    val keep = setOf("UK", "US", "TV", "HBO", "BBC", "NBC", "CBS", "ABC", "AMC", "BET", "FX", "IMDB", "4K", "HD", "UFC", "WWE", "MGM", "ALLBLK", "SD")
+    return t.split(' ').joinToString(" ") { w ->
+        w.split('/').joinToString("/") { p -> if (p.uppercase() in keep || p.any { it.isDigit() }) p else p.lowercase().replaceFirstChar { it.uppercase() } }
+    }
+}
 private fun enc(s: String) = URLEncoder.encode(s, "UTF-8")
 
 /**
@@ -205,14 +217,14 @@ class CatalogRepository @Inject constructor(
             MediaItem(
                 key = v.tmdbId?.let { "tmdb:Movie:$it" } ?: xcKey(MediaType.Movie, v.streamId),
                 type = MediaType.Movie, title = v.name, year = v.year, poster = v.poster, rating = v.rating, tmdbId = v.tmdbId,
-                origin = "Your provider",
+                origin = "IPTV",
             )
         }
         val sr = series.asSequence().filter { it.name.lowercase().contains(needle) }.take(20).map { v ->
             MediaItem(
                 key = v.tmdbId?.let { "tmdb:Show:$it" } ?: xcKey(MediaType.Show, v.seriesId),
                 type = MediaType.Show, title = v.name, year = v.year, poster = v.poster, backdrop = v.backdrop, overview = v.plot,
-                rating = v.rating, tmdbId = v.tmdbId, origin = "Your provider",
+                rating = v.rating, tmdbId = v.tmdbId, origin = "IPTV",
             )
         }
         return (f + sr).toList()
@@ -556,13 +568,23 @@ class CatalogRepository @Inject constructor(
                 }
             }
         }
-        (plexParts + others).awaitAll().flatten()
+        val provider = async {
+            if (xcSession() == null) emptyList()
+            else listOf(MediaLibrary("provider:${type.name}", if (type == MediaType.Movie) "IPTV Movies" else "IPTV Shows", PROVIDER_LIBRARY, "all"))
+        }
+        (plexParts + others + provider).awaitAll().flatten()
     }
 
     /** One page of a library and how many titles it has in all; null if the server didn't answer. */
     /** A library's genres, from the server itself (id to name), for filtering. */
     suspend fun libraryGenres(lib: MediaLibrary, type: MediaType): List<Pair<String, String>> {
         val a = store.current()
+        if (lib.source == PROVIDER_LIBRARY) {
+            // The provider's categories stand in for genres ("|EN| ACTION/THRILLER" → "Action/Thriller").
+            val s = xcSession() ?: return emptyList()
+            val cats = runCatching { if (type == MediaType.Movie) xtream.vodCategories(s) else xtream.seriesCategories(s) }.getOrDefault(emptyList())
+            return cats.map { c -> c.id to tidyCategory(c.name) }.sortedBy { it.second.lowercase() }
+        }
         if (lib.server != null) {
             val p = plexServers(a).firstOrNull { it.machineId == lib.server } ?: return emptyList()
             val c = runCatching { plexGet(a, p, "/library/sections/${lib.id}/genre") }.getOrNull() ?: return emptyList()
@@ -583,6 +605,7 @@ class CatalogRepository @Inject constructor(
     ): Pair<List<MediaItem>, Int>? {
         val q = query.trim()
         val a = store.current()
+        if (lib.source == PROVIDER_LIBRARY) return providerPage(type, sort, start, size, q, genre)
         if (lib.server != null) {
             val p = plexServers(a).firstOrNull { it.machineId == lib.server } ?: return null
             val c = runCatching {
@@ -1435,7 +1458,60 @@ class CatalogRepository @Inject constructor(
     @Volatile private var xcCache: Triple<Long, List<io.github.petebutty.viewarr.data.xtream.XtreamVod>, List<io.github.petebutty.viewarr.data.xtream.XtreamSeries>>? = null
     private val xcLock = Mutex()
 
-    private suspend fun xcSession() = sessions.session.first()?.takeIf { it.isXc }
+    /**
+     * The Xtream Codes login for provider films and series: the IPTV provider itself, or, with Dispatcharr and
+     * Provider VOD switched on in setup, Dispatcharr's own XC side (player_api.php) with this user's XC password
+     * (Dispatcharr → Users → the user's XC password), read once with the API key.
+     */
+    private suspend fun xcSession(): io.github.petebutty.viewarr.data.session.Session? {
+        val s = sessions.session.first() ?: return null
+        if (s.isXc) return s
+        if (!store.current().vodEnabled) return null
+        val id = "${s.serverUrl}|${s.username}|${s.apiKey}"
+        dispatcharrXc?.takeIf { it.first == id }?.let { return it.second }
+        val r = runCatching { http.get(s.serverUrl.trimEnd('/') + "/api/accounts/users/me/", mapOf("X-API-Key" to s.apiKey)) }.getOrNull()
+        if (r?.ok != true) return null
+        val pass = r.body.child("custom_properties").str("xc_password")?.takeIf { it.isNotBlank() }
+        val xc = pass?.let { s.copy(xcPassword = it) }
+        if (xc == null) Log.w(TAG, "provider VOD: Dispatcharr user ${s.username} has no XC password")
+        dispatcharrXc = id to xc
+        return xc
+    }
+    @Volatile private var dispatcharrXc: Pair<String, io.github.petebutty.viewarr.data.session.Session?>? = null
+
+    private fun providerFilm(v: io.github.petebutty.viewarr.data.xtream.XtreamVod) = MediaItem(
+        key = v.tmdbId?.let { "tmdb:Movie:$it" } ?: xcKey(MediaType.Movie, v.streamId),
+        type = MediaType.Movie, title = v.name, year = v.year, poster = v.poster, rating = v.rating, tmdbId = v.tmdbId,
+        origin = "IPTV",
+    )
+
+    private fun providerSeries(v: io.github.petebutty.viewarr.data.xtream.XtreamSeries) = MediaItem(
+        key = v.tmdbId?.let { "tmdb:Show:$it" } ?: xcKey(MediaType.Show, v.seriesId),
+        type = MediaType.Show, title = v.name, year = v.year, poster = v.poster, backdrop = v.backdrop, overview = v.plot,
+        rating = v.rating, tmdbId = v.tmdbId, origin = "IPTV",
+    )
+
+    /** One page of the provider's whole film or series list (menu → Movies / Shows → Your provider). */
+    private suspend fun providerPage(type: MediaType, sort: LibrarySort, start: Int, size: Int, q: String, category: String?): Pair<List<MediaItem>, Int>? {
+        val s = xcSession() ?: return null
+        val (films, series) = xcCatalog(s)
+        data class Row(val item: MediaItem, val added: Long, val cat: String?)
+        val all = if (type == MediaType.Movie) films.map { Row(providerFilm(it), it.added, it.categoryId) }
+        else series.map { Row(providerSeries(it), it.lastModified, it.categoryId) }
+        val picked = all.asSequence()
+            .filter { category == null || it.cat == category }
+            .filter { q.isEmpty() || it.item.title.contains(q, ignoreCase = true) }
+            .distinctBy { it.item.key }
+            .toList()
+        val sorted = when (sort) {
+            LibrarySort.Title -> picked.sortedBy { it.item.title.lowercase().removePrefix("the ") }
+            LibrarySort.Added -> picked.sortedByDescending { it.added }
+            LibrarySort.Released -> picked.sortedWith(compareByDescending<Row> { it.item.year ?: 0 }.thenByDescending { it.added })
+            LibrarySort.Rating -> picked.sortedByDescending { it.item.rating ?: 0.0 }
+        }
+        val page = sorted.drop(start).take(size).map { it.item }
+        return enrich(store.current(), page) to sorted.size
+    }
 
     private fun xcKey(type: MediaType, id: Int) = "xc:${type.name}:$id"
 
@@ -1454,26 +1530,15 @@ class CatalogRepository @Inject constructor(
     private suspend fun providerRows(a: Accounts, type: MediaType): List<MediaRow> {
         val s = xcSession() ?: return emptyList()
         val (films, series) = xcCatalog(s)
-        val items: List<Pair<MediaItem, Long>> = if (type == MediaType.Movie) films.map { v ->
-            MediaItem(
-                key = v.tmdbId?.let { "tmdb:Movie:$it" } ?: xcKey(MediaType.Movie, v.streamId),
-                type = MediaType.Movie, title = v.name, year = v.year, poster = v.poster, rating = v.rating, tmdbId = v.tmdbId,
-                origin = "Your provider",
-            ) to v.added
-        } else series.map { v ->
-            MediaItem(
-                key = v.tmdbId?.let { "tmdb:Show:$it" } ?: xcKey(MediaType.Show, v.seriesId),
-                type = MediaType.Show, title = v.name, year = v.year, poster = v.poster, backdrop = v.backdrop, overview = v.plot,
-                rating = v.rating, tmdbId = v.tmdbId, origin = "Your provider",
-            ) to v.lastModified
-        }
+        val items: List<Pair<MediaItem, Long>> = if (type == MediaType.Movie) films.map { v -> providerFilm(v) to v.added }
+        else series.map { v -> providerSeries(v) to v.lastModified }
         if (items.isEmpty()) return emptyList()
         val newest = enrich(a, items.sortedByDescending { it.second }.map { it.first }.distinctBy { it.key }.take(40))
         val best = enrich(a, items.map { it.first }.filter { it.rating != null }.sortedByDescending { it.rating }.distinctBy { it.key }.take(40))
-        val what = if (type == MediaType.Movie) "films" else "series"
+        val what = if (type == MediaType.Movie) "IPTV movies" else "IPTV shows"
         return listOf(
-            MediaRow("xc-new-${type.name}", "New $what from your provider", newest),
-            MediaRow("xc-top-${type.name}", "Top-rated $what from your provider", best),
+            MediaRow("xc-new-${type.name}", "New $what", newest),
+            MediaRow("xc-top-${type.name}", "Top-rated $what", best),
         )
     }
 

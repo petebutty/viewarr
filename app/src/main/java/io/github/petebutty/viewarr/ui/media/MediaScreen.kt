@@ -769,7 +769,7 @@ private fun PageCard(arrow: String, label: String, sub: String, modifier: Modifi
 }
 
 /** Rows that already are your library (no need to look the title up). */
-private val LIBRARY_ORIGINS = setOf("Plex", "Jellyfin", "Emby", "Your provider")
+private val LIBRARY_ORIGINS = setOf("Plex", "Jellyfin", "Emby", "IPTV")
 
 private fun metaLine(item: MediaItem) = listOfNotNull(
     item.year?.toString(),
