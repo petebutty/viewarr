@@ -1339,13 +1339,15 @@ private fun RatingsLine(tmdb: Double?, votes: Int?, more: List<io.github.petebut
         more.forEach { add(it.source to it.value) }
     }
     if (all.isEmpty()) return
-    Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically, modifier = Modifier.wrapContentWidth(Alignment.Start, unbounded = true)) {
+    // Wraps onto a second line rather than running past its column (e.g. under the trailer on the Movies page).
+    @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+    androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         all.forEach { (src, v) ->
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(src, fontSize = 12.sp, maxLines = 1, softWrap = false, fontWeight = FontWeight.SemiBold, color = Color.Black,
+                Text(src, fontSize = 11.sp, maxLines = 1, softWrap = false, fontWeight = FontWeight.SemiBold, color = Color.Black,
                     modifier = Modifier.background(ratingColour(src), RoundedCornerShape(4.dp)).padding(horizontal = 6.dp, vertical = 2.dp))
                 Spacer(Modifier.width(6.dp))
-                Text(v, fontSize = 14.sp, color = AppColors.TextPrimary, maxLines = 1, softWrap = false)
+                Text(v, fontSize = 13.sp, color = AppColors.TextPrimary, maxLines = 1, softWrap = false)
             }
         }
     }
