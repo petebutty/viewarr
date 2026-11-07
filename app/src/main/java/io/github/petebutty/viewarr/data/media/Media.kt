@@ -63,6 +63,17 @@ enum class LibrarySort(val label: String, val plex: String, val jellyfin: Pair<S
 }
 
 /** A copy of a title on one of the user's own servers (Plex, Jellyfin, Emby). */
+/** A person's page header: photo, life dates and place, and their TMDB biography. */
+data class PersonInfo(
+    val name: String,
+    val photo: String?,
+    val bio: String?,
+    val born: String?,
+    val died: String?,
+    val place: String?,
+    val knownFor: String?,
+)
+
 data class LibraryCopy(val source: String, val detail: String? = null, val ref: String? = null)
 
 /** Something the player can open. */

@@ -295,6 +295,24 @@ class CatalogRepository @Inject constructor(
     }
 
     /** A person's films and shows (acting, and directing / writing), most popular first. */
+    /** Who they are: photo, born / died, where, and their biography (British English, else any English). */
+    suspend fun personInfo(personId: String, name: String): PersonInfo? {
+        val key = store.current().tmdbKey ?: return null
+        suspend fun get(lang: String) = runCatching { http.get(tmdb.url("/person/$personId", key, mapOf("language" to lang)), tmdb.headers(key)) }.getOrNull()?.takeIf { it.ok }?.body
+        val j = get("en-GB") ?: return null
+        val bio = j.str("biography")?.takeIf { it.isNotBlank() } ?: get("en-US")?.str("biography")?.takeIf { it.isNotBlank() }
+        fun date(k: String) = j.str(k)?.let { d -> runCatching { java.time.LocalDate.parse(d).format(java.time.format.DateTimeFormatter.ofPattern("d MMMM yyyy")) }.getOrNull() }
+        return PersonInfo(
+            name = j.str("name") ?: name,
+            photo = j.str("profile_path")?.let { "https://image.tmdb.org/t/p/w300$it" },
+            bio = bio?.trim(),
+            born = date("birthday"),
+            died = date("deathday"),
+            place = j.str("place_of_birth"),
+            knownFor = j.str("known_for_department"),
+        )
+    }
+
     suspend fun personCredits(personId: String, name: String): List<MediaRow> {
         val key = store.current().tmdbKey ?: return emptyList()
         val r = http.get(tmdb.url("/person/$personId/combined_credits", key, mapOf("language" to "en-GB")), tmdb.headers(key))
@@ -302,7 +320,12 @@ class CatalogRepository @Inject constructor(
         fun pop(j: JsonElement?) = (j.child("popularity") as? JsonPrimitive)?.doubleOrNull ?: 0.0
         fun items(list: List<JsonElement>, type: MediaType) = list.sortedByDescending { pop(it) }
             .mapNotNull { tmdbItem(it, type) }.filter { it.poster != null }.distinctBy { it.key }.take(40)
-        val cast = r.body.array("cast")
+        // Not their talk-show and news guest spots, nor appearances as themselves: their own work.
+        fun self(j: JsonElement?) = j.str("character")?.trim()?.let { c ->
+            c.equals("Self", true) || c.startsWith("Himself", true) || c.startsWith("Herself", true) || c.startsWith("Themselves", true) || c.startsWith("Self ", true) || c.startsWith("Self -", true)
+        } == true
+        fun talkOrNews(j: JsonElement?) = j.array("genre_ids").any { g -> g.toString().let { it == "10767" || it == "10763" } }
+        val cast = r.body.array("cast").filter { !self(it) && !talkOrNews(it) }
         val crew = r.body.array("crew").filter { it.str("job") == "Director" || it.str("department") == "Writing" }
         return listOfNotNull(
             MediaRow("person-films", "Films with $name", items(cast.filter { it.str("media_type") == "movie" }, MediaType.Movie)),

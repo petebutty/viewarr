@@ -301,8 +301,16 @@ class MediaViewModel @Inject constructor(
     val person = _person.asStateFlow()
     private var resultsBeforePerson: RowsState? = null
 
+    private val _personInfo = MutableStateFlow<io.github.petebutty.viewarr.data.media.PersonInfo?>(null)
+    /** The person whose films are showing: their photo, dates and biography for the header. */
+    val personInfo = _personInfo.asStateFlow()
+
     private fun openPerson(item: MediaItem) {
         val id = item.key.removePrefix("person:")
+        _personInfo.value = io.github.petebutty.viewarr.data.media.PersonInfo(item.title, item.poster, null, null, null, null, null)
+        viewModelScope.launch {
+            runCatching { repo.personInfo(id, item.title) }.getOrNull()?.let { info -> if (_person.value == item.title) _personInfo.value = info }
+        }
         if (_person.value == null) resultsBeforePerson = _rows.value
         _person.value = item.title
         rowsJob?.cancel()
@@ -318,6 +326,7 @@ class MediaViewModel @Inject constructor(
         if (_person.value == null) return
         rowsJob?.cancel()
         _person.value = null
+        _personInfo.value = null
         _rows.value = resultsBeforePerson ?: RowsState(emptyList(), done = true)
         resultsBeforePerson = null
     }
@@ -486,7 +495,11 @@ class MediaViewModel @Inject constructor(
             _detail.update {
                 it?.copy(detail = full, loading = false, hasTrakt = hasTrakt && full.item.tmdbId != null, watchlisted = repo.inTraktWatchlist(full.item))
             }
-            val copies = runCatching { repo.copiesOf(full.item) }.getOrDefault(emptyList())
+            // Home servers first (then away, then IPTV): the order they're listed in and tried by Play.
+            val copies = runCatching { repo.copiesOf(full.item) }.getOrDefault(emptyList()).let { list ->
+                val home = list.associateWith { c -> runCatching { repo.isHomeCopy(c) }.getOrDefault(false) }
+                list.sortedWith(compareBy({ if (home[it] == true) 0 else if (it.source == io.github.petebutty.viewarr.data.media.PROVIDER) 2 else 1 }))
+            }
             _detail.update { it?.copy(copies = copies) }
             launch {
                 val ratings = runCatching { repo.extraRatings(full.item, copies) }.getOrDefault(emptyList())

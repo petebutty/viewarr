@@ -224,6 +224,14 @@ fun MediaScreen(
             }
         } else onBack()
     }
+    // A person's page: their first film is selected as soon as the rows arrive (focus was nowhere until a key).
+    LaunchedEffect(personShown, rows.isNotEmpty()) {
+        if (personShown == null || rows.isEmpty() || detail != null) return@LaunchedEffect
+        lastCard = rows.first().items.firstOrNull()?.let { cardId(rows.first(), it) }
+        runCatching { listState.scrollToItem(0) }
+        awaitFrame(); awaitFrame()
+        runCatching { focusRequester.requestFocus() }
+    }
     LaunchedEffect(jump, rows.size) {
         val (rowId, _) = jump ?: return@LaunchedEffect
         val index = if (rowId == null) 0 else rows.indexOfFirst { it.id == rowId }
@@ -293,7 +301,9 @@ fun MediaScreen(
             )
         }
         if (browse == null) Column(Modifier.fillMaxSize()) {
-            if (searchHeader != null) searchHeader() else Hero(
+            val personInfo by vm.personInfo.collectAsStateWithLifecycle()
+            val pi = personInfo?.takeIf { personShown != null }
+            if (pi != null) PersonHeader(pi) else if (searchHeader != null) searchHeader() else Hero(
                 item = hero ?: rows.firstOrNull()?.items?.firstOrNull(),
                 type = type,
                 // Only the poster you've stopped on plays: not the first-row fallback, nor while anything covers the rows.
@@ -1604,6 +1614,30 @@ private fun SourcesDialog(ui: DetailUi, vm: MediaViewModel, onSearch: () -> Unit
             }
             if (ui.hasAddons) io.github.petebutty.viewarr.ui.common.MenuItem(text = "Search addons", selected = false, onClick = onSearch, modifier = mod())
             io.github.petebutty.viewarr.ui.common.MenuItem(text = "Cancel", selected = false, onClick = onDone, modifier = mod())
+        }
+    }
+}
+
+/** A person's films and shows: who they are at the top (photo, born / died, where, biography). */
+@Composable
+private fun PersonHeader(p: io.github.petebutty.viewarr.data.media.PersonInfo) {
+    Row(Modifier.fillMaxWidth().padding(start = 48.dp, end = 48.dp, top = 36.dp, bottom = 16.dp), horizontalArrangement = Arrangement.spacedBy(28.dp)) {
+        Box(Modifier.size(width = 150.dp, height = 210.dp).clip(RoundedCornerShape(10.dp)).background(AppColors.Panel)) {
+            p.photo?.let { AsyncImage(model = it, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
+        }
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(p.name, fontSize = 34.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary)
+            val life = listOfNotNull(
+                p.knownFor,
+                p.born?.let { b -> if (p.died != null) "$b – ${p.died}" else "Born $b" },
+                p.place,
+            ).joinToString("  ·  ")
+            if (life.isNotEmpty()) Text(life, fontSize = 15.sp, color = AppColors.TextSecondary)
+            Text(
+                p.bio ?: "Loading…",
+                fontSize = 15.sp, lineHeight = 21.sp, color = AppColors.TextPrimary, maxLines = 6, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 6.dp),
+            )
         }
     }
 }

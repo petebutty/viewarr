@@ -441,6 +441,7 @@ fun HomeScreen(
         if (page == Page.Search) {
             SearchPage(
                 guide = vm,
+                serverUrl = session?.serverUrl.orEmpty(),
                 focusEnabled = !menuOpen && !showAccounts && !quickSearch && infoTarget == null && recordTarget == null,
                 onProgramme = { ch, prog -> recordTarget = ch to prog },
                 onOpenMenu = { menuOpen = true },
@@ -664,6 +665,7 @@ fun HomeScreen(
             Box(Modifier.fillMaxSize().background(AppColors.Background).slideInFromLeft(60.dp, 150).then(if (infoTarget == null && recordTarget == null) Modifier.trapFocus() else Modifier)) {
                 SearchPage(
                     guide = vm,
+                    serverUrl = session?.serverUrl.orEmpty(),
                     focusEnabled = infoTarget == null && recordTarget == null,
                     openKeyboard = true,
                     onProgramme = { ch, prog -> recordTarget = ch to prog },
@@ -1195,6 +1197,8 @@ private fun SettingsGroup(title: String) {
 @Composable
 private fun SearchPage(
     guide: GuideViewModel,
+    /** Dispatcharr, for the channels' logos. */
+    serverUrl: String,
     focusEnabled: Boolean,
     onOpenMenu: () -> Unit,
     onExit: () -> Unit,
@@ -1438,16 +1442,29 @@ private fun SearchPage(
                         Text("Channels", fontSize = 16.sp, color = AppColors.TextPrimary, modifier = Modifier.padding(bottom = 6.dp))
                         androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             items(channels, key = { it.id }) { ch ->
-                                Box(Modifier.width(220.dp)) {
-                                    MenuItem(
-                                        text = ch.name,
-                                        selected = false,
-                                        trailing = ch.number?.let { n -> if (n % 1.0 == 0.0) n.toInt().toString() else n.toString() },
-                                        onClick = { onChannel(ch) },
-                                        // Not while a title, its episodes or a player is open over search: focus that fell
-                                        // here (e.g. while an episode's source list opened) started a live channel.
-                                        modifier = Modifier.focusProperties { canFocus = fieldFree && focusEnabled },
-                                    )
+                                // The channel's logo, name and number, like the guide.
+                                androidx.tv.material3.Surface(
+                                    onClick = { onChannel(ch) },
+                                    // Not while a title, its episodes or a player is open over search: focus that fell
+                                    // here (e.g. while an episode's source list opened) started a live channel.
+                                    modifier = Modifier.width(250.dp).focusProperties { canFocus = fieldFree && focusEnabled },
+                                    scale = androidx.tv.material3.ClickableSurfaceDefaults.scale(scale = 1f, focusedScale = 1f, pressedScale = 1f),
+                                    shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(androidx.compose.foundation.shape.RoundedCornerShape(8.dp)),
+                                    colors = androidx.tv.material3.ClickableSurfaceDefaults.colors(
+                                        containerColor = AppColors.Panel, contentColor = AppColors.TextPrimary,
+                                        focusedContainerColor = AppColors.Accent, focusedContentColor = AppColors.OnAccent,
+                                    ),
+                                ) {
+                                    Row(Modifier.padding(horizontal = 10.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        Box(Modifier.size(width = 64.dp, height = 38.dp), contentAlignment = Alignment.Center) {
+                                            io.github.petebutty.viewarr.ui.guide.channelLogo(serverUrl, ch)?.let { logo ->
+                                                coil.compose.AsyncImage(model = logo, contentDescription = null, contentScale = androidx.compose.ui.layout.ContentScale.Fit, modifier = Modifier.fillMaxSize())
+                                            }
+                                        }
+                                        Spacer(Modifier.width(10.dp))
+                                        Text(ch.name, fontSize = 14.sp, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                                        ch.number?.let { n -> Text(if (n % 1.0 == 0.0) n.toInt().toString() else n.toString(), fontSize = 12.sp, modifier = Modifier.padding(start = 6.dp)) }
+                                    }
                                 }
                             }
                         }
