@@ -508,6 +508,9 @@ private fun LibraryGrid(
     val prev = b.page > 0
     val showNext = b.hasNext && !b.loading
     val nextFocus = remember { FocusRequester() }
+    // Down turns the page only for a press that started at the bottom (on the bottom row or Next page). The release
+    // of a press that just moved focus down into the bottom row mustn't count, or the last row could never be reached.
+    var pageDownArmed by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxSize().padding(top = 28.dp)) {
         Row(Modifier.padding(horizontal = 48.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
@@ -582,16 +585,15 @@ private fun LibraryGrid(
                                 // Bottom row: Down turns the page when the key is let go (turning it on the press let
                                 // the rest of the press move focus a row down on the new page).
                                 e.key == Key.DirectionDown && bottomRow -> {
-                                    // Via the Next page card, as OK on it does: turning the page while a poster held
-                                    // focus left focus a row down on the new page.
-                                    if (e.type == KeyEventType.KeyDown) runCatching { nextFocus.requestFocus() } else onPage(1)
+                                    // Pressed here: go via the Next page card, which turns the page on release.
+                                    if (e.type == KeyEventType.KeyDown) { pageDownArmed = true; runCatching { nextFocus.requestFocus() } }
                                     true
                                 }
                                 e.type != KeyEventType.KeyDown -> false
                                 e.key == Key.DirectionLeft && col == 0 -> { onLeftEdge(); true }
                                 // Nothing directly below on the row before last: Down goes to Next page.
                                 e.key == Key.DirectionDown && showNext && pos + GRID_COLUMNS >= cells - 1 && pos / GRID_COLUMNS < (cells - 1) / GRID_COLUMNS ->
-                                    { runCatching { nextFocus.requestFocus() }; true }
+                                    { pageDownArmed = false; runCatching { nextFocus.requestFocus() }; true }
                                 else -> false
                             }
                         },
@@ -604,7 +606,11 @@ private fun LibraryGrid(
                     "›", "Next page", "Page ${b.page + 2} of ${b.pages}",
                     // Down on Next page turns the page too (nothing is below it).
                     Modifier.focusRequester(nextFocus).onPreviewKeyEvent { e ->
-                        if (e.key != Key.DirectionDown) false else { if (e.type == KeyEventType.KeyUp) onPage(1); true }
+                        when {
+                            e.key != Key.DirectionDown -> false
+                            e.type == KeyEventType.KeyDown -> { pageDownArmed = true; true }
+                            else -> { if (pageDownArmed) { pageDownArmed = false; onPage(1) }; true }
+                        }
                     },
                 ) { onPage(1) }
             }
