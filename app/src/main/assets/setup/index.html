@@ -387,6 +387,15 @@ a.link.alt{background:transparent;border:1px solid var(--line);color:var(--text)
         ${nav('<button class="primary" type="submit">' + (emby ? 'Sign in' : 'Get a Quick Connect code') + '</button>')}
       </form>`);
     wireNav();
+    // Fill in the address if the TV can find the server on the network.
+    (async () => {
+      const srv = view.querySelector('#server');
+      try {
+        const r = await api('media-discover', { kind });
+        const s = ((r && r.servers) || [])[0];
+        if (s && srv && !srv.value) { srv.value = s.url.replace(/^http:\/\//, ''); msg('✓ Found ' + s.name + ' on your network', 'ok'); }
+      } catch (e) {}
+    })();
     let mode = emby ? 'pw' : 'qc';
     const submitBtn = view.querySelector('button[type=submit]');
     view.querySelectorAll('[data-t]').forEach((b) => b.addEventListener('click', () => {

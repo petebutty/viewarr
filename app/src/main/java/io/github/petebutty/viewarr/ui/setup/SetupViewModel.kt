@@ -225,7 +225,7 @@ class SetupViewModel @Inject constructor(
 
     private fun go(step: SetupStep) {
         cleanUp()
-        if (step != SetupStep.Phone && step != SetupStep.Stremio && step != SetupStep.Tmdb && step != SetupStep.Seerr && step != SetupStep.Mdblist) stopPhone()
+        if (step !in setOf(SetupStep.Phone, SetupStep.Stremio, SetupStep.Tmdb, SetupStep.Seerr, SetupStep.Mdblist, SetupStep.Jellyfin, SetupStep.Emby)) stopPhone()
         _state.update {
             it.copy(step = step, busy = false, error = null, info = null, code = null, codeUrl = null, plexChoices = emptyList(), fields = emptyMap())
         }
@@ -235,6 +235,7 @@ class SetupViewModel @Inject constructor(
             SetupStep.Trakt -> startTrakt()
             SetupStep.Plex -> startPlex()
             SetupStep.Vod -> checkVod()
+            SetupStep.Jellyfin, SetupStep.Emby -> { startPhone(); findMediaServer(step == SetupStep.Emby) }
             SetupStep.Server -> if (_state.value.serverInput.isBlank()) viewModelScope.launch {
                 _state.update { it.copy(info = "Looking for Dispatcharr on your network…") }
                 val found = runCatching { auth.discover() }.getOrDefault(emptyList())
@@ -248,6 +249,36 @@ class SetupViewModel @Inject constructor(
                 }
             }
             else -> Unit
+        }
+    }
+
+    /** Hosts worth trying for Jellyfin / Emby when nothing answers the broadcast: the box Dispatcharr is on. */
+    private suspend fun likelyHosts(): List<String> =
+        listOfNotNull(sessions.session.first()?.serverUrl?.let { runCatching { java.net.URI(it).host }.getOrNull() })
+
+    /** Looks for the server on the network and fills in the address; for Jellyfin, starts Quick Connect straight away. */
+    private fun findMediaServer(emby: Boolean) {
+        val step = if (emby) SetupStep.Emby else SetupStep.Jellyfin
+        val name = if (emby) "Emby" else "Jellyfin"
+        // Signed in from the phone: move on here too (the TV's own sign-in moves on by itself, so wait a moment first).
+        viewModelScope.launch {
+            val before = store.current().let { if (emby) it.emby else it.jellyfin }
+            store.accounts.first { a -> (if (emby) a.emby else a.jellyfin).let { it != null && it != before } }
+            delay(1_500)
+            if (_state.value.step == step) { cleanUp(); advance() }
+        }
+        viewModelScope.launch {
+            _state.update { it.copy(info = "Looking for $name on your network…") }
+            val found = runCatching { mediaServers.discover(emby, likelyHosts()) }.getOrDefault(emptyList())
+            if (_state.value.step != step || !_state.value.fields[SERVER].isNullOrBlank()) return@launch
+            val server = found.firstOrNull()
+            if (server == null) {
+                _state.update { it.copy(info = "Couldn't find $name automatically. Type its address, or scan the code to do it on your phone.") }
+                return@launch
+            }
+            val address = server.url.removePrefix("http://")
+            _state.update { it.copy(fields = it.fields + (SERVER to address), info = "Found ${server.name} at $address.") }
+            if (!emby) startQuickConnect()
         }
     }
 
@@ -352,7 +383,7 @@ class SetupViewModel @Inject constructor(
             val qc = mediaServers.startQuickConnect(server, deviceId)
                 ?: return@work fail("Quick Connect is turned off on this server. Use your username and password.")
             quickConnect = qc
-            _state.update { it.copy(busy = false, code = qc.code, info = "In Jellyfin, open your profile → Quick Connect and enter this code.") }
+            _state.update { it.copy(busy = false, code = qc.code, info = "No password needed: in the Jellyfin app (phone or browser), open your profile → Quick Connect and enter this code. Or sign in with your username and password.") }
             stepJob = viewModelScope.launch {
                 repeat(120) {
                     delay(3_000)
@@ -539,6 +570,13 @@ class SetupViewModel @Inject constructor(
                             })
                         }
                     }
+                }
+            }
+            "media-discover" -> {
+                val emby = v["kind"] == "emby"
+                val found = runCatching { mediaServers.discover(emby, likelyHosts()) }.getOrDefault(emptyList())
+                reply(true) {
+                    putJsonArray("servers") { found.forEach { f -> add(buildJsonObject { put("url", f.url); put("name", f.name) }) } }
                 }
             }
             "discover" -> {

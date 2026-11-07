@@ -200,7 +200,8 @@ fun SetupWizard(
                     },
                 )
                 SetupStep.Jellyfin, SetupStep.Emby -> TextStep(
-                    qrUrl = null,
+                    qrUrl = state.qrUrl?.let { u -> u.substringBefore('#') + "?go=" + (if (state.step == SetupStep.Emby) "emby" else "jellyfin") + "#" + u.substringAfter('#') },
+                    qrCaption = "Scan to do this on your phone: easier for typing the address and password.",
                     fields = {
                         WizardField(state.fields[SERVER].orEmpty(), { vm.onField(SERVER, it) }, "Server address", firstFocus, KeyboardType.Uri, ImeAction.Next) {}
                         WizardField(state.fields[USER].orEmpty(), { vm.onField(USER, it) }, "Username", null, KeyboardType.Text, ImeAction.Next) {}
@@ -562,8 +563,8 @@ private fun bodyFor(state: SetupUiState) = when (state.step) {
     SetupStep.Trakt -> "Trakt keeps your watchlist and history in sync with your other apps."
     SetupStep.Plex -> "Link this TV to your Plex account. Viewarr then plays straight from your Plex server."
     SetupStep.Stremio -> "Paste the manifest link from your addon's configure page (for AIOStreams, the 'Copy manifest URL' button)."
-    SetupStep.Jellyfin -> "Sign in with your Jellyfin account, or use Quick Connect from the Jellyfin app."
-    SetupStep.Emby -> "Sign in with your Emby account."
+    SetupStep.Jellyfin -> "Viewarr looks for Jellyfin on your network. Then approve it with Quick Connect (no password), or sign in."
+    SetupStep.Emby -> "Viewarr looks for Emby on your network. Then sign in with your Emby username and password."
     SetupStep.Vod -> "Films and series from your IPTV provider, served through Dispatcharr."
     SetupStep.Mdblist -> "Optional: a free MDBList key adds IMDb, Rotten Tomatoes, Metacritic and Letterboxd ratings to every film and show. " +
         "Sign in at mdblist.com, open Preferences → API access, and copy your API key."

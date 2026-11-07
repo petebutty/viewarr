@@ -164,6 +164,44 @@ class MediaServerService @Inject constructor(private val http: HttpJson) {
         return mapOf((if (emby) "X-Emby-Authorization" else "Authorization") to value, "Content-Type" to "application/json")
     }
 
+    /**
+     * Finds Jellyfin or Emby servers on the home network: both answer a UDP broadcast on port 7359
+     * ("who is JellyfinServer?" / "who is EmbyServer?"). In Docker the reply's address can be the container's own,
+     * so the address the reply came from is tried too. [alsoTry] are hosts worth trying on port 8096 when nothing
+     * answers (e.g. the box Dispatcharr runs on, which often runs Jellyfin as well).
+     */
+    suspend fun discover(emby: Boolean, alsoTry: List<String> = emptyList()): List<ServerInfo> {
+        val candidates = LinkedHashSet<String>()
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching {
+                java.net.DatagramSocket().use { sock ->
+                    sock.broadcast = true
+                    sock.soTimeout = 500
+                    val ask = (if (emby) "who is EmbyServer?" else "who is JellyfinServer?").toByteArray()
+                    sock.send(java.net.DatagramPacket(ask, ask.size, java.net.InetAddress.getByName("255.255.255.255"), 7359))
+                    val end = System.currentTimeMillis() + 2_000
+                    val buf = ByteArray(4096)
+                    while (System.currentTimeMillis() < end) {
+                        val p = java.net.DatagramPacket(buf, buf.size)
+                        try { sock.receive(p) } catch (_: java.net.SocketTimeoutException) { continue }
+                        val j = runCatching { kotlinx.serialization.json.Json.parseToJsonElement(String(p.data, 0, p.length)) }.getOrNull() ?: continue
+                        val address = j.str("Address")?.trimEnd('/') ?: continue
+                        val port = Regex(":(\\d+)$").find(address)?.groupValues?.get(1) ?: "8096"
+                        candidates += address
+                        p.address?.hostAddress?.let { candidates += "http://$it:$port" }
+                    }
+                }
+            }
+        }
+        alsoTry.forEach { candidates += "http://$it:8096" }
+        val found = LinkedHashMap<String, ServerInfo>()
+        for (c in candidates) {
+            val s = findServer(c, emby) ?: continue
+            if (s.product.isBlank() || s.product.contains("Emby", ignoreCase = true) == emby) found.putIfAbsent(s.name, s)
+        }
+        return found.values.toList()
+    }
+
     /** Accepts host, host:port or a full URL; tries the default port 8096 when none is given. */
     suspend fun findServer(input: String, emby: Boolean): ServerInfo? {
         val raw = input.trim().trimEnd('/')
