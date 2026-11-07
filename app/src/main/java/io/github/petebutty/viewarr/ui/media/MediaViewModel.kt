@@ -694,10 +694,13 @@ class MediaViewModel @Inject constructor(
         viewModelScope.launch {
             data class Try(val label: String, val home: Boolean, val get: suspend () -> io.github.petebutty.viewarr.data.media.VodStream?)
             val tries = ArrayList<Try>()
-            val plexEps = d.plexEpisodes.ifEmpty { d.plexShowKey?.let { runCatching { repo.plexEpisodes(it) }.getOrNull() }.orEmpty() }
-            plexEps[season to episode]?.ratingKey?.let { rk ->
-                val c = d.copies?.firstOrNull { it.source == "Plex" }
-                tries += Try("Plex", c != null && runCatching { repo.isHomeCopy(c) }.getOrDefault(false)) { repo.plexStream(rk, watch)?.copy(title = title) }
+            // Every Plex server that has the show (home first, as the copies are sorted), each with its own episode list.
+            d.copies.orEmpty().filter { it.source == "Plex" && it.ref != null }.forEachIndexed { i, c ->
+                val eps = if (i == 0) d.plexEpisodes.ifEmpty { runCatching { repo.plexEpisodes(c.ref!!) }.getOrNull().orEmpty() }
+                else runCatching { repo.plexEpisodes(c.ref!!) }.getOrNull().orEmpty()
+                eps[season to episode]?.ratingKey?.let { rk ->
+                    tries += Try(copyLabel(c), runCatching { repo.isHomeCopy(c) }.getOrDefault(false)) { repo.plexStream(rk, watch)?.copy(title = title) }
+                }
             }
             serverCopy(d)?.let { c ->
                 d.serverEpisodes[season to episode]?.ratingKey?.let { id ->
