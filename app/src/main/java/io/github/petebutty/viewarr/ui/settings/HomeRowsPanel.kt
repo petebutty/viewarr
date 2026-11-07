@@ -53,13 +53,16 @@ import io.github.petebutty.viewarr.ui.theme.AppColors
 import kotlinx.coroutines.android.awaitFrame
 
 /**
- * Settings → Home rows: the rows on the Films and Shows pages. OK shows or hides a row; Right picks it up so
- * Up / Down move it, and OK, Right or Left puts it down.
+ * Settings → Home page & menu, for Movies and for Shows, each in two parts:
+ *  - Home page: the rows on the Movies / Shows page, top to bottom (on / off and order);
+ *  - Menu list: what the menu lists when you press Right on Movies / Shows (libraries and catalogues, on / off).
+ * OK turns an entry on or off; Right picks it up so Up / Down move it, and OK, Right or Left puts it down.
  */
 @Composable
 fun HomeRowsSettingsScreen(onBack: () -> Unit) {
     var type by remember { mutableStateOf(MediaType.Movie) }
-    val tabFocus = remember { listOf(FocusRequester(), FocusRequester()) }
+    var menu by remember { mutableStateOf(false) }
+    val tabFocus = remember { List(4) { FocusRequester() } }
     var moving by remember { mutableStateOf<String?>(null) }
     BackHandler { if (moving != null) moving = null else onBack() }
     LaunchedEffect(Unit) { awaitFrame(); runCatching { tabFocus[0].requestFocus() } }
@@ -67,38 +70,47 @@ fun HomeRowsSettingsScreen(onBack: () -> Unit) {
         Row(Modifier.fillMaxSize().padding(horizontal = 56.dp, vertical = 40.dp)) {
             Column(Modifier.width(300.dp).fillMaxHeight()) {
                 Text("Settings", fontSize = 14.sp, color = AppColors.Accent)
-                Text("Home rows", fontSize = 30.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, modifier = Modifier.padding(bottom = 20.dp))
-                listOf(MediaType.Movie to "Movies", MediaType.Show to "Shows").forEachIndexed { i, (t, label) ->
-                    MenuItem(
-                        text = label,
-                        selected = t == type,
-                        onClick = { type = t },
-                        modifier = Modifier.focusRequester(tabFocus[i]).onFocusChanged { if (it.isFocused) { type = t; moving = null } },
-                    )
+                Text("Home page & menu", fontSize = 30.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, modifier = Modifier.padding(bottom = 20.dp))
+                var i = 0
+                listOf(MediaType.Movie to "Movies", MediaType.Show to "Shows").forEach { (t, label) ->
+                    Text(label, fontSize = 13.sp, color = AppColors.Accent, modifier = Modifier.padding(start = 12.dp, top = 10.dp, bottom = 2.dp))
+                    listOf(false to "Home page", true to "Menu list").forEach { (m, name) ->
+                        val fr = tabFocus[i++]
+                        MenuItem(
+                            text = name,
+                            selected = t == type && m == menu,
+                            onClick = { type = t; menu = m },
+                            modifier = Modifier.focusRequester(fr).onFocusChanged { if (it.isFocused) { type = t; menu = m; moving = null } },
+                        )
+                    }
                 }
             }
             Spacer(Modifier.width(40.dp))
             // Same view model as the Films / Shows page, so the rows are shared and changes show there at once.
-            androidx.compose.runtime.key(type) {
-                RowsEditor(type, moving, onMoving = { moving = it })
+            androidx.compose.runtime.key(type, menu) {
+                RowsEditor(type, menu, moving, onMoving = { moving = it })
             }
         }
     }
 }
 
 @Composable
-private fun RowsEditor(type: MediaType, moving: String?, onMoving: (String?) -> Unit) {
+private fun RowsEditor(type: MediaType, menu: Boolean, moving: String?, onMoving: (String?) -> Unit) {
     val media: MediaViewModel = hiltViewModel(key = "media-${type.name}")
     LaunchedEffect(type) { media.load(type); media.loadLibraries(type) }
     val libs = media.allLibraries.collectAsStateWithLifecycle().value.orEmpty()
     val state by media.editableRows.collectAsStateWithLifecycle()
-    val (rows, done) = state
+    val (pageRows, done) = state
+    val menuRows by media.editableMenuRows.collectAsStateWithLifecycle()
+    // The page: its rows. The menu: libraries first (as the menu lists them), then the catalogues.
+    val rows = if (menu) emptyList() else pageRows
+    val what = if (type == MediaType.Movie) "Movies" else "Shows"
     val focus = remember { HashMap<String, FocusRequester>() }
     val listState = rememberLazyListState()
     // After a move, keep focus on the row being carried.
     LaunchedEffect(moving, rows.map { it.first.id }, libs.map { it.first.key }) {
         val id = moving ?: return@LaunchedEffect
-        val idx = if (id.startsWith("lib:")) rows.size + 2 + libs.indexOfFirst { "lib:" + it.first.key == id } else rows.indexOfFirst { it.first.id == id }
+        val idx = if (id.startsWith("lib:")) 1 + libs.indexOfFirst { "lib:" + it.first.key == id } else rows.indexOfFirst { it.first.id == id }
         if (idx >= 0) {
             listState.animateScrollToItem(maxOf(0, idx - 3))
             awaitFrame()
@@ -108,7 +120,8 @@ private fun RowsEditor(type: MediaType, moving: String?, onMoving: (String?) -> 
     Column(Modifier.fillMaxHeight()) {
         Text(
             if (moving != null) "Moving: Up / Down to place it, then OK to put it down."
-            else "OK shows or hides a row. Right picks a row up to move it.",
+            else if (menu) "What the menu lists when you press Right on $what. OK turns one on or off; Right picks a library up to move it."
+            else "The rows on the $what page, top to bottom. OK turns a row on or off; Right picks it up to move it.",
             fontSize = 14.sp, color = if (moving != null) AppColors.Accent else AppColors.TextSecondary,
             modifier = Modifier.padding(top = 26.dp, bottom = 14.dp, start = 4.dp),
         )
@@ -149,7 +162,7 @@ private fun RowsEditor(type: MediaType, moving: String?, onMoving: (String?) -> 
                         Text(if (carried) "↕" else "${i + 1}", fontSize = 14.sp, modifier = Modifier.width(36.dp))
                         Column(Modifier.weight(1f)) {
                             Text(row.title, fontSize = 16.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(if (hidden) "Hidden" else "${row.items.size} titles", fontSize = 12.sp)
+                            Text(if (hidden) "Not on the page" else "On the page  ·  ${row.items.size} titles", fontSize = 12.sp)
                         }
                         Box(
                             Modifier.size(width = 48.dp, height = 26.dp)
@@ -160,14 +173,14 @@ private fun RowsEditor(type: MediaType, moving: String?, onMoving: (String?) -> 
                     }
                 }
             }
-            if (!done) item(key = "loading") {
+            if (!done && !menu) item(key = "loading") {
                 Text("Loading rows…", fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(12.dp))
             }
-            // The menu's library list (Movies / Shows → Right): show / hide and order, the same way.
-            if (libs.isNotEmpty()) item(key = "libs-head") {
-                Text("Libraries in the menu", fontSize = 15.sp, fontWeight = FontWeight.Medium, color = AppColors.Accent, modifier = Modifier.padding(start = 4.dp, top = 18.dp, bottom = 4.dp))
+            // The menu's library list (Movies / Shows → Right): on / off and order.
+            if (menu && libs.isNotEmpty()) item(key = "libs-head") {
+                Text("Libraries", fontSize = 15.sp, fontWeight = FontWeight.Medium, color = AppColors.Accent, modifier = Modifier.padding(start = 4.dp, top = 18.dp, bottom = 4.dp))
             }
-            itemsIndexed(libs, key = { _, it -> "lib:" + it.first.key }) { i, (lib, hidden) ->
+            if (menu) itemsIndexed(libs, key = { _, it -> "lib:" + it.first.key }) { i, (lib, hidden) ->
                 val id = "lib:" + lib.key
                 val fr = focus.getOrPut(id) { FocusRequester() }
                 val carried = id == moving
@@ -204,13 +217,45 @@ private fun RowsEditor(type: MediaType, moving: String?, onMoving: (String?) -> 
                         Text(if (carried) "↕" else "▤", fontSize = 14.sp, modifier = Modifier.width(36.dp))
                         Column(Modifier.weight(1f)) {
                             Text(lib.title, fontSize = 16.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(lib.source + "  ·  " + if (hidden) "Hidden" else "In the menu", fontSize = 12.sp)
+                            Text(lib.source + "  ·  " + if (hidden) "Not in the menu" else "In the menu", fontSize = 12.sp)
                         }
                         Box(
                             Modifier.size(width = 48.dp, height = 26.dp)
                                 .background(if (!hidden) Color(0xFF2EBD5A) else Color(0xFF6B6F7A), RoundedCornerShape(13.dp))
                                 .padding(3.dp),
                             contentAlignment = if (!hidden) Alignment.CenterEnd else Alignment.CenterStart,
+                        ) { Box(Modifier.size(20.dp).background(Color.White, CircleShape)) }
+                    }
+                }
+            }
+            // The menu's Catalogues: on / off only; they follow the page's order.
+            if (menu && menuRows.isNotEmpty()) item(key = "cat-head") {
+                Text("Catalogues (in the same order as the page)", fontSize = 15.sp, fontWeight = FontWeight.Medium, color = AppColors.Accent, modifier = Modifier.padding(start = 4.dp, top = 18.dp, bottom = 4.dp))
+            }
+            if (menu) itemsIndexed(menuRows, key = { _, it -> "cat:" + it.first.id }) { _, (row, off) ->
+                Surface(
+                    onClick = { if (moving == null) media.setMenuRowHidden(row.id, !off) else onMoving(null) },
+                    modifier = Modifier.fillMaxWidth(),
+                    scale = ClickableSurfaceDefaults.scale(scale = 1f, focusedScale = 1f, pressedScale = 1f),
+                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
+                    colors = ClickableSurfaceDefaults.colors(
+                        containerColor = AppColors.Panel,
+                        contentColor = if (off) AppColors.TextSecondary else AppColors.TextPrimary,
+                        focusedContainerColor = AppColors.Accent,
+                        focusedContentColor = AppColors.OnAccent,
+                    ),
+                ) {
+                    Row(Modifier.padding(horizontal = 18.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("☰", fontSize = 14.sp, modifier = Modifier.width(36.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(row.title, fontSize = 16.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(if (off) "Not in the menu" else "In the menu", fontSize = 12.sp)
+                        }
+                        Box(
+                            Modifier.size(width = 48.dp, height = 26.dp)
+                                .background(if (!off) Color(0xFF2EBD5A) else Color(0xFF6B6F7A), RoundedCornerShape(13.dp))
+                                .padding(3.dp),
+                            contentAlignment = if (!off) Alignment.CenterEnd else Alignment.CenterStart,
                         ) { Box(Modifier.size(20.dp).background(Color.White, CircleShape)) }
                     }
                 }

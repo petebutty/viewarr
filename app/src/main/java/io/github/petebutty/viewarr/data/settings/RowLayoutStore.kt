@@ -16,7 +16,12 @@ import javax.inject.Singleton
 internal val Context.rowLayoutStore by preferencesDataStore(name = "row_layout")
 
 /** Settings → Home rows: which rows the Films / Shows pages show, and in what order. */
-data class RowLayout(val order: List<String> = emptyList(), val hidden: Set<String> = emptySet()) {
+data class RowLayout(
+    val order: List<String> = emptyList(),
+    val hidden: Set<String> = emptySet(),
+    /** Rows left out of the menu's Catalogues list (Movies / Shows → Right); separate from [hidden] (the page). */
+    val menuHidden: Set<String> = emptySet(),
+) {
     /** [rows] in the chosen order (rows never placed keep their own order, after the placed ones), hidden ones kept. */
     fun ordered(rows: List<MediaRow>): List<MediaRow> {
         val pos = order.withIndex().associate { it.value to it.index }
@@ -41,7 +46,15 @@ class RowLayoutStore @Inject constructor(@ApplicationContext private val context
         RowLayout(
             order = p[orderKey(type)]?.split(SEP)?.filter { it.isNotEmpty() }.orEmpty(),
             hidden = p[hiddenKey(type)].orEmpty(),
+            menuHidden = p[menuHiddenKey(type)].orEmpty(),
         )
+    }
+
+    suspend fun setMenuHidden(type: MediaType, id: String, hidden: Boolean) {
+        context.rowLayoutStore.edit { p ->
+            val now = p[menuHiddenKey(type)].orEmpty()
+            p[menuHiddenKey(type)] = if (hidden) now + id else now - id
+        }
     }
 
     suspend fun setHidden(type: MediaType, id: String, hidden: Boolean) {
@@ -82,7 +95,7 @@ class RowLayoutStore @Inject constructor(@ApplicationContext private val context
     }
 
     suspend fun reset(type: MediaType) {
-        context.rowLayoutStore.edit { it.remove(orderKey(type)); it.remove(hiddenKey(type)); it.remove(libOrderKey(type)); it.remove(libHiddenKey(type)) }
+        context.rowLayoutStore.edit { it.remove(orderKey(type)); it.remove(hiddenKey(type)); it.remove(libOrderKey(type)); it.remove(libHiddenKey(type)); it.remove(menuHiddenKey(type)) }
     }
 
     private companion object {
@@ -91,5 +104,6 @@ class RowLayoutStore @Inject constructor(@ApplicationContext private val context
         fun hiddenKey(t: MediaType) = stringSetPreferencesKey("hidden_${t.name}")
         fun libOrderKey(t: MediaType) = stringPreferencesKey("lib_order_${t.name}")
         fun libHiddenKey(t: MediaType) = stringSetPreferencesKey("lib_hidden_${t.name}")
+        fun menuHiddenKey(t: MediaType) = stringSetPreferencesKey("menu_hidden_${t.name}")
     }
 }

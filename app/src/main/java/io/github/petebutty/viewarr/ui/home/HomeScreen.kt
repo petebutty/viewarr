@@ -1156,7 +1156,7 @@ private fun SettingsPanel(playbackItem: FocusRequester, onPlayback: () -> Unit, 
         MenuItem(text = "Accounts & sources", selected = false, onClick = onAccounts, modifier = Modifier.focusRequester(firstItem).rightDoes(onAccounts))
         SettingsGroup("Look & feel")
         MenuItem(text = "Appearance", selected = false, onClick = onAppearance, modifier = Modifier.focusRequester(appearanceItem).rightDoes(onAppearance))
-        MenuItem(text = "Home rows & libraries", selected = false, onClick = onHomeRows, modifier = Modifier.focusRequester(homeRowsItem).rightDoes(onHomeRows))
+        MenuItem(text = "Home page & menu", selected = false, onClick = onHomeRows, modifier = Modifier.focusRequester(homeRowsItem).rightDoes(onHomeRows))
         SettingsGroup("Remote")
         MenuItem(text = "Remote & navigation", selected = false, onClick = onRemote, modifier = Modifier.focusRequester(remoteItem).rightDoes(onRemote))
         SettingsGroup("Watching")
@@ -1702,7 +1702,8 @@ private fun MediaMenuPanel(type: MediaType, focusRequester: FocusRequester, onCo
     // Same instance as the page's, so what's picked here shows there straight away.
     val media: MediaViewModel = hiltViewModel(key = "media-${type.name}")
     LaunchedEffect(type) { media.load(type); media.loadLibraries(type) }
-    val rowsState by media.rows.collectAsStateWithLifecycle()
+    // The menu's own list (Settings → Home page & menu → Menu list), separate from which rows the page shows.
+    val rowsState by media.menuRows.collectAsStateWithLifecycle()
     val libraries by media.libraries.collectAsStateWithLifecycle()
     val browse by media.browse.collectAsStateWithLifecycle()
     val current by media.currentRow.collectAsStateWithLifecycle()
