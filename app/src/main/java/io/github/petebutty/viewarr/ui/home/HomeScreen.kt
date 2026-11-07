@@ -384,6 +384,7 @@ fun HomeScreen(
                         io.github.petebutty.viewarr.data.settings.SearchButton.Yellow -> code == android.view.KeyEvent.KEYCODE_PROG_YELLOW
                         io.github.petebutty.viewarr.data.settings.SearchButton.Blue -> code == android.view.KeyEvent.KEYCODE_PROG_BLUE
                         io.github.petebutty.viewarr.data.settings.SearchButton.Info -> code == android.view.KeyEvent.KEYCODE_INFO
+                        io.github.petebutty.viewarr.data.settings.SearchButton.Chosen -> remote.searchKeyCode != null && code == remote.searchKeyCode
                         io.github.petebutty.viewarr.data.settings.SearchButton.Off -> false
                     }
                     if (hit) {

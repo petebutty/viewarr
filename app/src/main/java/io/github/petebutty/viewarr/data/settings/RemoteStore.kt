@@ -98,6 +98,7 @@ enum class SearchButton(override val label: String) : RemoteChoice {
     Yellow("Yellow button"),
     Blue("Blue button"),
     Info("Info button"),
+    Chosen("A button you choose (press it next)"),
     Off("Off (search from the menu only)"),
 }
 
@@ -116,6 +117,8 @@ data class RemoteSettings(
     val menuBack: MenuBack = MenuBack.entries.first(),
     val startPage: StartPage = StartPage.entries.first(),
     val searchButton: SearchButton = SearchButton.entries.first(),
+    /** Search button → "A button you choose": the key code learned. */
+    val searchKeyCode: Int? = null,
     /** The last live channel played (for "Last channel" start). */
     val lastChannelId: Int? = null,
     /** False until the stored settings have been read. */
@@ -146,9 +149,14 @@ class RemoteStore @Inject constructor(@ApplicationContext private val context: C
             menuBack = p.read(MENU_BACK),
             startPage = p.read(START_PAGE),
             searchButton = p.read(SEARCH_BUTTON),
+            searchKeyCode = p[intPreferencesKey(SEARCH_KEYCODE)],
             lastChannelId = p[intPreferencesKey(LAST_CHANNEL)],
             loaded = true,
         )
+    }
+
+    suspend fun setSearchKeyCode(code: Int) {
+        context.remoteStore.edit { it[intPreferencesKey(SEARCH_KEYCODE)] = code; it[stringPreferencesKey(SEARCH_BUTTON)] = SearchButton.Chosen.name }
     }
 
     suspend fun set(key: String, value: Enum<*>) {
@@ -185,6 +193,7 @@ class RemoteStore @Inject constructor(@ApplicationContext private val context: C
         const val MENU_BACK = "menu_back"
         const val START_PAGE = "start_page"
         const val SEARCH_BUTTON = "search_button"
+        const val SEARCH_KEYCODE = "search_keycode"
         const val LAST_CHANNEL = "last_channel"
     }
 }
