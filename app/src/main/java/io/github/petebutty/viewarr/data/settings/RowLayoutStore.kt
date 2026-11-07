@@ -22,12 +22,19 @@ data class RowLayout(
     /** Rows left out of the menu's Catalogues list (Movies / Shows → Right); separate from [hidden] (the page). */
     val menuHidden: Set<String> = emptySet(),
 ) {
-    /** [rows] in the chosen order (rows never placed keep their own order, after the placed ones), hidden ones kept. */
+    /**
+     * [rows] in the chosen order. A row never placed (new since the order was saved, e.g. a new feature's row) goes
+     * right after the row it follows by default, rather than to the bottom. Hidden ones are kept.
+     */
     fun ordered(rows: List<MediaRow>): List<MediaRow> {
         val pos = order.withIndex().associate { it.value to it.index }
-        return rows.withIndex()
-            .sortedWith(compareBy({ pos[it.value.id] ?: (order.size + it.index) }, { it.index }))
-            .map { it.value }
+        val result = rows.filter { it.id in pos }.sortedBy { pos[it.id] }.toMutableList()
+        rows.forEachIndexed { i, row ->
+            if (row.id in pos) return@forEachIndexed
+            val before = (i - 1 downTo 0).map { rows[it] }.firstOrNull { it in result }
+            result.add(if (before == null) 0 else result.indexOf(before) + 1, row)
+        }
+        return result
     }
 
     fun visible(rows: List<MediaRow>) = ordered(rows).filter { it.id !in hidden }

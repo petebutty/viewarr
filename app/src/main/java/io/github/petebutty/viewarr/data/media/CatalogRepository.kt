@@ -397,7 +397,9 @@ class CatalogRepository @Inject constructor(
                 }.awaitAll().filterNotNull().forEach { found += it }
             }
         }
-        val soon = found.filter { !it.date.isBefore(today) && it.date.isBefore(today.plusDays(35)) }
+        val now = java.time.ZonedDateTime.now(zone)
+        // Not yet aired: a timed episode (Trakt) still to come; a dated one (TMDB) today or later.
+        val soon = found.filter { (it.time?.isAfter(now) ?: !it.date.isBefore(today)) && it.date.isBefore(today.plusDays(35)) }
             .sortedWith(compareBy({ it.date }, { it.time }))
             .distinctBy { it.item.tmdbId ?: it.item.key }
             .take(30)
