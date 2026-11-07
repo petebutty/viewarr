@@ -283,10 +283,15 @@ class XtreamClient @Inject constructor(private val client: OkHttpClient, private
             return runCatching { OffsetDateTime.parse(if (t.length == 14) "$t +0000" else t, XMLTV).toInstant().toEpochMilli() }.getOrNull()
         }
         /** "Name (2021)" or "EN - Name" style provider titles, tidied for display. */
-        fun cleanTitle(name: String): String = name
-            .replace(Regex("^[A-Z]{2,3}\\s*[|:-]\\s*"), "")
-            .replace(Regex("\\s*\\(\\d{4}\\)\\s*$"), "")
-            .trim()
+        fun cleanTitle(name: String): String {
+            var t = name.trim()
+                .replace(Regex("^\\|[A-Z]{2,5}\\|\\s*"), "")          // "|EN| Name"
+                .replace(Regex("^[A-Z]{2,3}\\s*[|:-]\\s*"), "")         // "EN - Name", "NF - Name"
+            // Trailing year and provider tags: "Name (2026) (KR) (KOREAN MULTI SUB)", "Name [4K]".
+            val tag = Regex("\\s*[(\\[](\\d{4}|[A-Z0-9][A-Z0-9 +&/-]*)[)\\]]\\s*$")
+            while (true) { val n = t.replace(tag, ""); if (n == t || n.isBlank()) break; t = n }
+            return t.trim()
+        }
         fun yearIn(name: String): Int? = Regex("\\((\\d{4})\\)").find(name)?.groupValues?.get(1)?.toIntOrNull()
     }
 }

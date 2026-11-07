@@ -361,7 +361,7 @@ class MediaViewModel @Inject constructor(
         browseJob?.cancel()
         queryJob?.cancel()
         if (library == null) { _browse.value = null; return }
-        val sort = _browse.value?.takeIf { it.library.key == library.key }?.sort ?: io.github.petebutty.viewarr.data.media.LibrarySort.Title
+        val sort = _browse.value?.takeIf { it.library.key == library.key }?.sort ?: io.github.petebutty.viewarr.data.media.LibrarySort.Released
         showLibraryPage(LibraryBrowse(library, type, sort), 0)
     }
 

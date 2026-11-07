@@ -78,6 +78,7 @@ class CatalogRepository @Inject constructor(
             plexServers(a).forEach { p -> add { listOfNotNull(plexOnDeck(a, p, type)) } }
             a.jellyfin?.let { j -> add { listOfNotNull(serverResume(a, j, emby = false, type)) } }
             a.emby?.let { e -> add { listOfNotNull(serverResume(a, e, emby = true, type)) } }
+            if (type == MediaType.Show) add { listOfNotNull(upcomingRow(a, traktAuth)) }
             traktAuth?.let { t -> add { listOfNotNull(traktWatchlistRow(a, t, type)) } }
             plexServers(a).forEach { p -> add { plexRecent(a, p, type) } }
             a.jellyfin?.let { j -> add { listOfNotNull(serverLatest(a, j, emby = false, type)) } }
@@ -350,6 +351,72 @@ class CatalogRepository @Inject constructor(
                 }
             }.awaitAll()
         }
+    }
+
+    // ------------------------------------------------------------------ Upcoming episodes
+
+    /**
+     * "Upcoming episodes": when the next episodes of the shows you follow air. From your Trakt calendar when Trakt is
+     * signed in; otherwise from TMDB's next episode for the shows you're watching (continue watching on Plex,
+     * Jellyfin and Emby). One card per show, soonest first, the next five weeks.
+     */
+    private suspend fun upcomingRow(a: Accounts, traktAuth: TraktAuth?): MediaRow? {
+        val zone = java.time.ZoneId.systemDefault()
+        val today = java.time.LocalDate.now(zone)
+        data class Up(val item: MediaItem, val date: java.time.LocalDate, val time: java.time.ZonedDateTime?, val s: Int?, val e: Int?, val name: String?)
+        val found = ArrayList<Up>()
+        if (traktAuth != null) {
+            val r = runCatching { http.get("https://api.trakt.tv/calendars/my/shows/$today/35", trakt.headers(traktAuth.accessToken)) }.getOrNull()
+            r?.takeIf { it.ok }?.body?.asArray()?.forEach { j ->
+                val item = traktItem(j.child("show"), MediaType.Show, "Trakt") ?: return@forEach
+                val at = j.str("first_aired")?.let { runCatching { java.time.Instant.parse(it).atZone(zone) }.getOrNull() } ?: return@forEach
+                val ep = j.child("episode")
+                found += Up(item, at.toLocalDate(), at, ep.int("season"), ep.int("number"), ep.str("title"))
+            }
+        }
+        val key = a.tmdbKey
+        if (found.isEmpty() && key != null) {
+            // The shows you're part-way through, then each one's next episode on TMDB.
+            val watching = coroutineScope {
+                (plexServers(a).map { p -> async { runCatching { plexOnDeck(a, p, MediaType.Show) }.getOrNull()?.items.orEmpty() } } +
+                    listOfNotNull(a.jellyfin).map { j -> async { runCatching { serverResume(a, j, emby = false, MediaType.Show) }.getOrNull()?.items.orEmpty() } } +
+                    listOfNotNull(a.emby).map { e -> async { runCatching { serverResume(a, e, emby = true, MediaType.Show) }.getOrNull()?.items.orEmpty() } })
+                    .awaitAll().flatten()
+            }.filter { it.tmdbId != null }.distinctBy { it.tmdbId }.take(30)
+            coroutineScope {
+                watching.map { show ->
+                    async {
+                        tmdbLimit.withPermit {
+                            val r = runCatching { http.get(tmdb.url("/tv/${show.tmdbId}", key, mapOf("language" to "en-GB")), tmdb.headers(key)) }.getOrNull()
+                            val next = r?.takeIf { it.ok }?.body?.child("next_episode_to_air") ?: return@withPermit null
+                            val date = next.str("air_date")?.let { runCatching { java.time.LocalDate.parse(it) }.getOrNull() } ?: return@withPermit null
+                            val item = (tmdbItem(r.body, MediaType.Show) ?: show).copy(origin = show.origin)
+                            Up(item, date, null, next.int("season_number"), next.int("episode_number"), next.str("name"))
+                        }
+                    }
+                }.awaitAll().filterNotNull().forEach { found += it }
+            }
+        }
+        val soon = found.filter { !it.date.isBefore(today) && it.date.isBefore(today.plusDays(35)) }
+            .sortedWith(compareBy({ it.date }, { it.time }))
+            .distinctBy { it.item.tmdbId ?: it.item.key }
+            .take(30)
+        if (soon.isEmpty()) return null
+        val items = enrich(a, soon.map { it.item }).zip(soon).map { (item, u) ->
+            val day = when {
+                u.date == today -> "Today"
+                u.date == today.plusDays(1) -> "Tomorrow"
+                u.date.isBefore(today.plusDays(7)) -> u.date.format(java.time.format.DateTimeFormatter.ofPattern("EEEE"))
+                else -> u.date.format(java.time.format.DateTimeFormatter.ofPattern("EEE d MMM"))
+            }
+            val clock = u.time?.format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"))
+            val ep = if (u.s != null && u.e != null) "S${u.s} · E${u.e}" else null
+            item.copy(
+                key = item.key + ":upcoming",
+                subtitle = listOfNotNull(day + (clock?.let { " $it" } ?: ""), ep).joinToString("  ·  "),
+            )
+        }
+        return MediaRow("upcoming-${MediaType.Show.name}", "Upcoming episodes", items)
     }
 
     // ------------------------------------------------------------------ Trakt
