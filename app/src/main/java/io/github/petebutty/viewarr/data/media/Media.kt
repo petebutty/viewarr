@@ -82,6 +82,9 @@ data class VodStream(
     val boxPreviews: Boolean = true,
 )
 
+/** Pictures for the player: the title's backdrop (loading screen) and its logo (loading screen and controls). */
+data class PlayerArt(val backdrop: String?, val logo: String?)
+
 /** Where a server keeps its seek-bar preview pictures. */
 sealed interface ThumbSource {
     /** One BIF file with every preview (Plex, Emby). */

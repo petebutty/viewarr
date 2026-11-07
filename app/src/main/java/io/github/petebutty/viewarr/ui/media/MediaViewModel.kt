@@ -171,6 +171,27 @@ class MediaViewModel @Inject constructor(
     private val _playing = MutableStateFlow<io.github.petebutty.viewarr.data.media.VodStream?>(null)
     val playing = _playing.asStateFlow()
 
+    /** A title's logo (TMDB), cached; null when there isn't one. */
+    suspend fun logoFor(item: MediaItem): String? = runCatching { repo.logoFor(item) }.getOrNull()
+
+    /** The playing title's backdrop and logo: the backdrop at once, the logo once TMDB answers. */
+    private val _playerArt = MutableStateFlow<io.github.petebutty.viewarr.data.media.PlayerArt?>(null)
+    val playerArt = _playerArt.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            _playing.map { it?.url }.distinctUntilChanged().collect { url ->
+                // (url first: the first, empty value arrives while this class is still being built.)
+                if (url == null) { _playerArt.value = null; return@collect }
+                val item = _detail.value?.detail?.item ?: run { _playerArt.value = null; return@collect }
+                val art = io.github.petebutty.viewarr.data.media.PlayerArt(item.backdrop, null)
+                _playerArt.value = art
+                val logo = runCatching { repo.logoFor(item) }.getOrNull() ?: return@collect
+                if (_playing.value?.url == url) _playerArt.value = art.copy(logo = logo)
+            }
+        }
+    }
+
     /** A row picked from the menu's catalogue list: the screen scrolls to it and focuses its first poster. */
     private val _jump = MutableStateFlow<Pair<String?, Long>?>(null)
     val jump = _jump.asStateFlow()

@@ -27,6 +27,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.blur
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
@@ -81,6 +84,8 @@ fun PlayerOsd(
     scrubMs: Long?,
     thumbs: SeekThumbs?,
     modifier: Modifier = Modifier,
+    /** The title's logo: shown above the episode line instead of the title as text. */
+    logo: String? = null,
 ) {
     val scrubbing = scrubMs != null
     // The preview: fetched once the marker rests for a moment, the last one stays up meanwhile.
@@ -98,9 +103,20 @@ fun PlayerOsd(
             .background(Brush.verticalGradient(0f to Color.Transparent, 0.35f to Color.Black.copy(alpha = 0.55f), 1f to Color.Black.copy(alpha = 0.9f)))
             .padding(start = 56.dp, end = 56.dp, top = if (scrubbing && thumbs != null) 24.dp else 80.dp, bottom = 36.dp),
     ) {
+        // With a logo: the logo, then just the episode ("S1 E1"), if any, beside the play state.
+        var logoShown by remember(logo) { mutableStateOf(false) }
+        if (logo != null) coil.compose.AsyncImage(
+            // Loaded at its own size: the space stays 0 high until it arrives, and the loader won't fetch into 0.
+            model = coil.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current).data(logo).size(coil.size.Size.ORIGINAL).build(),
+            contentDescription = title,
+            contentScale = ContentScale.Fit,
+            alignment = Alignment.CenterStart,
+            onSuccess = { logoShown = true },
+            modifier = Modifier.padding(start = 40.dp, bottom = 10.dp).height(if (logoShown) 48.dp else 0.dp).width(280.dp),
+        )
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(if (buffering) "◌" else if (paused) "❚❚" else "▶", fontSize = 22.sp, color = Color.White, modifier = Modifier.width(40.dp))
-            Text(title, fontSize = 22.sp, fontWeight = FontWeight.Medium, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            Text(if (logoShown) title.substringAfter(" · ", "") else title, fontSize = 22.sp, fontWeight = FontWeight.Medium, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
             Text(if (buffering) "Loading…" else "", fontSize = 15.sp, color = Color.White.copy(alpha = 0.8f))
         }
         Spacer(Modifier.height(14.dp))
@@ -161,4 +177,69 @@ fun clockMs(ms: Long): String {
     val t = (ms / 1000).coerceAtLeast(0)
     val h = t / 3600; val m = (t % 3600) / 60; val s = t % 60
     return if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%d:%02d".format(m, s)
+}
+
+
+/**
+ * While a film or episode opens: its backdrop with a dark fade towards the bottom, and its logo fading in and then
+ * slowly "breathing" (a gentle grow and shrink) in the middle; the title as text when there's no logo. Fades away
+ * when the picture starts.
+ */
+@Composable
+fun PlayerLoading(title: String, art: io.github.petebutty.viewarr.data.media.PlayerArt?, visible: Boolean = true, modifier: Modifier = Modifier) {
+    androidx.compose.animation.AnimatedVisibility(
+        visible = visible,
+        enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(250)),
+        exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(300)),
+        modifier = modifier,
+    ) {
+        val breath = androidx.compose.animation.core.rememberInfiniteTransition(label = "breath")
+        val scale by breath.animateFloat(
+            initialValue = 1f, targetValue = 1.05f,
+            animationSpec = androidx.compose.animation.core.infiniteRepeatable(
+                androidx.compose.animation.core.tween(2_000, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+                androidx.compose.animation.core.RepeatMode.Reverse,
+            ),
+            label = "scale",
+        )
+        // Fades in once, shortly after the screen appears.
+        var shown by remember { mutableStateOf(false) }
+        LaunchedEffect(Unit) { shown = true }
+        val fadeIn by androidx.compose.animation.core.animateFloatAsState(
+            if (shown) 1f else 0f, androidx.compose.animation.core.tween(700, delayMillis = 300), label = "fadeIn",
+        )
+        val context = androidx.compose.ui.platform.LocalContext.current
+        var logoFailed by remember(art?.logo) { mutableStateOf(false) }
+        val showLogo = art?.logo != null && !logoFailed
+        Box(Modifier.fillMaxWidth().fillMaxHeight().background(Color.Black)) {
+            art?.backdrop?.let { bg ->
+                coil.compose.AsyncImage(
+                    model = bg, contentDescription = null, contentScale = ContentScale.Crop, alignment = Alignment.TopEnd,
+                    modifier = Modifier.fillMaxWidth().fillMaxHeight(),
+                )
+            }
+            Box(
+                Modifier.fillMaxWidth().fillMaxHeight().background(
+                    Brush.verticalGradient(0f to Color.Black.copy(alpha = 0.35f), 0.4f to Color.Black.copy(alpha = 0.6f), 0.75f to Color.Black.copy(alpha = 0.82f), 1f to Color.Black.copy(alpha = 0.92f)),
+                ),
+            )
+            Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
+                if (showLogo) coil.compose.AsyncImage(
+                    model = remember(art?.logo) { coil.request.ImageRequest.Builder(context).data(art?.logo).build() },
+                    contentDescription = title, contentScale = ContentScale.Fit,
+                    onError = { logoFailed = true },
+                    modifier = Modifier.width(320.dp).height(140.dp)
+                        .graphicsLayer { scaleX = scale; scaleY = scale; alpha = fadeIn },
+                )
+                else Text(
+                    title.substringBefore(" · "), fontSize = 40.sp, fontWeight = FontWeight.SemiBold, color = Color.White,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(horizontal = 120.dp).graphicsLayer { scaleX = scale; scaleY = scale; alpha = fadeIn },
+                )
+                title.substringAfter(" · ", "").takeIf { it.isNotBlank() }?.let {
+                    Text(it, fontSize = 17.sp, color = Color.White.copy(alpha = 0.75f), modifier = Modifier.padding(top = 20.dp).graphicsLayer { alpha = fadeIn })
+                }
+            }
+        }
+    }
 }

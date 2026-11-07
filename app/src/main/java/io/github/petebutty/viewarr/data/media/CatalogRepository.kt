@@ -1276,6 +1276,34 @@ class CatalogRepository @Inject constructor(
             .associate { (it.season to it.episode) to xtream.episodeUrl(s, it) }
     }
 
+    private val logoCache = ConcurrentHashMap<String, String>()
+
+    /**
+     * The title's logo (its name as artwork, transparent) from TMDB: English first, then one without text language,
+     * then any; the best voted. Null when TMDB has none.
+     */
+    suspend fun logoFor(item: MediaItem): String? {
+        val id = item.tmdbId ?: tmdbIdFor(item) ?: return null
+        val cacheKey = "${item.type}:$id"
+        logoCache[cacheKey]?.let { return it.ifEmpty { null } }
+        val key = store.current().tmdbKey ?: return null
+        val path = if (item.type == MediaType.Movie) "/movie/$id/images" else "/tv/$id/images"
+        val r = runCatching { http.get(tmdb.url(path, key, mapOf("include_image_language" to "en,null")), tmdb.headers(key)) }.getOrNull()
+            ?.takeIf { it.ok } ?: return null
+        val logos = r.body.array("logos")
+        val best = logos.sortedWith(
+            compareBy<JsonElement>(
+                { when (it.str("iso_639_1")) { "en" -> 0; null -> 1; else -> 2 } },
+                { if (it.str("file_path")?.endsWith(".png") == true) 0 else 1 },
+                { -(((it.child("vote_average") as? JsonPrimitive)?.doubleOrNull) ?: 0.0) },
+            ),
+        ).firstOrNull()?.str("file_path")
+        val url = best?.let { "https://image.tmdb.org/t/p/w500$it" }
+        Log.i(TAG, "logo for ${item.title}: ${logos.size} on TMDB, ${if (url == null) "none" else "found"}")
+        logoCache[cacheKey] = url.orEmpty()
+        return url
+    }
+
     /** A title's TMDB id: its own, or looked up from its IMDb id (Stremio addons such as AIOStreams use IMDb ids). */
     suspend fun tmdbIdFor(item: MediaItem): Int? {
         item.tmdbId?.let { return it }

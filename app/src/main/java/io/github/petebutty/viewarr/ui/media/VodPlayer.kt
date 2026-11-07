@@ -60,6 +60,7 @@ fun VodPlayer(
     onProgress: (state: String, positionMs: Long, durationMs: Long) -> Unit = { _, _, _ -> },
     /** Hold-OK menu → "Switch to mpv": carry on there from this position. */
     onSwitchPlayer: ((positionMs: Long) -> Unit)? = null,
+    art: io.github.petebutty.viewarr.data.media.PlayerArt? = null,
 ) {
     val context = LocalContext.current
     var error by remember(stream) { mutableStateOf<String?>(null) }
@@ -325,9 +326,12 @@ fun VodPlayer(
             },
             modifier = Modifier.fillMaxSize(),
         )
-        if (paused || buffering || now < osdUntil || scrub.active) PlayerOsd(
-            stream.title, positionMs, durationMs, paused, buffering, scrub.targetMs, thumbs, Modifier.align(Alignment.BottomCenter),
+        var started by remember(stream) { mutableStateOf(false) }
+        if (!buffering && durationMs > 0) started = true
+        if (started && (paused || buffering || now < osdUntil || scrub.active)) PlayerOsd(
+            stream.title, positionMs, durationMs, paused, buffering, scrub.targetMs, thumbs, Modifier.align(Alignment.BottomCenter), logo = art?.logo,
         )
+        PlayerLoading(stream.title, art, visible = !started && error == null)
         if (tracksOpen) TrackPicker(player, onSwitchPlayer = onSwitchPlayer?.let { f -> { f(player.currentPosition) } }, onClose = { tracksOpen = false; runCatching { focus.requestFocus() } }, modifier = Modifier.align(Alignment.CenterEnd))
         if (pb.stats == io.github.petebutty.viewarr.data.settings.StatsOverlay.On) {
             var info by remember { mutableStateOf("") }

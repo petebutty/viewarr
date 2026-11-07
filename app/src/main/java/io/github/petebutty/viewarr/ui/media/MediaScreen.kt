@@ -278,6 +278,7 @@ fun MediaScreen(
                 trailerActive = focusEnabled && hasFocus && detail == null && playing == null,
                 trailers = vm.trailers,
                 librarySourcesOf = vm::librarySources,
+                logoOf = vm::logoFor,
             )
             when {
                 searchHeader != null && rows.isEmpty() && state.done -> Unit
@@ -367,7 +368,8 @@ fun MediaScreen(
                     .padding(horizontal = 24.dp, vertical = 10.dp),
             )
         }
-        playing?.let { PlayerHost(stream = it, onClose = vm::stopPlaying, onProgress = vm::reportProgress) }
+        val playerArt by vm.playerArt.collectAsStateWithLifecycle()
+        playing?.let { PlayerHost(stream = it, onClose = vm::stopPlaying, art = playerArt, onProgress = vm::reportProgress) }
         val upNext by vm.upNext.collectAsStateWithLifecycle()
         if (playing == null) upNext?.let { UpNextOverlay(it.episode, onPlay = vm::playUpNext, onCancel = vm::cancelUpNext) }
     }
@@ -384,6 +386,7 @@ private fun Hero(
     trailers: io.github.petebutty.viewarr.data.trailers.TrailerRepository? = null,
     /** Where a title from an addon row really is, e.g. "Plex" (AIOStreams can pass on your own library). */
     librarySourcesOf: (suspend (MediaItem) -> String?)? = null,
+    logoOf: (suspend (MediaItem) -> String?)? = null,
 ) {
     val inLibrary by produceState<String?>(null, item?.key) {
         value = null
@@ -418,7 +421,7 @@ private fun Hero(
             Text(if (type == MediaType.Movie) "Movies" else "Shows", fontSize = 14.sp, color = AppColors.Accent)
             Spacer(Modifier.height(8.dp))
             if (item != null) {
-                Text(item.title, fontSize = 26.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                TitleLogo(item, logoOf, height = 64.dp, maxWidth = 360.dp, fontSize = 26, waitMs = 300)
                 Spacer(Modifier.height(6.dp))
                 Text(
                     inLibrary?.let { where -> metaLine(item.copy(origin = "$where · via ${item.origin}")) } ?: metaLine(item),
@@ -869,7 +872,7 @@ private fun DetailScreen(
                 Spacer(Modifier.width(36.dp))
             }
             Column(Modifier.fillMaxWidth(0.62f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(item.title, fontSize = 34.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                TitleLogo(item, vm::logoFor, height = 96.dp, maxWidth = 440.dp, fontSize = 34)
                 val meta = listOfNotNull(
                     item.year?.toString(),
                     d.certification,
@@ -997,7 +1000,7 @@ private fun EpisodesPanel(ui: DetailUi, vm: MediaViewModel, onPlex: Boolean) {
         Row(Modifier.fillMaxSize().padding(start = 56.dp, end = 40.dp, top = 40.dp, bottom = 24.dp)) {
             // Left: show title + the highlighted episode, at the top where it's read first.
             Column(Modifier.weight(0.42f).fillMaxHeight().padding(end = 32.dp), verticalArrangement = Arrangement.Top) {
-                Text(item.title, fontSize = 30.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                TitleLogo(item, vm::logoFor, height = 80.dp, maxWidth = 400.dp, fontSize = 30)
                 shown?.let { ep ->
                     val plex = ui.plexEpisodes[ep.season to ep.number]
                     Spacer(Modifier.height(10.dp))
@@ -1263,5 +1266,36 @@ private fun QuickOptions(item: MediaItem, vm: MediaViewModel, onTrailer: () -> U
             }
             io.github.petebutty.viewarr.ui.common.MenuItem(text = "Close", selected = false, onClick = onClose)
         }
+    }
+}
+
+
+/**
+ * A title's name as its logo artwork (TMDB), left-aligned; the name as text until the logo arrives, or when there's
+ * none. [waitMs]: a short pause first, so moving quickly along a row doesn't fetch every logo.
+ */
+@Composable
+private fun TitleLogo(item: MediaItem, logoOf: (suspend (MediaItem) -> String?)?, height: androidx.compose.ui.unit.Dp, maxWidth: androidx.compose.ui.unit.Dp, fontSize: Int, waitMs: Long = 0) {
+    val logo by produceState<String?>(null, item.key) {
+        value = null
+        if (logoOf == null) return@produceState
+        if (waitMs > 0) delay(waitMs)
+        value = logoOf(item)
+    }
+    var loaded by remember(logo) { mutableStateOf(false) }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    Box {
+        logo?.let { url ->
+            AsyncImage(
+                // Loaded at its own size: the space stays 0 high until it arrives.
+                model = remember(url) { coil.request.ImageRequest.Builder(context).data(url).size(coil.size.Size.ORIGINAL).build() },
+                contentDescription = item.title,
+                contentScale = ContentScale.Fit,
+                alignment = Alignment.CenterStart,
+                onSuccess = { loaded = true },
+                modifier = Modifier.height(if (loaded) height else 0.dp).width(maxWidth),
+            )
+        }
+        if (!loaded) Text(item.title, fontSize = fontSize.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis)
     }
 }

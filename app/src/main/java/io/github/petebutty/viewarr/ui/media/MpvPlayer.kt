@@ -82,6 +82,7 @@ fun MpvPlayer(
     onProgress: (state: String, positionMs: Long, durationMs: Long) -> Unit = { _, _, _ -> },
     /** Hold-OK menu → "Switch to the built-in player": carry on there from this position. */
     onSwitchPlayer: ((positionMs: Long) -> Unit)? = null,
+    art: io.github.petebutty.viewarr.data.media.PlayerArt? = null,
 ) {
     val context = LocalContext.current
     val settings = LocalPlayback.current
@@ -362,10 +363,14 @@ fun MpvPlayer(
                 .then(if (settings.subtitleBackground == io.github.petebutty.viewarr.data.settings.SubtitleBackground.Box) Modifier.background(Color.Black.copy(alpha = 0.75f), RoundedCornerShape(4.dp)).padding(horizontal = 10.dp, vertical = 4.dp) else Modifier),
         )
         val osdVisible = paused || buffering || now < osdUntil || scrub.active
-        if (osdVisible) PlayerOsd(
+        // Until the first picture: the loading screen (backdrop, breathing logo); then the controls carry the logo.
+        var started by remember(stream) { mutableStateOf(false) }
+        if (!buffering && position > 0) started = true
+        if (osdVisible && started) PlayerOsd(
             stream.title, (position * 1000).toLong(), (duration * 1000).toLong(), paused, buffering,
-            scrub.targetMs, thumbs, Modifier.align(Alignment.BottomCenter),
+            scrub.targetMs, thumbs, Modifier.align(Alignment.BottomCenter), logo = art?.logo,
         )
+        PlayerLoading(stream.title, art, visible = !started && error == null)
         if (stats.isNotEmpty()) Text(
             stats, fontSize = 13.sp, color = Color.White,
             modifier = Modifier.align(Alignment.TopStart).padding(24.dp).background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(6.dp)).padding(12.dp),
@@ -545,6 +550,7 @@ private fun MpvTrackPicker(mpv: MpvHandle, onSwitchPlayer: (() -> Unit)?, onClos
 fun PlayerHost(
     stream: VodStream,
     onClose: () -> Unit,
+    art: io.github.petebutty.viewarr.data.media.PlayerArt? = null,
     onProgress: (state: String, positionMs: Long, durationMs: Long) -> Unit = { _, _, _ -> },
 ) {
     // The engine from Settings, swappable for this film from the hold-OK menu (picks up at the same moment).
@@ -558,8 +564,8 @@ fun PlayerHost(
     }
     androidx.compose.runtime.key(engine) {
         when (engine) {
-            io.github.petebutty.viewarr.data.settings.PlayerEngine.Mpv -> MpvPlayer(current, onClose, onProgress, switch)
-            io.github.petebutty.viewarr.data.settings.PlayerEngine.Builtin -> VodPlayer(current, onClose, onProgress, switch)
+            io.github.petebutty.viewarr.data.settings.PlayerEngine.Mpv -> MpvPlayer(current, onClose, onProgress, switch, art)
+            io.github.petebutty.viewarr.data.settings.PlayerEngine.Builtin -> VodPlayer(current, onClose, onProgress, switch, art)
         }
     }
 }
