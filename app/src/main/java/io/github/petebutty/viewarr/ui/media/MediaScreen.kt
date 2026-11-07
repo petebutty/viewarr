@@ -133,8 +133,14 @@ fun MediaScreen(
     LaunchedEffect(browse?.library?.key, browse?.sort, browse?.page, browse?.genre, browse?.unwatched, browse?.items?.isNotEmpty()) {
         val b = browse ?: return@LaunchedEffect
         if (!focusEnabled || detail != null || b.items.isEmpty() || librarySearching) return@LaunchedEffect
+        // A new page: its first title, from the top. Set explicitly: a poster the old page's focus fell onto while
+        // the page changed could otherwise become the entry (it landed a row down).
+        gridFocusKey = b.items.first().key
+        runCatching { gridState.scrollToItem(0) }
         awaitFrame(); awaitFrame()
         runCatching { focusRequester.requestFocus() }
+        awaitFrame()
+        if (gridFocusKey != b.items.first().key) { gridFocusKey = b.items.first().key; awaitFrame(); awaitFrame(); runCatching { focusRequester.requestFocus() } }
     }
     // Back from a title opened in a library: straight back to that poster (scrolled into view first).
     var openedFromGrid by remember { mutableStateOf<String?>(null) }
@@ -571,7 +577,16 @@ private fun LibraryGrid(
                         .onFocusChanged { if (it.isFocused) onFocus(item) }
                         .onPreviewKeyEvent { e ->
                             // Left on the first column: the menu (pick another library).
+                            val bottomRow = showNext && pos / GRID_COLUMNS == (cells - 1) / GRID_COLUMNS
                             when {
+                                // Bottom row: Down turns the page when the key is let go (turning it on the press let
+                                // the rest of the press move focus a row down on the new page).
+                                e.key == Key.DirectionDown && bottomRow -> {
+                                    // Via the Next page card, as OK on it does: turning the page while a poster held
+                                    // focus left focus a row down on the new page.
+                                    if (e.type == KeyEventType.KeyDown) runCatching { nextFocus.requestFocus() } else onPage(1)
+                                    true
+                                }
                                 e.type != KeyEventType.KeyDown -> false
                                 e.key == Key.DirectionLeft && col == 0 -> { onLeftEdge(); true }
                                 // Nothing directly below on the row before last: Down goes to Next page.
@@ -584,7 +599,15 @@ private fun LibraryGrid(
                     onLongClick = { onLong(item) },
                 )
             }
-            if (showNext) item(key = "next") { PageCard("›", "Next page", "Page ${b.page + 2} of ${b.pages}", Modifier.focusRequester(nextFocus)) { onPage(1) } }
+            if (showNext) item(key = "next") {
+                PageCard(
+                    "›", "Next page", "Page ${b.page + 2} of ${b.pages}",
+                    // Down on Next page turns the page too (nothing is below it).
+                    Modifier.focusRequester(nextFocus).onPreviewKeyEvent { e ->
+                        if (e.key != Key.DirectionDown) false else { if (e.type == KeyEventType.KeyUp) onPage(1); true }
+                    },
+                ) { onPage(1) }
+            }
             if (b.loading) item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(GRID_COLUMNS) }) {
                 Text("Loading…", fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(8.dp))
             }
