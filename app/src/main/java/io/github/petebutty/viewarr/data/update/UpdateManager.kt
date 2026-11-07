@@ -32,7 +32,8 @@ import javax.inject.Singleton
 private const val TAG = "Updates"
 private const val RELEASES_URL = "https://api.github.com/repos/petebutty/viewarr/releases?per_page=30"
 /** Automatic checks happen at most this often (on app start). */
-private const val AUTO_INTERVAL_MS = 12 * 3600_000L
+/** Automatic checks: on start and when the app comes back to the front, at most this often (GitHub allows 60 an hour). */
+private const val AUTO_INTERVAL_MS = 30 * 60_000L
 
 data class Release(
     val version: String,

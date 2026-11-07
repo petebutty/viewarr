@@ -83,6 +83,8 @@ fun UpdateHost(vm: UpdateViewModel = hiltViewModel()) {
         val obs = LifecycleEventObserver { _, e ->
             val s = state
             if (e == Lifecycle.Event.ON_RESUME && s is UpdateState.NeedsPermission && vm.canInstall()) vm.install(s.release)
+            // Back to the front (e.g. from the TV's home screen): look for a newer version if it's been a while.
+            else if (e == Lifecycle.Event.ON_RESUME && (s is UpdateState.Idle || s is UpdateState.UpToDate)) vm.autoCheck()
         }
         lifecycle.addObserver(obs)
         onDispose { lifecycle.removeObserver(obs) }
