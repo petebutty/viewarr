@@ -34,8 +34,9 @@ Viewarr doesn't provide any content. It plays only what your own servers and acc
 **Films & shows**
 - Netflix-style rows: Continue watching, your Trakt watchlist and recommendations, recently added on Plex, and trending, popular and top-rated titles from TMDB. Choose which rows show, and their order, in **Settings → Home rows**.
 - **Your whole library:** Movies and Shows in the menu list your Plex, Jellyfin and Emby libraries and your catalogues. A library opens a page at a time, with sorting (A–Z, date added, release date, rating), genre and unwatched filters, and search with voice. Hide or reorder the libraries in **Settings → Home rows**.
-- **Several Plex servers:** every server on your Plex account is used, in rows, search and "In your library".
-- Detail pages with cast, rating, and "In your library" badges.
+- **Several Plex servers:** every server on your Plex account is used, in rows, search and "In your library". Switch any of them off in Accounts & sources → Plex.
+- **Title pages on one screen:** the title's logo, details and description, ratings from TMDB, IMDb, Rotten Tomatoes (critics and audience), Metacritic, Letterboxd and Trakt, and tabs for cast & crew (with photos; OK opens their films and shows), reviews from TMDB and Trakt users, more like this and details. IMDb and Rotten Tomatoes come from your Plex when it has them; add a free **MDBList** key in Accounts & sources for every title.
+- **Title logos** on the Movies/Shows header, the title page and the player, and a loading screen with the title's backdrop and a gently "breathing" logo while a film or episode starts.
 - Seasons and episodes for shows.
 - Play from **Plex** (converted by Plex automatically when the TV can't play the file itself), from **Jellyfin / Emby**, or search your **Stremio addons** (e.g. AIOStreams) for streams.
 - Watch progress is sent back to Plex, Jellyfin/Emby and Trakt.
