@@ -128,7 +128,9 @@ fun SetupWizard(
                     actions = { Button(onClick = vm::submit, enabled = !state.busy) { Text(if (state.busy) "Checking…" else "Continue") } },
                 )
                 SetupStep.SignIn -> TextStep(
-                    qrUrl = null,
+                    // Dispatcharr's Users page, where the API key is: open it on the phone (same Wi-Fi) and copy the key.
+                    qrUrl = state.serverUrl?.takeIf { !state.xc && state.useKey }?.trimEnd('/')?.plus("/users"),
+                    qrCaption = "Scan to open Dispatcharr's Users page on your phone (on your home Wi-Fi), then edit your user to see the API key.",
                     fields = {
                         if (!state.xc && state.useKey) {
                             WizardField(state.fields[SetupViewModel.API_KEY].orEmpty(), { vm.onField(SetupViewModel.API_KEY, it) }, "API key", firstFocus, KeyboardType.Text, ImeAction.Done, vm::submit)
