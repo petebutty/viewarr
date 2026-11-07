@@ -1268,6 +1268,84 @@ private fun SearchPage(
         runCatching { fieldFocus.requestFocus() }
         if (openKeyboard) { awaitFrame(); keyboard?.show() }
     }
+    // Live TV results (On TV, Channels): at the top when the search is a channel, else after the films and shows.
+    val tvSections: @Composable () -> Unit = {
+            if (query.trim().length >= 2 && showTv) {
+                // On TV: guide programmes that match. On now → watch; later → details and Record.
+                if (onTv.isNotEmpty()) {
+                    Spacer(Modifier.height(12.dp))
+                    Text("On TV", fontSize = 16.sp, color = AppColors.TextPrimary, modifier = Modifier.padding(bottom = 6.dp))
+                    val nowMs = System.currentTimeMillis()
+                    androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(onTv, key = { (c, p) -> "${c.id}:${p.rowId}" }) { (ch, p) ->
+                            val live = p.startTime <= nowMs
+                            androidx.tv.material3.Surface(
+                                onClick = { if (live) onChannel(ch) else onProgramme(ch, p) },
+                                modifier = Modifier.width(250.dp).focusProperties { canFocus = fieldFree && focusEnabled },
+                                shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(androidx.compose.foundation.shape.RoundedCornerShape(8.dp)),
+                                colors = androidx.tv.material3.ClickableSurfaceDefaults.colors(
+                                    containerColor = AppColors.Panel, contentColor = AppColors.TextPrimary,
+                                    focusedContainerColor = AppColors.Accent, focusedContentColor = AppColors.OnAccent,
+                                ),
+                            ) {
+                                // The channel's logo beside the programme, so it's clear it's a showing on that channel.
+                                Row(Modifier.padding(horizontal = 10.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Box(Modifier.size(width = 52.dp, height = 32.dp), contentAlignment = Alignment.Center) {
+                                        io.github.petebutty.viewarr.ui.guide.channelLogo(serverUrl, ch)?.let { logo ->
+                                            coil.compose.AsyncImage(model = logo, contentDescription = null, contentScale = androidx.compose.ui.layout.ContentScale.Fit, modifier = Modifier.fillMaxSize())
+                                        }
+                                    }
+                                    Spacer(Modifier.width(10.dp))
+                                    Column {
+                                        Text(p.title, fontSize = 14.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Medium, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                                        Text(
+                                            (if (live) "● Now on " else whenText(p.startTime, nowMs) + " on ") + ch.name,
+                                            fontSize = 12.sp, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+                if (channels.isNotEmpty()) {
+                    Text("Channels", fontSize = 16.sp, color = AppColors.TextPrimary, modifier = Modifier.padding(bottom = 6.dp))
+                    androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(channels, key = { it.id }) { ch ->
+                            // The channel's logo, name and number, like the guide.
+                            androidx.tv.material3.Surface(
+                                onClick = { onChannel(ch) },
+                                // Not while a title, its episodes or a player is open over search: focus that fell
+                                // here (e.g. while an episode's source list opened) started a live channel.
+                                modifier = Modifier.width(250.dp).focusProperties { canFocus = fieldFree && focusEnabled },
+                                scale = androidx.tv.material3.ClickableSurfaceDefaults.scale(scale = 1f, focusedScale = 1f, pressedScale = 1f),
+                                shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(androidx.compose.foundation.shape.RoundedCornerShape(8.dp)),
+                                colors = androidx.tv.material3.ClickableSurfaceDefaults.colors(
+                                    containerColor = AppColors.Panel, contentColor = AppColors.TextPrimary,
+                                    focusedContainerColor = AppColors.Accent, focusedContentColor = AppColors.OnAccent,
+                                ),
+                            ) {
+                                Row(Modifier.padding(horizontal = 10.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Box(Modifier.size(width = 64.dp, height = 38.dp), contentAlignment = Alignment.Center) {
+                                        io.github.petebutty.viewarr.ui.guide.channelLogo(serverUrl, ch)?.let { logo ->
+                                            coil.compose.AsyncImage(model = logo, contentDescription = null, contentScale = androidx.compose.ui.layout.ContentScale.Fit, modifier = Modifier.fillMaxSize())
+                                        }
+                                    }
+                                    Spacer(Modifier.width(10.dp))
+                                    Text(ch.name, fontSize = 14.sp, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                                    ch.number?.let { n -> Text(if (n % 1.0 == 0.0) n.toInt().toString() else n.toString(), fontSize = 12.sp, modifier = Modifier.padding(start = 6.dp)) }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+    }
+    val mediaRowsNow by media.rows.collectAsStateWithLifecycle()
+    val q0 = query.trim()
+    val titleHit = mediaRowsNow.rows.any { r -> r.items.any { it.title.equals(q0, ignoreCase = true) } }
+    val tvFirst = q0.length >= 2 && !titleHit && (channels.any { it.name.startsWith(q0, ignoreCase = true) } || onTv.any { it.second.title.equals(q0, ignoreCase = true) })
     MediaScreen(
         type = MediaType.Movie,
         focusRequester = rowsFocus,
@@ -1408,70 +1486,10 @@ private fun SearchPage(
                         }
                     }
                 }
-                if (query.trim().length >= 2 && showTv) {
-                    // On TV: guide programmes that match. On now → watch; later → details and Record.
-                    if (onTv.isNotEmpty()) {
-                        Spacer(Modifier.height(12.dp))
-                        Text("On TV", fontSize = 16.sp, color = AppColors.TextPrimary, modifier = Modifier.padding(bottom = 6.dp))
-                        val nowMs = System.currentTimeMillis()
-                        androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            items(onTv, key = { (c, p) -> "${c.id}:${p.rowId}" }) { (ch, p) ->
-                                val live = p.startTime <= nowMs
-                                androidx.tv.material3.Surface(
-                                    onClick = { if (live) onChannel(ch) else onProgramme(ch, p) },
-                                    modifier = Modifier.width(250.dp).focusProperties { canFocus = fieldFree && focusEnabled },
-                                    shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(androidx.compose.foundation.shape.RoundedCornerShape(8.dp)),
-                                    colors = androidx.tv.material3.ClickableSurfaceDefaults.colors(
-                                        containerColor = AppColors.Panel, contentColor = AppColors.TextPrimary,
-                                        focusedContainerColor = AppColors.Accent, focusedContentColor = AppColors.OnAccent,
-                                    ),
-                                ) {
-                                    Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-                                        Text(p.title, fontSize = 14.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Medium, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
-                                        Text(
-                                            (if (live) "● Now  ·  " else whenText(p.startTime, nowMs) + "  ·  ") + ch.name,
-                                            fontSize = 12.sp, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    Spacer(Modifier.height(12.dp))
-                    if (channels.isNotEmpty()) {
-                        Text("Channels", fontSize = 16.sp, color = AppColors.TextPrimary, modifier = Modifier.padding(bottom = 6.dp))
-                        androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            items(channels, key = { it.id }) { ch ->
-                                // The channel's logo, name and number, like the guide.
-                                androidx.tv.material3.Surface(
-                                    onClick = { onChannel(ch) },
-                                    // Not while a title, its episodes or a player is open over search: focus that fell
-                                    // here (e.g. while an episode's source list opened) started a live channel.
-                                    modifier = Modifier.width(250.dp).focusProperties { canFocus = fieldFree && focusEnabled },
-                                    scale = androidx.tv.material3.ClickableSurfaceDefaults.scale(scale = 1f, focusedScale = 1f, pressedScale = 1f),
-                                    shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(androidx.compose.foundation.shape.RoundedCornerShape(8.dp)),
-                                    colors = androidx.tv.material3.ClickableSurfaceDefaults.colors(
-                                        containerColor = AppColors.Panel, contentColor = AppColors.TextPrimary,
-                                        focusedContainerColor = AppColors.Accent, focusedContentColor = AppColors.OnAccent,
-                                    ),
-                                ) {
-                                    Row(Modifier.padding(horizontal = 10.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                        Box(Modifier.size(width = 64.dp, height = 38.dp), contentAlignment = Alignment.Center) {
-                                            io.github.petebutty.viewarr.ui.guide.channelLogo(serverUrl, ch)?.let { logo ->
-                                                coil.compose.AsyncImage(model = logo, contentDescription = null, contentScale = androidx.compose.ui.layout.ContentScale.Fit, modifier = Modifier.fillMaxSize())
-                                            }
-                                        }
-                                        Spacer(Modifier.width(10.dp))
-                                        Text(ch.name, fontSize = 14.sp, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                                        ch.number?.let { n -> Text(if (n % 1.0 == 0.0) n.toInt().toString() else n.toString(), fontSize = 12.sp, modifier = Modifier.padding(start = 6.dp)) }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+                if (tvFirst) tvSections()
             }
         },
+        searchFooter = if (tvFirst) null else ({ Column(Modifier.padding(horizontal = 48.dp)) { tvSections() } }),
         vm = media,
     )
 }

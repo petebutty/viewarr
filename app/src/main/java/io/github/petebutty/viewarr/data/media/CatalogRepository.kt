@@ -92,7 +92,9 @@ fun mergeRows(rows: List<MediaRow>): List<MediaRow> {
             val id = item.tmdbId?.let { "${item.type}:$it" } ?: item.key
             if (seen.add(id)) merged += item
         }
-        r.copy(title = title, items = merged)
+        // A fixed id for the combined row (not whichever server's row came first), so Home page & menu settings
+        // for it stick. One page's rows are all one type, and settings are kept per type.
+        r.copy(id = "merged:$g", title = title, items = merged)
     }
 }
 /** The provider's films / series as a library in the menu (IPTV provider, or Dispatcharr's provider VOD). */
@@ -193,9 +195,9 @@ class CatalogRepository @Inject constructor(
         val lock = Mutex()
         var finished = 0
         // Titles found in your libraries: TMDB results with the same id get a tick.
-        val owned = HashSet<String>()
+        val owned = HashMap<String, String>()
         fun withTicks(rows: List<MediaRow>) = rows.map { r ->
-            if (!r.id.startsWith("search-tmdb")) r else r.copy(items = r.items.map { it.copy(owned = it.key in owned) })
+            if (!r.id.startsWith("search-tmdb")) r else r.copy(items = r.items.map { it.copy(owned = it.key in owned, ownedFrom = owned[it.key]) })
         }
         slots.forEachIndexed { i, slot ->
             launch {
@@ -204,7 +206,7 @@ class CatalogRepository @Inject constructor(
                     .getOrNull().orEmpty().map { r -> r.copy(items = r.items.distinctBy { it.key }) }.filter { it.items.isNotEmpty() }
                 lock.withLock {
                     found[i] = result
-                    if (i == 0) result.firstOrNull()?.items?.forEach { owned.add(it.key) }
+                    if (i == 0) result.firstOrNull()?.items?.forEach { owned[it.key] = it.origin.split(" · ").distinct().joinToString(" · ") }
                     finished++
                     send(RowsState(withTicks(found.filterNotNull().flatten()), done = finished == slots.size))
                 }
@@ -1635,8 +1637,8 @@ class CatalogRepository @Inject constructor(
         if (r?.ok != true) return null
         val pass = r.body.child("custom_properties").str("xc_password")?.takeIf { it.isNotBlank() }
         val xc = pass?.let { s.copy(xcPassword = it) }
-        if (xc == null) Log.w(TAG, "provider VOD: Dispatcharr user ${s.username} has no XC password")
-        dispatcharrXc = id to xc
+        // Only a found password is kept: one added in Dispatcharr later is picked up next time.
+        if (xc == null) Log.w(TAG, "provider VOD: Dispatcharr user ${s.username} has no XC password") else dispatcharrXc = id to xc
         return xc
     }
     @Volatile private var dispatcharrXc: Pair<String, io.github.petebutty.viewarr.data.session.Session?>? = null

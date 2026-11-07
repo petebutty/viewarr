@@ -402,6 +402,7 @@ class PlaybackViewModel @Inject constructor(
     /** Dispatcharr's native catch-up endpoint: authenticated by the API key header, seekable. */
     fun playCatchup(channel: ChannelListItem, program: GuideProgram, session: Session? = this.session) {
         val s = session ?: return
+        livePausedAt = null // a programme picked from the guide: not "behind" any earlier live pause
         start(channel, program, s, catchupUrl(s, channel, program))
     }
 

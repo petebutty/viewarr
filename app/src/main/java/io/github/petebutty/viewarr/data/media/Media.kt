@@ -27,6 +27,8 @@ data class MediaItem(
     val durationMs: Long? = null,
     /** Search: a TMDB result that's also in one of your libraries (a tick on the poster). */
     val owned: Boolean = false,
+    /** Search: where you have it ("Plex", "Jellyfin", "IPTV"…), shown on the poster instead of a plain tick. */
+    val ownedFrom: String? = null,
 )
 
 data class EpisodeInfo(
@@ -72,6 +74,8 @@ data class PersonInfo(
     val died: String?,
     val place: String?,
     val knownFor: String?,
+    /** Still fetching the biography (shows "Loading…"); false once TMDB has answered, with or without one. */
+    val loading: Boolean = false,
 )
 
 data class LibraryCopy(val source: String, val detail: String? = null, val ref: String? = null)

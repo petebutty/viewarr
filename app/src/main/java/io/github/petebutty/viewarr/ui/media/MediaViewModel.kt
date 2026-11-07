@@ -137,6 +137,7 @@ class MediaViewModel @Inject constructor(
     private suspend fun autoPick() = playbackStore.current().streamPick == io.github.petebutty.viewarr.data.settings.StreamPick.Auto
 
     private val _rows = MutableStateFlow(RowsState(emptyList(), done = false))
+    private var lastQuery = ""
     /** Settings → Home page & menu → Combine rows from different servers. */
     val mergeRows = rowLayouts.mergeRows.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, true)
     fun setMergeRows(on: Boolean) { viewModelScope.launch { rowLayouts.setMergeRows(on) } }
@@ -156,7 +157,7 @@ class MediaViewModel @Inject constructor(
     fun setSearchFilter(f: SearchFilter) { _searchFilter.value = f }
 
     val rows: kotlinx.coroutines.flow.StateFlow<RowsState> = kotlinx.coroutines.flow.combine(shownRows, layout, _searchFilter, openedFromMenu) { r, l, f, extra ->
-        if (l != null) r.copy(rows = l.ordered(r.rows).filter { it.id !in l.hidden || it.id == extra }) else r.copy(rows = f.apply(r.rows))
+        if (l != null) r.copy(rows = l.ordered(r.rows).filter { it.id !in l.hidden || it.id == extra }) else r.copy(rows = orderSearch(f.apply(r.rows)))
     }.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, RowsState(emptyList(), done = false))
     /** Every row in the chosen order with whether it's hidden, for Settings → Home rows. */
     val editableRows: kotlinx.coroutines.flow.StateFlow<Pair<List<Pair<io.github.petebutty.viewarr.data.media.MediaRow, Boolean>>, Boolean>> =
@@ -204,6 +205,8 @@ class MediaViewModel @Inject constructor(
     /** From a title page: a cast member's films and shows (the title page closes). */
     fun openCastMember(c: io.github.petebutty.viewarr.data.media.CastMember) {
         val id = c.id ?: return
+        // Leave every title page (not back to the title before it): the person's page takes over.
+        detailStack.clear()
         close()
         open(MediaItem(key = "person:$id", type = MediaType.Movie, title = c.name, poster = c.photo, origin = "TMDB"))
     }
@@ -251,7 +254,17 @@ class MediaViewModel @Inject constructor(
     private var rowsJob: Job? = null
     private var detailJob: Job? = null
 
-    private var lastQuery = ""
+    /**
+     * Search results in the order you most likely meant: a person's name puts People first (unless a film or show has
+     * that exact title); otherwise your library, then films and shows, as they come.
+     */
+    private fun orderSearch(rows: List<io.github.petebutty.viewarr.data.media.MediaRow>): List<io.github.petebutty.viewarr.data.media.MediaRow> {
+        val q = lastQuery.trim()
+        if (q.length < 2) return rows
+        val titleHit = rows.filter { it.id != "search-people" }.any { r -> r.items.any { it.title.equals(q, ignoreCase = true) } }
+        val personHit = rows.firstOrNull { it.id == "search-people" }?.items?.firstOrNull()?.title?.equals(q, ignoreCase = true) == true
+        return if (personHit && !titleHit) rows.sortedBy { if (it.id == "search-people") 0 else 1 } else rows
+    }
 
     /** Search mode: the rows become search results. */
     fun search(query: String) {
@@ -307,9 +320,11 @@ class MediaViewModel @Inject constructor(
 
     private fun openPerson(item: MediaItem) {
         val id = item.key.removePrefix("person:")
-        _personInfo.value = io.github.petebutty.viewarr.data.media.PersonInfo(item.title, item.poster, null, null, null, null, null)
+        val placeholder = io.github.petebutty.viewarr.data.media.PersonInfo(item.title, item.poster, null, null, null, null, null, loading = true)
+        _personInfo.value = placeholder
         viewModelScope.launch {
-            runCatching { repo.personInfo(id, item.title) }.getOrNull()?.let { info -> if (_person.value == item.title) _personInfo.value = info }
+            val info = runCatching { repo.personInfo(id, item.title) }.getOrNull() ?: placeholder.copy(loading = false)
+            if (_person.value == item.title) _personInfo.value = info
         }
         if (_person.value == null) resultsBeforePerson = _rows.value
         _person.value = item.title
@@ -698,6 +713,11 @@ class MediaViewModel @Inject constructor(
                 _detail.update { it?.copy(searching = true, message = "Looking in your addons for S$season E$episode…") }
                 val found = kotlinx.coroutines.withTimeoutOrNull(30_000) { rank(runCatching { repo.addonStreams(item, season, episode) }.getOrDefault(emptyList())) }.orEmpty()
                 _detail.update { it?.copy(searching = false) }
+                if (found.isNotEmpty() && !autoPick()) {
+                    val ep = d.episodes?.firstOrNull { it.season == season && it.number == episode }
+                    _detail.update { it?.copy(message = null, streams = found, episode = ep ?: it.episode) }
+                    return@launch
+                }
                 if (found.isNotEmpty()) {
                     val opt = found.first()
                     _detail.update { it?.copy(message = null, episode = null) }
@@ -778,6 +798,8 @@ class MediaViewModel @Inject constructor(
                 _detail.update { it?.copy(searching = true, message = "Looking in your addons…") }
                 val found = kotlinx.coroutines.withTimeoutOrNull(30_000) { rank(runCatching { repo.addonStreams(item) }.getOrDefault(emptyList())) }.orEmpty()
                 _detail.update { it?.copy(searching = false) }
+                // Stream pick set to Manual (Settings → Playback): the list to choose from, as before.
+                if (found.isNotEmpty() && !autoPick()) { _detail.update { it?.copy(message = null, streams = found) }; return@launch }
                 if (found.isNotEmpty()) { _detail.update { it?.copy(message = null) }; playStream(found.first()); return@launch }
             }
             copies.firstOrNull { it.source == io.github.petebutty.viewarr.data.media.PROVIDER }?.ref?.let { ref ->

@@ -103,6 +103,8 @@ fun MediaScreen(
     onBack: () -> Unit = onOpenMenu,
     /** Search: shown instead of the hero, and the rows are search results (no automatic loading or focus grab). */
     searchHeader: (@Composable () -> Unit)? = null,
+    /** Search: shown after the result rows (live TV results, when the search isn't for a channel). */
+    searchFooter: (@Composable () -> Unit)? = null,
     vm: MediaViewModel = hiltViewModel(key = if (searchHeader != null) "media-search" else "media-${type.name}"),
 ) {
     val remote = LocalRemote.current
@@ -315,7 +317,7 @@ fun MediaScreen(
                 ratingsOf = vm::ratingsFor,
             )
             when {
-                searchHeader != null && rows.isEmpty() && state.done -> Unit
+                searchHeader != null && rows.isEmpty() && state.done -> searchFooter?.invoke()
                 rows.isEmpty() && !state.done -> Text(
                     if (searchHeader != null) "Searching…" else "Loading ${if (type == MediaType.Movie) "films" else "shows"}…",
                     color = AppColors.TextSecondary, modifier = Modifier.padding(start = 48.dp, top = 12.dp),
@@ -355,6 +357,7 @@ fun MediaScreen(
                             onOpen = { openedCard = lastCard; vm.open(it) },
                         )
                     }
+                    searchFooter?.let { footer -> item(key = "search-footer") { footer() } }
                 } }
             }
         }
@@ -870,11 +873,12 @@ private fun PosterCard(item: MediaItem, modifier: Modifier, onClick: () -> Unit,
                 modifier = Modifier.align(Alignment.Center).padding(8.dp), maxLines = 4, overflow = TextOverflow.Ellipsis,
             )
             item.poster?.let { AsyncImage(model = it, contentDescription = item.title, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
-            // Search: this one's in your library.
-            if (item.owned) Box(
-                Modifier.align(Alignment.TopEnd).padding(6.dp).size(24.dp).background(AppColors.Accent, CircleShape),
-                contentAlignment = Alignment.Center,
-            ) { Text("✓", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = AppColors.OnAccent) }
+            // Search: this one's in your library, and where ("Plex", "Jellyfin · IPTV").
+            if (item.owned) Text(
+                item.ownedFrom ?: "In library",
+                fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = AppColors.OnAccent, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.align(Alignment.TopEnd).padding(6.dp).background(AppColors.Accent, RoundedCornerShape(6.dp)).padding(horizontal = 6.dp, vertical = 2.dp),
+            )
             // A person (search): their name under the photo.
             if (item.key.startsWith("person:")) Text(
                 item.title, fontSize = 11.sp, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center,
@@ -1633,11 +1637,11 @@ private fun PersonHeader(p: io.github.petebutty.viewarr.data.media.PersonInfo) {
                 p.place,
             ).joinToString("  ·  ")
             if (life.isNotEmpty()) Text(life, fontSize = 15.sp, color = AppColors.TextSecondary)
-            Text(
-                p.bio ?: "Loading…",
+            (p.bio ?: if (p.loading) "Loading…" else null)?.let { bio -> Text(
+                bio,
                 fontSize = 15.sp, lineHeight = 21.sp, color = AppColors.TextPrimary, maxLines = 6, overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(top = 6.dp),
-            )
+            ) }
         }
     }
 }

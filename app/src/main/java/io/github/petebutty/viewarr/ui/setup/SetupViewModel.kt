@@ -229,13 +229,14 @@ class SetupViewModel @Inject constructor(
 
     private fun go(step: SetupStep) {
         cleanUp()
-        if (step !in setOf(SetupStep.Phone, SetupStep.Stremio, SetupStep.Tmdb, SetupStep.Seerr, SetupStep.Mdblist, SetupStep.Jellyfin, SetupStep.Emby)) stopPhone()
+        // SignIn too: its username & password QR opens the phone page.
+        if (step !in setOf(SetupStep.Phone, SetupStep.SignIn, SetupStep.Stremio, SetupStep.Tmdb, SetupStep.Seerr, SetupStep.Mdblist, SetupStep.Jellyfin, SetupStep.Emby)) stopPhone()
         _state.update {
             it.copy(step = step, busy = false, error = null, info = null, code = null, codeUrl = null, plexChoices = emptyList(), fields = emptyMap())
         }
         when (step) {
             SetupStep.Phone -> startPhone()
-            SetupStep.Stremio, SetupStep.Tmdb, SetupStep.Mdblist -> startPhone()
+            SetupStep.Stremio, SetupStep.Tmdb, SetupStep.Mdblist, SetupStep.SignIn -> startPhone()
             SetupStep.Trakt -> startTrakt()
             SetupStep.Plex -> startPlex()
             SetupStep.Vod -> checkVod()
@@ -808,9 +809,12 @@ class SetupViewModel @Inject constructor(
         val main = on.first()
         val onIds = on.map { it.machineId }.toSet()
         store.update { a ->
+            // Servers this run didn't list (offline just now, or only one offered) stay as they were.
+            val listed = all.map { it.machineId }.toSet()
+            val kept = a.plexMore.filter { it.machineId !in listed && it.machineId != main.machineId }
             a.copy(
                 plex = plex.toAuth(main),
-                plexMore = all.filter { it.machineId != main.machineId }.map(plex::toAuth),
+                plexMore = all.filter { it.machineId != main.machineId }.map(plex::toAuth) + kept,
                 plexOff = a.plexOff - all.map { it.machineId }.toSet() + all.map { it.machineId }.filter { it !in onIds },
             )
         }

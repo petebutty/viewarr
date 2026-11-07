@@ -76,12 +76,13 @@ class UpdateViewModel @Inject constructor(private val updates: UpdateManager) : 
 fun UpdateHost(vm: UpdateViewModel = hiltViewModel()) {
     val state by vm.state.collectAsStateWithLifecycle()
     val prompt by vm.prompt.collectAsStateWithLifecycle()
-    LaunchedEffect(Unit) { vm.autoCheck() }
+    // (The start-up check comes from the first ON_RESUME below, so there's one check, not two racing.)
     // Back from Android's "Install unknown apps" screen: carry on installing if it's now allowed.
     val lifecycle = LocalLifecycleOwner.current.lifecycle
-    DisposableEffect(lifecycle, state) {
+    val currentState by androidx.compose.runtime.rememberUpdatedState(state)
+    DisposableEffect(lifecycle) {
         val obs = LifecycleEventObserver { _, e ->
-            val s = state
+            val s = currentState
             if (e == Lifecycle.Event.ON_RESUME && s is UpdateState.NeedsPermission && vm.canInstall()) vm.install(s.release)
             // Back to the front (e.g. from the TV's home screen): look for a newer version if it's been a while.
             else if (e == Lifecycle.Event.ON_RESUME && (s is UpdateState.Idle || s is UpdateState.UpToDate)) vm.autoCheck()
