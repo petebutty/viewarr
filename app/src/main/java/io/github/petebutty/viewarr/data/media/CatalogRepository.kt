@@ -1197,6 +1197,40 @@ class CatalogRepository @Inject constructor(
     }
 
     /** A Jellyfin / Emby series' episodes as (season, episode) → id, resume point and watched. */
+    /**
+     * Where to carry on with a show: (season, episode, part-way through). Plex's on deck first, then Jellyfin /
+     * Emby's next up, then your Trakt progress; null when none of them know (start at the first episode).
+     */
+    suspend fun nextEpisodeFor(item: MediaItem, copies: List<LibraryCopy>): Triple<Int, Int, Boolean>? {
+        val a = store.current()
+        copies.filter { it.source == "Plex" && it.ref != null }.forEach { c ->
+            val (p, rk) = plexResolve(a, c.ref!!) ?: return@forEach
+            val deck = runCatching { plexGet(a, p, "/library/metadata/$rk?includeOnDeck=1") }.getOrNull()
+                ?.array("Metadata")?.firstOrNull()?.child("OnDeck")?.array("Metadata")?.firstOrNull()
+            val s = deck.int("parentIndex"); val e = deck.int("index")
+            if (s != null && e != null) return Triple(s, e, (deck.long("viewOffset") ?: 0) > 0)
+        }
+        copies.firstOrNull { (it.source == "Jellyfin" || it.source == "Emby") && it.ref != null }?.let { c ->
+            val (srv, emby) = serverFor(c.source) ?: return@let
+            val r = runCatching {
+                http.get("${srv.serverUrl}/Shows/NextUp?SeriesId=${enc(c.ref!!)}&UserId=${srv.userId}&Limit=1&Fields=UserData", mediaServers.headers(emby, a.deviceId, srv.token))
+            }.getOrNull()?.takeIf { it.ok }
+            val ep = r?.body?.array("Items")?.firstOrNull()
+            val s = ep.int("ParentIndexNumber"); val e = ep.int("IndexNumber")
+            if (s != null && e != null) return Triple(s, e, (ep.child("UserData").long("PlaybackPositionTicks") ?: 0) > 0)
+        }
+        val t = a.trakt?.let { freshTrakt(it) }
+        val id = item.imdbId
+        if (t != null && id != null) {
+            val r = runCatching { http.get("https://api.trakt.tv/shows/$id/progress/watched?specials=false", trakt.headers(t.accessToken)) }.getOrNull()?.takeIf { it.ok }
+            val next = r?.body?.child("next_episode")
+            val s = next.int("season"); val e = next.int("number")
+            // Only when you've started the show: otherwise Trakt's "next" is just the first episode anyway.
+            if (s != null && e != null && (r?.body.int("completed") ?: 0) > 0) return Triple(s, e, false)
+        }
+        return null
+    }
+
     suspend fun serverEpisodes(source: String, seriesId: String): Map<Pair<Int, Int>, PlexEpisode> {
         val (s, emby) = serverFor(source) ?: return emptyMap()
         val a = store.current()

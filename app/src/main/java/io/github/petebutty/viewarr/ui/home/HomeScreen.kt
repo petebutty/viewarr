@@ -1444,6 +1444,9 @@ private fun SearchPage(
                                         selected = false,
                                         trailing = ch.number?.let { n -> if (n % 1.0 == 0.0) n.toInt().toString() else n.toString() },
                                         onClick = { onChannel(ch) },
+                                        // Not while a title, its episodes or a player is open over search: focus that fell
+                                        // here (e.g. while an episode's source list opened) started a live channel.
+                                        modifier = Modifier.focusProperties { canFocus = fieldFree && focusEnabled },
                                     )
                                 }
                             }

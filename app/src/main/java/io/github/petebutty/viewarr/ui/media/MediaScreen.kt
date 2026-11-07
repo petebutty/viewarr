@@ -975,9 +975,18 @@ private fun DetailScreen(
                     if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionDown && buttonsFree) runCatching { tabFocus.requestFocus() }.isSuccess else false
                 }) {
                     if (show) {
-                        val next = item.nextSeason?.let { sn -> item.nextEpisode?.let { en -> sn to en } }?.takeIf { onPlex || onServer || onProvider || ui.hasAddons }
-                        if (next != null) {
-                            Button(onClick = vm::playNextUp, modifier = (Modifier.focusRequester(playFocus)).free()) { Text("Play S${next.first} · E${next.second}") }
+                        // Play / Resume: continue watching's episode, else where Plex / Jellyfin / Trakt say you're up to,
+                        // else S1 E1; from the best source (as a film's Play). Episodes for picking one.
+                        val canPlay = onPlex || onServer || onProvider || ui.hasAddons
+                        val next = item.nextSeason?.let { sn -> item.nextEpisode?.let { en -> Triple(sn, en, item.progress != null) } } ?: ui.nextUp
+                        if (canPlay) {
+                            val label = when {
+                                next == null -> "Play S1 · E1"
+                                next.third -> "Resume S${next.first} · E${next.second}"
+                                else -> "Play S${next.first} · E${next.second}"
+                            }
+                            // Holding OK: pick the episode (and its source) yourself.
+                            Button(onClick = vm::playNextUp, onLongClick = vm::openEpisodes, modifier = (Modifier.focusRequester(playFocus)).free()) { Text(if (ui.searching) "Looking…" else label) }
                             OutlinedButton(onClick = vm::openEpisodes, modifier = Modifier.free()) { Text("Episodes") }
                         } else {
                             Button(onClick = vm::openEpisodes, modifier = (Modifier.focusRequester(playFocus)).free()) { Text("Episodes") }

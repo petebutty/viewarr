@@ -37,6 +37,8 @@ data class DetailUi(
     /** Shows: the episodes panel. */
     val episodesOpen: Boolean = false,
     val seasons: List<io.github.petebutty.viewarr.data.media.SeasonInfo> = emptyList(),
+    /** Shows: where Play carries on from (season, episode, part-way through); null = from the first episode. */
+    val nextUp: Triple<Int, Int, Boolean>? = null,
     val season: Int? = null,
     /** null while loading. */
     val episodes: List<io.github.petebutty.viewarr.data.media.EpisodeInfo>? = null,
@@ -512,6 +514,8 @@ class MediaViewModel @Inject constructor(
                         }
                     }
                 _detail.update { it?.copy(plexEpisodes = plexEps, providerEpisodes = providerEps, serverEpisodes = serverEps, seasons = seasons) }
+                val next = runCatching { repo.nextEpisodeFor(full.item, copies) }.getOrNull()
+                _detail.update { if (it?.detail?.item?.key == full.item.key) it.copy(nextUp = next) else it }
             }
         }
     }
@@ -642,9 +646,11 @@ class MediaViewModel @Inject constructor(
 
     /** The "Play S2 E4" button on a show from continue watching. */
     fun playNextUp() {
-        val item = _detail.value?.detail?.item ?: return
-        val s = item.nextSeason ?: return
-        val e = item.nextEpisode ?: return
+        val d = _detail.value ?: return
+        val item = d.detail.item
+        // Continue watching's episode, else where your servers / Trakt say you're up to, else the first episode.
+        val s = item.nextSeason ?: d.nextUp?.first ?: d.seasons.map { it.number }.filter { it > 0 }.minOrNull() ?: 1
+        val e = (if (item.nextSeason != null) item.nextEpisode else d.nextUp?.second) ?: 1
         playBestEpisode(s, e)
     }
 
