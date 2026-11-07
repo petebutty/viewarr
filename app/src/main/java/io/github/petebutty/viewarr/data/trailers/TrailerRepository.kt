@@ -78,10 +78,12 @@ class TrailerRepository @Inject constructor(
             ?: pick(videos)
             ?: videos.minByOrNull { it.height }
             ?: return@withContext null.also { Log.w(TAG, "$youtubeId: no usable video stream") }
-        val audios = info.audioStreams.filter { it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP && it.itagItem != null }
-            .filter { it.audioTrackType == null || it.audioTrackType == AudioTrackType.ORIGINAL }
+        val playable = info.audioStreams.filter { it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP && it.itagItem != null }
+        // The original soundtrack (not a dub); YouTube doesn't always label it, so fall back to any track.
+        val audios = playable.filter { it.audioTrackType == null || it.audioTrackType == AudioTrackType.ORIGINAL }.ifEmpty { playable }
         val audio = audios.filter { it.format == MediaFormat.M4A }.maxByOrNull { it.averageBitrate }
             ?: audios.maxByOrNull { it.averageBitrate }
+        Log.i(TAG, "$youtubeId: ${info.audioStreams.size} audio streams (${playable.size} usable: ${playable.joinToString { "${it.format}/${it.audioTrackType}/${it.deliveryMethod}" }}), using ${audio?.format ?: "none"}")
         TrailerStreams(video, audio, info.duration, youtubeId)
     }
 

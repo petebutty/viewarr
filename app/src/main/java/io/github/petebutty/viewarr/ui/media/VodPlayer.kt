@@ -190,8 +190,11 @@ fun VodPlayer(
                 error = when (e.errorCode) {
                     PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED ->
                         "This file's format isn't supported by the TV. Press Back and choose another source."
-                    PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS ->
-                        "The server refused this stream. Press Back and try another source."
+                    PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS -> when ((e.cause as? androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException)?.responseCode) {
+                        404 -> "The server lists this title but couldn't find its file (moved or deleted?). Press Back and try another source."
+                        401, 403 -> "The server didn't allow this stream (sign-in or permissions). Press Back and try another source."
+                        else -> "The server refused this stream. Press Back and try another source."
+                    }
                     PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED, PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT ->
                         "Couldn't connect to the stream. Press Back and try again."
                     else -> "Couldn't play this (${e.errorCodeName.removePrefix("ERROR_CODE_").lowercase().replace('_', ' ')}). Press Back."
