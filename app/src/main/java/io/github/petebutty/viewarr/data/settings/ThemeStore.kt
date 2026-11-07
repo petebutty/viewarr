@@ -28,6 +28,7 @@ class ThemeStore @Inject constructor(@ApplicationContext private val context: Co
             showNumbers = prefs[NUMBERS] ?: true,
             squareCorners = prefs[SQUARE] ?: true,
             hideMedia = prefs[HIDE_MEDIA] ?: false,
+            progressBars = prefs[PROGRESS] ?: 0,
         )
     }
 
@@ -50,6 +51,10 @@ class ThemeStore @Inject constructor(@ApplicationContext private val context: Co
         context.appearanceStore.edit { it[SQUARE] = on }
     }
 
+    suspend fun saveProgressBars(mode: Int) {
+        context.appearanceStore.edit { it[PROGRESS] = mode }
+    }
+
     suspend fun saveShowNumbers(on: Boolean) {
         context.appearanceStore.edit { it[NUMBERS] = on }
     }
@@ -61,5 +66,6 @@ class ThemeStore @Inject constructor(@ApplicationContext private val context: Co
         val MAIN = intPreferencesKey("main")
         val HIGHLIGHT = intPreferencesKey("highlight")
         val TRANSPARENCY = floatPreferencesKey("menu_transparency")
+        val PROGRESS = intPreferencesKey("guide_progress_bars")
     }
 }

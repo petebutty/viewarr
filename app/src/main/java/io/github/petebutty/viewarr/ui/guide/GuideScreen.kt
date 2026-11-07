@@ -464,6 +464,7 @@ private fun GuideRow(
         val accent = AppColors.Accent
         val iconColor = AppColors.TextSecondary
         val square = AppColors.palette.squareCorners
+        val progressBars = AppColors.palette.progressBars
         Canvas(Modifier.weight(1f).fillMaxHeight()) {
             val pxPerMs = size.width / GuideViewModel.VISIBLE_MS
             val gap = 2.dp.toPx()
@@ -485,8 +486,10 @@ private fun GuideRow(
                 }
                 drawRoundRect(color, topLeft = Offset(x0, 0f), size = Size(x1 - x0, size.height), cornerRadius = radius)
                 if (!isFocused) drawRoundRect(Color.White.copy(alpha = 0.08f), topLeft = Offset(x0, 0f), size = Size(x1 - x0, size.height), cornerRadius = radius, style = outline)
-                // On now: a bar along the bottom showing how far through it is.
-                if (p.startTime <= now && p.endTime > now && x1 - x0 > 16.dp.toPx()) {
+                // On now: a bar along the bottom showing how far through it is (Settings → Appearance → Progress bars:
+                // every channel, only the one you're watching, or none).
+                val barsHere = when (progressBars) { 0 -> true; 1 -> playingLive; else -> false }
+                if (barsHere && p.startTime <= now && p.endTime > now && x1 - x0 > 16.dp.toPx()) {
                     val inset = 6.dp.toPx()
                     val h = 3.dp.toPx()
                     val y = size.height - h - 4.dp.toPx()

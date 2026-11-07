@@ -68,6 +68,10 @@ class AppearanceViewModel @Inject constructor(private val store: ThemeStore) : V
         viewModelScope.launch { store.saveSquareCorners(on) }
     }
 
+    fun setProgressBars(mode: Int) {
+        viewModelScope.launch { store.saveProgressBars(mode) }
+    }
+
     fun setShowNumbers(on: Boolean) {
         viewModelScope.launch { store.saveShowNumbers(on) }
     }
@@ -122,6 +126,8 @@ fun AppearanceSettingsScreen(onBack: () -> Unit, vm: AppearanceViewModel = hiltV
             listOf(
                 SettingItem("Channel numbers", "Show each channel's number next to its name.", onOff,
                     if (palette.showNumbers) onOff[0] else onOff[1]) { c -> vm.setShowNumbers((c as Choice).value == true) },
+                SettingItem("Progress bars", "The bar showing how far through each programme on now is: on every channel, only the channel you're watching, or none.", progressChoices,
+                    progressChoices[palette.progressBars.coerceIn(0, 2)]) { c -> vm.setProgressBars((c as Choice).value as Int) },
                 SettingItem("Corners", "Rounded or square corners on the guide's programmes and channel names.", corners,
                     if (palette.squareCorners) corners[1] else corners[0]) { c -> vm.setSquareCorners((c as Choice).value == true) },
             ),
@@ -249,3 +255,5 @@ private fun ValueSlider(label: String, value: Int, onChange: (Int) -> Unit) {
 }
 
 private const val STEP = 5
+
+private val progressChoices = listOf(Choice("All channels", 0), Choice("Only what you're watching", 1), Choice("Off", 2))
