@@ -1,7 +1,7 @@
 # Shown once, the first time a new version opens (not on a fresh install). Keep it to the few things worth knowing.
 # Lines starting with "- " are the points; the first line without "#" or "-" is the heading.
-Richer title pages
-- Title pages fit on one screen: logo, ratings, cast photos, reviews, more like this and details
-- Ratings from TMDB, IMDb, Rotten Tomatoes, Metacritic, Letterboxd and Trakt (add a free MDBList key in Accounts & sources)
-- Title logos in the player, with a new loading screen while a film or episode starts
-- Settings are grouped and tidier; Plex servers and addons switch on or off in Accounts & sources
+One Play button, and pause live TV
+- Play picks the best copy for you: your home server, then your servers away, then addons, then IPTV. Hold OK on Play to choose one yourself
+- Shows have Play / Resume on their page, carrying on where you left off
+- Pause and rewind live TV on catch-up channels, then carry on or jump back to live
+- IPTV films and series from Dispatcharr as libraries, a shorter Movies / Shows menu, actor pages with biographies, and film collections

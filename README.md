@@ -21,8 +21,9 @@ Viewarr doesn't provide any content. It plays only what your own servers and acc
 ## Features
 
 **Live TV (Dispatcharr)**
-- A TiviMate-style TV guide with channel logos, categories, programmes going back and forward in time, and a progress bar under what's on now.
+- A TiviMate-style TV guide with channel logos, categories, programmes going back and forward in time, and a progress bar under what's on now (on every channel, only the one you're watching, or off).
 - Catch-up: replay programmes from the past, where the channel supports it.
+- **Pause and rewind live TV** on catch-up channels (using Dispatcharr's catch-up): pause, then carry on from that moment; rewind with Left; fast-forward back to live or press **Go live**. The info bar shows how far behind live you are.
 - Reminders: get a pop-up when a programme starts; small cards when a recording starts, finishes or fails.
 - The guide shows a picture of the highlighted programme: the guide's own artwork from Dispatcharr when it has some, otherwise one found on TMDB.
 - **Source switching:** see every stream behind a channel (and which provider it's from) and switch Dispatcharr to another one from the remote. **Stream info** shows Dispatcharr's live view: source, provider, resolution, codecs, bitrate and viewers. *(Admin users.)*
@@ -32,25 +33,27 @@ Viewarr doesn't provide any content. It plays only what your own servers and acc
 - No Dispatcharr? Sign in with your **IPTV provider's (Xtream Codes) login** for channels, guide, catch-up and the provider's films and series.
 
 **Films & shows**
-- Netflix-style rows: Continue watching, your Trakt watchlist and recommendations, recently added on Plex, and trending, popular and top-rated titles from TMDB. Choose which rows show, and their order, in **Settings → Home rows**.
-- **Your whole library:** Movies and Shows in the menu list your Plex, Jellyfin and Emby libraries and your catalogues. A library opens a page at a time, with sorting (A–Z, date added, release date, rating), genre and unwatched filters, and search with voice. Hide or reorder the libraries in **Settings → Home rows**.
+- Netflix-style rows: Continue watching, your Trakt watchlist and recommendations, recently added on Plex, and trending, popular and top-rated titles from TMDB. **Upcoming episodes** shows when the next episodes of the shows you follow air (from Trakt, or your servers). Rows that repeat across servers (Continue watching, a library's Recently added) are combined into one. Choose which rows show, and their order, in **Settings → Home page & menu**.
+- **Your whole library:** Movies and Shows in the menu list your Plex, Jellyfin and Emby libraries, plus **IPTV Movies / IPTV Shows** (your provider's films and series through Dispatcharr), with your rows tucked under **Jump to a row**. A library opens a page at a time (newest first; Down at the bottom turns the page), with sorting, genre and unwatched filters, and search with voice. Hide, reorder or rename libraries in **Settings → Home page & menu**.
 - **Several Plex servers:** every server on your Plex account is used, in rows, search and "In your library". Switch any of them off in Accounts & sources → Plex.
 - **Title pages on one screen:** the title's logo, details and description, ratings from TMDB, IMDb, Rotten Tomatoes (critics and audience), Metacritic, Letterboxd and Trakt, and tabs for cast & crew (with photos; OK opens their films and shows), reviews from TMDB and Trakt users, more like this and details. IMDb and Rotten Tomatoes come from your Plex when it has them; add a free **MDBList** key in Accounts & sources for every title.
 - **Title logos** on the Movies/Shows header, the title page and the player, and a loading screen with the title's backdrop and a gently "breathing" logo while a film or episode starts.
 - Seasons and episodes for shows.
-- Play from **Plex** (converted by Plex automatically when the TV can't play the file itself), from **Jellyfin / Emby**, or search your **Stremio addons** (e.g. AIOStreams) for streams.
+- **One Play button:** it plays the best copy you have: your servers at home first (Plex, Jellyfin, Emby), then your servers away, then your **Stremio addons** (e.g. AIOStreams), then IPTV. A copy whose file has gone is skipped. **Hold OK on Play** to pick the source yourself. Shows get **Play / Resume S·E**, carrying on from Plex, Jellyfin/Emby or Trakt.
+- **Actor pages** with their photo, dates and biography, then their films and shows. Films in a series get a **Collection** tab (e.g. the Dune films).
 - Watch progress is sent back to Plex, Jellyfin/Emby and Trakt.
 - Two players: **mpv** (the default; plays almost any file, codec or soundtrack, including TrueHD/Atmos and DTS-HD) or the lighter built-in player. Swap between them mid-film from the hold-OK menu and carry on from the same moment.
 - **Seek bar with preview pictures:** press Down while watching, scrub with Left/Right, OK to jump. Previews come from Plex / Emby / Jellyfin when the server made them, otherwise the box takes them from the film itself.
 - **Smooth playback on weak boxes:** mpv draws straight to the screen by default, the TV can switch to the film's frame rate, and surround passthrough only uses formats your TV or receiver really accepts.
 - **Playback settings:** audio and subtitle language, surround passthrough to a receiver, stereo downmix, night mode, subtitle size, resume, and Plex quality.
-- **Search** pops up over any screen (hold Menu, or pick a button in Settings → Remote & navigation): your Plex, Jellyfin and Emby titles in one row, people with their films and shows, TV channels and what's on the guide (watch it, record it or get a reminder), quick picks as you type, filters and voice search.
+- **Search** puts what you meant first (a person, a channel, or your own copy of a film) and pops up over any screen (hold Menu, or pick a button in Settings → Remote & navigation): your Plex, Jellyfin and Emby titles in one row, people with their films and shows, TV channels and what's on the guide (watch it, record it or get a reminder), quick picks as you type, filters and voice search.
 - **Watch Next:** your Continue watching appears in the Android TV home screen's Watch Next row.
 - **Seerr requests:** hold OK on a poster to request a film or show you don't have yet (Stremio addon titles too).
 
 **Easy setup**
 - **Your setup, saved on Dispatcharr:** Viewarr keeps a copy of its setup (your services, home rows, appearance, playback and remote settings) on your Dispatcharr server, for your user. Sign in to the same Dispatcharr user on another TV, or after a reinstall, and Viewarr offers to restore it all. Sign-ins are encrypted on the TV before they're saved; settings that depend on the box (surround sound, frame rate, decoding) stay on each TV. Turn it off, or leave sign-ins out, in **Settings**. *(Needs Dispatcharr 0.33 or newer.)*
 - Scan a QR code on the TV and set everything up on your phone. Passwords and keys are encrypted between your phone and the TV.
+- Setup finds **Dispatcharr, Jellyfin, Emby and Seerr** on your home network by itself, Jellyfin signs in with **Quick Connect** (no password), and you can tick **several Plex servers**. QR codes take you straight to Dispatcharr's Users page (for your API key) or to the phone page to type your login.
 - A big choice of colours (an **OLED black** theme by default), square or rounded guide corners, and remote-control options.
 - Only want live TV? Turn Movies & Shows off in **Settings → Appearance → Menu**.
 
