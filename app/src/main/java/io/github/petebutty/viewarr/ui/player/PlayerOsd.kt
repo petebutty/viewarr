@@ -152,7 +152,9 @@ fun PlayerOsd(
             Column(Modifier.weight(1f).padding(start = 16.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(channel.name, fontSize = 13.sp, color = AppColors.TextSecondary)
-                    if (catchup != null) Badge(if (paused) "CATCH-UP · PAUSED" else "CATCH-UP")
+                    val behind = vm.behindLiveMs()?.takeIf { it > 60_000 }?.let { "${it / 60_000} MIN BEHIND LIVE" }
+                    if (catchup != null) Badge(listOfNotNull(if (behind != null) null else "CATCH-UP", behind, if (paused) "PAUSED" else null).joinToString(" · "))
+                    else if (paused) Badge("PAUSED · PLAY CARRIES ON FROM HERE")
                 }
                 Text(
                     current?.let(::displayTitle) ?: "No guide information",
@@ -186,8 +188,8 @@ fun PlayerOsd(
         }
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            if (catchup != null) {
-                Pill("Restart") { vm.restartProgramme() }
+            if (catchup != null || paused) {
+                if (catchup != null) Pill("Restart") { vm.restartProgramme() }
                 Pill("Go live") { vm.goLive() }
             }
             Pill("TV guide", if (catchup == null) Modifier.focusRequester(firstFocus) else Modifier, onClick = onGuide)

@@ -55,7 +55,42 @@ class PlaybackViewModel @Inject constructor(
     private val remoteStore: io.github.petebutty.viewarr.data.settings.RemoteStore,
     private val xtream: io.github.petebutty.viewarr.data.xtream.XtreamClient,
     private val http: io.github.petebutty.viewarr.data.remote.services.HttpJson,
+    private val guide: io.github.petebutty.viewarr.data.repository.GuideRepository,
 ) : ViewModel() {
+
+    // ---------------------------------------------------------------- Timeshift: pause / rewind live TV with catch-up
+
+    /** Live TV paused at this moment (catch-up channels): Play carries on from here through the provider's catch-up. */
+    private var livePausedAt: Long? = null
+
+    /** The programme on [channel] at [time], from the stored guide. */
+    private suspend fun programAt(channel: ChannelListItem, time: Long): GuideProgram? =
+        runCatching { guide.programsFor(channel.id, channel.guideKey, time - 1, time + 1) }.getOrNull()
+            ?.firstOrNull { it.startTime <= time && it.endTime > time }
+
+    private fun canTimeshift(channel: ChannelListItem) = channel.catchupDays > 0
+
+    /** Plays catch-up from the moment [time] (in whichever programme was on then); live if that's now. */
+    private fun playFrom(channel: ChannelListItem, time: Long) {
+        val s = session ?: return
+        viewModelScope.launch {
+            val now = System.currentTimeMillis()
+            // Providers' archives run a little behind: within ~45 s of now, just play live.
+            if (time >= now - 45_000) { play(channel, s); return@launch }
+            val program = programAt(channel, time) ?: run { play(channel, s); return@launch }
+            start(channel, program, s, catchupUrl(s, channel, program), (time - program.startTime).coerceAtLeast(0))
+        }
+    }
+
+    /** How far behind live the picture is (catch-up of something on now, or paused live), else null. */
+    fun behindLiveMs(): Long? {
+        val now = System.currentTimeMillis()
+        livePausedAt?.let { return now - it }
+        val program = _catchup.value ?: return null
+        if (program.endTime < now - 6 * 3_600_000L) return null
+        val at = program.startTime + (player?.currentPosition ?: 0)
+        return (now - at).takeIf { it > 0 }
+    }
 
     // ---------------------------------------------------------------- Dispatcharr: the channel's sources
 
@@ -261,6 +296,12 @@ class PlaybackViewModel @Inject constructor(
                                 retried = false
                                 _state.value = PlaybackState.Playing
                             }
+                            Player.STATE_ENDED -> {
+                                // The end of a catch-up programme: carry on with the next one (still behind live), or go live.
+                                val ch = _channel.value
+                                val ended = _catchup.value
+                                if (ch != null && ended != null) playFrom(ch, ended.endTime + 1_000)
+                            }
                             else -> Unit
                         }
                     }
@@ -282,7 +323,11 @@ class PlaybackViewModel @Inject constructor(
                                 restart()
                             }
                         } else {
-                            _state.value = PlaybackState.Error(describe(error))
+                            val ch = _channel.value
+                            val c = _catchup.value
+                            // Catch-up of what's on now can be refused just behind live (the archive lags): go live instead.
+                            if (ch != null && c != null && c.endTime > System.currentTimeMillis()) { retried = false; goLive() }
+                            else _state.value = PlaybackState.Error(describe(error))
                         }
                     }
                 })
@@ -292,6 +337,7 @@ class PlaybackViewModel @Inject constructor(
 
     fun play(channel: ChannelListItem, session: Session? = this.session) {
         val s = session ?: return
+        livePausedAt = null
         // A note about the last channel's sources ("Switched to …") doesn't belong to this one.
         if (_channel.value?.id != channel.id) { _sourceNote.value = null; _sources.value = null }
         start(channel, null, s, liveUrl(s, channel))
@@ -385,7 +431,21 @@ class PlaybackViewModel @Inject constructor(
 
     fun seekBy(deltaMs: Long) {
         val p = player ?: return
-        if (_catchup.value == null) return
+        val channel = _channel.value ?: return
+        val program = _catchup.value
+        if (program == null) {
+            // Live: back through catch-up (from the paused moment if paused); forward is already live.
+            if (deltaMs >= 0 || !canTimeshift(channel)) return
+            val from = livePausedAt ?: System.currentTimeMillis()
+            livePausedAt = null
+            playFrom(channel, from + deltaMs)
+            return
+        }
+        val now = System.currentTimeMillis()
+        val atMs = program.startTime + p.currentPosition + deltaMs
+        // Before this programme: the previous one; past what's been broadcast: back to live.
+        if (atMs < program.startTime && deltaMs < 0) { playFrom(channel, atMs); return }
+        if (program.endTime > now - 60_000 && atMs >= now - 45_000) { goLive(); return }
         val target = (p.currentPosition + deltaMs).coerceAtLeast(0)
         p.seekTo(if (p.duration > 0) target.coerceAtMost(p.duration - 1_000) else target)
         _position.value = p.currentPosition to p.duration.coerceAtLeast(0)
@@ -413,12 +473,28 @@ class PlaybackViewModel @Inject constructor(
     }
 
     fun goLive() {
+        livePausedAt = null
         _channel.value?.let { play(it) }
     }
 
     fun togglePause() {
         val p = player ?: return
-        if (_catchup.value == null) return
+        val channel = _channel.value ?: return
+        if (_catchup.value == null) {
+            // Live: pause freezes the picture and remembers the moment; Play carries on from it through catch-up.
+            if (!canTimeshift(channel)) return
+            val pausedAt = livePausedAt
+            if (pausedAt == null) {
+                livePausedAt = System.currentTimeMillis()
+                p.pause()
+                _paused.value = true
+            } else {
+                livePausedAt = null
+                _paused.value = false
+                playFrom(channel, pausedAt)
+            }
+            return
+        }
         if (p.isPlaying) p.pause() else p.play()
         _paused.value = !p.playWhenReady
     }
