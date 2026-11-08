@@ -1,5 +1,7 @@
 package io.github.petebutty.viewarr.ui.media
 
+import io.github.petebutty.viewarr.ui.theme.appBackground
+
 import io.github.petebutty.viewarr.ui.common.ignoreHeldOk
 import io.github.petebutty.viewarr.ui.common.trapFocus
 import androidx.activity.compose.BackHandler
@@ -279,7 +281,12 @@ fun MediaScreen(
         runCatching { focusRequester.requestFocus() }
     }
 
-    Box(Modifier.fillMaxSize().background(if (searchHeader != null) Color.Transparent else AppColors.Background)) {
+    // Movies and Shows: the highlighted title's artwork fills the page, whatever the wallpaper setting.
+    if (searchHeader == null) androidx.compose.runtime.DisposableEffect(Unit) {
+        io.github.petebutty.viewarr.ui.theme.Wallpaper.titlePages++
+        onDispose { io.github.petebutty.viewarr.ui.theme.Wallpaper.titlePages-- }
+    }
+    Box(Modifier.fillMaxSize().then(if (searchHeader != null) Modifier else Modifier.appBackground(titleArt = true))) {
         browse?.let { b ->
             LibraryGrid(
                 b = b,
@@ -432,8 +439,13 @@ private fun Hero(
         val i = item ?: return@produceState
         if (librarySourcesOf != null && i.origin !in LIBRARY_ORIGINS && !i.origin.startsWith("Plex")) value = librarySourcesOf(i)
     }
+    // The Movies / Shows background: the highlighted title's backdrop.
+    LaunchedEffect(item?.backdrop) { item?.backdrop?.let { io.github.petebutty.viewarr.ui.theme.Wallpaper.title = it } }
+    // On the Movies and Shows pages the artwork fills the whole page (drawn by the page's background), so the
+    // hero doesn't draw its own copy (it left a seam where it ended).
+    val pageArt = io.github.petebutty.viewarr.ui.theme.Wallpaper.titlePages > 0
     Box(Modifier.fillMaxWidth().height(232.dp)) {
-        item?.backdrop?.let { url ->
+        if (!pageArt) item?.backdrop?.let { url ->
             AsyncImage(
                 model = url,
                 contentDescription = null,
@@ -441,9 +453,12 @@ private fun Hero(
                 modifier = Modifier.align(Alignment.TopEnd).fillMaxHeight().fillMaxWidth(0.68f),
             )
         }
-        val bg = AppColors.Background
-        Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(0.3f to bg, 0.55f to bg.copy(alpha = 0.55f), 1f to Color.Transparent)))
-        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.6f to Color.Transparent, 1f to bg)))
+        // Over a wallpaper the hero blends into it (see-through) rather than into a solid colour.
+        val bg = AppColors.Scrim
+        if (!pageArt) {
+            Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(0.3f to bg, 0.55f to bg.copy(alpha = bg.alpha * 0.55f), 1f to Color.Transparent)))
+            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.6f to Color.Transparent, 1f to bg)))
+        }
         // Picture-in-picture trailer over the right of the backdrop, clear of the title and overview.
         if (trailers != null) TrailerPreview(
             item = trailerItem,
@@ -928,12 +943,21 @@ private fun DetailScreen(
         }
     }
     // The first button changes once the library check finishes (Play on Plex appears), so focus again then.
+    // ...but only if you're still up there: on a slow server you may already have moved down to the cast or tabs,
+    // and the check finishing mustn't throw you back to Play.
+    var pageFocused by remember { mutableStateOf(false) }
+    var buttonsFocused by remember { mutableStateOf(false) }
+    var lastMode by remember { mutableStateOf<Any?>(null) }
     LaunchedEffect(ui.copies != null, ui.hasAddons, ui.streams == null, active, ui.episodesOpen) {
+        val mode = listOf(ui.streams == null, active, ui.episodesOpen)
+        val onlyLoaded = mode == lastMode
+        lastMode = mode
         if (ui.streams != null || !active || ui.episodesOpen || trailerOpen) return@LaunchedEffect
+        if (onlyLoaded && pageFocused && !buttonsFocused) return@LaunchedEffect
         awaitFrame()
         runCatching { playFocus.requestFocus() }
     }
-    Box(Modifier.fillMaxSize().background(AppColors.Background).trapFocus()) {
+    Box(Modifier.fillMaxSize().background(AppColors.Background).onFocusChanged { pageFocused = it.hasFocus }.trapFocus()) {
         item.backdrop?.let {
             AsyncImage(model = it, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.align(Alignment.TopEnd).fillMaxHeight().fillMaxWidth(0.75f))
         }
@@ -985,7 +1009,7 @@ private fun DetailScreen(
                 androidx.compose.runtime.CompositionLocalProvider(LocalButtonsFree provides buttonsFree) {
                 // The buttons may run past the text column into the free space on the right, rather than squash.
                 // Down from any of them goes to the selected tab below (not just the nearest one).
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.wrapContentWidth(Alignment.Start, unbounded = true).onPreviewKeyEvent { e ->
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.wrapContentWidth(Alignment.Start, unbounded = true).onFocusChanged { buttonsFocused = it.hasFocus }.onPreviewKeyEvent { e ->
                     if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionDown && buttonsFree) runCatching { tabFocus.requestFocus() }.isSuccess else false
                 }) {
                     if (show) {
@@ -1074,6 +1098,25 @@ private fun EpisodesPanel(ui: DetailUi, vm: MediaViewModel, onPlex: Boolean) {
     val panelFree = ui.episode == null && ui.streams == null
     // True while you're moving along the seasons: a season's episodes arriving mustn't pull you down into them.
     var onSeasons by remember { mutableStateOf(false) }
+    // The season you're viewing: Up from the top episode goes to its pill (not whichever pill is nearest).
+    val seasonFocus = remember { FocusRequester() }
+    val seasonRow = androidx.compose.foundation.lazy.rememberLazyListState()
+    // Moving along the pills: a season loads once you pause on it, not every pill passed on the way.
+    var pendingSeason by remember { mutableStateOf<Int?>(null) }
+    LaunchedEffect(pendingSeason) {
+        val n = pendingSeason ?: return@LaunchedEffect
+        kotlinx.coroutines.delay(350)
+        vm.selectSeason(n)
+    }
+    // Keep the viewed season's pill in view when you're not on the row (so Up can reach it).
+    LaunchedEffect(ui.season, ui.seasons.size) {
+        if (onSeasons) return@LaunchedEffect
+        val idx = ui.seasons.indexOfFirst { it.number == ui.season }
+        if (idx >= 0) runCatching { seasonRow.scrollToItem(maxOf(0, idx - 1)) }
+    }
+    // While the next season loads, the last list stays (faded) instead of flashing "Loading episodes…".
+    var lastEpisodes by remember { mutableStateOf<List<io.github.petebutty.viewarr.data.media.EpisodeInfo>?>(null) }
+    LaunchedEffect(ui.episodes) { ui.episodes?.let { lastEpisodes = it } }
     LaunchedEffect(ui.season, ui.episodes != null, ui.episode == null, ui.streams == null) {
         if (ui.episodes.isNullOrEmpty() || ui.episode != null || ui.streams != null || target < 0) return@LaunchedEffect
         listState.scrollToItem(maxOf(0, target - 1))
@@ -1110,19 +1153,20 @@ private fun EpisodesPanel(ui: DetailUi, vm: MediaViewModel, onPlex: Boolean) {
             }
             // Right: seasons + compact episodes.
             Column(Modifier.weight(0.58f).fillMaxHeight()) {
-                LazyRow(Modifier.onFocusChanged { onSeasons = it.hasFocus }, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                LazyRow(Modifier.onFocusChanged { onSeasons = it.hasFocus }, state = seasonRow, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     items(ui.seasons, key = { it.number }) { season ->
                         val selected = season.number == ui.season
                         Surface(
-                            onClick = { vm.selectSeason(season.number) },
-                            modifier = Modifier
+                            onClick = { pendingSeason = null; vm.selectSeason(season.number) },
+                            modifier = (if (selected) Modifier.focusRequester(seasonFocus) else Modifier)
                                 .focusProperties { canFocus = panelFree }
                                 // Only a real move onto a season changes it, never focus passing through behind a pop-up.
-                                .onFocusChanged { if (it.isFocused && panelFree) vm.selectSeason(season.number) },
+                                .onFocusChanged { if (it.isFocused && panelFree) pendingSeason = season.number },
                             scale = ClickableSurfaceDefaults.scale(scale = 1f, focusedScale = 1f, pressedScale = 1f),
                             shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(18.dp)),
                             colors = ClickableSurfaceDefaults.colors(
-                                containerColor = if (selected) AppColors.CellCurrent else AppColors.Panel.copy(alpha = 0.8f),
+                                // The season you're viewing stands out even when you're down in its episodes.
+                                containerColor = if (selected) AppColors.Accent.copy(alpha = 0.35f) else AppColors.Panel.copy(alpha = 0.8f),
                                 contentColor = AppColors.TextPrimary,
                                 focusedContainerColor = AppColors.Accent,
                                 focusedContentColor = AppColors.OnAccent,
@@ -1133,11 +1177,12 @@ private fun EpisodesPanel(ui: DetailUi, vm: MediaViewModel, onPlex: Boolean) {
                     }
                 }
                 Spacer(Modifier.height(12.dp))
-                val eps = ui.episodes
+                val loading = ui.episodes == null
+                val eps = ui.episodes ?: lastEpisodes
                 when {
                     eps == null -> Text("Loading episodes…", color = AppColors.TextSecondary)
                     eps.isEmpty() -> Text("No episodes listed for this season.", color = AppColors.TextSecondary)
-                    else -> LazyColumn(state = listState, verticalArrangement = Arrangement.spacedBy(4.dp), contentPadding = PaddingValues(bottom = 40.dp)) {
+                    else -> LazyColumn(state = listState, verticalArrangement = Arrangement.spacedBy(4.dp), contentPadding = PaddingValues(bottom = 40.dp), modifier = Modifier.graphicsLayer { alpha = if (loading) 0.4f else 1f }) {
                         itemsIndexed(eps, key = { _, e -> "${e.season}-${e.number}" }) { i, ep ->
                             val plex = ui.plexEpisodes[ep.season to ep.number]
                             Surface(
@@ -1145,7 +1190,9 @@ private fun EpisodesPanel(ui: DetailUi, vm: MediaViewModel, onPlex: Boolean) {
                                 onClick = { vm.playBestEpisode(ep.season, ep.number) },
                                 onLongClick = { vm.pickEpisode(ep) },
                                 modifier = (if (i == target) Modifier.focusRequester(episodeFocus) else Modifier)
-                                    .focusProperties { canFocus = panelFree }
+                                    // Not while the next season loads (that's the last season's list); Up from the top
+                                    // episode goes to the season being viewed.
+                                    .focusProperties { canFocus = panelFree && !loading; if (i == 0) up = seasonFocus }
                                     .onFocusChanged { if (it.isFocused) highlighted = ep }
                                     .fillMaxWidth(),
                                 scale = ClickableSurfaceDefaults.scale(scale = 1f, focusedScale = 1f, pressedScale = 1f),

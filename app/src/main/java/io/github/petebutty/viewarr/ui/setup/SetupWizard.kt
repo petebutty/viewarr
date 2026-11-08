@@ -1,5 +1,7 @@
 package io.github.petebutty.viewarr.ui.setup
 
+import io.github.petebutty.viewarr.ui.theme.appBackground
+
 import androidx.compose.foundation.focusGroup
 
 import kotlinx.coroutines.launch
@@ -93,7 +95,7 @@ fun SetupWizard(
     BackHandler(enabled = mode == SetupMode.Manage && state.step == SetupStep.Choose) { vm.finish(onClose) }
 
     Row(
-        modifier = Modifier.fillMaxSize().background(AppColors.Background).padding(horizontal = 64.dp, vertical = 48.dp),
+        modifier = Modifier.fillMaxSize().appBackground().padding(horizontal = 64.dp, vertical = 48.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(0.36f).padding(end = 40.dp)) {

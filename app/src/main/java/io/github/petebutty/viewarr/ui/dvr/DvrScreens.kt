@@ -1,5 +1,7 @@
 package io.github.petebutty.viewarr.ui.dvr
 
+import io.github.petebutty.viewarr.ui.theme.appBackground
+
 import io.github.petebutty.viewarr.ui.common.ignoreHeldOk
 import io.github.petebutty.viewarr.ui.common.trapFocus
 import androidx.activity.compose.BackHandler
@@ -181,7 +183,7 @@ fun ProgramInfoDialog(channel: ChannelListItem, program: GuideProgram, vm: DvrVi
     ChoicePanel(
         title = program.title + episodeTag(program.season, program.episode),
         subtitle = "${channel.name}  ·  ${span(program.startTime, program.endTime)}$status",
-        choices = listOf("Record or remind me" to onRecord, "Close" to onClose),
+        choices = listOf((if (rec != null) "Cancel this recording" else "Record or remind me") to onRecord, "Close" to onClose),
         message = null,
         onClose = onClose,
         description = listOf(sub, program.description.orEmpty()).filter { it.isNotBlank() }.joinToString("\n"),
@@ -212,7 +214,14 @@ fun RecordDialog(channel: ChannelListItem, program: GuideProgram, vm: DvrViewMod
     val reminder = reminders.firstOrNull { it.channelId == channel.id && it.start == program.startTime }
     val canRecord = vm.allowed.collectAsStateWithLifecycle().value != false && !vm.xc.collectAsStateWithLifecycle().value
     val future = program.startTime > System.currentTimeMillis()
-    val choices = buildList<Pair<String, () -> Unit>> {
+    val choices = if (canRecord && rec != null) buildList<Pair<String, () -> Unit>> {
+        // Already set to record: just the way to undo it (and keep it), not the record / remind options again.
+        if (rec.state == DvrState.Recording) add("Stop recording" to { run { vm.stop(rec) } })
+        else add("Cancel this recording" to { run { vm.cancel(rec) } })
+        if (rule != null) add("Stop series recording" to { run { vm.removeRule(rule) } })
+        add((if (rec.state == DvrState.Recording) "Keep recording" else "Keep this recording") to onClose)
+        onDetails?.let { add("Details" to it) }
+    } else buildList<Pair<String, () -> Unit>> {
         if (!canRecord) {
             // No recordings here (IPTV provider login, or a Dispatcharr user without DVR access): reminders still work.
         } else when {
@@ -295,7 +304,7 @@ fun RecordingsScreen(
         runCatching { focusRequester.requestFocus() }
     }
 
-    Box(Modifier.fillMaxSize().background(AppColors.Background)) {
+    Box(Modifier.fillMaxSize().appBackground()) {
         Column(
             Modifier
                 .fillMaxSize()

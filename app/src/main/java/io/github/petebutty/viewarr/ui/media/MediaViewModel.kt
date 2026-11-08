@@ -1,5 +1,6 @@
 package io.github.petebutty.viewarr.ui.media
 
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import androidx.lifecycle.ViewModel

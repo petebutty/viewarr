@@ -79,6 +79,8 @@ fun PlayerOsd(
     onClose: () -> Unit,
     onActivity: () -> Unit,
     onRecord: (() -> Unit)? = null,
+    /** Several channels at once. */
+    onMultiView: (() -> Unit)? = null,
     /** Opened with the Menu button: start on the audio choices. */
     openAudio: Boolean = false,
     modifier: Modifier = Modifier,
@@ -205,6 +207,7 @@ fun PlayerOsd(
                 Pill("Stream info") { popup = if (popup == OsdPopup.Info) null else OsdPopup.Info }
             }
             if (onRecord != null) Pill("Record") { onRecord() }
+            if (onMultiView != null) Pill("Multi-view") { onMultiView() }
             (note ?: sourceNote?.takeIf { popup == null })?.let { Text(it, fontSize = 12.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(start = 8.dp)) }
         }
     }

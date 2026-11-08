@@ -1,7 +1,7 @@
 # Shown once, the first time a new version opens (not on a fresh install). Keep it to the few things worth knowing.
 # Lines starting with "- " are the points; the first line without "#" or "-" is the heading.
-One Play button, and pause live TV
-- Play picks the best copy for you: your home server, then your servers away, then addons, then IPTV. Hold OK on Play to choose one yourself
-- Shows have Play / Resume on their page, carrying on where you left off
-- Pause and rewind live TV on catch-up channels, then carry on or jump back to live
-- IPTV films and series from Dispatcharr as libraries, a shorter Movies / Shows menu, actor pages with biographies, and film collections
+Multi-view, wallpapers and new themes
+- Multi-view: watch up to four channels at once. Press OK while watching and choose Multi-view; the sound follows the window you select
+- Wallpapers behind the guide and menus (Settings → Appearance → Wallpaper), and Movies and Shows fill the page with the highlighted title's artwork
+- Nine more colour themes, including Nord, Dracula, Forest and High contrast
+- Fixes: moving between seasons, title pages on slow servers, and cancelling a recording straight from the guide

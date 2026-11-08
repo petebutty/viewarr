@@ -76,6 +76,10 @@ class AppearanceViewModel @Inject constructor(private val store: ThemeStore) : V
         viewModelScope.launch { store.saveShowNumbers(on) }
     }
 
+    fun setWallpaper(mode: Int, style: Int, dim: Float) {
+        viewModelScope.launch { store.saveWallpaper(mode, style, dim) }
+    }
+
     fun setTransparency(value: Float) {
         viewModelScope.launch { store.saveTransparency(value) }
     }
@@ -101,6 +105,9 @@ fun AppearanceSettingsScreen(onBack: () -> Unit, vm: AppearanceViewModel = hiltV
     val corners = listOf(Choice("Rounded", false), Choice("Square", true))
     val transparencies = (0..70 step 10).map { Choice(if (it == 0) "Solid" else "$it%", it) }
     val currentT = ((palette.transparency * 100).roundToInt() / 10 * 10).coerceIn(0, 70)
+    val wallModes = io.github.petebutty.viewarr.ui.theme.WallpaperModes.map { (v, n) -> Choice(n, v) }
+    val wallStyles = io.github.petebutty.viewarr.ui.theme.WallpaperStyles.mapIndexed { i, w -> Choice(w.name, i) }
+    val dims = (30..90 step 10).map { Choice(if (it <= 40) "$it% (light)" else if (it >= 80) "$it% (dark)" else "$it%", it) }
     val categories = listOf(
         SettingCategory(
             "Colours", "How Viewarr looks. Changes show straight away.",
@@ -109,10 +116,13 @@ fun AppearanceSettingsScreen(onBack: () -> Unit, vm: AppearanceViewModel = hiltV
                     presets.firstOrNull { it.value == currentPreset?.name } ?: Choice("Custom", "custom")) { c ->
                     ThemePresets.firstOrNull { it.name == (c as Choice).value }?.let { vm.apply(it.main, it.highlight) }
                 },
+                // With a wallpaper on, the background colour is only its tint (Dimming sets that): hidden to avoid
+                // two settings that seem to do the same thing.
+                *(if (palette.wallpaper != 0) emptyArray() else arrayOf(
                 SettingItem("Background colour", "The main colour behind menus and pages.", mains,
                     mains.firstOrNull { it.value == palette.main } ?: Choice("Custom", palette.main)) { c ->
                     vm.apply((c as Choice).value as androidx.compose.ui.graphics.Color, palette.highlight)
-                },
+                })),
                 SettingItem("Highlight colour", "The colour of whatever is selected.", highs,
                     highs.firstOrNull { it.value == palette.highlight } ?: Choice("Custom", palette.highlight)) { c ->
                     vm.apply(palette.main, (c as Choice).value as androidx.compose.ui.graphics.Color)
@@ -120,6 +130,19 @@ fun AppearanceSettingsScreen(onBack: () -> Unit, vm: AppearanceViewModel = hiltV
                 SettingItem("Menu transparency", "How much of the picture shows through the side menu while you watch full screen. Over the guide and other pages the menu is always solid.", transparencies,
                     transparencies.first { it.value == currentT }) { c -> vm.setTransparency(((c as Choice).value as Int) / 100f) }
             ),
+        ),
+        SettingCategory(
+            "Wallpaper", "A picture behind the guide, menus and settings, darkened so text stays easy to read.",
+            buildList {
+                add(SettingItem("Wallpaper", "None, a built-in design, or the artwork of the programme you've highlighted. (Movies and Shows always show the highlighted title's artwork.)", wallModes,
+                    wallModes.firstOrNull { it.value == palette.wallpaper } ?: wallModes[0]) { c -> vm.setWallpaper(((c as Choice).value as Int), palette.wallpaperStyle, palette.wallpaperDim) })
+                if (palette.wallpaper == 1) add(SettingItem("Design", "Which built-in wallpaper.", wallStyles,
+                    wallStyles[palette.wallpaperStyle.coerceIn(0, wallStyles.lastIndex)]) { c -> vm.setWallpaper(1, (c as Choice).value as Int, palette.wallpaperDim) })
+                if (palette.wallpaper != 0) add(SettingItem("Dimming", "How dark the wallpaper is under the menus and text.", dims,
+                    dims.firstOrNull { it.value == (palette.wallpaperDim * 100).roundToInt() / 10 * 10 } ?: dims[3]) { c ->
+                    vm.setWallpaper(palette.wallpaper, palette.wallpaperStyle, ((c as Choice).value as Int) / 100f)
+                })
+            },
         ),
         SettingCategory(
             "TV guide", "How channels are shown in the guide and the channel list.",
@@ -142,7 +165,7 @@ fun AppearanceSettingsScreen(onBack: () -> Unit, vm: AppearanceViewModel = hiltV
     )
     SettingsPage(title = "Appearance", categories = categories, onBack = onBack, onReset = {
         vm.apply(ThemePresets[0].main, ThemePresets[0].highlight); vm.setTransparency(0f)
-        vm.setShowNumbers(true); vm.setSquareCorners(true); vm.setHideMedia(false)
+        vm.setShowNumbers(true); vm.setSquareCorners(true); vm.setHideMedia(false); vm.setWallpaper(0, 0, 0.6f)
     })
 }
 

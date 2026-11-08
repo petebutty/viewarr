@@ -29,6 +29,7 @@ Viewarr doesn't provide any content. It plays only what your own servers and acc
 - **Source switching:** see every stream behind a channel (and which provider it's from) and switch Dispatcharr to another one from the remote. **Stream info** shows Dispatcharr's live view: source, provider, resolution, codecs, bitrate and viewers. *(Admin users.)*
 - **Dispatcharr plugins** (Settings → Dispatcharr plugins): switch installed plugins on and off, press their action buttons, change simple settings, and install or update plugins from your server's plugin store. *(Admin users.)*
 - Recordings on your Dispatcharr server: record one programme or a whole series (every episode, or new ones only). Then watch, stop or delete recordings from the app.
+- **Multi-view:** watch up to four channels at once (OK while watching → **Multi-view**). Arrows move between windows and the sound follows the one you've selected; OK makes it full screen; hold OK to change or remove a window. Each window counts as a stream on your provider; Dispatcharr's failover to a backup provider works per window.
 - A channel list over the picture (Up/Down while watching), channel groups, and number keys to type a channel number. Press Right on a channel to see its programmes, earlier and coming up; earlier ones play from catch-up.
 - No Dispatcharr? Sign in with your **IPTV provider's (Xtream Codes) login** for channels, guide, catch-up and the provider's films and series.
 
@@ -54,7 +55,8 @@ Viewarr doesn't provide any content. It plays only what your own servers and acc
 - **Your setup, saved on Dispatcharr:** Viewarr keeps a copy of its setup (your services, home rows, appearance, playback and remote settings) on your Dispatcharr server, for your user. Sign in to the same Dispatcharr user on another TV, or after a reinstall, and Viewarr offers to restore it all. Sign-ins are encrypted on the TV before they're saved; settings that depend on the box (surround sound, frame rate, decoding) stay on each TV. Turn it off, or leave sign-ins out, in **Settings**. *(Needs Dispatcharr 0.33 or newer.)*
 - Scan a QR code on the TV and set everything up on your phone. Passwords and keys are encrypted between your phone and the TV.
 - Setup finds **Dispatcharr, Jellyfin, Emby and Seerr** on your home network by itself, Jellyfin signs in with **Quick Connect** (no password), and you can tick **several Plex servers**. QR codes take you straight to Dispatcharr's Users page (for your API key) or to the phone page to type your login.
-- A big choice of colours (an **OLED black** theme by default), square or rounded guide corners, and remote-control options.
+- 17 colour themes (an **OLED black** one by default), square or rounded guide corners, and remote-control options.
+- **Wallpapers:** a built-in design, or the artwork of the programme you've highlighted, behind the guide, menus and settings, with adjustable dimming. Movies and Shows always show the highlighted title's artwork across the page.
 - Only want live TV? Turn Movies & Shows off in **Settings → Appearance → Menu**.
 
 ## What you need

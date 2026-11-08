@@ -1,5 +1,7 @@
 package io.github.petebutty.viewarr.ui.home
 
+import io.github.petebutty.viewarr.ui.theme.appBackground
+
 import io.github.petebutty.viewarr.ui.common.slideInFromLeft
 import android.app.Activity
 import androidx.activity.compose.BackHandler
@@ -54,6 +56,7 @@ import io.github.petebutty.viewarr.playback.PlaybackState
 import io.github.petebutty.viewarr.playback.PlaybackViewModel
 import io.github.petebutty.viewarr.ui.player.PlayerLayer
 import io.github.petebutty.viewarr.ui.player.PlayerOsd
+import io.github.petebutty.viewarr.ui.player.MultiView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.Alignment
@@ -189,6 +192,10 @@ fun HomeScreen(
     var bannerToken by remember { mutableLongStateOf(0L) }
     var bannerVisible by remember { mutableStateOf(false) }
     var osdVisible by remember { mutableStateOf(false) }
+    // Several channels on screen at once (from the player menu).
+    var multiView by remember { mutableStateOf(false) }
+    // Leaving full screen (guide, another page) ends multi-view; it mustn't reappear next time.
+    LaunchedEffect(fullscreen) { if (!fullscreen) multiView = false }
     var osdAudio by remember { mutableStateOf(false) }
     var osdToken by remember { mutableLongStateOf(0L) }
     val guideFocus = remember { FocusRequester() }
@@ -197,6 +204,22 @@ fun HomeScreen(
     val playState by playback.state.collectAsStateWithLifecycle()
     val catchup by playback.catchup.collectAsStateWithLifecycle()
     val programs by vm.programs.collectAsStateWithLifecycle()
+    // The guide only keeps programmes for the channels near where it's scrolled to. The channel you're watching
+    // (and multi-view's) are looked up on their own, or the banner said "No guide information" once you'd scrolled
+    // away from it in the guide.
+    val ownPrograms = remember { androidx.compose.runtime.mutableStateMapOf<Int, Pair<Long, List<GuideProgram>>>() }
+    val ownScope = androidx.compose.runtime.rememberCoroutineScope()
+    val ownLoading = remember { HashSet<Int>() }
+    fun programsOf(ch: ChannelListItem): List<GuideProgram> {
+        programs[ch.id]?.let { return it }
+        val cached = ownPrograms[ch.id]
+        // Refreshed every 10 minutes, so what's on now moves on.
+        if ((cached == null || System.currentTimeMillis() - cached.first > 600_000) && ownLoading.add(ch.id)) ownScope.launch {
+            runCatching { vm.programsFor(ch) }.getOrNull()?.let { ownPrograms[ch.id] = System.currentTimeMillis() to it }
+            ownLoading.remove(ch.id)
+        }
+        return cached?.second.orEmpty()
+    }
     val now by vm.now.collectAsStateWithLifecycle()
 
     fun showBanner() {
@@ -301,6 +324,7 @@ fun HomeScreen(
                 playback.play(ch, session)
                 vm.selectChannel(ch.id)
                 fullscreen = true
+                multiView = false
                 showBanner()
             }
         }
@@ -362,6 +386,7 @@ fun HomeScreen(
                                     playback.play(ch, session)
                                     vm.selectChannel(ch.id)
                                     fullscreen = true
+                                    multiView = false
                                     showBanner()
                                 }
                             }
@@ -514,7 +539,10 @@ fun HomeScreen(
                             showBanner()
                         }
                         // A programme still to come: show its details (Record options from there).
-                        program != null && program.startTime > t -> infoTarget = channel to program
+                        program != null && program.startTime > t ->
+                            // Already set to record: straight to cancelling it. Otherwise the details, with record / remind.
+                            if (dvr.recordingFor(channel.id, program) != null) recordTarget = channel to program
+                            else infoTarget = channel to program
                     }
                 },
                 // Holding OK: record options for anything live or still to come.
@@ -525,9 +553,9 @@ fun HomeScreen(
         }
 
         val channel = playing.takeIf { page == Page.Tv }
-        val list = channel?.let { programs[it.id] }.orEmpty()
+        val list = channel?.let { programsOf(it) }.orEmpty()
         val current = catchup ?: GuideViewModel.programAt(list, now)
-        if (channel != null) {
+        if (channel != null && !(multiView && fullscreen)) {
             val next = if (catchup != null) null else current?.let { c -> list.firstOrNull { it.startTime >= c.endTime } }
             PlayerLayer(
                 vm = playback,
@@ -542,7 +570,35 @@ fun HomeScreen(
             )
         }
 
-        if (fullscreen) {
+        if (fullscreen && multiView && channel != null) {
+            MultiView(
+                vm = playback,
+                programFor = { ch -> GuideViewModel.programAt(programsOf(ch), now) },
+                now = now,
+                onExit = { ch ->
+                    multiView = false
+                    if (ch.id != playback.channel.value?.id) {
+                        playback.play(ch, session)
+                        vm.selectChannel(ch.id)
+                    }
+                    showBanner()
+                },
+                channelPicker = { cur, onPick, onClose ->
+                    Box(Modifier.fillMaxSize().slideInFromLeft()) {
+                        ChannelListOverlay(
+                            vm = vm,
+                            serverUrl = session?.serverUrl.orEmpty(),
+                            current = cur,
+                            now = now,
+                            onPick = onPick,
+                            onClose = onClose,
+                            // A programme from the list's programme panel: that channel, live.
+                            onCatchup = { ch, _ -> onPick(ch) },
+                        )
+                    }
+                },
+            )
+        } else if (fullscreen) {
             Box(
                 Modifier
                     .fillMaxSize()
@@ -620,6 +676,11 @@ fun HomeScreen(
                     },
                     onClose = { osdVisible = false },
                     onActivity = { osdToken = System.nanoTime() },
+                    onMultiView = {
+                        osdVisible = false
+                        if (catchup != null) playback.goLive()
+                        multiView = true
+                    },
                     openAudio = osdAudio,
                     onRecord = current?.takeIf { catchup == null }?.let { prog ->
                         {
@@ -662,7 +723,7 @@ fun HomeScreen(
             BackHandler { quickSearch = false }
             // Solid: the screen underneath showing through between results (guide text, times) looked like a glitch.
             // The remote stays inside search until it closes.
-            Box(Modifier.fillMaxSize().background(AppColors.Background).slideInFromLeft(60.dp, 150).then(if (infoTarget == null && recordTarget == null) Modifier.trapFocus() else Modifier)) {
+            Box(Modifier.fillMaxSize().appBackground().slideInFromLeft(60.dp, 150).then(if (infoTarget == null && recordTarget == null) Modifier.trapFocus() else Modifier)) {
                 SearchPage(
                     guide = vm,
                     serverUrl = session?.serverUrl.orEmpty(),
@@ -679,6 +740,7 @@ fun HomeScreen(
                             playback.play(ch, session)
                             vm.selectChannel(ch.id)
                             fullscreen = true
+                            multiView = false
                             showBanner()
                         }
                     },

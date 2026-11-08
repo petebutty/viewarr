@@ -261,6 +261,33 @@ class PlaybackViewModel @Inject constructor(
         if (player != null && this.session == session) return player!!
         player?.release()
         this.session = session
+        return buildPlayer(session).also { p ->
+            p.playWhenReady = true
+            attachListener(p)
+            player = p
+        }
+    }
+
+    /**
+     * Multi-view: another live channel in its own player, silent until its window is selected. The caller releases
+     * it. Null when not signed in.
+     */
+    fun tilePlayer(channel: ChannelListItem): ExoPlayer? {
+        val s = session ?: return null
+        return buildPlayer(s).apply {
+            // No audio until its window is selected (multi-view switches it on).
+            volume = 0f
+            trackSelectionParameters = trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, true).build()
+            playWhenReady = true
+            setMediaItem(MediaItem.fromUri(liveUrl(s, channel)))
+            prepare()
+        }
+    }
+
+    /** Multi-view: what to say on a window whose channel failed. */
+    fun describeError(e: PlaybackException): String = describe(e)
+
+    private fun buildPlayer(session: Session): ExoPlayer {
         val http = DefaultHttpDataSource.Factory()
             .setUserAgent("Viewarr/0.7")
             .setAllowCrossProtocolRedirects(true)
@@ -286,8 +313,9 @@ class PlaybackViewModel @Inject constructor(
             .setMediaSourceFactory(DefaultMediaSourceFactory(http, extractors))
             .setLoadControl(loadControl)
             .build()
-            .also { p ->
-                p.playWhenReady = true
+    }
+
+    private fun attachListener(p: ExoPlayer) {
                 p.addListener(object : Player.Listener {
                     override fun onPlaybackStateChanged(playbackState: Int) {
                         when (playbackState) {
@@ -331,8 +359,6 @@ class PlaybackViewModel @Inject constructor(
                         }
                     }
                 })
-                player = p
-            }
     }
 
     fun play(channel: ChannelListItem, session: Session? = this.session) {

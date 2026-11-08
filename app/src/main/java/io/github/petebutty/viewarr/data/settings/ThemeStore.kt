@@ -29,6 +29,10 @@ class ThemeStore @Inject constructor(@ApplicationContext private val context: Co
             squareCorners = prefs[SQUARE] ?: true,
             hideMedia = prefs[HIDE_MEDIA] ?: false,
             progressBars = prefs[PROGRESS] ?: 0,
+            // 2 was "From your library" (removed): None.
+            wallpaper = (prefs[WALLPAPER] ?: 0).takeIf { it != 2 } ?: 0,
+            wallpaperStyle = prefs[WALLPAPER_STYLE] ?: 0,
+            wallpaperDim = prefs[WALLPAPER_DIM] ?: 0.6f,
         )
     }
 
@@ -55,6 +59,14 @@ class ThemeStore @Inject constructor(@ApplicationContext private val context: Co
         context.appearanceStore.edit { it[PROGRESS] = mode }
     }
 
+    suspend fun saveWallpaper(mode: Int, style: Int, dim: Float) {
+        context.appearanceStore.edit {
+            it[WALLPAPER] = mode
+            it[WALLPAPER_STYLE] = style
+            it[WALLPAPER_DIM] = dim
+        }
+    }
+
     suspend fun saveShowNumbers(on: Boolean) {
         context.appearanceStore.edit { it[NUMBERS] = on }
     }
@@ -67,5 +79,8 @@ class ThemeStore @Inject constructor(@ApplicationContext private val context: Co
         val HIGHLIGHT = intPreferencesKey("highlight")
         val TRANSPARENCY = floatPreferencesKey("menu_transparency")
         val PROGRESS = intPreferencesKey("guide_progress_bars")
+        val WALLPAPER = intPreferencesKey("wallpaper")
+        val WALLPAPER_STYLE = intPreferencesKey("wallpaper_style")
+        val WALLPAPER_DIM = floatPreferencesKey("wallpaper_dim")
     }
 }

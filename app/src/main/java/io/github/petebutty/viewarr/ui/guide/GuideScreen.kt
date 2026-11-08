@@ -210,6 +210,8 @@ fun GuideScreen(
             kotlinx.coroutines.delay(350)
             value = vm.artFor(t)
         }
+        // "What's selected" wallpaper: the highlighted programme's picture.
+        androidx.compose.runtime.LaunchedEffect(art) { art?.let { io.github.petebutty.viewarr.ui.theme.Wallpaper.selected = it } }
         InfoPanel(selectedChannel, focused, now, serverUrl, art)
         Spacer(Modifier.height(10.dp))
 

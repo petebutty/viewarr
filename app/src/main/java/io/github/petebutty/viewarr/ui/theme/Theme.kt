@@ -13,7 +13,10 @@ import androidx.compose.material3.MaterialTheme as M3Theme
 import androidx.compose.material3.darkColorScheme as m3DarkColorScheme
 
 /** Every shade is derived from two user-chosen colours so any combination stays coherent. */
-data class Palette(val main: Color, val highlight: Color, val transparency: Float = 0f, val showNumbers: Boolean = true, val squareCorners: Boolean = true, val hideMedia: Boolean = false, /** Guide progress bars: 0 every channel, 1 only the one you're watching, 2 none. */ val progressBars: Int = 0) {
+data class Palette(val main: Color, val highlight: Color, val transparency: Float = 0f, val showNumbers: Boolean = true, val squareCorners: Boolean = true, val hideMedia: Boolean = false, /** Guide progress bars: 0 every channel, 1 only the one you're watching, 2 none. */ val progressBars: Int = 0,
+    /** Picture behind pages: 0 none, 1 built-in, 2 from your library, 3 what's selected. */ val wallpaper: Int = 0,
+    /** Which built-in wallpaper (WallpaperStyles). */ val wallpaperStyle: Int = 0,
+    /** How much the background colour covers the wallpaper (0.3 light … 0.9 dark). */ val wallpaperDim: Float = 0.6f) {
     val menuAlpha = 1f - transparency
     val panel = lerp(main, Color.White, 0.07f)
     val panelAlt = lerp(main, Color.White, 0.04f)
@@ -38,6 +41,15 @@ val ThemePresets = listOf(
     ThemePreset("Ocean", Color(0xFF0D3640), Color(0xFF2DD4BF)),
     ThemePreset("Royal purple", Color(0xFF2A1B4D), Color(0xFFC084FC)),
     ThemePreset("Ember", Color(0xFF2B1515), Color(0xFFF97316)),
+    ThemePreset("Forest", Color(0xFF10301F), Color(0xFF4ADE80)),
+    ThemePreset("Sunset", Color(0xFF2D1520), Color(0xFFFB923C)),
+    ThemePreset("Slate", Color(0xFF2E2E36), Color(0xFF93C5FD)),
+    ThemePreset("Nord", Color(0xFF2E3440), Color(0xFF88C0D0)),
+    ThemePreset("Dracula", Color(0xFF282A36), Color(0xFFFF79C6)),
+    ThemePreset("Mocha", Color(0xFF2A211C), Color(0xFFE0B080)),
+    ThemePreset("Rose gold", Color(0xFF2A1A1E), Color(0xFFF4A6B8)),
+    ThemePreset("Gold", Color(0xFF14120C), Color(0xFFFACC15)),
+    ThemePreset("High contrast", Color(0xFF000000), Color(0xFFFFFFFF)),
 )
 
 val MainColourChoices = listOf(
@@ -54,6 +66,8 @@ object AppColors {
     var palette by mutableStateOf(Palette(ThemePresets[0].main, ThemePresets[0].highlight))
 
     val Background get() = palette.main
+    /** The background colour as laid over a wallpaper: see-through when one is on, solid otherwise. */
+    val Scrim get() = if (palette.wallpaper != 0) palette.main.copy(alpha = palette.wallpaperDim) else palette.main
     val Panel get() = palette.panel
     val PanelAlt get() = palette.panelAlt
     val Accent get() = palette.highlight

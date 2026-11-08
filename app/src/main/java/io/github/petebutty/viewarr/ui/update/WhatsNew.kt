@@ -46,8 +46,14 @@ fun WhatsNewHost() {
         val current = BuildConfig.VERSION_NAME
         if (seen != current) {
             // Updated from an older version (a fresh install has no record, and the setup is the welcome).
-            show = seen != null || prefs.getBoolean("legacy_check", false).not() && hadEarlierInstall(context)
-            prefs.edit().putString("seen_version", current).putBoolean("legacy_check", true).apply()
+            val updated = seen != null || prefs.getBoolean("legacy_check", false).not() && hadEarlierInstall(context)
+            // A fix-only release keeps the same card: don't show it again. (Before the card was remembered, a
+            // 0.14.x → 0.14.y update counts as seen.)
+            val notes = runCatching { context.assets.open("whats_new.txt").bufferedReader().readText().hashCode().toString() }.getOrNull()
+            val seenNotes = prefs.getString("seen_notes", null)
+            val sameSeries = seen != null && seen.substringBeforeLast('.') == current.substringBeforeLast('.')
+            show = updated && (if (seenNotes != null) seenNotes != notes else !sameSeries)
+            prefs.edit().putString("seen_version", current).putString("seen_notes", notes).putBoolean("legacy_check", true).apply()
         }
     }
     if (!show) return

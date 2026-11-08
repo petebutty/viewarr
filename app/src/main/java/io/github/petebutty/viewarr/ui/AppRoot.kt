@@ -1,5 +1,7 @@
 package io.github.petebutty.viewarr.ui
 
+import io.github.petebutty.viewarr.ui.theme.appBackground
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -94,10 +96,11 @@ fun AppRoot(vm: AppViewModel = hiltViewModel()) {
     Box(
         Modifier
             .fillMaxSize()
-            .background(AppColors.Background)
+            .appBackground()
             // Presses during the splash are swallowed rather than lost on a half-loaded page.
             .onPreviewKeyEvent { splashShown },
     ) {
+        io.github.petebutty.viewarr.ui.theme.WallpaperLoader()
         when (val s = state) {
             StartState.Loading -> Unit
             StartState.NeedsSetup -> if (!splashShown) {

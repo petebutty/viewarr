@@ -1,5 +1,7 @@
 package io.github.petebutty.viewarr.ui.settings
 
+import io.github.petebutty.viewarr.ui.theme.appBackground
+
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -93,7 +95,7 @@ fun SettingsPage(
         awaitFrame()
         runCatching { catFocus[0].requestFocus() }
     }
-    Box(Modifier.fillMaxSize().background(AppColors.Background).trapFocus()) {
+    Box(Modifier.fillMaxSize().appBackground().trapFocus()) {
         Row(Modifier.fillMaxSize().padding(horizontal = 56.dp, vertical = 40.dp)) {
             Column(Modifier.width(300.dp).fillMaxHeight()) {
                 Text("Settings", fontSize = 14.sp, color = AppColors.Accent)
@@ -189,11 +191,13 @@ private fun ChoiceList(item: SettingItem, onDone: () -> Unit) {
         ) {
             Text(item.title, fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary)
             Text(item.description, fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(bottom = 12.dp))
-            item.choices.forEach { choice ->
+            // Focus starts on the current choice; when it isn't one of them (e.g. a "Custom" theme), on the first.
+            val start = item.choices.indexOf(item.current).coerceAtLeast(0)
+            item.choices.forEachIndexed { i, choice ->
                 MenuItem(
                     text = (if (choice == item.current) "✓  " else "     ") + choice.label,
                     selected = choice == item.current,
-                    modifier = if (choice == item.current) Modifier.focusRequester(focus) else Modifier,
+                    modifier = if (i == start) Modifier.focusRequester(focus) else Modifier,
                     onClick = { item.onSelect(choice); onDone() },
                 )
             }
