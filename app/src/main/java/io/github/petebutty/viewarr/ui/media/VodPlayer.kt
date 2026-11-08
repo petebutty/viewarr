@@ -1,5 +1,6 @@
 package io.github.petebutty.viewarr.ui.media
 
+import kotlinx.coroutines.delay
 import io.github.petebutty.viewarr.ui.common.ignoreHeldOk
 import io.github.petebutty.viewarr.ui.common.trapFocus
 import androidx.activity.compose.BackHandler
@@ -75,6 +76,9 @@ fun VodPlayer(
     // Audio & subtitles opened from the Subtitles button: start on the subtitles.
     var tracksSubs by remember { mutableStateOf(false) }
     val menu = remember { PlayerMenu() }
+    // What's playing (poster, synopsis): the Info button, the Details button, or a moment after pausing.
+    var detailsOn by remember { mutableStateOf(false) }
+    var pausedLong by remember { mutableStateOf(false) }
     var okDown by remember { mutableStateOf(false) }
     val scrub = remember { Scrubber() }
     val thumbs = remember(stream) { io.github.petebutty.viewarr.playback.SeekThumbs.forStream(stream.url, stream.headers, stream.thumbs, stream.boxPreviews) }
@@ -219,23 +223,29 @@ fun VodPlayer(
         when {
             tracksOpen -> tracksOpen = false
             scrub.active -> { scrub.cancel(); showOsd() }
+            detailsOn -> detailsOn = false
             menu.open -> { menu.open = false; osdUntil = 0L }
             System.currentTimeMillis() < osdUntil && player.isPlaying -> osdUntil = 0L
             else -> onClose()
         }
     }
-    val buttons = listOfNotNull(PlayerButton.PlayPause, PlayerButton.Audio, PlayerButton.Subtitles, PlayerButton.Info, if (onSwitchPlayer != null) PlayerButton.SwitchPlayer else null)
+    val buttons = listOfNotNull(PlayerButton.PlayPause, PlayerButton.Details, PlayerButton.Audio, PlayerButton.Subtitles, PlayerButton.Info, if (onSwitchPlayer != null) PlayerButton.SwitchPlayer else null)
     fun press(b: PlayerButton) {
         when (b) {
             PlayerButton.PlayPause -> player.playWhenReady = !player.playWhenReady
             PlayerButton.Audio -> { tracksSubs = false; tracksOpen = true }
             PlayerButton.Subtitles -> { tracksSubs = true; tracksOpen = true }
             PlayerButton.Info -> menu.infoOn = !menu.infoOn
+            PlayerButton.Details -> { detailsOn = !detailsOn; if (detailsOn) menu.open = false }
             PlayerButton.SwitchPlayer -> onSwitchPlayer?.invoke(player.currentPosition)
         }
         showOsd()
     }
     // The controls close after a while without a key (not while paused).
+    LaunchedEffect(paused) {
+        pausedLong = false
+        if (paused) { delay(2_500); pausedLong = true } else detailsOn = false
+    }
     LaunchedEffect(menu.open, menu.lastKey, paused) {
         if (menu.open && !paused) { kotlinx.coroutines.delay(8_000); menu.open = false }
     }
@@ -312,7 +322,8 @@ fun VodPlayer(
                     Key.DirectionLeft, Key.MediaRewind -> { player.seekTo(maxOf(0, player.currentPosition - seekMs)); showOsd() }
                     Key.DirectionRight, Key.MediaFastForward -> { player.seekTo(player.currentPosition + seekMs); showOsd() }
                     Key.DirectionDown -> { scrub.begin(player.currentPosition); showOsd() }
-                    Key.DirectionUp, Key.Info -> showOsd()
+                    Key.DirectionUp -> showOsd()
+                    Key.Info -> detailsOn = !detailsOn
                     Key.MediaPlayPause, Key.MediaPlay, Key.MediaPause -> { player.playWhenReady = !player.playWhenReady; showOsd() }
                     Key.Menu -> tracksOpen = true
                     else -> return@onPreviewKeyEvent false
@@ -353,6 +364,7 @@ fun VodPlayer(
         )
         var started by remember(stream) { mutableStateOf(false) }
         if (!buffering && durationMs > 0) started = true
+        if (started && (detailsOn || (paused && pausedLong && !tracksOpen && !scrub.active && !menu.open))) PlayerDetails(stream.title, art)
         if (started && (paused || buffering || now < osdUntil || scrub.active || menu.open)) PlayerOsd(
             stream.title, positionMs, durationMs, paused, buffering, scrub.targetMs, thumbs, Modifier.align(Alignment.BottomCenter), logo = art?.logo,
             buttons = if (menu.open) buttons.map { it.label(paused, menu.infoOn, "mpv") } else null,

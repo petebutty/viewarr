@@ -550,9 +550,10 @@ fun HomeScreen(
                             else infoTarget = channel to program
                     }
                 },
-                // Holding OK: record options for anything live or still to come.
+                // Holding OK: the programme's options (record / remind, watch it from your library or addons), whether
+                // it's on now, still to come or already aired.
                 onLongSelect = { channel, program ->
-                    if (program != null && program.endTime > System.currentTimeMillis()) recordTarget = channel to program
+                    if (program != null) recordTarget = channel to program
                 },
             )
         }

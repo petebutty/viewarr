@@ -3,5 +3,5 @@
 Trakt sync, Watch from the start and new player controls
 - Your Trakt watched history now shows in Viewarr: ticks on everything you've watched, and Play / Resume picks up where you really are. Sync now in Accounts & sources → Trakt
 - Missed the start of something in the guide? Hold OK on it and choose Watch from the start to play it from your library or addons
-- Films and shows: OK brings up the seek bar and Audio, Subtitles and Media info buttons; Play/Pause on the remote pauses
+- Films and shows: OK brings up the seek bar and Audio, Subtitles and Media info buttons; Play/Pause on the remote pauses. The Info button shows the synopsis, and so does pausing
 - Catch-up channels: press OK, Up to the progress bar, and move back with Left to rewind

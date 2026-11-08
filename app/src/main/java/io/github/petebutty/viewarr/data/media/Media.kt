@@ -102,7 +102,15 @@ data class VodStream(
 )
 
 /** Pictures for the player: the title's backdrop (loading screen) and its logo (loading screen and controls). */
-data class PlayerArt(val backdrop: String?, val logo: String?)
+data class PlayerArt(
+    val backdrop: String?,
+    val logo: String?,
+    /** For the details panel (Info button, or paused): poster, the episode's line, facts and synopsis. */
+    val poster: String? = null,
+    val episodeLine: String? = null,
+    val facts: String? = null,
+    val overview: String? = null,
+)
 
 /** Where a server keeps its seek-bar preview pictures. */
 sealed interface ThumbSource {

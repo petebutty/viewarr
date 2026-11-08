@@ -225,15 +225,19 @@ fun RecordDialog(
         else add("Cancel this recording" to { run { vm.cancel(rec) } })
         if (rule != null) add("Stop series recording" to { run { vm.removeRule(rule) } })
         add((if (rec.state == DvrState.Recording) "Keep recording" else "Keep this recording") to onClose)
+        onWatchFromStart?.let { add("Watch it now (your library / addons)" to it) }
         onDetails?.let { add("Details" to it) }
     } else buildList<Pair<String, () -> Unit>> {
-        // Missed the start (and no catch-up to go back with): the film or episode from your servers (Plex, Jellyfin, Emby) or addons.
-        if (onWatchFromStart != null && !future) add("Watch from the start (your library / addons)" to onWatchFromStart)
+        // The film or episode from your servers (Plex, Jellyfin, Emby) or addons: from the start if it's on or has
+        // aired, or now if it's still to come.
+        if (onWatchFromStart != null) add((if (future) "Watch it now (your library / addons)" else "Watch from the start (your library / addons)") to onWatchFromStart)
         if (!canRecord) {
             // No recordings here (IPTV provider login, or a Dispatcharr user without DVR access): reminders still work.
         } else when {
             rec?.state == DvrState.Recording -> add("Stop recording" to { run { vm.stop(rec) } })
             rec != null -> add("Cancel this recording" to { run { vm.cancel(rec) } })
+            // Already over: nothing to record (series recording still offered below).
+            program.endTime <= System.currentTimeMillis() -> Unit
             else -> add((if (program.startTime <= System.currentTimeMillis()) "Record from now" else "Record this programme") to { run { vm.record(channel, program) } })
         }
         if (canRecord) {

@@ -235,7 +235,28 @@ class MediaViewModel @Inject constructor(
                 // (url first: the first, empty value arrives while this class is still being built.)
                 if (url == null) { _playerArt.value = null; return@collect }
                 val item = _detail.value?.detail?.item ?: run { _playerArt.value = null; return@collect }
-                val art = io.github.petebutty.viewarr.data.media.PlayerArt(item.backdrop, null)
+                val d = _detail.value
+                val genres = d?.detail?.genres.orEmpty()
+                // The episode playing (for a show): its name, synopsis and runtime.
+                val target = _playing.value?.watch
+                val ep = if (item.type == MediaType.Show && target?.season != null && target.episode != null) {
+                    d?.episodes?.firstOrNull { it.season == target.season && it.number == target.episode }
+                        ?: runCatching { repo.seasonEpisodes(item, target.season, d?.plexShowKey).firstOrNull { it.number == target.episode } }.getOrNull()
+                } else null
+                val facts = listOfNotNull(
+                    item.year?.toString(),
+                    item.rating?.takeIf { it > 0 }?.let { "★ %.1f".format(it) },
+                    genres.take(3).joinToString(", ").ifBlank { null },
+                    (ep?.runtimeMin ?: d?.detail?.runtimeMin)?.takeIf { it > 0 }?.let { "${it / 60}h ${it % 60}m".removePrefix("0h ") },
+                ).joinToString("  ·  ").ifBlank { null }
+                val art = io.github.petebutty.viewarr.data.media.PlayerArt(
+                    item.backdrop, null,
+                    poster = item.poster,
+                    episodeLine = ep?.let { "S${it.season} · E${it.number}  ${it.name}" } ?: target?.let { t -> if (t.season != null && t.episode != null) "S${t.season} · E${t.episode}" else null },
+                    facts = facts,
+                    overview = ep?.overview?.takeIf { it.isNotBlank() } ?: item.overview,
+                )
+                if (_playing.value?.url != url) return@collect
                 _playerArt.value = art
                 val logo = runCatching { repo.logoFor(item) }.getOrNull() ?: return@collect
                 if (_playing.value?.url == url) _playerArt.value = art.copy(logo = logo)

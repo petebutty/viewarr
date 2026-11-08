@@ -5,6 +5,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -77,7 +78,7 @@ class Scrubber {
 }
 
 /** The buttons under the seek bar. */
-enum class PlayerButton { PlayPause, Audio, Subtitles, Info, SwitchPlayer }
+enum class PlayerButton { PlayPause, Details, Audio, Subtitles, Info, SwitchPlayer }
 
 /**
  * The player's controls, opened with OK: the seek bar first (Left / Right move the marker, OK jumps there), the
@@ -123,6 +124,7 @@ class PlayerMenu {
 /** A button's label (Play / Pause follow the state; Media info shows whether it's on). */
 fun PlayerButton.label(paused: Boolean, infoOn: Boolean, otherPlayer: String) = when (this) {
     PlayerButton.PlayPause -> if (paused) "▶  Play" else "❚❚  Pause"
+    PlayerButton.Details -> "Details"
     PlayerButton.Audio -> "Audio"
     PlayerButton.Subtitles -> "Subtitles"
     PlayerButton.Info -> if (infoOn) "Hide media info" else "Media info"
@@ -315,6 +317,37 @@ fun PlayerLoading(title: String, art: io.github.petebutty.viewarr.data.media.Pla
                 title.substringAfter(" · ", "").takeIf { it.isNotBlank() }?.let {
                     Text(it, fontSize = 17.sp, color = Color.White.copy(alpha = 0.75f), modifier = Modifier.padding(top = 20.dp).graphicsLayer { alpha = fadeIn })
                 }
+            }
+        }
+    }
+}
+
+
+/**
+ * What's playing, over the picture: poster, title (or logo), the episode, facts and the synopsis. Opened with the
+ * remote's Info button (or Details), and shown by itself while paused, as other TV players do.
+ */
+@Composable
+fun PlayerDetails(title: String, art: io.github.petebutty.viewarr.data.media.PlayerArt?, modifier: Modifier = Modifier) {
+    Box(modifier.fillMaxSize().background(Brush.horizontalGradient(0f to Color.Black.copy(alpha = 0.88f), 0.55f to Color.Black.copy(alpha = 0.6f), 1f to Color.Transparent))) {
+        Row(Modifier.padding(start = 64.dp, top = 56.dp, end = 64.dp).fillMaxWidth(0.7f), verticalAlignment = Alignment.Top) {
+            art?.poster?.let {
+                coil.compose.AsyncImage(it, null, contentScale = ContentScale.Crop, modifier = Modifier.width(180.dp).height(270.dp).clip(RoundedCornerShape(10.dp)))
+                Spacer(Modifier.width(28.dp))
+            }
+            Column(Modifier.weight(1f)) {
+                var logoShown by remember(art?.logo) { mutableStateOf(false) }
+                if (art?.logo != null) coil.compose.AsyncImage(
+                    model = coil.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current).data(art.logo).size(coil.size.Size.ORIGINAL).build(),
+                    contentDescription = title, contentScale = ContentScale.Fit, alignment = Alignment.CenterStart,
+                    onSuccess = { logoShown = true },
+                    modifier = Modifier.height(if (logoShown) 72.dp else 0.dp).width(360.dp),
+                )
+                if (!logoShown) Text(title.substringBefore(" · "), fontSize = 30.sp, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                art?.episodeLine?.let { Text(it, fontSize = 20.sp, fontWeight = FontWeight.Medium, color = AppColors.Accent, modifier = Modifier.padding(top = 10.dp), maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                art?.facts?.let { Text(it, fontSize = 15.sp, color = Color.White.copy(alpha = 0.8f), modifier = Modifier.padding(top = 6.dp)) }
+                art?.overview?.let { Text(it, fontSize = 17.sp, lineHeight = 25.sp, color = Color.White, maxLines = 7, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 14.dp)) }
+                Text("Info or Back to close", fontSize = 12.sp, color = Color.White.copy(alpha = 0.55f), modifier = Modifier.padding(top = 12.dp))
             }
         }
     }

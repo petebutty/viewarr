@@ -101,6 +101,9 @@ fun MpvPlayer(
     // Audio & subtitles opened from the Subtitles button: start on the subtitles.
     var tracksSubs by remember { mutableStateOf(false) }
     val menu = remember { PlayerMenu() }
+    // What's playing (poster, synopsis): the Info button, the Details button, or a moment after pausing.
+    var detailsOn by remember { mutableStateOf(false) }
+    var pausedLong by remember { mutableStateOf(false) }
     var okDown by remember { mutableStateOf(false) }
     val focus = remember { FocusRequester() }
     var hasFocus by remember { mutableStateOf(false) }
@@ -259,6 +262,7 @@ fun MpvPlayer(
         when {
             tracksOpen -> tracksOpen = false
             scrub.active -> { scrub.cancel(); showOsd() }
+            detailsOn -> detailsOn = false
             menu.open -> { menu.open = false; osdUntil = 0L }
             System.currentTimeMillis() < osdUntil && !paused -> osdUntil = 0L
             else -> onClose()
@@ -270,18 +274,23 @@ fun MpvPlayer(
         showOsd()
     }
 
-    val buttons = listOfNotNull(PlayerButton.PlayPause, PlayerButton.Audio, PlayerButton.Subtitles, PlayerButton.Info, if (onSwitchPlayer != null) PlayerButton.SwitchPlayer else null)
+    val buttons = listOfNotNull(PlayerButton.PlayPause, PlayerButton.Details, PlayerButton.Audio, PlayerButton.Subtitles, PlayerButton.Info, if (onSwitchPlayer != null) PlayerButton.SwitchPlayer else null)
     fun press(b: PlayerButton) {
         when (b) {
             PlayerButton.PlayPause -> mpv.setPropertyBoolean("pause", !paused)
             PlayerButton.Audio -> { tracksSubs = false; tracksOpen = true }
             PlayerButton.Subtitles -> { tracksSubs = true; tracksOpen = true }
             PlayerButton.Info -> menu.infoOn = !menu.infoOn
+            PlayerButton.Details -> { detailsOn = !detailsOn; if (detailsOn) menu.open = false }
             PlayerButton.SwitchPlayer -> onSwitchPlayer?.invoke((position * 1000).toLong())
         }
         showOsd()
     }
     // The controls close after a while without a key (not while paused).
+    LaunchedEffect(paused) {
+        pausedLong = false
+        if (paused) { delay(2_500); pausedLong = true } else detailsOn = false
+    }
     LaunchedEffect(menu.open, menu.lastKey, paused) {
         if (menu.open && !paused) { delay(8_000); menu.open = false }
     }
@@ -340,7 +349,8 @@ fun MpvPlayer(
                     Key.DirectionLeft, Key.MediaRewind -> seek(-seekSec)
                     Key.DirectionRight, Key.MediaFastForward -> seek(seekSec)
                     Key.DirectionDown -> { scrub.begin((position * 1000).toLong()); showOsd() }
-                    Key.DirectionUp, Key.Info -> showOsd()
+                    Key.DirectionUp -> showOsd()
+                    Key.Info -> detailsOn = !detailsOn
                     Key.MediaPlayPause, Key.MediaPlay, Key.MediaPause -> { mpv.setPropertyBoolean("pause", !paused); showOsd() }
                     Key.Menu -> tracksOpen = true
                     else -> return@onPreviewKeyEvent false
@@ -390,6 +400,7 @@ fun MpvPlayer(
         // Until the first picture: the loading screen (backdrop, breathing logo); then the controls carry the logo.
         var started by remember(stream) { mutableStateOf(false) }
         if (!buffering && position > 0) started = true
+        if (started && (detailsOn || (paused && pausedLong && !tracksOpen && !scrub.active && !menu.open))) PlayerDetails(stream.title, art)
         if (osdVisible && started) PlayerOsd(
             stream.title, (position * 1000).toLong(), (duration * 1000).toLong(), paused, buffering,
             scrub.targetMs, thumbs, Modifier.align(Alignment.BottomCenter), logo = art?.logo,
