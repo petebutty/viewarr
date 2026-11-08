@@ -1086,10 +1086,12 @@ private fun DetailScreen(
 @Composable
 private fun EpisodesPanel(ui: DetailUi, vm: MediaViewModel, onPlex: Boolean) {
     val item = ui.detail.item
+    // Watched on Plex, Jellyfin / Emby, or anywhere Trakt knows about.
+    fun watched(s: Int, e: Int) = ui.plexEpisodes[s to e]?.watched == true || ui.serverEpisodes[s to e]?.watched == true || (s to e) in ui.traktEpisodes
     val episodeFocus = remember { FocusRequester() }
     val target = ui.episodes?.let { eps ->
         val next = if (item.nextSeason == ui.season) eps.indexOfFirst { it.number == item.nextEpisode } else -1
-        if (next >= 0) next else eps.indexOfFirst { e -> ui.plexEpisodes[e.season to e.number]?.watched != true }.coerceAtLeast(0)
+        if (next >= 0) next else eps.indexOfFirst { e -> !watched(e.season, e.number) }.coerceAtLeast(0)
     } ?: -1
     var highlighted by remember(ui.season) { mutableStateOf<io.github.petebutty.viewarr.data.media.EpisodeInfo?>(null) }
     val shown = highlighted ?: ui.episodes?.getOrNull(target)
@@ -1144,7 +1146,7 @@ private fun EpisodesPanel(ui: DetailUi, vm: MediaViewModel, onPlex: Boolean) {
                         ep.airDate?.takeIf { it.isNotBlank() },
                         ep.runtimeMin?.takeIf { it > 0 }?.let { "${it}m" },
                         if (plex != null) "In Plex" else null,
-                        if (plex?.watched == true) "Watched" else null,
+                        if (watched(ep.season, ep.number)) "Watched" else null,
                     ).joinToString("  ·  ")
                     if (tags.isNotEmpty()) Text(tags, fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(top = 4.dp))
                     ep.overview?.let { Text(it, fontSize = 15.sp, lineHeight = 21.sp, color = AppColors.TextPrimary, maxLines = 6, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 10.dp)) }
@@ -1224,7 +1226,7 @@ private fun EpisodesPanel(ui: DetailUi, vm: MediaViewModel, onPlex: Boolean) {
                                             Text(it, fontSize = 12.sp, lineHeight = 16.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp).graphicsLayer { alpha = 0.85f })
                                         }
                                     }
-                                    if (plex?.watched == true) Text("✓", fontSize = 16.sp, modifier = Modifier.padding(horizontal = 10.dp))
+                                    if (watched(ep.season, ep.number)) Text("✓", fontSize = 16.sp, modifier = Modifier.padding(horizontal = 10.dp))
                                 }
                             }
                         }

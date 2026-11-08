@@ -320,6 +320,7 @@ private fun ServiceOptions(item: SetupItem, status: String, onChange: () -> Unit
             // The on/off switches that belong with the service: each Plex server, each Stremio addon.
             if (item == SetupItem.Plex) io.github.petebutty.viewarr.ui.settings.PlexServersItems()
             if (item == SetupItem.Stremio) io.github.petebutty.viewarr.ui.settings.AddonSwitches()
+            if (item == SetupItem.Trakt) io.github.petebutty.viewarr.ui.settings.TraktSyncItems()
             MenuItem(
                 text = if (confirm) "Press OK again to disconnect" else "Disconnect",
                 selected = false,

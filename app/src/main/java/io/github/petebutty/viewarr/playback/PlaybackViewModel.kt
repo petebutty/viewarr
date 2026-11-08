@@ -463,9 +463,12 @@ class PlaybackViewModel @Inject constructor(
         if (program == null) {
             // Live: back through catch-up (from the paused moment if paused); forward is already live.
             if (deltaMs >= 0 || !canTimeshift(channel)) return
-            val from = livePausedAt ?: System.currentTimeMillis()
+            val now = System.currentTimeMillis()
+            val from = livePausedAt ?: now
             livePausedAt = null
-            playFrom(channel, from + deltaMs)
+            // The archive runs ~45 s behind live, and anything that close just plays live again: so a first step
+            // back from live goes at least a minute back (a short seek step used to do nothing).
+            playFrom(channel, minOf(from + deltaMs, now - 60_000))
             return
         }
         val now = System.currentTimeMillis()
@@ -476,6 +479,14 @@ class PlaybackViewModel @Inject constructor(
         val target = (p.currentPosition + deltaMs).coerceAtLeast(0)
         p.seekTo(if (p.duration > 0) target.coerceAtMost(p.duration - 1_000) else target)
         _position.value = p.currentPosition to p.duration.coerceAtLeast(0)
+    }
+
+    /** Live, catch-up channels: plays from [time] (the rewind marker on the player menu's bar). */
+    fun rewindLiveTo(time: Long) {
+        val channel = _channel.value ?: return
+        if (!canTimeshift(channel)) return
+        livePausedAt = null
+        playFrom(channel, minOf(time, System.currentTimeMillis() - 60_000))
     }
 
     fun restartProgramme() {

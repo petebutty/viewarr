@@ -96,6 +96,17 @@ fun PlayerOsd(
     var popup by remember { mutableStateOf<OsdPopup?>(if (openAudio) OsdPopup.Audio else null) }
     var note by remember { mutableStateOf<String?>(null) }
     val firstFocus = remember { FocusRequester() }
+    // The progress bar: Left on it while live rewinds (catch-up channels); it stays focused as it turns into the
+    // catch-up seek bar, so you can keep scrubbing.
+    val barFocus = remember { FocusRequester() }
+    var keepBar by remember { mutableStateOf(false) }
+    LaunchedEffect(catchup != null) {
+        if (!keepBar) return@LaunchedEffect
+        awaitFrame(); awaitFrame()
+        runCatching { barFocus.requestFocus() }
+        keepBar = false
+    }
+    val seekStep = io.github.petebutty.viewarr.data.settings.LocalRemote.current.seek.ms
 
     BackHandler { if (popup != null) popup = null else onClose() }
     LaunchedEffect(Unit) {
@@ -183,14 +194,45 @@ fun PlayerOsd(
         if (catchup != null) {
             SeekBar(
                 position = position.first,
-                duration = position.second.takeIf { it > 0 } ?: (catchup!!.endTime - catchup!!.startTime),
+                // The programme's own length: a programme still on air is only as long as what's been broadcast in
+                // the provider's archive, which made the bar look nearly finished.
+                duration = catchup!!.endTime - catchup!!.startTime,
+                // How far through it live is (a programme still on air).
+                live = (now - catchup!!.startTime).takeIf { now < catchup!!.endTime },
                 paused = paused,
                 onSeek = vm::seekBy,
                 onToggle = vm::togglePause,
-                modifier = Modifier.focusRequester(firstFocus),
+                modifier = Modifier.focusRequester(firstFocus).focusRequester(barFocus),
             )
         } else if (current != null) {
-            LiveProgress(current, now)
+            if (channel.catchupDays > 0) {
+                var barOn by remember { mutableStateOf(false) }
+                // Left / Right move a marker to where the rewind will jump to; it jumps on OK, or once you stop.
+                var rewindTo by remember { mutableStateOf<Long?>(null) }
+                val earliest = maxOf(current.startTime, now - channel.catchupDays * 86_400_000L)
+                fun jump() { rewindTo?.let { keepBar = true; vm.rewindLiveTo(it) }; rewindTo = null }
+                LaunchedEffect(rewindTo) { if (rewindTo != null) { kotlinx.coroutines.delay(2_500); jump() } }
+                Column(
+                    Modifier.focusRequester(barFocus).onFocusChanged { barOn = it.isFocused; if (!it.isFocused) rewindTo = null }.focusable().onPreviewKeyEvent { e ->
+                        if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                        val step = if (e.nativeKeyEvent.repeatCount >= 4) seekStep * 4 else seekStep
+                        when (e.key) {
+                            // The first step back is at least a minute (the archive runs just behind live).
+                            Key.DirectionLeft -> rewindTo = (minOf(rewindTo ?: now, now - 60_000 + step) - step).coerceAtLeast(earliest)
+                            Key.DirectionRight -> rewindTo = rewindTo?.let { (it + step).takeIf { t -> t < now - 60_000 } }
+                            Key.DirectionCenter, Key.Enter, Key.NumPadEnter -> if (rewindTo != null) jump() else { keepBar = true; vm.togglePause() }
+                            else -> return@onPreviewKeyEvent false
+                        }
+                        true
+                    },
+                ) {
+                    val marker = rewindTo?.let { ((it - current.startTime).toFloat() / (current.endTime - current.startTime)).coerceIn(0f, 1f) }
+                    LiveProgress(current, now, highlighted = barOn, marker = marker)
+                    val hint = rewindTo?.let { t -> "Back to ${t.clockTime()}  ·  ${((now - t) / 60_000).coerceAtLeast(1)} min ago  ·  OK to jump now" }
+                        ?: "◀ Left to rewind  ·  OK to pause"
+                    if (barOn) Text(hint, fontSize = 11.sp, color = if (rewindTo != null) Color.White else AppColors.TextSecondary, modifier = Modifier.padding(top = 4.dp))
+                }
+            } else LiveProgress(current, now)
         }
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -247,11 +289,16 @@ private fun Pill(text: String, modifier: Modifier = Modifier, dim: Boolean = fal
 }
 
 @Composable
-private fun LiveProgress(program: GuideProgram, now: Long) {
+private fun LiveProgress(program: GuideProgram, now: Long, highlighted: Boolean = false, marker: Float? = null) {
     val fraction = ((now - program.startTime).toFloat() / (program.endTime - program.startTime)).coerceIn(0f, 1f)
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.weight(1f).height(4.dp).background(Color(0x44FFFFFF), RoundedCornerShape(2.dp))) {
-            Box(Modifier.fillMaxWidth(fraction).fillMaxHeight().background(AppColors.Accent, RoundedCornerShape(2.dp)))
+        // The rewind marker: the bar up to it in the highlight colour, from it to live dimmed, and a white knob on it.
+        androidx.compose.foundation.layout.BoxWithConstraints(Modifier.weight(1f).height(14.dp), contentAlignment = Alignment.CenterStart) {
+            Box(Modifier.fillMaxWidth().height(if (highlighted) 6.dp else 4.dp).background(Color(0x44FFFFFF), RoundedCornerShape(2.dp))) {
+                Box(Modifier.fillMaxWidth(fraction).fillMaxHeight().background(AppColors.Accent.copy(alpha = if (marker != null) 0.35f else 1f), RoundedCornerShape(2.dp)))
+                if (marker != null) Box(Modifier.fillMaxWidth(marker).fillMaxHeight().background(AppColors.Accent, RoundedCornerShape(2.dp)))
+            }
+            if (marker != null) Box(Modifier.padding(start = (maxWidth * marker - 7.dp).coerceAtLeast(0.dp)).size(14.dp).background(Color.White, androidx.compose.foundation.shape.CircleShape))
         }
         Spacer(Modifier.width(12.dp))
         Text("${((program.endTime - now) / 60_000).coerceAtLeast(0)} min left", fontSize = 13.sp, color = AppColors.TextSecondary)
@@ -263,6 +310,7 @@ private fun LiveProgress(program: GuideProgram, now: Long) {
 private fun SeekBar(
     position: Long,
     duration: Long,
+    live: Long? = null,
     paused: Boolean,
     onSeek: (Long) -> Unit,
     onToggle: () -> Unit,
@@ -288,8 +336,16 @@ private fun SeekBar(
                 true
             },
     ) {
-        Box(Modifier.fillMaxWidth().height(if (focused) 6.dp else 4.dp).background(Color(0x44FFFFFF), RoundedCornerShape(3.dp))) {
-            Box(Modifier.fillMaxWidth(fraction).fillMaxHeight().background(AppColors.Accent, RoundedCornerShape(3.dp)))
+        androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth().height(14.dp), contentAlignment = Alignment.CenterStart) {
+            val liveFraction = live?.let { (it.toFloat() / duration).coerceIn(0f, 1f) }
+            Box(Modifier.fillMaxWidth().height(if (focused) 6.dp else 4.dp).background(Color(0x44FFFFFF), RoundedCornerShape(3.dp))) {
+                // Broadcast so far (up to live), then where you're playing.
+                liveFraction?.let { Box(Modifier.fillMaxWidth(it).fillMaxHeight().background(AppColors.Accent.copy(alpha = 0.35f), RoundedCornerShape(3.dp))) }
+                Box(Modifier.fillMaxWidth(fraction).fillMaxHeight().background(AppColors.Accent, RoundedCornerShape(3.dp)))
+            }
+            // Where you are: a knob. Live: a thin white mark.
+            Box(Modifier.padding(start = (maxWidth * fraction - 6.dp).coerceAtLeast(0.dp)).size(12.dp).background(Color.White, CircleShape))
+            liveFraction?.let { Box(Modifier.padding(start = (maxWidth * it - 1.dp).coerceAtLeast(0.dp)).size(width = 2.dp, height = 14.dp).background(Color(0xCCFFFFFF))) }
         }
         Spacer(Modifier.height(6.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -303,7 +359,7 @@ private fun SeekBar(
                 )
             }
             Spacer(Modifier.weight(1f))
-            Text("${clock(position)} / ${clock(duration)}", fontSize = 13.sp, color = Color.White)
+            Text("${clock(position)} / ${clock(duration)}" + (live?.let { l -> if (l > position + 60_000) "  ·  ${(l - position) / 60_000} min behind live" else "" } ?: ""), fontSize = 13.sp, color = Color.White)
         }
     }
 }

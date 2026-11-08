@@ -98,6 +98,9 @@ fun MpvPlayer(
     var error by remember { mutableStateOf<String?>(null) }
     var osdUntil by remember { mutableLongStateOf(System.currentTimeMillis() + 4_000) }
     var tracksOpen by remember { mutableStateOf(false) }
+    // Audio & subtitles opened from the Subtitles button: start on the subtitles.
+    var tracksSubs by remember { mutableStateOf(false) }
+    val menu = remember { PlayerMenu() }
     var okDown by remember { mutableStateOf(false) }
     val focus = remember { FocusRequester() }
     var hasFocus by remember { mutableStateOf(false) }
@@ -216,8 +219,9 @@ fun MpvPlayer(
     DisposableEffect(Unit) { onDispose { restoreMode?.let { m -> activity?.let { io.github.petebutty.viewarr.playback.FrameRateMatcher.restore(it, m) } } } }
     // Settings → Playback → Show playback info.
     var stats by remember { mutableStateOf("") }
-    LaunchedEffect(mpv, settings.stats) {
-        if (settings.stats != io.github.petebutty.viewarr.data.settings.StatsOverlay.On) return@LaunchedEffect
+    LaunchedEffect(mpv, settings.stats, menu.infoOn) {
+        // Settings → Show playback info, or the Media info button.
+        if (settings.stats != io.github.petebutty.viewarr.data.settings.StatsOverlay.On && !menu.infoOn) { stats = ""; return@LaunchedEffect }
         while (true) {
             stats = runCatching {
                 fun p(k: String) = MPVLib.getPropertyString(k)
@@ -255,6 +259,7 @@ fun MpvPlayer(
         when {
             tracksOpen -> tracksOpen = false
             scrub.active -> { scrub.cancel(); showOsd() }
+            menu.open -> { menu.open = false; osdUntil = 0L }
             System.currentTimeMillis() < osdUntil && !paused -> osdUntil = 0L
             else -> onClose()
         }
@@ -263,6 +268,22 @@ fun MpvPlayer(
     fun seek(by: Double) {
         mpv.command(arrayOf("seek", by.toString(), "relative"))
         showOsd()
+    }
+
+    val buttons = listOfNotNull(PlayerButton.PlayPause, PlayerButton.Audio, PlayerButton.Subtitles, PlayerButton.Info, if (onSwitchPlayer != null) PlayerButton.SwitchPlayer else null)
+    fun press(b: PlayerButton) {
+        when (b) {
+            PlayerButton.PlayPause -> mpv.setPropertyBoolean("pause", !paused)
+            PlayerButton.Audio -> { tracksSubs = false; tracksOpen = true }
+            PlayerButton.Subtitles -> { tracksSubs = true; tracksOpen = true }
+            PlayerButton.Info -> menu.infoOn = !menu.infoOn
+            PlayerButton.SwitchPlayer -> onSwitchPlayer?.invoke((position * 1000).toLong())
+        }
+        showOsd()
+    }
+    // The controls close after a while without a key (not while paused).
+    LaunchedEffect(menu.open, menu.lastKey, paused) {
+        if (menu.open && !paused) { delay(8_000); menu.open = false }
     }
 
     Box(
@@ -296,16 +317,19 @@ fun MpvPlayer(
                             return@onPreviewKeyEvent true
                         }
                         e.key == Key.DirectionUp -> { if (down) { scrub.cancel(); showOsd() }; return@onPreviewKeyEvent true }
-                        e.key == Key.DirectionDown -> return@onPreviewKeyEvent true
+                        e.key == Key.DirectionDown -> { if (down && menu.open) { scrub.cancel(); menu.onBar = false }; return@onPreviewKeyEvent true }
                     }
                 }
+                // The controls (opened with OK): seek bar and buttons.
+                if (menu.open && menu.handle(e, buttons, { dir, rep -> scrub.begin((position * 1000).toLong()); scrub.step(dir, rep, (duration * 1000).toLong()); showOsd() }, ::press)) return@onPreviewKeyEvent true
                 if (center) {
                     when {
                         e.type == KeyEventType.KeyDown && e.nativeKeyEvent.repeatCount == 0 -> okDown = true
                         e.type == KeyEventType.KeyDown && okDown -> { okDown = false; tracksOpen = true }
+                        // Tap OK: the controls (Play/Pause on the remote pauses). Hold OK: audio & subtitles.
                         e.type == KeyEventType.KeyUp && okDown -> {
                             okDown = false
-                            mpv.setPropertyBoolean("pause", !paused)
+                            menu.show()
                             showOsd()
                         }
                     }
@@ -362,13 +386,16 @@ fun MpvPlayer(
             modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 64.dp, start = 120.dp, end = 120.dp)
                 .then(if (settings.subtitleBackground == io.github.petebutty.viewarr.data.settings.SubtitleBackground.Box) Modifier.background(Color.Black.copy(alpha = 0.75f), RoundedCornerShape(4.dp)).padding(horizontal = 10.dp, vertical = 4.dp) else Modifier),
         )
-        val osdVisible = paused || buffering || now < osdUntil || scrub.active
+        val osdVisible = paused || buffering || now < osdUntil || scrub.active || menu.open
         // Until the first picture: the loading screen (backdrop, breathing logo); then the controls carry the logo.
         var started by remember(stream) { mutableStateOf(false) }
         if (!buffering && position > 0) started = true
         if (osdVisible && started) PlayerOsd(
             stream.title, (position * 1000).toLong(), (duration * 1000).toLong(), paused, buffering,
             scrub.targetMs, thumbs, Modifier.align(Alignment.BottomCenter), logo = art?.logo,
+            buttons = if (menu.open) buttons.map { it.label(paused, menu.infoOn, "the built-in player") } else null,
+            buttonFocus = if (menu.open && !menu.onBar) menu.button else -1,
+            barFocused = menu.open && menu.onBar,
         )
         PlayerLoading(stream.title, art, visible = !started && error == null)
         if (stats.isNotEmpty()) Text(
@@ -378,7 +405,7 @@ fun MpvPlayer(
         error?.let {
             Text(it, fontSize = 18.sp, color = Color.White, modifier = Modifier.align(Alignment.Center).background(Color.Black.copy(alpha = 0.7f)).padding(20.dp))
         }
-        if (tracksOpen) MpvTrackPicker(mpv, onSwitchPlayer = onSwitchPlayer?.let { f -> { f((position * 1000).toLong()) } }, onClose = { tracksOpen = false; runCatching { focus.requestFocus() } }, modifier = Modifier.align(Alignment.CenterEnd))
+        if (tracksOpen) MpvTrackPicker(mpv, subtitlesFirst = tracksSubs, onSwitchPlayer = onSwitchPlayer?.let { f -> { f((position * 1000).toLong()) } }, onClose = { tracksOpen = false; runCatching { focus.requestFocus() } }, modifier = Modifier.align(Alignment.CenterEnd))
     }
 }
 
@@ -498,7 +525,7 @@ private fun iso3(code: String) = runCatching { java.util.Locale(code).isO3Langua
 
 /** Audio and subtitle tracks from mpv's track-list. */
 @Composable
-private fun MpvTrackPicker(mpv: MpvHandle, onSwitchPlayer: (() -> Unit)?, onClose: () -> Unit, modifier: Modifier) {
+private fun MpvTrackPicker(mpv: MpvHandle, subtitlesFirst: Boolean = false, onSwitchPlayer: (() -> Unit)?, onClose: () -> Unit, modifier: Modifier) {
     data class Track(val type: String, val id: Int, val label: String, val selected: Boolean)
     val tracks = remember {
         val n = mpv.getPropertyInt("track-list/count") ?: 0
@@ -528,13 +555,13 @@ private fun MpvTrackPicker(mpv: MpvHandle, onSwitchPlayer: (() -> Unit)?, onClos
             item {
                 MenuItem(
                     text = (if (t.selected) "✓ " else "   ") + t.label, selected = false,
-                    modifier = if (i == 0) Modifier.focusRequester(first) else Modifier,
+                    modifier = if (i == 0 && !subtitlesFirst) Modifier.focusRequester(first) else Modifier,
                     onClick = { mpv.setPropertyInt("aid", t.id); onClose() },
                 )
             }
         }
         item { Text("Subtitles", fontSize = 13.sp, color = AppColors.Accent, modifier = Modifier.padding(start = 12.dp, top = 12.dp, bottom = 4.dp)) }
-        item { MenuItem(text = (if (subsOff) "✓ " else "   ") + "Off", selected = false, onClick = { mpv.setPropertyString("sid", "no"); onClose() }) }
+        item { MenuItem(text = (if (subsOff) "✓ " else "   ") + "Off", selected = false, modifier = if (subtitlesFirst || tracks.none { it.type == "audio" }) Modifier.focusRequester(first) else Modifier, onClick = { mpv.setPropertyString("sid", "no"); onClose() }) }
         tracks.filter { it.type == "sub" }.forEach { t ->
             item { MenuItem(text = (if (t.selected) "✓ " else "   ") + t.label, selected = false, onClick = { mpv.setPropertyInt("sid", t.id); onClose() }) }
         }

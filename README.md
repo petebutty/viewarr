@@ -23,7 +23,8 @@ Viewarr doesn't provide any content. It plays only what your own servers and acc
 **Live TV (Dispatcharr)**
 - A TiviMate-style TV guide with channel logos, categories, programmes going back and forward in time, and a progress bar under what's on now (on every channel, only the one you're watching, or off).
 - Catch-up: replay programmes from the past, where the channel supports it.
-- **Pause and rewind live TV** on catch-up channels (using Dispatcharr's catch-up): pause, then carry on from that moment; rewind with Left; fast-forward back to live or press **Go live**. The info bar shows how far behind live you are.
+- **Pause and rewind live TV** on catch-up channels (using Dispatcharr's catch-up): pause, then carry on from that moment; rewind with Left, or press OK, Up to the progress bar and move a marker back to where you want to jump to; fast-forward back to live or press **Go live**. The seek bar shows where you're playing and how far through the programme live is.
+- **Watch from the start:** missed the beginning of something in the guide? Hold OK on it and choose **Watch from the start**: Viewarr finds the film (or the show's episode) in your Plex, Jellyfin or Emby, or your addons, and plays it from the beginning.
 - Reminders: get a pop-up when a programme starts; small cards when a recording starts, finishes or fails.
 - The guide shows a picture of the highlighted programme: the guide's own artwork from Dispatcharr when it has some, otherwise one found on TMDB.
 - **Source switching:** see every stream behind a channel (and which provider it's from) and switch Dispatcharr to another one from the remote. **Stream info** shows Dispatcharr's live view: source, provider, resolution, codecs, bitrate and viewers. *(Admin users.)*
@@ -42,7 +43,8 @@ Viewarr doesn't provide any content. It plays only what your own servers and acc
 - Seasons and episodes for shows.
 - **One Play button:** it plays the best copy you have: your servers at home first (Plex, Jellyfin, Emby), then your servers away, then your **Stremio addons** (e.g. AIOStreams), then IPTV. A copy whose file has gone is skipped. **Hold OK on Play** to pick the source yourself. Shows get **Play / Resume S·E**, carrying on from Plex, Jellyfin/Emby or Trakt.
 - **Actor pages** with their photo, dates and biography, then their films and shows. Films in a series get a **Collection** tab (e.g. the Dune films).
-- Watch progress is sent back to Plex, Jellyfin/Emby and Trakt.
+- Watch progress is sent back to Plex, Jellyfin/Emby and Trakt, and your **Trakt watched history** comes back: episodes and films you've watched anywhere get their tick, and Play / Resume carries on from the furthest place any of them knows. **Sync with Trakt now** is in Accounts & sources → Trakt, with an optional **Copy watched to Plex**.
+- **Player controls:** OK brings up the seek bar (with preview pictures) and buttons for Play / Pause, Audio, Subtitles, Media info and switching player; the remote's Play/Pause button pauses.
 - Two players: **mpv** (the default; plays almost any file, codec or soundtrack, including TrueHD/Atmos and DTS-HD) or the lighter built-in player. Swap between them mid-film from the hold-OK menu and carry on from the same moment.
 - **Seek bar with preview pictures:** press Down while watching, scrub with Left/Right, OK to jump. Previews come from Plex / Emby / Jellyfin when the server made them, otherwise the box takes them from the film itself.
 - **Smooth playback on weak boxes:** mpv draws straight to the screen by default, the TV can switch to the film's frame rate, and surround passthrough only uses formats your TV or receiver really accepts.

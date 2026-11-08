@@ -40,12 +40,16 @@ data class DetailUi(
     val seasons: List<io.github.petebutty.viewarr.data.media.SeasonInfo> = emptyList(),
     /** Shows: where Play carries on from (season, episode, part-way through); null = from the first episode. */
     val nextUp: Triple<Int, Int, Boolean>? = null,
+    /** The nextUp lookup has finished (nextUp may still be null: not started). */
+    val nextUpChecked: Boolean = false,
     val season: Int? = null,
     /** null while loading. */
     val episodes: List<io.github.petebutty.viewarr.data.media.EpisodeInfo>? = null,
     val plexEpisodes: Map<Pair<Int, Int>, io.github.petebutty.viewarr.data.media.PlexEpisode> = emptyMap(),
     /** Jellyfin / Emby series: (season, episode) → episode id, resume point, watched. */
     val serverEpisodes: Map<Pair<Int, Int>, io.github.petebutty.viewarr.data.media.PlexEpisode> = emptyMap(),
+    /** Episodes Trakt says you've watched (wherever you watched them). */
+    val traktEpisodes: Set<Pair<Int, Int>> = emptySet(),
     /** IPTV provider series: (season, episode) → stream address. */
     val providerEpisodes: Map<Pair<Int, Int>, String> = emptyMap(),
     /** The episode whose play options are open. */
@@ -494,6 +498,30 @@ class MediaViewModel @Inject constructor(
     /** Titles opened from inside a title page (More like this): Back goes back through them, one at a time. */
     private val detailStack = ArrayList<MediaItem>()
 
+    /**
+     * From the guide: a programme you've missed the start of. Finds its film (or the show's episode), opens its page
+     * and plays it from the best source, as Play would. False when no match was found (search shows the title).
+     */
+    suspend fun watchFromStart(title: String, season: Int?, episode: Int?, year: Int? = null): Boolean {
+        val item = runCatching { repo.findTitle(title, show = season != null || episode != null, year = year) }.getOrNull() ?: return false
+        open(item)
+        val ready = kotlinx.coroutines.withTimeoutOrNull(25_000) {
+            _detail.first { it == null || (it.detail.item.key == item.key && it.copies != null && !it.loading) }
+        } ?: return true
+        if (ready.detail.item.key != item.key) return true
+        if (item.type == MediaType.Movie) { playBest(); return true }
+        // A show: where you're up to (Plex / Jellyfin / Emby / Trakt), once that's known.
+        val up = kotlinx.coroutines.withTimeoutOrNull(10_000) { _detail.first { it == null || it.detail.item.key != item.key || it.nextUpChecked } }
+            ?.takeIf { it.detail.item.key == item.key }?.nextUp
+        val (ns, ne) = up?.let { it.first to it.second } ?: (1 to 1)
+        // The guide's episode only if you're up to it (it's your next one, or you've watched past it); otherwise the
+        // episodes, at the season you got up to, so you don't skip ahead.
+        val upToIt = season != null && episode != null && (season < ns || (season == ns && episode <= ne))
+        if (upToIt) playBestEpisode(season!!, episode!!)
+        else { openEpisodes(); selectSeason(ns) }
+        return true
+    }
+
     fun open(item: MediaItem) {
         if (item.key.startsWith("person:")) return openPerson(item)
         _detail.value?.detail?.item?.takeIf { it.key != item.key }?.let { detailStack.add(it) }
@@ -527,6 +555,12 @@ class MediaViewModel @Inject constructor(
                     if (u?.detail?.item?.key != full.item.key) u else u.copy(detail = u.detail.copy(reviews = user + u.detail.reviews))
                 }
             }
+            if (full.item.type == MediaType.Show) launch {
+                // Your Trakt history: episodes watched anywhere get their tick.
+                runCatching { repo.traktWatched() }
+                val seen = repo.traktEpisodesOf(full.item)
+                if (seen.isNotEmpty()) _detail.update { if (it?.detail?.item?.key == full.item.key) it.copy(traktEpisodes = seen) else it }
+            }
             if (full.item.type == MediaType.Show) {
                 val showKey = copies.firstOrNull { it.source == "Plex" }?.ref
                 val plexEps = showKey?.let { runCatching { repo.plexEpisodes(it) }.getOrDefault(emptyMap()) }.orEmpty()
@@ -544,7 +578,7 @@ class MediaViewModel @Inject constructor(
                     }
                 _detail.update { it?.copy(plexEpisodes = plexEps, providerEpisodes = providerEps, serverEpisodes = serverEps, seasons = seasons) }
                 val next = runCatching { repo.nextEpisodeFor(full.item, copies) }.getOrNull()
-                _detail.update { if (it?.detail?.item?.key == full.item.key) it.copy(nextUp = next) else it }
+                _detail.update { if (it?.detail?.item?.key == full.item.key) it.copy(nextUp = next, nextUpChecked = true) else it }
             }
         }
     }

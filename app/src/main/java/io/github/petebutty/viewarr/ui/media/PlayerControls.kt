@@ -21,6 +21,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.type
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -73,6 +76,59 @@ class Scrubber {
     fun commit(): Long? = targetMs.also { targetMs = null }
 }
 
+/** The buttons under the seek bar. */
+enum class PlayerButton { PlayPause, Audio, Subtitles, Info, SwitchPlayer }
+
+/**
+ * The player's controls, opened with OK: the seek bar first (Left / Right move the marker, OK jumps there), the
+ * buttons below it (Down). Play/Pause on the remote pauses; OK no longer does. Closes by itself after a while
+ * (not while paused), or with Back.
+ */
+class PlayerMenu {
+    var open by mutableStateOf(false)
+    var onBar by mutableStateOf(true)
+    var button by androidx.compose.runtime.mutableIntStateOf(0)
+    var infoOn by mutableStateOf(false)
+    var lastKey by androidx.compose.runtime.mutableLongStateOf(0L)
+    fun show() { open = true; onBar = true; touch() }
+    fun touch() { lastKey = System.currentTimeMillis() }
+
+    /**
+     * Keys while the controls are open and not scrubbing (the players handle scrubbing themselves). True when used.
+     * [beginScrub]: start the marker at the current position and move it one step ([dir], [repeat] for speed).
+     */
+    fun handle(e: androidx.compose.ui.input.key.KeyEvent, buttons: List<PlayerButton>, beginScrub: (dir: Int, repeat: Int) -> Unit, press: (PlayerButton) -> Unit): Boolean {
+        val down = e.type == androidx.compose.ui.input.key.KeyEventType.KeyDown
+        val k = e.key
+        val center = k == androidx.compose.ui.input.key.Key.DirectionCenter || k == androidx.compose.ui.input.key.Key.Enter || k == androidx.compose.ui.input.key.Key.NumPadEnter
+        if (down) touch()
+        when {
+            onBar && (k == androidx.compose.ui.input.key.Key.DirectionLeft || k == androidx.compose.ui.input.key.Key.DirectionRight) -> {
+                if (down) beginScrub(if (k == androidx.compose.ui.input.key.Key.DirectionLeft) -1 else 1, e.nativeKeyEvent.repeatCount)
+            }
+            onBar && k == androidx.compose.ui.input.key.Key.DirectionDown -> if (down && buttons.isNotEmpty()) onBar = false
+            onBar && k == androidx.compose.ui.input.key.Key.DirectionUp -> Unit
+            onBar && center -> Unit
+            !onBar && k == androidx.compose.ui.input.key.Key.DirectionLeft -> if (down) button = (button - 1).coerceAtLeast(0)
+            !onBar && k == androidx.compose.ui.input.key.Key.DirectionRight -> if (down) button = (button + 1).coerceAtMost(buttons.lastIndex)
+            !onBar && k == androidx.compose.ui.input.key.Key.DirectionUp -> if (down) onBar = true
+            !onBar && k == androidx.compose.ui.input.key.Key.DirectionDown -> Unit
+            !onBar && center -> if (down && e.nativeKeyEvent.repeatCount == 0) buttons.getOrNull(button)?.let(press)
+            else -> return false
+        }
+        return true
+    }
+}
+
+/** A button's label (Play / Pause follow the state; Media info shows whether it's on). */
+fun PlayerButton.label(paused: Boolean, infoOn: Boolean, otherPlayer: String) = when (this) {
+    PlayerButton.PlayPause -> if (paused) "▶  Play" else "❚❚  Pause"
+    PlayerButton.Audio -> "Audio"
+    PlayerButton.Subtitles -> "Subtitles"
+    PlayerButton.Info -> if (infoOn) "Hide media info" else "Media info"
+    PlayerButton.SwitchPlayer -> "Switch to $otherPlayer"
+}
+
 /** The controls over a playing film or episode: title, seek bar (with preview while scrubbing) and times. */
 @Composable
 fun PlayerOsd(
@@ -86,6 +142,10 @@ fun PlayerOsd(
     modifier: Modifier = Modifier,
     /** The title's logo: shown above the episode line instead of the title as text. */
     logo: String? = null,
+    /** The controls (opened with OK): button labels, which is highlighted, and whether the seek bar has focus. */
+    buttons: List<String>? = null,
+    buttonFocus: Int = -1,
+    barFocused: Boolean = false,
 ) {
     val scrubbing = scrubMs != null
     // The preview: fetched once the marker rests for a moment, the last one stays up meanwhile.
@@ -164,11 +224,27 @@ fun PlayerOsd(
             Text(clockMs(positionMs), fontSize = 14.sp, color = Color.White)
             Spacer(Modifier.weight(1f))
             Text(
-                if (scrubbing) "◀ ▶ move  ·  OK: jump here  ·  Back: cancel" else "▼ seek bar  ·  Hold OK: audio & subtitles",
+                when {
+                    scrubbing -> "◀ ▶ move  ·  OK: jump here  ·  Back: cancel"
+                    buttons != null && barFocused -> "◀ ▶ seek  ·  ▼ options  ·  ⏯ play / pause"
+                    buttons != null -> "▲ seek bar  ·  ⏯ play / pause"
+                    else -> "OK: controls  ·  ◀ ▶ skip  ·  ⏯ play / pause"
+                },
                 fontSize = 13.sp, color = Color.White.copy(alpha = 0.7f),
             )
             Spacer(Modifier.weight(1f))
             Text(if (durationMs > 0) "-" + clockMs(durationMs - positionMs) else "", fontSize = 14.sp, color = Color.White)
+        }
+        if (buttons != null) Row(Modifier.padding(top = 14.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            buttons.forEachIndexed { i, label ->
+                val on = i == buttonFocus
+                Text(
+                    label, fontSize = 15.sp, fontWeight = FontWeight.Medium,
+                    color = if (on) AppColors.OnAccent else Color.White,
+                    modifier = Modifier.background(if (on) AppColors.Accent else Color.White.copy(alpha = 0.14f), RoundedCornerShape(18.dp))
+                        .padding(horizontal = 16.dp, vertical = 7.dp),
+                )
+            }
         }
     }
 }

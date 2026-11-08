@@ -56,6 +56,8 @@ data class Accounts(
     val mdblistKey: String? = null,
     /** Plex servers switched off in Settings (by machine id): left out of rows, search, libraries and playback. */
     val plexOff: Set<String> = emptySet(),
+    /** Mark on Plex what Trakt says you've watched (Settings → Trakt). Off unless switched on: it changes Plex. */
+    val traktToPlex: Boolean = false,
 ) {
     /** The addons switched on in Settings → Addons. */
     val activeAddons: List<AddonInfo> get() = addons.filter { it.enabled }

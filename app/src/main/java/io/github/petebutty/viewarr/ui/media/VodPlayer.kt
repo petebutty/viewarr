@@ -72,6 +72,9 @@ fun VodPlayer(
     val startAt = stream.startMs ?: if (pb.resume == io.github.petebutty.viewarr.data.settings.ResumeMode.Start) 0L else stream.resumeMs
     var view by remember { mutableStateOf<PlayerView?>(null) }
     var tracksOpen by remember { mutableStateOf(false) }
+    // Audio & subtitles opened from the Subtitles button: start on the subtitles.
+    var tracksSubs by remember { mutableStateOf(false) }
+    val menu = remember { PlayerMenu() }
     var okDown by remember { mutableStateOf(false) }
     val scrub = remember { Scrubber() }
     val thumbs = remember(stream) { io.github.petebutty.viewarr.playback.SeekThumbs.forStream(stream.url, stream.headers, stream.thumbs, stream.boxPreviews) }
@@ -216,9 +219,25 @@ fun VodPlayer(
         when {
             tracksOpen -> tracksOpen = false
             scrub.active -> { scrub.cancel(); showOsd() }
+            menu.open -> { menu.open = false; osdUntil = 0L }
             System.currentTimeMillis() < osdUntil && player.isPlaying -> osdUntil = 0L
             else -> onClose()
         }
+    }
+    val buttons = listOfNotNull(PlayerButton.PlayPause, PlayerButton.Audio, PlayerButton.Subtitles, PlayerButton.Info, if (onSwitchPlayer != null) PlayerButton.SwitchPlayer else null)
+    fun press(b: PlayerButton) {
+        when (b) {
+            PlayerButton.PlayPause -> player.playWhenReady = !player.playWhenReady
+            PlayerButton.Audio -> { tracksSubs = false; tracksOpen = true }
+            PlayerButton.Subtitles -> { tracksSubs = true; tracksOpen = true }
+            PlayerButton.Info -> menu.infoOn = !menu.infoOn
+            PlayerButton.SwitchPlayer -> onSwitchPlayer?.invoke(player.currentPosition)
+        }
+        showOsd()
+    }
+    // The controls close after a while without a key (not while paused).
+    LaunchedEffect(menu.open, menu.lastKey, paused) {
+        if (menu.open && !paused) { kotlinx.coroutines.delay(8_000); menu.open = false }
     }
     // The player must hold focus itself, or the remote keeps driving the screen underneath (the controls never respond).
     LaunchedEffect(Unit) {
@@ -269,17 +288,20 @@ fun VodPlayer(
                             return@onPreviewKeyEvent true
                         }
                         e.key == Key.DirectionUp -> { if (down) { scrub.cancel(); showOsd() }; return@onPreviewKeyEvent true }
-                        e.key == Key.DirectionDown -> return@onPreviewKeyEvent true
+                        e.key == Key.DirectionDown -> { if (down && menu.open) { scrub.cancel(); menu.onBar = false }; return@onPreviewKeyEvent true }
                     }
                 }
+                // The controls (opened with OK): seek bar and buttons.
+                if (menu.open && menu.handle(e, buttons, { dir, rep -> scrub.begin(player.currentPosition); scrub.step(dir, rep, player.duration.coerceAtLeast(0)); showOsd() }, ::press)) return@onPreviewKeyEvent true
                 if (center) {
                     // Tap OK: pause/play. Hold OK: audio & subtitles.
                     when {
                         e.type == KeyEventType.KeyDown && e.nativeKeyEvent.repeatCount == 0 -> okDown = true
                         e.type == KeyEventType.KeyDown && okDown -> { okDown = false; tracksOpen = true }
+                        // Tap OK: the controls (Play/Pause on the remote pauses). Hold OK: audio & subtitles.
                         e.type == KeyEventType.KeyUp && okDown -> {
                             okDown = false
-                            player.playWhenReady = !player.playWhenReady
+                            menu.show()
                             showOsd()
                         }
                     }
@@ -331,12 +353,15 @@ fun VodPlayer(
         )
         var started by remember(stream) { mutableStateOf(false) }
         if (!buffering && durationMs > 0) started = true
-        if (started && (paused || buffering || now < osdUntil || scrub.active)) PlayerOsd(
+        if (started && (paused || buffering || now < osdUntil || scrub.active || menu.open)) PlayerOsd(
             stream.title, positionMs, durationMs, paused, buffering, scrub.targetMs, thumbs, Modifier.align(Alignment.BottomCenter), logo = art?.logo,
+            buttons = if (menu.open) buttons.map { it.label(paused, menu.infoOn, "mpv") } else null,
+            buttonFocus = if (menu.open && !menu.onBar) menu.button else -1,
+            barFocused = menu.open && menu.onBar,
         )
         PlayerLoading(stream.title, art, visible = !started && error == null)
-        if (tracksOpen) TrackPicker(player, onSwitchPlayer = onSwitchPlayer?.let { f -> { f(player.currentPosition) } }, onClose = { tracksOpen = false; runCatching { focus.requestFocus() } }, modifier = Modifier.align(Alignment.CenterEnd))
-        if (pb.stats == io.github.petebutty.viewarr.data.settings.StatsOverlay.On) {
+        if (tracksOpen) TrackPicker(player, subtitlesFirst = tracksSubs, onSwitchPlayer = onSwitchPlayer?.let { f -> { f(player.currentPosition) } }, onClose = { tracksOpen = false; runCatching { focus.requestFocus() } }, modifier = Modifier.align(Alignment.CenterEnd))
+        if (pb.stats == io.github.petebutty.viewarr.data.settings.StatsOverlay.On || menu.infoOn) {
             var info by remember { mutableStateOf("") }
             LaunchedEffect(player) {
                 while (true) {
@@ -366,7 +391,7 @@ private fun mediaItem(url: String, hls: Boolean): MediaItem =
 /** Audio and subtitle choice for the film player (hold OK, or the Menu key). */
 @OptIn(UnstableApi::class)
 @Composable
-private fun TrackPicker(player: ExoPlayer, onSwitchPlayer: (() -> Unit)?, onClose: () -> Unit, modifier: Modifier) {
+private fun TrackPicker(player: ExoPlayer, subtitlesFirst: Boolean = false, onSwitchPlayer: (() -> Unit)?, onClose: () -> Unit, modifier: Modifier) {
     val first = remember { FocusRequester() }
     LaunchedEffect(Unit) { awaitFrame(); runCatching { first.requestFocus() } }
     val groups = player.currentTracks.groups
@@ -410,13 +435,16 @@ private fun TrackPicker(player: ExoPlayer, onSwitchPlayer: (() -> Unit)?, onClos
         modifier.fillMaxHeight().width(380.dp).background(io.github.petebutty.viewarr.ui.theme.AppColors.Panel.copy(alpha = 0.95f)).padding(20.dp).trapFocus().then(Modifier.ignoreHeldOk()),
         verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(2.dp),
     ) {
-        var firstSet = false
+        // Focus starts on the first audio track, or (Subtitles button) on the subtitles' "Off".
+        val isHeader = { c: Choice -> c.label == "Audio" || c.label == "Subtitles" || c.label == "Player" }
+        val subsAt = choices.indexOfFirst { it.label == "Subtitles" }
+        val firstIdx = (if (subtitlesFirst && subsAt >= 0) subsAt + 1 else choices.indexOfFirst { !isHeader(it) }).coerceAtLeast(0)
         choices.forEachIndexed { idx, c ->
             val header = c.label == "Audio" || c.label == "Subtitles" || c.label == "Player"
             item(key = idx) {
                 if (header) Text(c.label, fontSize = 13.sp, color = io.github.petebutty.viewarr.ui.theme.AppColors.Accent, modifier = Modifier.padding(top = 10.dp, start = 12.dp))
                 else {
-                    val m = if (!firstSet) { firstSet = true; Modifier.focusRequester(first) } else Modifier
+                    val m = if (idx == firstIdx) Modifier.focusRequester(first) else Modifier
                     io.github.petebutty.viewarr.ui.common.MenuItem(text = c.label, selected = false, modifier = m, onClick = { c.apply(); onClose() })
                 }
             }

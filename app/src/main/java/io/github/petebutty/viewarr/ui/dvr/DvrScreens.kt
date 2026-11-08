@@ -192,7 +192,12 @@ fun ProgramInfoDialog(channel: ChannelListItem, program: GuideProgram, vm: DvrVi
 
 /** Record options for one programme in the guide (or what's on now, from the player). */
 @Composable
-fun RecordDialog(channel: ChannelListItem, program: GuideProgram, vm: DvrViewModel, onDetails: (() -> Unit)? = null, onClose: () -> Unit) {
+fun RecordDialog(
+    channel: ChannelListItem, program: GuideProgram, vm: DvrViewModel, onDetails: (() -> Unit)? = null,
+    /** Started already: find it on your servers / addons and play it from the beginning. */
+    onWatchFromStart: (() -> Unit)? = null,
+    onClose: () -> Unit,
+) {
     val message by vm.message.collectAsStateWithLifecycle()
     vm.recordings.collectAsStateWithLifecycle().value // recompose when the list changes
     vm.rules.collectAsStateWithLifecycle().value
@@ -222,6 +227,8 @@ fun RecordDialog(channel: ChannelListItem, program: GuideProgram, vm: DvrViewMod
         add((if (rec.state == DvrState.Recording) "Keep recording" else "Keep this recording") to onClose)
         onDetails?.let { add("Details" to it) }
     } else buildList<Pair<String, () -> Unit>> {
+        // Missed the start (and no catch-up to go back with): the film or episode from your servers (Plex, Jellyfin, Emby) or addons.
+        if (onWatchFromStart != null && !future) add("Watch from the start (your library / addons)" to onWatchFromStart)
         if (!canRecord) {
             // No recordings here (IPTV provider login, or a Dispatcharr user without DVR access): reminders still work.
         } else when {

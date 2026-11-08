@@ -127,6 +127,19 @@ class CatalogRepository @Inject constructor(
     private val sessions: io.github.petebutty.viewarr.data.session.SessionStore,
     private val xtream: io.github.petebutty.viewarr.data.xtream.XtreamClient,
 ) {
+    /** Background work that outlives a screen (copying Trakt's history to Plex). */
+    private val appScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO)
+
+    init {
+        // Trakt watched history: checked soon after start and every half hour (copied to Plex too, if that's on).
+        appScope.launch {
+            kotlinx.coroutines.delay(5_000)
+            while (true) {
+                runCatching { traktWatched() }
+                kotlinx.coroutines.delay(30 * 60_000L)
+            }
+        }
+    }
     private val tmdbCache = ConcurrentHashMap<String, MediaItem>()
     private val tmdbLimit = Semaphore(6)
     @Volatile private var traktWatchlist: MutableSet<String> = ConcurrentHashMap.newKeySet()
@@ -348,6 +361,37 @@ class CatalogRepository @Inject constructor(
             .distinctBy { it.lowercase() }
             .filter { !it.equals(q, ignoreCase = true) }
             .take(6)
+    }
+
+    /**
+     * A guide programme's film or show on TMDB, by title (exact match only, so a wrong one isn't played). [show]:
+     * it has a season / episode, so it's a show; otherwise a film is preferred.
+     */
+    suspend fun findTitle(title: String, show: Boolean, year: Int? = null): MediaItem? {
+        val key = store.current().tmdbKey ?: return null
+        val clean = title.removePrefix("New: ").trim()
+        // Guides abbreviate ("Pt1" for "Part 1") and punctuate differently: compare letters and numbers only.
+        fun norm(t: String) = t.lowercase().replace("&", "and").replace(Regex("\\bpart\\s*"), "pt").replace(Regex("[^a-z0-9]"), "")
+        val want = norm(clean)
+        val order = if (show) listOf(MediaType.Show, MediaType.Movie) else listOf(MediaType.Movie, MediaType.Show)
+        for (type in order) {
+            val row = runCatching { tmdbSearch(key, type, clean.replace(Regex("\\bPt\\s*(\\d)"), "Part $1")) }.getOrNull() ?: continue
+            row.items.firstOrNull { norm(it.title) == want && (year == null || it.year == null || it.year == year) }?.let { return it }
+            // Not word for word, but the guide gave the year: the best match from that year with a similar title.
+            if (year != null) row.items.firstOrNull { it.year == year && (norm(it.title).startsWith(want.take(10)) || want.startsWith(norm(it.title).take(10))) }?.let { return it }
+        }
+        // Guides add an episode or special's name to the title ("Only Fools and Horses To Hull and Back"): drop words
+        // from the end until a show (or film) matches exactly, keeping at least two.
+        val words = clean.split(' ').filter { it.isNotBlank() }
+        for (n in words.size - 1 downTo 2) {
+            val shorter = words.take(n).joinToString(" ")
+            val w = norm(shorter)
+            for (type in order) {
+                val row = runCatching { tmdbSearch(key, type, shorter) }.getOrNull() ?: continue
+                row.items.firstOrNull { norm(it.title) == w }?.let { return it }
+            }
+        }
+        return null
     }
 
     private suspend fun tmdbSearch(key: String, type: MediaType, q: String): MediaRow? {
@@ -1227,13 +1271,16 @@ class CatalogRepository @Inject constructor(
      * Emby's next up, then your Trakt progress; null when none of them know (start at the first episode).
      */
     suspend fun nextEpisodeFor(item: MediaItem, copies: List<LibraryCopy>): Triple<Int, Int, Boolean>? {
+        // Each source's idea of where you are; the furthest along wins (Trakt knows what you watched elsewhere, so
+        // Plex's on deck can be well behind it). Part-way through an episode beats starting that same one.
         val a = store.current()
+        val found = ArrayList<Triple<Int, Int, Boolean>>()
         copies.filter { it.source == "Plex" && it.ref != null }.forEach { c ->
             val (p, rk) = plexResolve(a, c.ref!!) ?: return@forEach
             val deck = runCatching { plexGet(a, p, "/library/metadata/$rk?includeOnDeck=1") }.getOrNull()
                 ?.array("Metadata")?.firstOrNull()?.child("OnDeck")?.array("Metadata")?.firstOrNull()
             val s = deck.int("parentIndex"); val e = deck.int("index")
-            if (s != null && e != null) return Triple(s, e, (deck.long("viewOffset") ?: 0) > 0)
+            if (s != null && e != null) { found += Triple(s, e, (deck.long("viewOffset") ?: 0) > 0); return@forEach }
         }
         copies.firstOrNull { (it.source == "Jellyfin" || it.source == "Emby") && it.ref != null }?.let { c ->
             val (srv, emby) = serverFor(c.source) ?: return@let
@@ -1242,18 +1289,22 @@ class CatalogRepository @Inject constructor(
             }.getOrNull()?.takeIf { it.ok }
             val ep = r?.body?.array("Items")?.firstOrNull()
             val s = ep.int("ParentIndexNumber"); val e = ep.int("IndexNumber")
-            if (s != null && e != null) return Triple(s, e, (ep.child("UserData").long("PlaybackPositionTicks") ?: 0) > 0)
+            if (s != null && e != null) found += Triple(s, e, (ep.child("UserData").long("PlaybackPositionTicks") ?: 0) > 0)
         }
         val t = a.trakt?.let { freshTrakt(it) }
-        val id = item.imdbId
+        // Trakt's show address takes an IMDb id or its own; with only a TMDB id, look its own up.
+        val id = item.imdbId ?: if (t != null) item.tmdbId?.let { tm ->
+            runCatching { http.get("https://api.trakt.tv/search/tmdb/$tm?type=show", trakt.headers(t.accessToken)) }.getOrNull()
+                ?.takeIf { it.ok }?.body.asArray().firstOrNull().child("show").child("ids").int("trakt")?.toString()
+        } else null
         if (t != null && id != null) {
             val r = runCatching { http.get("https://api.trakt.tv/shows/$id/progress/watched?specials=false", trakt.headers(t.accessToken)) }.getOrNull()?.takeIf { it.ok }
             val next = r?.body?.child("next_episode")
             val s = next.int("season"); val e = next.int("number")
             // Only when you've started the show: otherwise Trakt's "next" is just the first episode anyway.
-            if (s != null && e != null && (r?.body.int("completed") ?: 0) > 0) return Triple(s, e, false)
+            if (s != null && e != null && (r?.body.int("completed") ?: 0) > 0) found += Triple(s, e, false)
         }
-        return null
+        return found.maxWithOrNull(compareBy<Triple<Int, Int, Boolean>>({ it.first }, { it.second }, { it.third }))
     }
 
     suspend fun serverEpisodes(source: String, seriesId: String): Map<Pair<Int, Int>, PlexEpisode> {
@@ -1314,6 +1365,147 @@ class CatalogRepository @Inject constructor(
         }
         runCatching { http.post("https://api.trakt.tv/scrobble/$action", body, trakt.headers(auth.accessToken)) }
             .onFailure { Log.w(TAG, "trakt scrobble failed: ${it.message}") }
+    }
+
+    // ------------------------------------------------------------------ Trakt watched history
+
+    /** Everything Trakt says you've watched. Keys are "tmdb:123" / "imdb:tt123" so either id finds a title. */
+    data class TraktWatched(
+        val movies: Set<String>,
+        val episodes: Map<String, Set<Pair<Int, Int>>>,
+        val fetchedAt: Long,
+        /** Trakt's last-watched times; a new one means there's something to fetch again. */
+        val activity: String,
+    ) {
+        val movieCount get() = movies.count { it.startsWith("tmdb:") }.coerceAtLeast(movies.count { it.startsWith("imdb:") })
+        val episodeCount get() = episodes.filterKeys { it.startsWith("tmdb:") }.values.sumOf { it.size }
+            .coerceAtLeast(episodes.filterKeys { it.startsWith("imdb:") }.values.sumOf { it.size })
+    }
+
+    private val _traktWatched = kotlinx.coroutines.flow.MutableStateFlow<TraktWatched?>(null)
+    /** The last Trakt history fetched (null until then, or without Trakt). */
+    val traktWatchedState: kotlinx.coroutines.flow.StateFlow<TraktWatched?> = _traktWatched
+    private val traktLock = Mutex()
+
+    private fun idKeys(tmdb: Int?, imdb: String?) = listOfNotNull(tmdb?.let { "tmdb:$it" }, imdb?.takeIf { it.isNotBlank() }?.let { "imdb:$it" })
+
+    /**
+     * Your Trakt watched films and episodes. Checked again at most every 10 minutes (and then only fetched in full
+     * when Trakt says something changed); [force] fetches now (Settings → Sync with Trakt now).
+     */
+    suspend fun traktWatched(force: Boolean = false): TraktWatched? = traktLock.withLock {
+        val a = store.current()
+        val t = a.trakt?.let { freshTrakt(it) } ?: run { _traktWatched.value = null; return@withLock null }
+        val cur = _traktWatched.value
+        val now = System.currentTimeMillis()
+        if (!force && cur != null && now - cur.fetchedAt < 10 * 60_000) return@withLock cur
+        val h = trakt.headers(t.accessToken)
+        val act = runCatching { http.get("https://api.trakt.tv/sync/last_activities", h) }.getOrNull()?.takeIf { it.ok }?.body
+        val stamp = listOf(act.child("movies").str("watched_at"), act.child("episodes").str("watched_at")).joinToString("|")
+        if (!force && cur != null && act != null && stamp == cur.activity) return@withLock cur.copy(fetchedAt = now).also { _traktWatched.value = it }
+        // Trakt pages these lists (100 a page unless asked for more): read every page.
+        suspend fun all(path: String): List<JsonElement>? {
+            val out = ArrayList<JsonElement>()
+            for (page in 1..200) {
+                val r = runCatching { http.get("https://api.trakt.tv$path${if ('?' in path) '&' else '?'}page=$page&limit=1000", h) }.getOrNull()
+                    ?.takeIf { it.ok } ?: return if (page == 1) null else out
+                val items = r.body.asArray()
+                out += items
+                // A short page is the last (Trakt gives up to 250 a page whatever's asked for).
+                if (items.isEmpty() || items.size < (if (page == 1) 100 else out.size / page)) break
+            }
+            return out
+        }
+        val moviesList = all("/sync/watched/movies") ?: return@withLock cur
+        // Episodes: Trakt's watched-shows list no longer includes them, so from your history (one entry a watch).
+        val historyList = all("/sync/history/episodes") ?: return@withLock cur
+        val movies = HashSet<String>()
+        moviesList.forEach { m ->
+            val ids = m.child("movie").child("ids")
+            movies += idKeys(ids.int("tmdb"), ids.str("imdb"))
+        }
+        val episodes = HashMap<String, MutableSet<Pair<Int, Int>>>()
+        historyList.forEach { h ->
+            val ids = h.child("show").child("ids")
+            val ep = h.child("episode")
+            val se = ep.int("season") ?: return@forEach
+            val n = ep.int("number") ?: return@forEach
+            idKeys(ids.int("tmdb"), ids.str("imdb")).forEach { episodes.getOrPut(it) { HashSet() } += se to n }
+        }
+        Log.i(TAG, "trakt: ${movies.size / 2} films, ${historyList.size} episode watches")
+        val fresh = TraktWatched(movies, episodes, now, stamp)
+        val changed = cur == null || cur.activity != stamp
+        _traktWatched.value = fresh
+        // Copy to Plex (Settings → Trakt, off unless switched on): only when the history changed, in the background.
+        if (a.traktToPlex && (changed || force)) appScope.launch { runCatching { copyTraktToPlex(fresh) } }
+        fresh
+    }
+
+    /** The episodes of a show that Trakt says you've watched (from the last fetch). */
+    fun traktEpisodesOf(item: MediaItem): Set<Pair<Int, Int>> {
+        val w = _traktWatched.value ?: return emptySet()
+        return idKeys(item.tmdbId, item.imdbId).firstNotNullOfOrNull { w.episodes[it] }.orEmpty()
+    }
+
+    /** Whether Trakt says you've watched this film (from the last fetch). */
+    fun traktWatchedMovie(item: MediaItem): Boolean {
+        val w = _traktWatched.value ?: return false
+        return idKeys(item.tmdbId, item.imdbId).any { it in w.movies }
+    }
+
+    private val _plexCopyStatus = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
+    /** What the last copy to Plex did (Settings shows it). */
+    val plexCopyStatus: kotlinx.coroutines.flow.MutableStateFlow<String?> = _plexCopyStatus
+    private val plexCopyLock = Mutex()
+
+    /**
+     * Marks on your Plex servers what Trakt says you've watched (never the other way, never un-marks). Only titles
+     * Plex has as unwatched are touched. Returns how many were marked.
+     */
+    suspend fun copyTraktToPlex(w: TraktWatched): Int = plexCopyLock.withLock {
+        val a = store.current()
+        val servers = plexServers(a)
+        if (servers.isEmpty()) return@withLock 0
+        _plexCopyStatus.value = "Copying to Plex…"
+        fun guidKeys(j: JsonElement?) = j.array("Guid").mapNotNull { it.str("id") }.mapNotNull { g ->
+            when {
+                g.startsWith("tmdb://") -> "tmdb:" + g.removePrefix("tmdb://")
+                g.startsWith("imdb://") -> "imdb:" + g.removePrefix("imdb://")
+                else -> null
+            }
+        }
+        var marked = 0
+        suspend fun scrobble(p: PlexAuth, rk: String) {
+            val ok = runCatching { http.get("${p.serverUrl}/:/scrobble?identifier=com.plexapp.plugins.library&key=$rk", plex.headers(a.deviceId, p.token)).ok }.getOrDefault(false)
+            if (ok) marked++
+        }
+        for (p in servers) {
+            for (sec in runCatching { plexSections(a, p, MediaType.Movie) }.getOrDefault(emptyList())) {
+                val key = sec.str("key") ?: continue
+                runCatching { plexGet(a, p, "/library/sections/$key/all?type=1&unwatched=1&includeGuids=1") }.getOrNull()
+                    ?.array("Metadata").orEmpty().forEach { m ->
+                        val rk = m.str("ratingKey") ?: return@forEach
+                        if (guidKeys(m).any { it in w.movies }) scrobble(p, rk)
+                    }
+            }
+            for (sec in runCatching { plexSections(a, p, MediaType.Show) }.getOrDefault(emptyList())) {
+                val key = sec.str("key") ?: continue
+                // Show → its ids; then every unwatched episode, matched by show, season and number.
+                val showKeys = runCatching { plexGet(a, p, "/library/sections/$key/all?type=2&includeGuids=1") }.getOrNull()
+                    ?.array("Metadata").orEmpty().mapNotNull { sh -> sh.str("ratingKey")?.let { it to guidKeys(sh) } }.toMap()
+                runCatching { plexGet(a, p, "/library/sections/$key/all?type=4&unwatched=1") }.getOrNull()
+                    ?.array("Metadata").orEmpty().forEach { e ->
+                        val rk = e.str("ratingKey") ?: return@forEach
+                        val se = e.int("parentIndex") ?: return@forEach
+                        val n = e.int("index") ?: return@forEach
+                        val keys = showKeys[e.str("grandparentRatingKey")] ?: return@forEach
+                        if (keys.any { k -> w.episodes[k]?.contains(se to n) == true }) scrobble(p, rk)
+                    }
+            }
+        }
+        plexEpisodeCache.clear()
+        _plexCopyStatus.value = if (marked == 0) "Plex already matches Trakt." else "Marked $marked on Plex as watched."
+        marked
     }
 
     // ------------------------------------------------------------------ episodes

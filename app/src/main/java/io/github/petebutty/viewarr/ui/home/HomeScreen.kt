@@ -194,6 +194,10 @@ fun HomeScreen(
     var osdVisible by remember { mutableStateOf(false) }
     // Several channels on screen at once (from the player menu).
     var multiView by remember { mutableStateOf(false) }
+    // "Watch from the start" from the guide: search opens on the programme's title.
+    var searchStart by remember { mutableStateOf<String?>(null) }
+    val searchMedia: MediaViewModel = hiltViewModel(key = "media-search")
+    val fromStartScope = androidx.compose.runtime.rememberCoroutineScope()
     // Leaving full screen (guide, another page) ends multi-view; it mustn't reappear next time.
     LaunchedEffect(fullscreen) { if (!fullscreen) multiView = false }
     var osdAudio by remember { mutableStateOf(false) }
@@ -415,6 +419,7 @@ fun HomeScreen(
                     if (hit) {
                         menuOpen = false
                         channelListOpen = false
+                        searchStart = null
                         quickSearch = true
                         searchHeld = true // swallow the rest of this press
                         return@onPreviewKeyEvent true
@@ -720,7 +725,7 @@ fun HomeScreen(
 
         // Search popped up from any screen: the same search page, on top; Back closes it.
         if (quickSearch) {
-            BackHandler { quickSearch = false }
+            BackHandler { quickSearch = false; searchStart = null }
             // Solid: the screen underneath showing through between results (guide text, times) looked like a glitch.
             // The remote stays inside search until it closes.
             Box(Modifier.fillMaxSize().appBackground().slideInFromLeft(60.dp, 150).then(if (infoTarget == null && recordTarget == null) Modifier.trapFocus() else Modifier)) {
@@ -728,11 +733,12 @@ fun HomeScreen(
                     guide = vm,
                     serverUrl = session?.serverUrl.orEmpty(),
                     focusEnabled = infoTarget == null && recordTarget == null,
-                    openKeyboard = true,
+                    openKeyboard = searchStart == null,
+                    startQuery = searchStart,
                     onProgramme = { ch, prog -> recordTarget = ch to prog },
                     // Left at the edge stays in search (it used to close it and open the menu); Back is the way out.
                     onOpenMenu = {},
-                    onExit = { quickSearch = false },
+                    onExit = { quickSearch = false; searchStart = null },
                     onChannel = { ch ->
                         quickSearch = false
                         vm.reveal(ch) {
@@ -788,7 +794,19 @@ fun HomeScreen(
                 Text("OK: watch  ·  Back: dismiss", fontSize = 12.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(top = 6.dp))
             }
         }
-        recordTarget?.let { (ch, prog) -> RecordDialog(ch, prog, dvr, onDetails = { recordTarget = null; infoTarget = ch to prog }) { recordTarget = null } }
+        recordTarget?.let { (ch, prog) ->
+            RecordDialog(ch, prog, dvr, onDetails = { recordTarget = null; infoTarget = ch to prog }, onWatchFromStart = {
+                recordTarget = null
+                // Search opens on the title (so there's something to pick if it isn't matched), then the title's page
+                // opens and it plays from the best source.
+                searchStart = prog.title.removePrefix("New: ")
+                fullscreen = false
+                quickSearch = true
+                // Films in the guide usually end their description with the year, e.g. "(2014)".
+                val year = prog.description?.let { Regex("\\((19|20)\\d{2}\\)").findAll(it).lastOrNull()?.value?.trim('(', ')')?.toIntOrNull() }
+                fromStartScope.launch { searchMedia.watchFromStart(prog.title, prog.season, prog.episode, year) }
+            }) { recordTarget = null }
+        }
         recordingPlayback?.let { io.github.petebutty.viewarr.ui.media.PlayerHost(stream = it, onClose = { recordingPlayback = null }) }
 
         if (exitArmed != 0L && !menuOpen) {
@@ -1269,11 +1287,13 @@ private fun SearchPage(
     onProgramme: (ChannelListItem, io.github.petebutty.viewarr.data.local.GuideProgram) -> Unit,
     /** Popped up with the search button: the keyboard opens straight away, ready to type. */
     openKeyboard: Boolean = false,
+    /** Opened on this search (Watch from the start). */
+    startQuery: String? = null,
 ) {
     var fieldFocused by remember { mutableStateOf(false) }
     val searchScope = androidx.compose.runtime.rememberCoroutineScope()
     val media: MediaViewModel = hiltViewModel(key = "media-search")
-    var query by rememberSaveable { mutableStateOf("") }
+    var query by rememberSaveable { mutableStateOf(startQuery ?: "") }
     val fieldFocus = remember { FocusRequester() }
     val rowsFocus = remember { FocusRequester() }
     // Down from the box: quick picks first, then the filters, then the results.
