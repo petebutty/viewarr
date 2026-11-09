@@ -29,4 +29,31 @@ object AppIcons {
                 "c1.61,0 3.09,-0.59 4.23,-1.57l0.27,0.28v0.79l5,4.99L20.49,19l-4.99,-5zM9.5,14C7.01,14 5,11.99 5,9.5S7.01,5 9.5,5 14,7.01 14,9.5 11.99,14 9.5,14z",
         )
     }
+
+    /** Play (triangle). */
+    val Play: ImageVector by lazy { icon("play", "M8,5v14l11,-7z") }
+
+    /** Pause (two bars). */
+    val Pause: ImageVector by lazy { icon("pause", "M6,19h4V5H6v14zM14,5v14h4V5h-4z") }
+
+    /** Stop (square). */
+    val Stop: ImageVector by lazy { icon("stop", "M6,6h12v12H6z") }
+
+    /** Circled i (details: what's playing). */
+    val Info: ImageVector by lazy { icon("info", "M11,7h2v2h-2zM11,11h2v6h-2zM12,2C6.48,2 2,6.48 2,12s4.48,10 10,10 10,-4.48 10,-10S17.52,2 12,2zM12,20c-4.41,0 -8,-3.59 -8,-8s3.59,-8 8,-8 8,3.59 8,8 -3.59,8 -8,8z") }
+
+    /** Speaker (audio track). */
+    val Audio: ImageVector by lazy { icon("audio", "M3,9v6h4l5,5V4L7,9H3zM16.5,12c0,-1.77 -1.02,-3.29 -2.5,-4.03v8.05c1.48,-0.73 2.5,-2.25 2.5,-4.02zM14,3.23v2.06c2.89,0.86 5,3.54 5,6.71s-2.11,5.85 -5,6.71v2.06c4.01,-0.91 7,-4.49 7,-8.77s-2.99,-7.86 -7,-8.77z") }
+
+    /** CC box (subtitles). */
+    val Subtitles: ImageVector by lazy { icon("cc", "M19,4H5c-1.11,0 -2,0.9 -2,2v12c0,1.1 0.89,2 2,2h14c1.1,0 2,-0.9 2,-2V6c0,-1.1 -0.9,-2 -2,-2zM11,11H9.5v-0.5h-2v3h2V13H11v1c0,0.55 -0.45,1 -1,1H7c-0.55,0 -1,-0.45 -1,-1v-4c0,-0.55 0.45,-1 1,-1h3c0.55,0 1,0.45 1,1v1zM18,11h-1.5v-0.5h-2v3h2V13H18v1c0,0.55 -0.45,1 -1,1h-3c-0.55,0 -1,-0.45 -1,-1v-4c0,-0.55 0.45,-1 1,-1h3c0.55,0 1,0.45 1,1v1z") }
+
+    /** Bars (media info / stats). */
+    val Stats: ImageVector by lazy { icon("stats", "M10,20h4V4h-4v16zM4,20h4v-8H4v8zM16,9v11h4V9h-4z") }
+
+    /** Two arrows (switch player). */
+    val Swap: ImageVector by lazy { icon("swap", "M6.99,11L3,15l3.99,4v-3H14v-2H6.99v-3zM21,9l-3.99,-4v3H10v2h7.01v3L21,9z") }
+
+    /** Tick (watched). */
+    val Check: ImageVector by lazy { icon("check", "M9,16.17L4.83,12l-1.42,1.41L9,19 21,7l-1.41,-1.41z") }
 }

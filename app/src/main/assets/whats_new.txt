@@ -1,7 +1,7 @@
 # Shown once, the first time a new version opens (not on a fresh install). Keep it to the few things worth knowing.
 # Lines starting with "- " are the points; the first line without "#" or "-" is the heading.
-Several Live TV sources, and M3U playlists
-- Save several Dispatcharr instances, IPTV logins or playlists, name them, and switch from the guide's menu or full screen (Up, Left, Left). The last three switch instantly
-- M3U playlists work as a Live TV source; for logins and playlists, Choose groups leaves out groups you never watch
-- Catch-up: rewinding to the start then fast-forwarding works, and Watch from the start shows the search when a title is ambiguous
-- The TV guide takes less space on the box
+Picture-in-picture, show pages and library tools
+- Back while a film or episode plays shrinks it to a corner; hold Back for full screen again. Live TV stops while it plays
+- Show pages list the seasons and episodes, opening where you're up to, and load much faster
+- Films: pick Audio & subtitles before Play, and Mark watched. Libraries: A–Z jump, and your sort is remembered
+- Voice search works on the Nvidia Shield; the player's buttons are icons, with Stop next to Play

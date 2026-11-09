@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
@@ -78,7 +79,25 @@ class Scrubber {
 }
 
 /** The buttons under the seek bar. */
-enum class PlayerButton { PlayPause, Details, Audio, Subtitles, Info, SwitchPlayer }
+enum class PlayerButton { PlayPause, Stop, Details, Audio, Subtitles, Info, SwitchPlayer }
+
+/** A control under the seek bar: an icon, with its name shown under it when focused. */
+class OsdButton(val icon: androidx.compose.ui.graphics.vector.ImageVector, val label: String, val groupEnd: Boolean = false)
+
+fun PlayerButton.osd(paused: Boolean, infoOn: Boolean, otherPlayer: String) = OsdButton(
+    when (this) {
+        PlayerButton.PlayPause -> if (paused) io.github.petebutty.viewarr.ui.common.AppIcons.Play else io.github.petebutty.viewarr.ui.common.AppIcons.Pause
+        PlayerButton.Stop -> io.github.petebutty.viewarr.ui.common.AppIcons.Stop
+        PlayerButton.Details -> io.github.petebutty.viewarr.ui.common.AppIcons.Info
+        PlayerButton.Audio -> io.github.petebutty.viewarr.ui.common.AppIcons.Audio
+        PlayerButton.Subtitles -> io.github.petebutty.viewarr.ui.common.AppIcons.Subtitles
+        PlayerButton.Info -> io.github.petebutty.viewarr.ui.common.AppIcons.Stats
+        PlayerButton.SwitchPlayer -> io.github.petebutty.viewarr.ui.common.AppIcons.Swap
+    },
+    label(paused, infoOn, otherPlayer),
+    // Play/pause and Stop are one group; the rest after a gap.
+    groupEnd = this == PlayerButton.Stop,
+)
 
 /**
  * The player's controls, opened with OK: the seek bar first (Left / Right move the marker, OK jumps there), the
@@ -123,12 +142,13 @@ class PlayerMenu {
 
 /** A button's label (Play / Pause follow the state; Media info shows whether it's on). */
 fun PlayerButton.label(paused: Boolean, infoOn: Boolean, otherPlayer: String) = when (this) {
-    PlayerButton.PlayPause -> if (paused) "▶  Play" else "❚❚  Pause"
+    PlayerButton.PlayPause -> if (paused) "Play" else "Pause"
     PlayerButton.Details -> "Details"
     PlayerButton.Audio -> "Audio"
     PlayerButton.Subtitles -> "Subtitles"
     PlayerButton.Info -> if (infoOn) "Hide media info" else "Media info"
     PlayerButton.SwitchPlayer -> "Switch to $otherPlayer"
+    PlayerButton.Stop -> "Stop"
 }
 
 /** The controls over a playing film or episode: title, seek bar (with preview while scrubbing) and times. */
@@ -145,7 +165,7 @@ fun PlayerOsd(
     /** The title's logo: shown above the episode line instead of the title as text. */
     logo: String? = null,
     /** The controls (opened with OK): button labels, which is highlighted, and whether the seek bar has focus. */
-    buttons: List<String>? = null,
+    buttons: List<OsdButton>? = null,
     buttonFocus: Int = -1,
     barFocused: Boolean = false,
 ) {
@@ -237,15 +257,23 @@ fun PlayerOsd(
             Spacer(Modifier.weight(1f))
             Text(if (durationMs > 0) "-" + clockMs(durationMs - positionMs) else "", fontSize = 14.sp, color = Color.White)
         }
-        if (buttons != null) Row(Modifier.padding(top = 14.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            buttons.forEachIndexed { i, label ->
+        if (buttons != null) Row(Modifier.padding(top = 14.dp), verticalAlignment = Alignment.Top) {
+            buttons.forEachIndexed { i, b ->
                 val on = i == buttonFocus
-                Text(
-                    label, fontSize = 15.sp, fontWeight = FontWeight.Medium,
-                    color = if (on) AppColors.OnAccent else Color.White,
-                    modifier = Modifier.background(if (on) AppColors.Accent else Color.White.copy(alpha = 0.14f), RoundedCornerShape(18.dp))
-                        .padding(horizontal = 16.dp, vertical = 7.dp),
-                )
+                // Icons only; the focused one's name underneath (so each is still easy to learn).
+                androidx.compose.foundation.layout.Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(72.dp)) {
+                    Box(
+                        Modifier.size(48.dp).background(if (on) AppColors.Accent else Color.White.copy(alpha = 0.14f), androidx.compose.foundation.shape.CircleShape),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        androidx.compose.material3.Icon(b.icon, contentDescription = b.label, tint = if (on) AppColors.OnAccent else Color.White, modifier = Modifier.size(26.dp))
+                    }
+                    Text(
+                        if (on) b.label else "", fontSize = 12.sp, color = Color.White, maxLines = 1, softWrap = false,
+                        modifier = Modifier.padding(top = 4.dp).then(Modifier.wrapContentWidth(unbounded = true)),
+                    )
+                }
+                if (b.groupEnd) Box(Modifier.padding(horizontal = 10.dp, vertical = 10.dp).width(1.dp).height(28.dp).background(Color.White.copy(alpha = 0.3f)))
             }
         }
     }

@@ -177,6 +177,9 @@ fun MpvPlayer(
             mpv.observeProperty("sub-text", MPVLib.MPV_FORMAT_STRING)
             mpv.observeProperty("current-tracks/sub/codec", MPVLib.MPV_FORMAT_STRING)
         }
+        // Audio & subtitles picked on the film's page (mpv numbers each kind's tracks from 1).
+        stream.audioTrack?.let { mpv.setOptionString("aid", "${it + 1}") }
+        stream.subtitleTrack?.let { mpv.setOptionString("sid", if (it < 0) "no" else "${it + 1}") }
         mpv.command(arrayOf("loadfile", stream.url))
         onDispose {
             if (!ended && position > 0) onProgress("stopped", (position * 1000).toLong(), (duration * 1000).toLong())
@@ -248,10 +251,15 @@ fun MpvPlayer(
             if (!paused && position > 0) onProgress("playing", (position * 1000).toLong(), (duration * 1000).toLong())
         }
     }
-    LaunchedEffect(Unit) { repeat(3) { awaitFrame(); runCatching { focus.requestFocus() } } }
+    // Shrunk to the corner (picture-in-picture): just the picture; the page has the remote.
+    val mini = VodHost.mini
+    LaunchedEffect(mini) {
+        if (mini) { menu.open = false; tracksOpen = false; detailsOn = false; if (scrub.active) scrub.cancel(); osdUntil = 0L; return@LaunchedEffect }
+        repeat(3) { awaitFrame(); runCatching { focus.requestFocus() } }
+    }
     val searchOpen = io.github.petebutty.viewarr.ui.common.LocalQuickSearchOpen.current
-    LaunchedEffect(hasFocus, tracksOpen, searchOpen) {
-        if (!hasFocus && !tracksOpen && !searchOpen) { delay(150); runCatching { focus.requestFocus() } }
+    LaunchedEffect(hasFocus, tracksOpen, searchOpen, mini) {
+        if (!hasFocus && !tracksOpen && !searchOpen && !mini) { delay(150); runCatching { focus.requestFocus() } }
     }
     // Repaint the clock for the auto-hiding controls.
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -259,14 +267,15 @@ fun MpvPlayer(
 
     fun showOsd() { osdUntil = System.currentTimeMillis() + 4_000 }
     // Back: closes audio & subtitles, then hides the controls, then stops (resume point saved). As Netflix / Plex.
-    BackHandler {
+    BackHandler(enabled = !mini) {
         when {
             tracksOpen -> tracksOpen = false
             scrub.active -> { scrub.cancel(); showOsd() }
             detailsOn -> detailsOn = false
             menu.open -> { menu.open = false; osdUntil = 0L }
             System.currentTimeMillis() < osdUntil && !paused -> osdUntil = 0L
-            else -> onClose()
+            // Back again: into the corner, still playing (hold Back to bring it back).
+            else -> VodHost.minimise().also { if (!VodHost.active) onClose() }
         }
     }
 
@@ -275,7 +284,7 @@ fun MpvPlayer(
         showOsd()
     }
 
-    val buttons = listOfNotNull(PlayerButton.PlayPause, PlayerButton.Details, PlayerButton.Audio, PlayerButton.Subtitles, PlayerButton.Info, if (onSwitchPlayer != null) PlayerButton.SwitchPlayer else null)
+    val buttons = listOfNotNull(PlayerButton.PlayPause, PlayerButton.Stop, PlayerButton.Details, PlayerButton.Audio, PlayerButton.Subtitles, PlayerButton.Info, if (onSwitchPlayer != null) PlayerButton.SwitchPlayer else null)
     fun press(b: PlayerButton) {
         when (b) {
             PlayerButton.PlayPause -> mpv.setPropertyBoolean("pause", !paused)
@@ -284,6 +293,7 @@ fun MpvPlayer(
             PlayerButton.Info -> menu.infoOn = !menu.infoOn
             PlayerButton.Details -> { detailsOn = !detailsOn; if (detailsOn) menu.open = false }
             PlayerButton.SwitchPlayer -> onSwitchPlayer?.invoke((position * 1000).toLong())
+            PlayerButton.Stop -> { onClose(); return }
         }
         showOsd()
     }
@@ -302,8 +312,9 @@ fun MpvPlayer(
             .background(Color.Black)
             .focusRequester(focus)
             .onFocusChanged { hasFocus = it.isFocused }
-            .focusable(enabled = !tracksOpen)
+            .focusable(enabled = !tracksOpen && !mini)
             .onPreviewKeyEvent { e ->
+                if (VodHost.eatsBack(e)) return@onPreviewKeyEvent true
                 if (tracksOpen) return@onPreviewKeyEvent false
                 val center = e.key == Key.DirectionCenter || e.key == Key.Enter || e.key == Key.NumPadEnter
                 // On the seek bar: Left / Right move the marker, OK jumps there, Up leaves.
@@ -359,6 +370,7 @@ fun MpvPlayer(
                     Key.DirectionUp -> showOsd()
                     Key.Info -> detailsOn = !detailsOn
                     Key.MediaPlayPause, Key.MediaPlay, Key.MediaPause -> { mpv.setPropertyBoolean("pause", !paused); showOsd() }
+                    Key.MediaStop -> onClose()
                     else -> return@onPreviewKeyEvent false
                 }
                 true
@@ -406,23 +418,23 @@ fun MpvPlayer(
         // Until the first picture: the loading screen (backdrop, breathing logo); then the controls carry the logo.
         var started by remember(stream) { mutableStateOf(false) }
         if (!buffering && position > 0) started = true
-        if (started && (detailsOn || (paused && pausedLong && !tracksOpen && !scrub.active && !menu.open))) PlayerDetails(stream.title, art)
-        if (osdVisible && started) PlayerOsd(
+        if (!mini && started && (detailsOn || (paused && pausedLong && !tracksOpen && !scrub.active && !menu.open))) PlayerDetails(stream.title, art)
+        if (!mini && osdVisible && started) PlayerOsd(
             stream.title, (position * 1000).toLong(), (duration * 1000).toLong(), paused, buffering,
             scrub.targetMs, thumbs, Modifier.align(Alignment.BottomCenter), logo = art?.logo,
-            buttons = if (menu.open) buttons.map { it.label(paused, menu.infoOn, "the built-in player") } else null,
+            buttons = if (menu.open) buttons.map { it.osd(paused, menu.infoOn, "the built-in player") } else null,
             buttonFocus = if (menu.open && !menu.onBar) menu.button else -1,
             barFocused = menu.open && menu.onBar,
         )
-        PlayerLoading(stream.title, art, visible = !started && error == null)
-        if (stats.isNotEmpty()) Text(
+        PlayerLoading(stream.title, art, visible = !mini && !started && error == null)
+        if (!mini && stats.isNotEmpty()) Text(
             stats, fontSize = 13.sp, color = Color.White,
             modifier = Modifier.align(Alignment.TopStart).padding(24.dp).background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(6.dp)).padding(12.dp),
         )
         error?.let {
             Text(it, fontSize = 18.sp, color = Color.White, modifier = Modifier.align(Alignment.Center).background(Color.Black.copy(alpha = 0.7f)).padding(20.dp))
         }
-        if (tracksOpen) MpvTrackPicker(mpv, subtitlesFirst = tracksSubs, onSwitchPlayer = onSwitchPlayer?.let { f -> { f((position * 1000).toLong()) } }, onClose = { tracksOpen = false; runCatching { focus.requestFocus() } }, modifier = Modifier.align(Alignment.CenterEnd))
+        if (tracksOpen && !mini) MpvTrackPicker(mpv, subtitlesFirst = tracksSubs, onSwitchPlayer = onSwitchPlayer?.let { f -> { f((position * 1000).toLong()) } }, onClose = { tracksOpen = false; runCatching { focus.requestFocus() } }, modifier = Modifier.align(Alignment.CenterEnd))
     }
 }
 

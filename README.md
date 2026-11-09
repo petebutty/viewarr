@@ -37,21 +37,24 @@ Viewarr doesn't provide any content. It plays only what your own servers and acc
 
 **Films & shows**
 - Netflix-style rows: Continue watching, your Trakt watchlist and recommendations, recently added on Plex, and trending, popular and top-rated titles from TMDB. **Upcoming episodes** shows when the next episodes of the shows you follow air (from Trakt, or your servers). Rows that repeat across servers (Continue watching, a library's Recently added) are combined into one. Choose which rows show, and their order, in **Settings → Home page & menu**.
-- **Your whole library:** Movies and Shows in the menu list your Plex, Jellyfin and Emby libraries, plus **IPTV Movies / IPTV Shows** (your provider's films and series through Dispatcharr), with your rows tucked under **Jump to a row**. A library opens a page at a time (newest first; Down at the bottom turns the page), with sorting, genre and unwatched filters, and search with voice. Hide, reorder or rename libraries in **Settings → Home page & menu**.
+- **Your whole library:** Movies and Shows in the menu list your Plex, Jellyfin and Emby libraries, plus **IPTV Movies / IPTV Shows** (your provider's films and series through Dispatcharr), with your rows tucked under **Jump to a row**. A library opens a page at a time (newest first; Down at the bottom turns the page), with sorting, genre and unwatched filters, an **A–Z** jump to a letter, and search with voice. Each library remembers its sort and filters. Hide, reorder or rename libraries in **Settings → Home page & menu**.
 - **Several Plex servers:** every server on your Plex account is used, in rows, search and "In your library". Switch any of them off in Accounts & sources → Plex.
 - **Title pages on one screen:** the title's logo, details and description, ratings from TMDB, IMDb, Rotten Tomatoes (critics and audience), Metacritic, Letterboxd and Trakt, and tabs for cast & crew (with photos; OK opens their films and shows), reviews from TMDB and Trakt users, more like this and details. IMDb and Rotten Tomatoes come from your Plex when it has them; add a free **MDBList** key in Accounts & sources for every title.
 - **Title logos** on the Movies/Shows header, the title page and the player, and a loading screen with the title's backdrop and a gently "breathing" logo while a film or episode starts.
-- Seasons and episodes for shows.
+- **Shows:** the seasons and that season's episodes sit on the show's page, opening on the season you're up to (watched ticks and progress bars included). OK plays an episode; hold OK to pick its source.
+- **Films:** pick the **Audio & subtitles** before Play (films on your Plex, Jellyfin or Emby), and **Mark watched / unwatched** on your servers and Trakt.
 - **One Play button:** it plays the best copy you have: your servers at home first (Plex, Jellyfin, Emby), then your servers away, then your **Stremio addons** (e.g. AIOStreams), then IPTV. A copy whose file has gone is skipped. **Hold OK on Play** to pick the source yourself. Shows get **Play / Resume S·E**, carrying on from Plex, Jellyfin/Emby or Trakt.
 - **Actor pages** with their photo, dates and biography, then their films and shows. Films in a series get a **Collection** tab (e.g. the Dune films).
 - Watch progress is sent back to Plex, Jellyfin/Emby and Trakt, and your **Trakt watched history** comes back: episodes and films you've watched anywhere get their tick, and Play / Resume carries on from the furthest place any of them knows. **Sync with Trakt now** is in Accounts & sources → Trakt, with an optional **Copy watched to Plex**.
-- **Player controls:** OK brings up the seek bar (with preview pictures) and buttons for Play / Pause, Details, Audio, Subtitles, Media info and switching player; the remote's Play/Pause button pauses. The remote's **Info** button (or Details) shows the poster, episode and synopsis, which also appear by themselves a moment after you pause.
+- **Player controls:** OK brings up the seek bar (with preview pictures) and icon buttons: Play / Pause and Stop, then Details, Audio, Subtitles, Media info and switching player; the remote's Play/Pause button pauses. The remote's **Info** button (or Details) shows the poster, episode and synopsis, which also appear by themselves a moment after you pause.
+- **Picture-in-picture:** Back while a film or episode plays shrinks it to a corner and it keeps playing while you browse; hold Back to bring it back full screen. Starting a Live TV channel ends it.
 - Two players: **mpv** (the default; plays almost any file, codec or soundtrack, including TrueHD/Atmos and DTS-HD) or the lighter built-in player. Swap between them mid-film from the hold-OK menu and carry on from the same moment.
 - **Seek bar with preview pictures:** press Down while watching, scrub with Left/Right, OK to jump. Previews come from Plex / Emby / Jellyfin when the server made them, otherwise the box takes them from the film itself.
 - **Smooth playback on weak boxes:** mpv draws straight to the screen by default, the TV can switch to the film's frame rate, and surround passthrough only uses formats your TV or receiver really accepts.
 - **Playback settings:** audio and subtitle language, surround passthrough to a receiver, stereo downmix, night mode, subtitle size, resume, and Plex quality.
-- **Search** puts what you meant first (a person, a channel, or your own copy of a film) and pops up over any screen (hold Menu, or pick a button in Settings → Remote & navigation): your Plex, Jellyfin and Emby titles in one row, people with their films and shows, TV channels and what's on the guide (watch it, record it or get a reminder), quick picks as you type, filters and voice search.
+- **Search** puts what you meant first (a person, a channel, or your own copy of a film) and pops up over any screen (hold Menu, or pick a button in Settings → Remote & navigation): your Plex, Jellyfin and Emby titles in one row, people with their films and shows, TV channels and what's on the guide (watch it, record it or get a reminder), quick picks as you type, filters and voice search (Viewarr asks for the microphone the first time; works on the Nvidia Shield too).
 - **Watch Next:** your Continue watching appears in the Android TV home screen's Watch Next row.
+- **Settings → About:** the version, this TV (model, memory, storage, screen), what Viewarr stores on it (each source's TV guide, artwork, updates) with buttons to clear artwork and old updates, and your Live TV sources.
 - **Seerr requests:** hold OK on a poster to request a film or show you don't have yet (Stremio addon titles too).
 
 **Easy setup**
@@ -98,7 +101,9 @@ The full walkthrough, with what each step needs and troubleshooting tips, is in 
 | Films & shows | Left at the start of a row, or Back | Menu |
 | Film player | OK / hold OK | Pause / audio, subtitles and switch player |
 | Film player | Down, then Left / Right, OK | Seek bar with previews: move, then jump there |
-| Film player | Back | Hide the controls, then stop (your place is saved) |
+| Film player | Back | Hide the controls, then shrink to a corner (picture-in-picture) |
+| Film in the corner | Hold Back | Back to full screen |
+| Film player | Stop (or the Stop button) | Stop (your place is saved) |
 
 Most of these can be changed in **Settings → Remote & navigation**.
 
@@ -121,6 +126,7 @@ Optional private files in the project root (they're git-ignored):
 
 - Viewarr has no analytics, no ads and no servers of its own. It talks only to the services you connect.
 - Account details are stored on the TV, encrypted with the Android Keystore, and are left out of Android backups.
+- The microphone is only used while voice search is listening (after you press the mic), and only if you allow it.
 - The phone setup page runs on the TV only while the setup screen is open. It uses a one-time link, and everything you type is encrypted on your phone before it's sent.
 
 ## Licence

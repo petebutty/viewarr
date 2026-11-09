@@ -123,6 +123,12 @@ fun HomeScreen(
     // Record options for a programme (from the guide or the player's Record button).
     var recordTarget by remember { mutableStateOf<Pair<ChannelListItem, GuideProgram>?>(null) }
     var recordingPlayback by remember { mutableStateOf<VodStream?>(null) }
+    // Recordings play in the same player as films (VodHost, above every page), so they can shrink to a corner too.
+    val recordingFlow = remember { kotlinx.coroutines.flow.MutableStateFlow<VodStream?>(null) }
+    val recordingSource = remember { io.github.petebutty.viewarr.ui.media.VodSource(recordingFlow, kotlinx.coroutines.flow.MutableStateFlow(null), onClose = { recordingFlow.value = null }) }
+    LaunchedEffect(recordingPlayback) {
+        recordingPlayback?.let { recordingFlow.value = it; io.github.petebutty.viewarr.ui.media.VodHost.show(recordingSource); recordingPlayback = null }
+    }
     var infoTarget by remember { mutableStateOf<Pair<ChannelListItem, GuideProgram>?>(null) }
     // Search popped up over the current screen (Settings → Remote → Search button); Back closes it.
     var quickSearch by remember { mutableStateOf(false) }
@@ -184,6 +190,7 @@ fun HomeScreen(
     var channelListOpen by remember { mutableStateOf(false) }
     // Long-press Back on the guide returns to the channel that's playing, full screen.
     var backLongPress by remember { mutableStateOf(false) }
+    var pipBackHeld by remember { mutableStateOf(false) }
     // Start page from Settings, applied once when the app opens.
     var startApplied by rememberSaveable { mutableStateOf(false) }
     var digitsToken by remember { mutableLongStateOf(0L) }
@@ -293,9 +300,9 @@ fun HomeScreen(
             }
         }
     }
-    LaunchedEffect(menuOpen, fullscreen, osdVisible, showAccounts, page, recordTarget == null, recordingPlayback == null, infoTarget == null, channelListOpen, quickSearch) {
+    LaunchedEffect(menuOpen, fullscreen, osdVisible, showAccounts, page, recordTarget == null, io.github.petebutty.viewarr.ui.media.VodHost.covering, infoTarget == null, channelListOpen, quickSearch) {
         if (channelListOpen || quickSearch) return@LaunchedEffect
-        if (recordTarget != null || recordingPlayback != null || infoTarget != null) return@LaunchedEffect
+        if (recordTarget != null || io.github.petebutty.viewarr.ui.media.VodHost.covering || infoTarget != null) return@LaunchedEffect
         awaitFrame()
         runCatching {
             when {
@@ -304,6 +311,14 @@ fun HomeScreen(
             }
         }
     }
+    // A film or episode playing over Live TV (Watch from the start, search, a recording): the channel is stopped and
+    // its player let go (it carried on underneath, sound and all). Picking a channel afterwards starts it afresh.
+    val vodOver = io.github.petebutty.viewarr.ui.media.VodHost.active
+    LaunchedEffect(vodOver) {
+        if (vodOver) { fullscreen = false; playback.close() }
+    }
+    // …and a channel started while a film is in the corner ends the film (one stream, one sound).
+    LaunchedEffect(playing?.id) { if (playing != null) io.github.petebutty.viewarr.ui.media.VodHost.close() }
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) { playback.pause() }
     LifecycleEventEffect(Lifecycle.Event.ON_START) { playback.resume() }
 
@@ -411,12 +426,21 @@ fun HomeScreen(
                         return@onPreviewKeyEvent true
                     }
                 }
+                // Hold Back with a film in the corner: back to full screen (before the guide's own hold-Back).
+                if (e.key == Key.Back && (io.github.petebutty.viewarr.ui.media.VodHost.mini || pipBackHeld)) {
+                    when {
+                        e.type == KeyEventType.KeyDown && e.nativeKeyEvent.repeatCount > 0 && !pipBackHeld -> { pipBackHeld = true; io.github.petebutty.viewarr.ui.media.VodHost.expand(); return@onPreviewKeyEvent true }
+                        e.type == KeyEventType.KeyDown && pipBackHeld -> return@onPreviewKeyEvent true
+                        // The release reached here (the player hadn't the remote yet): that press is over.
+                        e.type == KeyEventType.KeyUp && pipBackHeld -> { pipBackHeld = false; io.github.petebutty.viewarr.ui.media.VodHost.eatBackRelease = false; return@onPreviewKeyEvent true }
+                    }
+                }
                 // The search button (Settings → Remote): pops search up over whatever's on screen.
                 if (searchHeld) {
                     if (e.type == KeyEventType.KeyUp) searchHeld = false
                     return@onPreviewKeyEvent true
                 }
-                if (!quickSearch && !showAccounts && recordingPlayback == null && page != Page.Search && e.type == KeyEventType.KeyDown) {
+                if (!quickSearch && !showAccounts && !io.github.petebutty.viewarr.ui.media.VodHost.covering && page != Page.Search && e.type == KeyEventType.KeyDown) {
                     val code = e.nativeKeyEvent.keyCode
                     val hit = when (remote.searchButton) {
                         io.github.petebutty.viewarr.data.settings.SearchButton.Auto ->
@@ -503,7 +527,7 @@ fun HomeScreen(
             RecordingsScreen(
                 vm = dvr,
                 focusRequester = mediaFocus,
-                focusEnabled = !menuOpen && !showAccounts && !quickSearch && recordingPlayback == null,
+                focusEnabled = !menuOpen && !showAccounts && !quickSearch && !io.github.petebutty.viewarr.ui.media.VodHost.covering,
                 onBack = ::backOnPage,
                 onPlay = { recordingPlayback = it },
                 onOpenMenu = { menuOpen = true },
@@ -832,7 +856,6 @@ fun HomeScreen(
                 fromStartScope.launch { searchMedia.watchFromStart(prog.title, prog.season, prog.episode, year) }
             }) { recordTarget = null }
         }
-        recordingPlayback?.let { io.github.petebutty.viewarr.ui.media.PlayerHost(stream = it, onClose = { recordingPlayback = null }) }
 
         if (exitArmed != 0L && !menuOpen) {
             Text(
@@ -915,7 +938,9 @@ private fun MenuOverlay(
     val remoteItem = remember { FocusRequester() }
     val appearanceItem = remember { FocusRequester() }
     var showUpdates by remember { mutableStateOf(false) }
+    var showAbout by remember { mutableStateOf(false) }
     val updatesItem = remember { FocusRequester() }
+    val aboutItem = remember { FocusRequester() }
     var returnTo by remember { mutableStateOf<FocusRequester?>(null) }
     // After closing a full settings page, land back on its menu item (not wherever focus happens to fall).
     LaunchedEffect(returnTo) {
@@ -1017,7 +1042,7 @@ private fun MenuOverlay(
                         .onFocusChanged { if (it.isFocused) section = s }
                         .onPreviewKeyEvent { e ->
                             // Right does the same as OK: open what's inside this entry.
-                            if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionRight && !(s == Section.Settings && (showAppearance || showRemote || showPlayback || showAddons || showUpdates || showHomeRows || showPlugins))) {
+                            if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionRight && !(s == Section.Settings && (showAppearance || showRemote || showPlayback || showAddons || showUpdates || showAbout || showHomeRows || showPlugins))) {
                                 // Movies / Shows with recently added posters showing: Right goes onto them (OK opens the page).
                                 val t = if (s == Section.Movies) MediaType.Movie else if (s == Section.Shows) MediaType.Show else null
                                 // (Movies / Shows always have their list: home, libraries, catalogues.)
@@ -1044,7 +1069,7 @@ private fun MenuOverlay(
                     when {
                         // Left goes back to this section's menu entry, not whichever one is geometrically closest.
                         e.key == Key.DirectionLeft && (section == Section.Tv || section == Section.Movies || section == Section.Shows || section == Section.Recordings ||
-                            (section == Section.Settings && !showAppearance && !showRemote && !showPlayback && !showAddons && !showUpdates && !showHomeRows && !showPlugins)) -> {
+                            (section == Section.Settings && !showAppearance && !showRemote && !showPlayback && !showAddons && !showUpdates && !showAbout && !showHomeRows && !showPlugins)) -> {
                             revealMain()
                             true
                         }
@@ -1081,6 +1106,11 @@ private fun MenuOverlay(
                     onUpdates = {
                         runCatching { navFocus.getValue(Section.Settings).requestFocus() }
                         showUpdates = true
+                    },
+                    aboutItem = aboutItem,
+                    onAbout = {
+                        runCatching { navFocus.getValue(Section.Settings).requestFocus() }
+                        showAbout = true
                     },
                     remoteItem = remoteItem,
                     onRemote = {
@@ -1178,6 +1208,13 @@ private fun MenuOverlay(
             returnTo = remoteItem
         })
     }
+    if (showAbout) {
+        io.github.petebutty.viewarr.ui.settings.AboutSettingsScreen(onBack = {
+            runCatching { aboutItem.requestFocus() }
+            showAbout = false
+            returnTo = aboutItem
+        })
+    }
     if (showUpdates) {
         io.github.petebutty.viewarr.ui.settings.UpdatesSettingsScreen(onBack = {
             runCatching { updatesItem.requestFocus() }
@@ -1270,7 +1307,7 @@ private fun Modifier.rightDoes(action: () -> Unit): Modifier = this.composed(fac
 private fun Modifier.rightIgnored(): Modifier = onPreviewKeyEvent { e -> e.key == Key.DirectionRight }
 
 @Composable
-private fun SettingsPanel(playbackItem: FocusRequester, onPlayback: () -> Unit, addonsItem: FocusRequester, onAddons: () -> Unit, remoteItem: FocusRequester, onRemote: () -> Unit, updatesItem: FocusRequester, onUpdates: () -> Unit, session: Session?, sync: SyncState, firstItem: FocusRequester, appearanceItem: FocusRequester, onAppearance: () -> Unit, homeRowsItem: FocusRequester, onHomeRows: () -> Unit, pluginsItem: FocusRequester, onPlugins: () -> Unit, onAccounts: () -> Unit, onRefresh: () -> Unit, onSignOut: () -> Unit) {
+private fun SettingsPanel(playbackItem: FocusRequester, onPlayback: () -> Unit, addonsItem: FocusRequester, onAddons: () -> Unit, remoteItem: FocusRequester, onRemote: () -> Unit, updatesItem: FocusRequester, onUpdates: () -> Unit, aboutItem: FocusRequester, onAbout: () -> Unit, session: Session?, sync: SyncState, firstItem: FocusRequester, appearanceItem: FocusRequester, onAppearance: () -> Unit, homeRowsItem: FocusRequester, onHomeRows: () -> Unit, pluginsItem: FocusRequester, onPlugins: () -> Unit, onAccounts: () -> Unit, onRefresh: () -> Unit, onSignOut: () -> Unit) {
     // Scrolls: the list is taller than the screen with the Dispatcharr sync items.
     Column(Modifier.verticalScroll(androidx.compose.foundation.rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(session?.let { "Signed in as ${it.username}" } ?: "Live TV not set up", fontSize = 15.sp, color = AppColors.TextPrimary, modifier = Modifier.padding(horizontal = 12.dp))
@@ -1300,6 +1337,8 @@ private fun SettingsPanel(playbackItem: FocusRequester, onPlayback: () -> Unit, 
         // Viewarr's setup kept on the Dispatcharr server (Dispatcharr sign-ins only).
         if (session != null && !session.isDirect) io.github.petebutty.viewarr.ui.sync.BackupSyncItem()
         MenuItem(text = "Updates", selected = false, onClick = onUpdates, modifier = Modifier.focusRequester(updatesItem).rightDoes(onUpdates))
+        // Version, this TV, what Viewarr stores (with clearing), Live TV sources.
+        MenuItem(text = "About", selected = false, onClick = onAbout, modifier = Modifier.focusRequester(aboutItem).rightDoes(onAbout))
         var confirmUntil by remember { mutableLongStateOf(0L) }
         LaunchedEffect(confirmUntil) {
             if (confirmUntil != 0L) {
@@ -1356,7 +1395,7 @@ private fun SearchPage(
     val playingOpen by media.playing.collectAsStateWithLifecycle()
     // The box only takes focus on the search page itself, never behind a title's page or the player
     // (focus passing through it made the keyboard flash up).
-    val fieldFree = detailOpen == null && playingOpen == null
+    val fieldFree = detailOpen == null && (playingOpen == null || io.github.petebutty.viewarr.ui.media.VodHost.mini)
     val channels by androidx.compose.runtime.produceState(emptyList<ChannelListItem>(), query) {
         delay(400)
         value = guide.searchChannels(query)
@@ -1377,21 +1416,21 @@ private fun SearchPage(
     }
     // Voice search: Android's speech recogniser listens, the words become the search.
     val context = androidx.compose.ui.platform.LocalContext.current
-    val voiceIntent = remember {
-        android.content.Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
-            .putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL, android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            .putExtra(android.speech.RecognizerIntent.EXTRA_PROMPT, "Say a film, show, person or channel")
-            .putExtra(android.speech.RecognizerIntent.EXTRA_MAX_RESULTS, 1)
-    }
-    val canVoice = remember { runCatching { context.packageManager.queryIntentActivities(voiceIntent, 0).isNotEmpty() }.getOrDefault(false) }
-    val voice = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()) { r ->
-        val said = r.data?.getStringArrayListExtra(android.speech.RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()?.trim()
-        if (!said.isNullOrEmpty()) {
+    // The mic is always there: listening in the app, or the keyboard's mic on a box without a recogniser.
+    val canVoice = true
+    val voice = io.github.petebutty.viewarr.ui.common.rememberVoiceSearch(
+        onResult = { said ->
             query = said
             searchScope.launch { delay(900); runCatching { rowsFocus.requestFocus() } }
-        }
-    }
-    fun listen() { if (canVoice) runCatching { voice.launch(voiceIntent) } }
+        },
+        onKeyboard = {
+            typing = true
+            runCatching { fieldFocus.requestFocus() }
+            searchScope.launch { kotlinx.coroutines.android.awaitFrame(); keyboard?.show() }
+        },
+    )
+    fun listen() = voice.toggle()
+    val micFocus = remember { FocusRequester() }
     // Each search starts showing everything.
     LaunchedEffect(Unit) { media.setSearchFilter(io.github.petebutty.viewarr.ui.media.SearchFilter.All) }
     // Focus the box only when the page first opens with nothing typed yet.
@@ -1502,7 +1541,7 @@ private fun SearchPage(
                 if (canVoice) {
                     androidx.tv.material3.Surface(
                         onClick = ::listen,
-                        modifier = Modifier.size(44.dp).focusProperties { canFocus = fieldFree && focusEnabled },
+                        modifier = Modifier.size(44.dp).focusRequester(micFocus).focusProperties { canFocus = fieldFree && focusEnabled },
                         shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(androidx.compose.foundation.shape.CircleShape),
                         scale = androidx.tv.material3.ClickableSurfaceDefaults.scale(focusedScale = 1.1f),
                         colors = androidx.tv.material3.ClickableSurfaceDefaults.colors(
@@ -1542,8 +1581,8 @@ private fun SearchPage(
                         .onPreviewKeyEvent { e ->
                             // Left in an empty box: the mic if there is one, else the menu (with text, Left moves the cursor).
                             if (e.key == Key.DirectionLeft && query.isEmpty()) {
-                                if (canVoice) return@onPreviewKeyEvent false
-                                if (e.type == KeyEventType.KeyDown) onOpenMenu()
+                                // (Asked for directly: a box being typed in keeps Left for its cursor.)
+                                if (e.type == KeyEventType.KeyDown) { if (canVoice) runCatching { micFocus.requestFocus() } else onOpenMenu() }
                                 return@onPreviewKeyEvent true
                             }
                             if (!typing && (e.key == Key.DirectionCenter || e.key == Key.Enter || e.key == Key.NumPadEnter)) {
@@ -1574,7 +1613,8 @@ private fun SearchPage(
                             androidx.compose.material3.Icon(io.github.petebutty.viewarr.ui.common.AppIcons.Search, contentDescription = null, tint = AppColors.TextSecondary, modifier = Modifier.size(20.dp))
                             Spacer(Modifier.width(10.dp))
                             Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
-                                if (query.isEmpty()) Text("Search films, shows, people, channels and the TV guide", fontSize = 15.sp, color = AppColors.TextSecondary, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                                if (voice.listening) Text("Listening… say a film, show, person or channel", fontSize = 15.sp, color = AppColors.Accent, maxLines = 1)
+                                else if (query.isEmpty()) Text("Search films, shows, people, channels and the TV guide", fontSize = 15.sp, color = AppColors.TextSecondary, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                                 inner()
                             }
                         }

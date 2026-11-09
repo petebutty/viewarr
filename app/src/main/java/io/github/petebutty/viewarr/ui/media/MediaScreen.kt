@@ -8,6 +8,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.background
@@ -25,6 +26,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentWidth
@@ -115,7 +117,11 @@ fun MediaScreen(
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val detail by vm.detail.collectAsStateWithLifecycle()
-    val playing by vm.playing.collectAsStateWithLifecycle()
+    val playingStream by vm.playing.collectAsStateWithLifecycle()
+    // The player itself is above every page (VodHost), so it can shrink to a corner. Shrunk, this page is in use again.
+    val vodSource = remember(vm) { VodSource(vm.playing, vm.playerArt, vm::stopPlaying, vm::reportProgress) }
+    LaunchedEffect(playingStream) { if (playingStream != null) VodHost.show(vodSource) }
+    val playing = playingStream.takeIf { !VodHost.mini }
     // A whole library being browsed (menu → Movies / Shows → a library), shown instead of the rows.
     val browse by vm.browse.collectAsStateWithLifecycle()
     val libGenres by vm.genres.collectAsStateWithLifecycle()
@@ -287,6 +293,10 @@ fun MediaScreen(
         onDispose { io.github.petebutty.viewarr.ui.theme.Wallpaper.titlePages-- }
     }
     Box(Modifier.fillMaxSize().then(if (searchHeader != null) Modifier else Modifier.appBackground(titleArt = true))) {
+        // A library's grid has no hero: the background follows the highlighted title here too (it kept the last
+        // page's artwork, e.g. a show's on the films' grid).
+        val gridArt = focused?.takeIf { browse != null }?.backdrop
+        LaunchedEffect(gridArt) { gridArt?.let { io.github.petebutty.viewarr.ui.theme.Wallpaper.title = it } }
         browse?.let { b ->
             LibraryGrid(
                 b = b,
@@ -304,6 +314,7 @@ fun MediaScreen(
                 onGenre = vm::setLibraryGenre,
                 onUnwatched = vm::toggleUnwatched,
                 onPage = vm::libraryPage,
+                onLetter = vm::jumpToLetter,
                 onOpen = { openedFromGrid = it.key; vm.open(it) },
                 onLong = { quick = it },
                 onLeftEdge = onOpenMenu,
@@ -413,8 +424,6 @@ fun MediaScreen(
                     .padding(horizontal = 24.dp, vertical = 10.dp),
             )
         }
-        val playerArt by vm.playerArt.collectAsStateWithLifecycle()
-        playing?.let { PlayerHost(stream = it, onClose = vm::stopPlaying, art = playerArt, onProgress = vm::reportProgress) }
         val upNext by vm.upNext.collectAsStateWithLifecycle()
         if (playing == null) upNext?.let { UpNextOverlay(it.episode, onPlay = vm::playUpNext, onCancel = vm::cancelUpNext) }
     }
@@ -528,11 +537,21 @@ private fun LibraryGrid(
     onGenre: (Pair<String, String>?) -> Unit,
     onUnwatched: () -> Unit,
     onPage: (Int) -> Unit,
+    onLetter: (Char) -> Unit,
     onOpen: (MediaItem) -> Unit,
     onLong: (MediaItem) -> Unit,
     onLeftEdge: () -> Unit,
 ) {
-    val entryKey = focusKey?.takeIf { k -> b.items.any { it.key == k } } ?: b.items.firstOrNull()?.key
+    // After an A–Z jump: the first title with that letter.
+    val jumpKey = b.focusIndex?.let { b.items.getOrNull(it)?.key }
+    val entryKey = jumpKey ?: focusKey?.takeIf { k -> b.items.any { it.key == k } } ?: b.items.firstOrNull()?.key
+    LaunchedEffect(jumpKey) {
+        val k = jumpKey ?: return@LaunchedEffect
+        val idx = b.items.indexOfFirst { it.key == k } + if (b.page > 0) 1 else 0
+        runCatching { gridState.scrollToItem(maxOf(0, idx - GRID_COLUMNS)) }
+        awaitFrame()
+        runCatching { focusRequester.requestFocus() }
+    }
     val prev = b.page > 0
     val showNext = b.hasNext && !b.loading
     val nextFocus = remember { FocusRequester() }
@@ -548,7 +567,8 @@ private fun LibraryGrid(
                         b.failed -> "The server didn't answer. Press Back and try again."
                         b.total == 0 && b.query.isNotBlank() -> "Nothing in this library matches \"${b.query}\""
                         b.total == 0 && b.filtered -> "Nothing in this library matches these filters"
-                        b.total >= 0 -> "${b.library.source}  ·  ${b.total} ${if (b.filtered) "matches" else "titles"}  ·  page ${b.page + 1} of ${b.pages}"
+                        // Two lines, each whole (a big library's count pushed "page" onto a line of its own).
+                        b.total >= 0 -> "${b.library.source}  ·  ${"%,d".format(b.total)} ${if (b.filtered) "matches" else "titles"}\npage ${b.page + 1} of ${"%,d".format(b.pages)}"
                         else -> "Loading…"
                     },
                     fontSize = 13.sp, color = AppColors.TextSecondary,
@@ -575,9 +595,12 @@ private fun LibraryGrid(
         }
         // Filters (the server's own genres; unwatched only), then the highlighted title so you know what you're on.
         var pickGenre by remember { mutableStateOf(false) }
+        var pickLetter by remember { mutableStateOf(false) }
         Row(Modifier.padding(start = 48.dp, end = 48.dp, top = 12.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             FilterPill("Genre: " + (b.genre?.second ?: "All") + "  ▾", active = b.genre != null) { onLoadGenres(); pickGenre = true }
             FilterPill("Unwatched", active = b.unwatched, modifier = Modifier.padding(start = 8.dp)) { onUnwatched() }
+            // Jump to a letter (A–Z order). Not for IPTV libraries, whose lists can't say where a letter starts.
+            if (b.library.source != io.github.petebutty.viewarr.data.media.PROVIDER_LIBRARY) FilterPill("A–Z  ▾", active = false, modifier = Modifier.padding(start = 8.dp)) { pickLetter = true }
             if (b.genre != null || b.unwatched) FilterPill("Clear filters", active = false, modifier = Modifier.padding(start = 8.dp)) {
                 if (b.genre != null) onGenre(null)
                 if (b.unwatched) onUnwatched()
@@ -588,6 +611,7 @@ private fun LibraryGrid(
                 modifier = Modifier.weight(1f).padding(start = 20.dp),
             )
         }
+        if (pickLetter) LetterPicker(onPick = { onLetter(it); pickLetter = false }, onDismiss = { pickLetter = false })
         if (pickGenre) GenrePicker(genres, b.genre, onPick = { onGenre(it); pickGenre = false }, onDismiss = { pickGenre = false })
         androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
             columns = androidx.compose.foundation.lazy.grid.GridCells.Fixed(GRID_COLUMNS),
@@ -665,6 +689,36 @@ private fun FilterPill(text: String, active: Boolean, modifier: Modifier = Modif
     ) { Text(text, fontSize = 13.sp, maxLines = 1, modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp)) }
 }
 
+/** A–Z: a letter to jump to ('#' = numbers and symbols, the start). */
+@Composable
+private fun LetterPicker(onPick: (Char) -> Unit, onDismiss: () -> Unit) {
+    // Wider than a dialog's usual width (the letters were cut off on the right).
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
+        val first = remember { FocusRequester() }
+        LaunchedEffect(Unit) { awaitFrame(); awaitFrame(); runCatching { first.requestFocus() } }
+        val letters = listOf('#') + ('A'..'Z')
+        Column(Modifier.background(AppColors.Panel, RoundedCornerShape(12.dp)).padding(18.dp)) {
+            Text("Jump to", fontSize = 13.sp, color = AppColors.Accent, modifier = Modifier.padding(start = 4.dp, bottom = 10.dp))
+            letters.chunked(9).forEachIndexed { r, row ->
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(bottom = 6.dp)) {
+                    row.forEachIndexed { c, ch ->
+                        Surface(
+                            onClick = { onPick(ch) },
+                            modifier = (if (r == 0 && c == 1) Modifier.focusRequester(first) else Modifier).size(48.dp),
+                            scale = ClickableSurfaceDefaults.scale(scale = 1f, focusedScale = 1.08f, pressedScale = 1f),
+                            shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
+                            colors = ClickableSurfaceDefaults.colors(
+                                containerColor = AppColors.PanelAlt, contentColor = AppColors.TextPrimary,
+                                focusedContainerColor = AppColors.Accent, focusedContentColor = AppColors.OnAccent,
+                            ),
+                        ) { Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text(ch.toString(), fontSize = 18.sp, fontWeight = FontWeight.Medium) } }
+                    }
+                }
+            }
+        }
+    }
+}
+
 /** The library's genres as a list to pick from ("All genres" first). */
 @Composable
 private fun GenrePicker(genres: List<Pair<String, String>>?, selected: Pair<String, String>?, onPick: (Pair<String, String>?) -> Unit, onDismiss: () -> Unit) {
@@ -709,20 +763,19 @@ private fun LibrarySearchBox(query: String, onQuery: (String) -> Unit, onFocus: 
     val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
     // Voice: the mic before the box, as in the main search.
     val context = androidx.compose.ui.platform.LocalContext.current
-    val voiceIntent = remember {
-        android.content.Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
-            .putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL, android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            .putExtra(android.speech.RecognizerIntent.EXTRA_PROMPT, "Say a title")
-            .putExtra(android.speech.RecognizerIntent.EXTRA_MAX_RESULTS, 1)
-    }
-    val canVoice = remember { runCatching { context.packageManager.queryIntentActivities(voiceIntent, 0).isNotEmpty() }.getOrDefault(false) }
-    val voice = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()) { r ->
-        val said = r.data?.getStringArrayListExtra(android.speech.RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()?.trim()
-        if (!said.isNullOrEmpty()) { text = said; onQuery(said) }
-    }
-    if (canVoice) {
+    val boxFocus = remember { androidx.compose.ui.focus.FocusRequester() }
+    val voiceScope = androidx.compose.runtime.rememberCoroutineScope()
+    val voice = io.github.petebutty.viewarr.ui.common.rememberVoiceSearch(
+        onResult = { said -> text = said; onQuery(said) },
+        onKeyboard = {
+            runCatching { boxFocus.requestFocus() }
+            editing = true
+            voiceScope.launch { kotlinx.coroutines.android.awaitFrame(); keyboard?.show() }
+        },
+    )
+    run {
         Surface(
-            onClick = { runCatching { voice.launch(voiceIntent) } },
+            onClick = { voice.toggle() },
             modifier = Modifier.padding(end = 8.dp).size(36.dp),
             shape = ClickableSurfaceDefaults.shape(androidx.compose.foundation.shape.CircleShape),
             scale = ClickableSurfaceDefaults.scale(scale = 1f, focusedScale = 1.08f, pressedScale = 1f),
@@ -746,6 +799,7 @@ private fun LibrarySearchBox(query: String, onQuery: (String) -> Unit, onFocus: 
         keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Search),
         keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = { editing = false; keyboard?.hide(); onDone() }),
         modifier = Modifier.padding(end = 8.dp).width(260.dp).height(36.dp)
+            .focusRequester(boxFocus)
             .onFocusChanged { focusedBox = it.isFocused; onFocus(it.isFocused); if (!it.isFocused) { editing = false; keyboard?.hide() } }
             .onPreviewKeyEvent { e ->
                 val ok = e.key == Key.DirectionCenter || e.key == Key.Enter || e.key == Key.NumPadEnter
@@ -769,7 +823,8 @@ private fun LibrarySearchBox(query: String, onQuery: (String) -> Unit, onFocus: 
                 androidx.compose.material3.Icon(io.github.petebutty.viewarr.ui.common.AppIcons.Search, contentDescription = null, tint = AppColors.TextSecondary, modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(8.dp))
                 Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
-                    if (text.isEmpty()) Text("Search this library", fontSize = 14.sp, color = AppColors.TextSecondary, maxLines = 1)
+                    if (voice.listening) Text("Listening…", fontSize = 14.sp, color = AppColors.Accent, maxLines = 1)
+                    else if (text.isEmpty()) Text("Search this library", fontSize = 14.sp, color = AppColors.TextSecondary, maxLines = 1)
                     inner()
                 }
             }
@@ -932,6 +987,16 @@ private fun DetailScreen(
     var trailerOpen by remember { mutableStateOf(false) }
     // Other sources: every copy (each Plex server, Jellyfin / Emby, IPTV) and the addon search, to pick one by hand.
     var sourcesOpen by remember { mutableStateOf(false) }
+    var tracksOpen by remember { mutableStateOf(false) }
+    // Closed: back to Play (once the buttons can take focus again, a frame later).
+    var tracksWasOpen by remember { mutableStateOf(false) }
+    LaunchedEffect(tracksOpen) {
+        if (tracksOpen) { tracksWasOpen = true; return@LaunchedEffect }
+        if (!tracksWasOpen) return@LaunchedEffect
+        tracksWasOpen = false
+        awaitFrame(); awaitFrame()
+        runCatching { playFocus.requestFocus() }
+    }
     if (sourcesOpen) SourcesDialog(ui, vm, onSearch = { sourcesOpen = false; onSearch() }, onDone = { sourcesOpen = false })
     val trailerFocus = remember { FocusRequester() }
     BackHandler(enabled = !trailerOpen) {
@@ -969,17 +1034,20 @@ private fun DetailScreen(
         var reading by remember { mutableStateOf<io.github.petebutty.viewarr.data.media.Review?>(null) }
         val tabFocus = remember { FocusRequester() }
         val sectionsFree = !ui.episodesOpen && ui.streams == null && !trailerOpen
-        Column(Modifier.fillMaxSize().padding(start = 56.dp, end = 40.dp, top = 30.dp, bottom = 12.dp)) {
+        // Shows: the seasons and episodes come between the header and the tabs, so the page scrolls (focus leads it).
+        val episodesEntry = remember { FocusRequester() }
+        val inlineEpisodes = show && ui.seasons.isNotEmpty()
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 56.dp, end = 40.dp, top = 24.dp, bottom = 12.dp)) {
         Row(verticalAlignment = Alignment.Top) {
             item.poster?.let {
                 AsyncImage(
                     model = it, contentDescription = null, contentScale = ContentScale.Crop,
-                    modifier = Modifier.size(width = 140.dp, height = 210.dp).clip(RoundedCornerShape(10.dp)),
+                    modifier = Modifier.size(width = 120.dp, height = 180.dp).clip(RoundedCornerShape(10.dp)),
                 )
-                Spacer(Modifier.width(28.dp))
+                Spacer(Modifier.width(24.dp))
             }
             Column(Modifier.fillMaxWidth(0.68f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                TitleLogo(item, vm::logoFor, height = 64.dp, maxWidth = 360.dp, fontSize = 30)
+                TitleLogo(item, vm::logoFor, height = 54.dp, maxWidth = 320.dp, fontSize = 28)
                 val meta = listOfNotNull(
                     item.year?.toString(),
                     d.certification,
@@ -990,7 +1058,7 @@ private fun DetailScreen(
                 if (meta.isNotEmpty()) Text(meta, fontSize = 13.sp, color = AppColors.TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 RatingsLine(item.rating, d.voteCount, ui.ratings)
                 item.subtitle?.let { Text("Up next: $it", fontSize = 13.sp, color = AppColors.Accent, maxLines = 1) }
-                item.overview?.let { Text(it, fontSize = 14.sp, lineHeight = 20.sp, color = AppColors.TextPrimary, maxLines = 3, overflow = TextOverflow.Ellipsis) }
+                item.overview?.let { Text(it, fontSize = 14.sp, lineHeight = 20.sp, color = AppColors.TextPrimary, maxLines = if (show) 2 else 3, overflow = TextOverflow.Ellipsis) }
                 Text(
                     listOfNotNull(
                         d.directors.takeIf { it.isNotEmpty() }?.let { (if (show) "Created by " else "Directed by ") + it.take(2).joinToString(", ") },
@@ -1005,12 +1073,12 @@ private fun DetailScreen(
                 )
                 Spacer(Modifier.height(4.dp))
                 // Pop-ups and the episodes panel sit on top: the buttons below must not take focus then.
-                val buttonsFree = !ui.episodesOpen && ui.streams == null && !trailerOpen
+                val buttonsFree = !ui.episodesOpen && ui.streams == null && !trailerOpen && !tracksOpen && !sourcesOpen
                 androidx.compose.runtime.CompositionLocalProvider(LocalButtonsFree provides buttonsFree) {
                 // The buttons may run past the text column into the free space on the right, rather than squash.
                 // Down from any of them goes to the selected tab below (not just the nearest one).
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.wrapContentWidth(Alignment.Start, unbounded = true).onFocusChanged { buttonsFocused = it.hasFocus }.onPreviewKeyEvent { e ->
-                    if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionDown && buttonsFree) runCatching { tabFocus.requestFocus() }.isSuccess else false
+                    if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionDown && buttonsFree) runCatching { (if (inlineEpisodes && ui.episodes != null) episodesEntry else tabFocus).requestFocus() }.isSuccess else false
                 }) {
                     if (show) {
                         // Play / Resume: continue watching's episode, else where Plex / Jellyfin / Trakt say you're up to,
@@ -1024,8 +1092,8 @@ private fun DetailScreen(
                                 else -> "Play S${next.first} · E${next.second}"
                             }
                             // Holding OK: pick the episode (and its source) yourself.
+                            // The seasons and episodes are on the page itself now (below); holding OK still opens the full list.
                             Button(onClick = vm::playNextUp, onLongClick = vm::openEpisodes, modifier = (Modifier.focusRequester(playFocus)).free()) { Text(if (ui.searching) "Looking…" else label) }
-                            OutlinedButton(onClick = vm::openEpisodes, modifier = Modifier.free()) { Text("Episodes") }
                         } else {
                             Button(onClick = vm::openEpisodes, modifier = (Modifier.focusRequester(playFocus)).free()) { Text("Episodes") }
                         }
@@ -1035,6 +1103,15 @@ private fun DetailScreen(
                         Button(onClick = vm::playBest, onLongClick = { sourcesOpen = true }, modifier = (Modifier.focusRequester(playFocus)).free()) {
                             Text(if (ui.searching) "Looking…" else if (item.progress != null) "Resume" else "Play")
                         }
+                    }
+                    // Films on your own server: pick the soundtrack and subtitles before Play (this play only).
+                    if (!show && ui.tracks != null) {
+                        val picked = ui.pickedAudio != null || ui.pickedSubtitle != null
+                        OutlinedButton(onClick = { tracksOpen = true }, modifier = Modifier.free()) { Text(if (picked) "Audio & subtitles ✓" else "Audio & subtitles") }
+                    }
+                    // Films: watched / not, on your servers and Trakt.
+                    if (!show && ui.watched != null && (!ui.copies.isNullOrEmpty() || ui.hasTrakt)) {
+                        OutlinedButton(onClick = vm::toggleWatched, modifier = Modifier.free()) { Text(if (ui.watched) "Watched ✓" else "Mark watched") }
                     }
                     if (!show && !onPlex && !onProvider && !onServer && !ui.hasAddons && ui.copies != null) {
                         OutlinedButton(onClick = onClose, modifier = (Modifier.focusRequester(playFocus)).free()) { Text("Back") }
@@ -1063,12 +1140,15 @@ private fun DetailScreen(
                 }
             }
         }
+        if (inlineEpisodes) InlineEpisodes(ui, vm, free = sectionsFree && ui.episode == null, entry = episodesEntry, up = playFocus, down = tabFocus)
         Spacer(Modifier.height(16.dp))
-        DetailTabs(d, show, sectionsFree, tabFocus, onPerson = { c -> vm.openCastMember(c) }, onReview = { reading = it }, onSimilar = { vm.open(it) })
+        DetailTabs(d, show, sectionsFree && ui.episode == null, tabFocus, onPerson = { c -> vm.openCastMember(c) }, onReview = { reading = it }, onSimilar = { vm.open(it) })
         }
         reading?.let { r -> ReviewDialog(r) { reading = null } }
         if (ui.episodesOpen) EpisodesPanel(ui, vm, onPlex)
+        else if (ui.streams.isNullOrEmpty()) EpisodeActionsFor(ui, vm)
         ui.streams?.takeIf { it.isNotEmpty() }?.let { StreamPicker(it, onPickStream, Modifier.align(Alignment.CenterEnd)) }
+        ui.tracks?.takeIf { tracksOpen }?.let { t -> TracksDialog(t, ui.pickedAudio, ui.pickedSubtitle, onPick = { a, sub -> vm.pickTracks(a, sub) }, onDone = { tracksOpen = false }) }
         if (trailerOpen) {
             TrailerPlayer(item = item, trailers = vm.trailers, onClose = { trailerOpen = false })
             DisposableEffect(Unit) {
@@ -1234,24 +1314,196 @@ private fun EpisodesPanel(ui: DetailUi, vm: MediaViewModel, onPlex: Boolean) {
                 }
             }
         }
-        if (ui.streams.isNullOrEmpty()) ui.episode?.let { ep ->
-            val plex = ui.plexEpisodes[ep.season to ep.number]
-            EpisodeActions(
-                title = "S${ep.season} E${ep.number} · ${ep.name}",
-                plexLabel = plex?.let { if (it.viewOffsetMs > 0 && !it.watched) "Resume on Plex" else "Play on Plex" },
-                onProvider = if ((ep.season to ep.number) in ui.providerEpisodes) ({ vm.playProviderEpisode(ep.season, ep.number) }) else null,
-                serverLabel = ui.serverEpisodes[ep.season to ep.number]?.let { se ->
-                    val name = ui.copies?.firstOrNull { it.source == "Jellyfin" || it.source == "Emby" }?.source ?: "server"
-                    if (se.viewOffsetMs > 0 && !se.watched) "Resume on $name" else "Play on $name"
-                },
-                onServer = { vm.playServerEpisode(ep.season, ep.number) },
-                hasAddons = ui.hasAddons,
-                searching = ui.searching,
-                message = ui.message,
-                onPlex = { vm.playPlexEpisode(ep.season, ep.number) },
-                onSearch = { vm.searchEpisode(ep) },
-                onClose = { vm.pickEpisode(null) },
-            )
+        if (ui.streams.isNullOrEmpty()) EpisodeActionsFor(ui, vm)
+    }
+}
+
+/** A film's soundtrack and subtitles, picked before Play. */
+@Composable
+private fun TracksDialog(
+    t: io.github.petebutty.viewarr.data.media.TitleTracks,
+    audio: Int?, subtitle: Int?,
+    onPick: (audio: Int?, subtitle: Int?) -> Unit,
+    onDone: () -> Unit,
+) {
+    val first = remember { FocusRequester() }
+    LaunchedEffect(Unit) { awaitFrame(); runCatching { first.requestFocus() } }
+    BackHandler { onDone() }
+    // What the server would pick by itself, when you haven't picked.
+    val a = audio ?: t.audio.firstOrNull { it.default }?.ordinal ?: 0
+    val sub = subtitle ?: t.subtitles.firstOrNull { it.default }?.ordinal
+    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f)), contentAlignment = Alignment.Center) {
+        LazyColumn(
+            Modifier.width(560.dp).fillMaxHeight(0.85f).background(AppColors.Panel, RoundedCornerShape(14.dp)).padding(24.dp).trapFocus().ignoreHeldOk(),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            item { Text("Audio & subtitles", fontSize = 19.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary) }
+            item { Text("For this play, from ${t.source}.", fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(bottom = 8.dp)) }
+            if (t.audio.isNotEmpty()) item { Text("Audio", fontSize = 13.sp, color = AppColors.Accent, modifier = Modifier.padding(top = 6.dp, start = 12.dp)) }
+            itemsIndexed(t.audio) { i, c ->
+                io.github.petebutty.viewarr.ui.common.MenuItem(
+                    text = (if (c.ordinal == a) "✓  " else "     ") + c.label, selected = false,
+                    modifier = if (i == 0) Modifier.focusRequester(first) else Modifier,
+                    onClick = { onPick(c.ordinal, subtitle) },
+                )
+            }
+            item { Text("Subtitles", fontSize = 13.sp, color = AppColors.Accent, modifier = Modifier.padding(top = 10.dp, start = 12.dp)) }
+            item {
+                io.github.petebutty.viewarr.ui.common.MenuItem(
+                    text = (if (sub == null || sub < 0) "✓  " else "     ") + "Off", selected = false,
+                    modifier = if (t.audio.isEmpty()) Modifier.focusRequester(first) else Modifier,
+                    onClick = { onPick(audio, -1) },
+                )
+            }
+            items(t.subtitles) { c ->
+                io.github.petebutty.viewarr.ui.common.MenuItem(text = (if (c.ordinal == sub) "✓  " else "     ") + c.label, selected = false, onClick = { onPick(audio, c.ordinal) })
+            }
+            item { io.github.petebutty.viewarr.ui.common.MenuItem(text = "Done", selected = false, onClick = onDone, modifier = Modifier.padding(top = 10.dp)) }
+        }
+    }
+}
+
+/** Holding OK on an episode: where to play it from. */
+@Composable
+private fun EpisodeActionsFor(ui: DetailUi, vm: MediaViewModel) {
+    val ep = ui.episode ?: return
+    val plex = ui.plexEpisodes[ep.season to ep.number]
+    EpisodeActions(
+        title = "S${ep.season} E${ep.number} · ${ep.name}",
+        plexLabel = plex?.let { if (it.viewOffsetMs > 0 && !it.watched) "Resume on Plex" else "Play on Plex" },
+        onProvider = if ((ep.season to ep.number) in ui.providerEpisodes) ({ vm.playProviderEpisode(ep.season, ep.number) }) else null,
+        serverLabel = ui.serverEpisodes[ep.season to ep.number]?.let { se ->
+            val name = ui.copies?.firstOrNull { it.source == "Jellyfin" || it.source == "Emby" }?.source ?: "server"
+            if (se.viewOffsetMs > 0 && !se.watched) "Resume on $name" else "Play on $name"
+        },
+        onServer = { vm.playServerEpisode(ep.season, ep.number) },
+        hasAddons = ui.hasAddons,
+        searching = ui.searching,
+        message = ui.message,
+        onPlex = { vm.playPlexEpisode(ep.season, ep.number) },
+        onSearch = { vm.searchEpisode(ep) },
+        onClose = { vm.pickEpisode(null) },
+    )
+}
+
+/**
+ * A show's page: its seasons and that season's episodes in a row, right under the buttons (opens on the season you're
+ * up to). OK plays an episode from the best source; holding OK lists the sources.
+ */
+@Composable
+private fun InlineEpisodes(ui: DetailUi, vm: MediaViewModel, free: Boolean, entry: FocusRequester, up: FocusRequester, down: FocusRequester) {
+    val item = ui.detail.item
+    fun watched(s: Int, e: Int) = ui.plexEpisodes[s to e]?.watched == true || ui.serverEpisodes[s to e]?.watched == true || (s to e) in ui.traktEpisodes
+    // Opens on the season you're up to (once that's known; a few seconds at most), else the first.
+    LaunchedEffect(ui.seasons.size, ui.nextUpChecked) {
+        if (ui.seasons.isEmpty() || ui.season != null) return@LaunchedEffect
+        if (!ui.nextUpChecked && item.nextSeason == null) { kotlinx.coroutines.delay(4_000); if (ui.season != null) return@LaunchedEffect }
+        val want = item.nextSeason ?: ui.nextUp?.first
+        vm.selectSeason(want?.takeIf { n -> ui.seasons.any { it.number == n } } ?: ui.seasons.first().number)
+    }
+    val seasonFocus = remember { FocusRequester() }
+    val seasonRow = androidx.compose.foundation.lazy.rememberLazyListState()
+    val episodeRow = androidx.compose.foundation.lazy.rememberLazyListState()
+    var onSeasons by remember { mutableStateOf(false) }
+    var pendingSeason by remember { mutableStateOf<Int?>(null) }
+    LaunchedEffect(pendingSeason) {
+        val n = pendingSeason ?: return@LaunchedEffect
+        kotlinx.coroutines.delay(350)
+        vm.selectSeason(n)
+    }
+    var lastEpisodes by remember { mutableStateOf<List<io.github.petebutty.viewarr.data.media.EpisodeInfo>?>(null) }
+    LaunchedEffect(ui.episodes) { ui.episodes?.let { lastEpisodes = it } }
+    val target = ui.episodes?.let { eps ->
+        val next = if (item.nextSeason == ui.season) eps.indexOfFirst { it.number == item.nextEpisode }
+            else if (ui.nextUp?.first == ui.season) eps.indexOfFirst { it.number == ui.nextUp?.second } else -1
+        if (next >= 0) next else eps.indexOfFirst { e -> !watched(e.season, e.number) }.coerceAtLeast(0)
+    } ?: -1
+    // The row starts at the episode you're up to.
+    LaunchedEffect(ui.season, ui.episodes != null) {
+        if (target > 0) runCatching { episodeRow.scrollToItem(maxOf(0, target - 1)) }
+    }
+    LaunchedEffect(ui.season, ui.seasons.size) {
+        if (onSeasons) return@LaunchedEffect
+        val idx = ui.seasons.indexOfFirst { it.number == ui.season }
+        if (idx >= 0) runCatching { seasonRow.scrollToItem(maxOf(0, idx - 1)) }
+    }
+    if (ui.seasons.isEmpty()) return
+    Column(Modifier.padding(top = 10.dp)) {
+        LazyRow(
+            Modifier.onFocusChanged { onSeasons = it.hasFocus },
+            state = seasonRow, horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            items(ui.seasons, key = { it.number }) { season ->
+                val selected = season.number == ui.season
+                Surface(
+                    onClick = { pendingSeason = null; vm.selectSeason(season.number) },
+                    modifier = (if (selected) Modifier.focusRequester(seasonFocus) else Modifier)
+                        .focusProperties { canFocus = free; this.up = up }
+                        .onFocusChanged { if (it.isFocused && free) pendingSeason = season.number },
+                    scale = ClickableSurfaceDefaults.scale(scale = 1f, focusedScale = 1f, pressedScale = 1f),
+                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(18.dp)),
+                    colors = ClickableSurfaceDefaults.colors(
+                        containerColor = if (selected) AppColors.Accent.copy(alpha = 0.35f) else AppColors.Panel.copy(alpha = 0.8f),
+                        contentColor = AppColors.TextPrimary,
+                        focusedContainerColor = AppColors.Accent,
+                        focusedContentColor = AppColors.OnAccent,
+                    ),
+                ) {
+                    Text(season.name, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp))
+                }
+            }
+        }
+        Spacer(Modifier.height(10.dp))
+        val loading = ui.episodes == null
+        val eps = ui.episodes ?: lastEpisodes
+        when {
+            eps == null -> Text("Loading episodes…", fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.height(150.dp))
+            eps.isEmpty() -> Text("No episodes listed for this season.", fontSize = 13.sp, color = AppColors.TextSecondary)
+            // Room round the cards for the focused one's frame (it was clipped at the row's edge); pulled back by the
+            // same amount so the row still lines up with the page.
+            else -> LazyRow(
+                state = episodeRow, horizontalArrangement = Arrangement.spacedBy(12.dp),
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
+                modifier = Modifier.offset(x = (-8).dp).graphicsLayer { alpha = if (loading) 0.4f else 1f },
+            ) {
+                itemsIndexed(eps, key = { _, e -> "${e.season}-${e.number}" }) { i, ep ->
+                    val plex = ui.plexEpisodes[ep.season to ep.number] ?: ui.serverEpisodes[ep.season to ep.number]
+                    var focused by remember { mutableStateOf(false) }
+                    Column(Modifier.width(192.dp)) {
+                        Surface(
+                            onClick = { vm.playBestEpisode(ep.season, ep.number) },
+                            onLongClick = { vm.pickEpisode(ep) },
+                            modifier = (if (i == target.coerceAtLeast(0)) Modifier.focusRequester(entry) else Modifier)
+                                .focusProperties { canFocus = free && !loading; this.up = seasonFocus; this.down = down }
+                                .onFocusChanged { focused = it.isFocused }
+                                .size(width = 192.dp, height = 108.dp),
+                            scale = ClickableSurfaceDefaults.scale(scale = 1f, focusedScale = 1f, pressedScale = 1f),
+                            shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+                            border = ClickableSurfaceDefaults.border(focusedBorder = Border(BorderStroke(3.dp, AppColors.Accent), shape = RoundedCornerShape(8.dp))),
+                            colors = ClickableSurfaceDefaults.colors(containerColor = AppColors.PanelAlt, focusedContainerColor = AppColors.PanelAlt),
+                        ) {
+                            Box(Modifier.fillMaxSize()) {
+                                (ep.still ?: item.backdrop)?.let { AsyncImage(model = it, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
+                                if (watched(ep.season, ep.number)) Box(
+                                    Modifier.align(Alignment.TopEnd).padding(6.dp).size(24.dp).background(AppColors.Accent, androidx.compose.foundation.shape.CircleShape),
+                                    contentAlignment = Alignment.Center,
+                                ) { androidx.compose.material3.Icon(io.github.petebutty.viewarr.ui.common.AppIcons.Check, contentDescription = "Watched", tint = AppColors.OnAccent, modifier = Modifier.size(16.dp)) }
+                                plex?.takeIf { it.viewOffsetMs > 0 && !it.watched }?.let {
+                                    Box(Modifier.align(Alignment.BottomStart).fillMaxWidth(0.5f).height(4.dp).background(AppColors.Accent))
+                                }
+                            }
+                        }
+                        Text(
+                            "${ep.number}. ${ep.name}", fontSize = 13.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            color = if (focused) AppColors.Accent else AppColors.TextPrimary, modifier = Modifier.padding(top = 6.dp),
+                        )
+                        Text(
+                            listOfNotNull(ep.runtimeMin?.takeIf { it > 0 }?.let { "${it}m" }, ep.airDate?.takeIf { it.isNotBlank() }).joinToString("  ·  "),
+                            fontSize = 11.sp, color = AppColors.TextSecondary, maxLines = 1,
+                        )
+                    }
+                }
+            }
         }
     }
 }

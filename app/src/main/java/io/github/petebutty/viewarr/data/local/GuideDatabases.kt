@@ -20,7 +20,20 @@ class GuideDatabases @Inject constructor(@ApplicationContext private val context
         runCatching { if (context.getDatabasePath("viewarr.db").exists()) context.deleteDatabase("viewarr.db") }
     }
 
-    private fun nameFor(sourceId: String): String {
+    /** The database file names kept, most recent first (Settings → About). */
+    fun cachedNames(): List<String> = prefs.getString(KEY_RECENT, "").orEmpty().split(',').filter { it.isNotBlank() }
+
+    /** A cached source's database: channels and programmes (read-only peek; doesn't change which are kept). */
+    fun counts(name: String): Pair<Int, Int>? = runCatching {
+        val path = context.getDatabasePath(name)
+        if (!path.exists()) return null
+        android.database.sqlite.SQLiteDatabase.openDatabase(path.path, null, android.database.sqlite.SQLiteDatabase.OPEN_READONLY).use { db ->
+            fun count(t: String) = db.rawQuery("SELECT COUNT(*) FROM $t", null).use { c -> if (c.moveToFirst()) c.getInt(0) else 0 }
+            count("channels") to count("programs")
+        }
+    }.getOrNull()
+
+    fun nameFor(sourceId: String): String {
         val hash = java.security.MessageDigest.getInstance("SHA-1").digest(sourceId.toByteArray()).joinToString("") { "%02x".format(it) }
         return "guide-${hash.take(12)}.db"
     }

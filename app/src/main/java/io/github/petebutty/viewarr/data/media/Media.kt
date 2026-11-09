@@ -99,7 +99,18 @@ data class VodStream(
      * connection per account, so a second one could cut off the film (or the live TV).
      */
     val boxPreviews: Boolean = true,
+    /** Picked on the title's page before Play: which embedded audio / subtitle track (counting from 0 within its
+     *  kind; subtitles -1 = off). Null = the usual choice (Settings → Playback). */
+    val audioTrack: Int? = null,
+    val subtitleTrack: Int? = null,
 )
+
+/** An audio or subtitle track of a film on your own server, to pick before Play. [ordinal]: its place among the
+ *  file's own tracks of that kind (as the players count them). */
+data class TrackChoice(val label: String, val ordinal: Int, val default: Boolean = false)
+
+/** A film's tracks on one of your servers ([ref]: that copy), for Audio & subtitles on its page. */
+data class TitleTracks(val source: String, val ref: String, val audio: List<TrackChoice>, val subtitles: List<TrackChoice>)
 
 /** Pictures for the player: the title's backdrop (loading screen) and its logo (loading screen and controls). */
 data class PlayerArt(

@@ -2,6 +2,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Voice search: the speech recogniser listens for Viewarr (asked for the first time the mic is pressed). -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!-- Puts Viewarr's Continue watching into the TV home screen's Watch Next row. -->
     <uses-permission android:name="com.android.providers.tv.permission.WRITE_EPG_DATA" />
     <!-- In-app updates (Settings → Updates): hands the downloaded APK to Android's installer. -->

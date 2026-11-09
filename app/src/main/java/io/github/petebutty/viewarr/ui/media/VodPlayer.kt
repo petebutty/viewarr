@@ -92,6 +92,11 @@ fun VodPlayer(
     var osdUntil by remember { mutableStateOf(System.currentTimeMillis() + 4_000) }
     var now by remember { mutableStateOf(System.currentTimeMillis()) }
     fun showOsd() { osdUntil = System.currentTimeMillis() + 4_000 }
+    // Shrunk to the corner (picture-in-picture): just the picture; the page has the remote.
+    val mini = VodHost.mini
+    LaunchedEffect(mini) {
+        if (mini) { menu.open = false; tracksOpen = false; detailsOn = false; if (scrub.active) scrub.cancel(); osdUntil = 0L }
+    }
     val player = remember(stream) {
         val http = DefaultHttpDataSource.Factory()
             .setUserAgent("Viewarr/0.7")
@@ -156,7 +161,23 @@ fun VodPlayer(
     DisposableEffect(player) {
         var retriedAsHls = stream.url.contains(".m3u8")
         var usedFallback = false
+        // Audio & subtitles picked on the film's page: applied once the file's tracks are known.
+        var picksApplied = stream.audioTrack == null && stream.subtitleTrack == null
         val listener = object : Player.Listener {
+            override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
+                if (picksApplied || tracks.groups.isEmpty()) return
+                picksApplied = true
+                val text = androidx.media3.common.C.TRACK_TYPE_TEXT
+                fun nth(type: Int, n: Int) = tracks.groups.filter { it.type == type }.flatMap { g -> (0 until g.length).map { g to it } }.getOrNull(n)
+                val b = player.trackSelectionParameters.buildUpon()
+                stream.audioTrack?.let { n -> nth(androidx.media3.common.C.TRACK_TYPE_AUDIO, n)?.let { (g, i) -> b.setOverrideForType(androidx.media3.common.TrackSelectionOverride(g.mediaTrackGroup, i)) } }
+                stream.subtitleTrack?.let { n ->
+                    if (n < 0) b.setTrackTypeDisabled(text, true)
+                    else nth(text, n)?.let { (g, i) -> b.setTrackTypeDisabled(text, false).setOverrideForType(androidx.media3.common.TrackSelectionOverride(g.mediaTrackGroup, i)) }
+                }
+                player.trackSelectionParameters = b.build()
+            }
+
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 if (player.playbackState == Player.STATE_ENDED) return
                 onProgress(if (isPlaying) "playing" else "paused", player.currentPosition, player.duration.coerceAtLeast(0))
@@ -220,17 +241,18 @@ fun VodPlayer(
         }
     }
     // Back: closes audio & subtitles, then hides the controls, then stops (resume point saved). As Netflix / Plex.
-    BackHandler {
+    BackHandler(enabled = !mini) {
         when {
             tracksOpen -> tracksOpen = false
             scrub.active -> { scrub.cancel(); showOsd() }
             detailsOn -> detailsOn = false
             menu.open -> { menu.open = false; osdUntil = 0L }
             System.currentTimeMillis() < osdUntil && player.isPlaying -> osdUntil = 0L
-            else -> onClose()
+            // Back again: into the corner, still playing (hold Back to bring it back).
+            else -> VodHost.minimise().also { if (!VodHost.active) onClose() }
         }
     }
-    val buttons = listOfNotNull(PlayerButton.PlayPause, PlayerButton.Details, PlayerButton.Audio, PlayerButton.Subtitles, PlayerButton.Info, if (onSwitchPlayer != null) PlayerButton.SwitchPlayer else null)
+    val buttons = listOfNotNull(PlayerButton.PlayPause, PlayerButton.Stop, PlayerButton.Details, PlayerButton.Audio, PlayerButton.Subtitles, PlayerButton.Info, if (onSwitchPlayer != null) PlayerButton.SwitchPlayer else null)
     fun press(b: PlayerButton) {
         when (b) {
             PlayerButton.PlayPause -> player.playWhenReady = !player.playWhenReady
@@ -239,6 +261,7 @@ fun VodPlayer(
             PlayerButton.Info -> menu.infoOn = !menu.infoOn
             PlayerButton.Details -> { detailsOn = !detailsOn; if (detailsOn) menu.open = false }
             PlayerButton.SwitchPlayer -> onSwitchPlayer?.invoke(player.currentPosition)
+            PlayerButton.Stop -> { onClose(); return }
         }
         showOsd()
     }
@@ -251,7 +274,8 @@ fun VodPlayer(
         if (menu.open && !paused) { kotlinx.coroutines.delay(8_000); menu.open = false }
     }
     // The player must hold focus itself, or the remote keeps driving the screen underneath (the controls never respond).
-    LaunchedEffect(Unit) {
+    LaunchedEffect(mini) {
+        if (mini) return@LaunchedEffect
         repeat(3) {
             awaitFrame()
             runCatching { focus.requestFocus() }
@@ -260,8 +284,8 @@ fun VodPlayer(
     var hasFocus by remember { mutableStateOf(false) }
     // If anything else takes the remote while playing (and no picker is open), take it back.
     val searchOpen = io.github.petebutty.viewarr.ui.common.LocalQuickSearchOpen.current
-    LaunchedEffect(hasFocus, tracksOpen, searchOpen) {
-        if (!hasFocus && !tracksOpen && !searchOpen) {
+    LaunchedEffect(hasFocus, tracksOpen, searchOpen, mini) {
+        if (!hasFocus && !tracksOpen && !searchOpen && !mini) {
             kotlinx.coroutines.delay(150)
             runCatching { focus.requestFocus() }
         }
@@ -274,8 +298,9 @@ fun VodPlayer(
             .background(Color.Black)
             .focusRequester(focus)
             .onFocusChanged { hasFocus = it.isFocused }
-            .focusable(enabled = !tracksOpen)
+            .focusable(enabled = !tracksOpen && !mini)
             .onPreviewKeyEvent { e ->
+                if (VodHost.eatsBack(e)) return@onPreviewKeyEvent true
                 if (tracksOpen) return@onPreviewKeyEvent false
                 val center = e.key == Key.DirectionCenter || e.key == Key.Enter || e.key == Key.NumPadEnter
                 // On the seek bar: Left / Right move the marker, OK jumps there, Up leaves.
@@ -332,6 +357,7 @@ fun VodPlayer(
                     Key.DirectionUp -> showOsd()
                     Key.Info -> detailsOn = !detailsOn
                     Key.MediaPlayPause, Key.MediaPlay, Key.MediaPause -> { player.playWhenReady = !player.playWhenReady; showOsd() }
+                    Key.MediaStop -> onClose()
                     else -> return@onPreviewKeyEvent false
                 }
                 true
@@ -370,16 +396,16 @@ fun VodPlayer(
         )
         var started by remember(stream) { mutableStateOf(false) }
         if (!buffering && durationMs > 0) started = true
-        if (started && (detailsOn || (paused && pausedLong && !tracksOpen && !scrub.active && !menu.open))) PlayerDetails(stream.title, art)
-        if (started && (paused || buffering || now < osdUntil || scrub.active || menu.open)) PlayerOsd(
+        if (!mini && started && (detailsOn || (paused && pausedLong && !tracksOpen && !scrub.active && !menu.open))) PlayerDetails(stream.title, art)
+        if (!mini && started && (paused || buffering || now < osdUntil || scrub.active || menu.open)) PlayerOsd(
             stream.title, positionMs, durationMs, paused, buffering, scrub.targetMs, thumbs, Modifier.align(Alignment.BottomCenter), logo = art?.logo,
-            buttons = if (menu.open) buttons.map { it.label(paused, menu.infoOn, "mpv") } else null,
+            buttons = if (menu.open) buttons.map { it.osd(paused, menu.infoOn, "mpv") } else null,
             buttonFocus = if (menu.open && !menu.onBar) menu.button else -1,
             barFocused = menu.open && menu.onBar,
         )
-        PlayerLoading(stream.title, art, visible = !started && error == null)
-        if (tracksOpen) TrackPicker(player, subtitlesFirst = tracksSubs, onSwitchPlayer = onSwitchPlayer?.let { f -> { f(player.currentPosition) } }, onClose = { tracksOpen = false; runCatching { focus.requestFocus() } }, modifier = Modifier.align(Alignment.CenterEnd))
-        if (pb.stats == io.github.petebutty.viewarr.data.settings.StatsOverlay.On || menu.infoOn) {
+        PlayerLoading(stream.title, art, visible = !mini && !started && error == null)
+        if (tracksOpen && !mini) TrackPicker(player, subtitlesFirst = tracksSubs, onSwitchPlayer = onSwitchPlayer?.let { f -> { f(player.currentPosition) } }, onClose = { tracksOpen = false; runCatching { focus.requestFocus() } }, modifier = Modifier.align(Alignment.CenterEnd))
+        if (!mini && (pb.stats == io.github.petebutty.viewarr.data.settings.StatsOverlay.On || menu.infoOn)) {
             var info by remember { mutableStateOf("") }
             LaunchedEffect(player) {
                 while (true) {

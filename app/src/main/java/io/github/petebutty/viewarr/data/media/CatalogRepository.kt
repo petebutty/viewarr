@@ -760,6 +760,51 @@ class CatalogRepository @Inject constructor(
         return items to (r.body.int("TotalRecordCount") ?: items.size)
     }
 
+    /**
+     * A–Z: how many titles (in A–Z order, with the same search and filters) come before [letter] ('#' = the start).
+     * Null when the server can't say (IPTV provider libraries).
+     */
+    suspend fun libraryLetterStart(
+        lib: MediaLibrary, type: MediaType, letter: Char, query: String = "", genre: String? = null, unwatched: Boolean = false,
+    ): Int? {
+        if (letter == '#') return 0
+        val q = query.trim()
+        val a = store.current()
+        if (lib.source == PROVIDER_LIBRARY) return null
+        if (lib.server != null) {
+            val p = plexServers(a).firstOrNull { it.machineId == lib.server } ?: return null
+            // Plex counts titles by first character, in A–Z order.
+            val c = runCatching {
+                plexGet(a, p, "/library/sections/${lib.id}/firstCharacter?type=${if (type == MediaType.Movie) 1 else 2}" +
+                    (if (q.isNotEmpty()) "&title=${enc(q)}" else "") +
+                    (if (genre != null) "&genre=${enc(genre)}" else "") +
+                    (if (unwatched) (if (type == MediaType.Movie) "&unwatched=1" else "&unwatchedLeaves=1") else ""))
+            }.getOrNull() ?: return null
+            var before = 0
+            for (d in c.array("Directory")) {
+                val t = (d.str("title") ?: d.str("key") ?: "").uppercase()
+                val first = t.firstOrNull() ?: continue
+                if (first.isLetter() && first >= letter) break
+                before += d.int("size") ?: 0
+            }
+            return before
+        }
+        val emby = lib.source == "Emby"
+        val srv = (if (emby) a.emby else a.jellyfin) ?: return null
+        val kind = if (type == MediaType.Movie) "Movie" else "Series"
+        val r = runCatching {
+            http.get(
+                "${srv.serverUrl}/Users/${srv.userId}/Items?ParentId=${enc(lib.id)}&IncludeItemTypes=$kind&Recursive=true&Limit=0" +
+                    "&NameLessThan=${enc(letter.toString())}" +
+                    (if (q.isNotEmpty()) "&SearchTerm=${enc(q)}" else "") +
+                    (if (genre != null) "&GenreIds=${enc(genre)}" else "") +
+                    (if (unwatched) "&IsPlayed=false" else ""),
+                mediaServers.headers(emby, a.deviceId, srv.token),
+            )
+        }.getOrNull()?.takeIf { it.ok } ?: return null
+        return r.body.int("TotalRecordCount")
+    }
+
     /** Finds your other Plex servers on the account (e.g. a second machine) and remembers them. */
     suspend fun refreshPlexServers() {
         val a = store.current()
@@ -1203,6 +1248,95 @@ class CatalogRepository @Inject constructor(
         return "${p.serverUrl}/video/:/transcode/universal/start.m3u8?" + q.entries.joinToString("&") { "${enc(it.key)}=${enc(it.value)}" }
     }
 
+    // ------------------------------------------------------------------ a film's tracks, and marking it watched
+
+    /** The film's audio and subtitle tracks on your first Plex / Jellyfin / Emby copy (null when there isn't one). */
+    suspend fun titleTracks(copies: List<LibraryCopy>): TitleTracks? {
+        val a = store.current()
+        copies.firstOrNull { it.source == "Plex" && it.ref != null }?.let { c ->
+            val (p, rk) = plexResolve(a, c.ref!!) ?: return@let
+            val streams = plexGet(a, p, "/library/metadata/$rk")?.array("Metadata")?.firstOrNull()
+                ?.array("Media")?.firstOrNull()?.array("Part")?.firstOrNull()?.array("Stream").orEmpty()
+                // The file's own tracks only (separate subtitle files aren't in what the player opens).
+                .filter { it.str("key") == null }
+            fun pick(type: Int) = streams.filter { it.int("streamType") == type }.mapIndexed { i, st ->
+                TrackChoice(st.str("extendedDisplayTitle") ?: st.str("displayTitle") ?: st.str("language") ?: "Track ${i + 1}", i, st.str("selected").let { it == "1" || it == "true" })
+            }
+            return TitleTracks("Plex", c.ref, pick(2), pick(3))
+        }
+        copies.firstOrNull { (it.source == "Jellyfin" || it.source == "Emby") && it.ref != null }?.let { c ->
+            val (srv, emby) = serverFor(c.source) ?: return@let
+            val info = runCatching { http.get("${srv.serverUrl}/Users/${srv.userId}/Items/${c.ref}?Fields=MediaSources", mediaServers.headers(emby, a.deviceId, srv.token)) }
+                .getOrNull()?.takeIf { it.ok }?.body ?: return@let
+            val streams = info.array("MediaSources").firstOrNull()?.array("MediaStreams").orEmpty()
+                .filter { it.child("IsExternal")?.toString() != "true" }
+            fun pick(type: String) = streams.filter { it.str("Type") == type }.mapIndexed { i, st ->
+                TrackChoice(st.str("DisplayTitle") ?: st.str("Language") ?: "Track ${i + 1}", i, st.child("IsDefault")?.toString() == "true")
+            }
+            return TitleTracks(c.source, c.ref!!, pick("Audio"), pick("Subtitle"))
+        }
+        return null
+    }
+
+    /** Whether you've watched this film: on any of your servers, or on Trakt. */
+    suspend fun filmWatched(item: MediaItem, copies: List<LibraryCopy>): Boolean {
+        val a = store.current()
+        for (c in copies) {
+            val ref = c.ref ?: continue
+            when (c.source) {
+                "Plex" -> {
+                    val (p, rk) = plexResolve(a, ref) ?: continue
+                    val m = runCatching { plexGet(a, p, "/library/metadata/$rk") }.getOrNull()?.array("Metadata")?.firstOrNull()
+                    if ((m.int("viewCount") ?: 0) > 0) return true
+                }
+                "Jellyfin", "Emby" -> {
+                    val (srv, emby) = serverFor(c.source) ?: continue
+                    val info = runCatching { http.get("${srv.serverUrl}/Users/${srv.userId}/Items/$ref", mediaServers.headers(emby, a.deviceId, srv.token)) }.getOrNull()?.takeIf { it.ok }?.body
+                    if (info.child("UserData").child("Played")?.toString() == "true") return true
+                }
+            }
+        }
+        runCatching { traktWatched() }
+        return traktWatchedMovie(item)
+    }
+
+    /**
+     * Marks a film watched (or not) everywhere it's yours: each Plex copy, Jellyfin / Emby, and Trakt (when signed in).
+     * True if at least one of them took it.
+     */
+    suspend fun setFilmWatched(item: MediaItem, copies: List<LibraryCopy>, watched: Boolean): Boolean {
+        val a = store.current()
+        var done = false
+        for (c in copies) {
+            val ref = c.ref ?: continue
+            when (c.source) {
+                "Plex" -> {
+                    val (p, rk) = plexResolve(a, ref) ?: continue
+                    val verb = if (watched) "scrobble" else "unscrobble"
+                    done = runCatching { http.get("${p.serverUrl}/:/$verb?identifier=com.plexapp.plugins.library&key=$rk", plex.headers(a.deviceId, p.token)).ok }.getOrDefault(false) || done
+                }
+                "Jellyfin", "Emby" -> {
+                    val (srv, emby) = serverFor(c.source) ?: continue
+                    val url = "${srv.serverUrl}/Users/${srv.userId}/PlayedItems/$ref"
+                    val h = mediaServers.headers(emby, a.deviceId, srv.token)
+                    done = runCatching { (if (watched) http.post(url, null, h) else http.delete(url, h)).ok }.getOrDefault(false) || done
+                }
+            }
+        }
+        val t = a.trakt?.let { freshTrakt(it) }
+        if (t != null && (item.tmdbId != null || !item.imdbId.isNullOrBlank())) {
+            val ids = buildJsonObject {
+                item.tmdbId?.let { put("tmdb", it) }
+                item.imdbId?.takeIf { it.isNotBlank() }?.let { put("imdb", it) }
+            }
+            val body = buildJsonObject { put("movies", kotlinx.serialization.json.buildJsonArray { add(buildJsonObject { put("ids", ids) }) }) }
+            val url = if (watched) "https://api.trakt.tv/sync/history" else "https://api.trakt.tv/sync/history/remove"
+            done = runCatching { http.post(url, body, trakt.headers(t.accessToken)).ok }.getOrDefault(false) || done
+            runCatching { traktWatched(force = true) }
+        }
+        return done
+    }
+
     // ------------------------------------------------------------------ watch progress
 
     // ------------------------------------------------------------------ Jellyfin / Emby playback
@@ -1273,7 +1407,10 @@ class CatalogRepository @Inject constructor(
         // Each source's idea of where you are; the furthest along wins (Trakt knows what you watched elsewhere, so
         // Plex's on deck can be well behind it). Part-way through an episode beats starting that same one.
         val a = store.current()
-        val found = ArrayList<Triple<Int, Int, Boolean>>()
+        // Plex, Jellyfin / Emby and Trakt are asked at the same time (one after another made the show page slow).
+        val found = java.util.Collections.synchronizedList(ArrayList<Triple<Int, Int, Boolean>>())
+        coroutineScope {
+        launch { runCatching {
         copies.filter { it.source == "Plex" && it.ref != null }.forEach { c ->
             val (p, rk) = plexResolve(a, c.ref!!) ?: return@forEach
             val deck = runCatching { plexGet(a, p, "/library/metadata/$rk?includeOnDeck=1") }.getOrNull()
@@ -1281,6 +1418,8 @@ class CatalogRepository @Inject constructor(
             val s = deck.int("parentIndex"); val e = deck.int("index")
             if (s != null && e != null) { found += Triple(s, e, (deck.long("viewOffset") ?: 0) > 0); return@forEach }
         }
+        } }
+        launch { runCatching {
         copies.firstOrNull { (it.source == "Jellyfin" || it.source == "Emby") && it.ref != null }?.let { c ->
             val (srv, emby) = serverFor(c.source) ?: return@let
             val r = runCatching {
@@ -1290,6 +1429,8 @@ class CatalogRepository @Inject constructor(
             val s = ep.int("ParentIndexNumber"); val e = ep.int("IndexNumber")
             if (s != null && e != null) found += Triple(s, e, (ep.child("UserData").long("PlaybackPositionTicks") ?: 0) > 0)
         }
+        } }
+        launch { runCatching {
         val t = a.trakt?.let { freshTrakt(it) }
         // Trakt's show address takes an IMDb id or its own; with only a TMDB id, look its own up.
         val id = item.imdbId ?: if (t != null) item.tmdbId?.let { tm ->
@@ -1302,6 +1443,8 @@ class CatalogRepository @Inject constructor(
             val s = next.int("season"); val e = next.int("number")
             // Only when you've started the show: otherwise Trakt's "next" is just the first episode anyway.
             if (s != null && e != null && (r?.body.int("completed") ?: 0) > 0) found += Triple(s, e, false)
+        }
+        } }
         }
         return found.maxWithOrNull(compareBy<Triple<Int, Int, Boolean>>({ it.first }, { it.second }, { it.third }))
     }

@@ -14,6 +14,7 @@ import io.github.petebutty.viewarr.data.media.MediaType
 import io.github.petebutty.viewarr.data.media.RowsState
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
@@ -56,6 +57,12 @@ data class DetailUi(
     val episode: io.github.petebutty.viewarr.data.media.EpisodeInfo? = null,
     /** IMDb / Rotten Tomatoes (from Plex) and Trakt, beside TMDB's. */
     val ratings: List<io.github.petebutty.viewarr.data.media.RatingBadge> = emptyList(),
+    /** Films: watched on any of your servers or Trakt (null while checking). */
+    val watched: Boolean? = null,
+    /** Films on your own server: their audio / subtitle tracks, and what you picked for this Play (null = usual). */
+    val tracks: io.github.petebutty.viewarr.data.media.TitleTracks? = null,
+    val pickedAudio: Int? = null,
+    val pickedSubtitle: Int? = null,
 )
 
 private val DetailUi.plexShowKey get() = copies?.firstOrNull { it.source == "Plex" }?.ref
@@ -204,8 +211,27 @@ class MediaViewModel @Inject constructor(
     }
     private val _detail = MutableStateFlow<DetailUi?>(null)
     val detail = _detail.asStateFlow()
-    private val _playing = MutableStateFlow<io.github.petebutty.viewarr.data.media.VodStream?>(null)
-    val playing = _playing.asStateFlow()
+    /** What's playing. Set through here so the Audio & subtitles picked on a film's page go with its own copy. */
+    private inner class Playing {
+        val flow = MutableStateFlow<io.github.petebutty.viewarr.data.media.VodStream?>(null)
+        var value: io.github.petebutty.viewarr.data.media.VodStream?
+            get() = flow.value
+            set(v) { flow.value = v?.let(::withPicks) }
+    }
+    private val _playing = Playing()
+    val playing = _playing.flow.asStateFlow()
+
+    /** The picks apply only to the copy the tracks were read from (another source numbers its tracks differently). */
+    private fun withPicks(v: io.github.petebutty.viewarr.data.media.VodStream): io.github.petebutty.viewarr.data.media.VodStream {
+        val d = _detail.value ?: return v
+        val t = d.tracks ?: return v
+        if (d.pickedAudio == null && d.pickedSubtitle == null) return v
+        val w = v.watch
+        val same = (t.source == "Plex" && w?.plexRatingKey == t.ref) || (t.source != "Plex" && w?.serverItemId == t.ref)
+        if (!same) return v
+        fun apply(x: io.github.petebutty.viewarr.data.media.VodStream) = x.copy(audioTrack = d.pickedAudio, subtitleTrack = d.pickedSubtitle)
+        return apply(v).copy(fallback = v.fallback?.let(::apply))
+    }
 
     /** From a title page: a cast member's films and shows (the title page closes). */
     fun openCastMember(c: io.github.petebutty.viewarr.data.media.CastMember) {
@@ -231,7 +257,7 @@ class MediaViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            _playing.map { it?.url }.distinctUntilChanged().collect { url ->
+            _playing.flow.map { it?.url }.distinctUntilChanged().collect { url ->
                 // (url first: the first, empty value arrives while this class is still being built.)
                 if (url == null) { _playerArt.value = null; return@collect }
                 val item = _detail.value?.detail?.item ?: run { _playerArt.value = null; return@collect }
@@ -402,6 +428,8 @@ class MediaViewModel @Inject constructor(
         /** Genre filter (server id to name), and unwatched only. */
         val genre: Pair<String, String>? = null,
         val unwatched: Boolean = false,
+        /** A–Z jump: the title on this page to focus (the first with that letter). */
+        val focusIndex: Int? = null,
     ) {
         val filtered get() = query.isNotBlank() || genre != null || unwatched
         val pages get() = if (total <= 0) 1 else (total + LIBRARY_PAGE - 1) / LIBRARY_PAGE
@@ -446,8 +474,18 @@ class MediaViewModel @Inject constructor(
         browseJob?.cancel()
         queryJob?.cancel()
         if (library == null) { _browse.value = null; return }
-        val sort = _browse.value?.takeIf { it.library.key == library.key }?.sort ?: io.github.petebutty.viewarr.data.media.LibrarySort.Released
-        showLibraryPage(LibraryBrowse(library, type, sort), 0)
+        // How you last left this library (sort, genre, unwatched), kept across restarts.
+        val saved = viewPrefs.getString(library.key, null)?.split('\u0001')
+        val sort = saved?.getOrNull(0)?.let { n -> io.github.petebutty.viewarr.data.media.LibrarySort.entries.firstOrNull { it.name == n } }
+            ?: io.github.petebutty.viewarr.data.media.LibrarySort.Released
+        val genre = saved?.getOrNull(1)?.takeIf { it.isNotEmpty() }?.let { it to (saved.getOrNull(2) ?: it) }
+        val unwatched = saved?.getOrNull(3) == "1"
+        showLibraryPage(LibraryBrowse(library, type, sort, genre = genre, unwatched = unwatched), 0)
+    }
+
+    private val viewPrefs by lazy { appContext.getSharedPreferences("library_view", android.content.Context.MODE_PRIVATE) }
+    private fun saveView(b: LibraryBrowse) {
+        viewPrefs.edit().putString(b.library.key, listOf(b.sort.name, b.genre?.first.orEmpty(), b.genre?.second.orEmpty(), if (b.unwatched) "1" else "0").joinToString("\u0001")).apply()
     }
 
     fun setLibrarySort(sort: io.github.petebutty.viewarr.data.media.LibrarySort) {
@@ -491,15 +529,29 @@ class MediaViewModel @Inject constructor(
         }
     }
 
+    /** A–Z: to the first title starting with [letter] (sorting A–Z if it wasn't). */
+    fun jumpToLetter(letter: Char) {
+        val b = _browse.value ?: return
+        viewModelScope.launch {
+            val before = runCatching { repo.libraryLetterStart(b.library, b.type, letter, b.query, b.genre?.first, b.unwatched) }.getOrNull()
+            if (before == null) { _browse.update { it?.copy(failed = false) }; return@launch }
+            val total = if (b.total > 0) b.total else Int.MAX_VALUE
+            val at = before.coerceAtMost((total - 1).coerceAtLeast(0))
+            val sorted = b.copy(sort = io.github.petebutty.viewarr.data.media.LibrarySort.Title, total = if (b.sort == io.github.petebutty.viewarr.data.media.LibrarySort.Title) b.total else -1)
+            showLibraryPage(sorted.copy(focusIndex = at % LIBRARY_PAGE), at / LIBRARY_PAGE)
+        }
+    }
+
     fun libraryPage(delta: Int) {
         val b = _browse.value ?: return
         val to = (b.page + delta).coerceIn(0, b.pages - 1)
-        if (to != b.page) showLibraryPage(b, to)
+        if (to != b.page) showLibraryPage(b.copy(focusIndex = null), to)
     }
 
     private fun showLibraryPage(b: LibraryBrowse, page: Int) {
         browseJob?.cancel()
         _browse.value = b.copy(page = page, items = emptyList(), loading = true, failed = false)
+        saveView(b)
         browseJob = viewModelScope.launch {
             val got = runCatching { repo.libraryPage(b.library, b.type, b.sort, page * LIBRARY_PAGE, LIBRARY_PAGE, b.query, b.genre?.first, b.unwatched) }.getOrNull()
             _browse.update { now ->
@@ -553,19 +605,41 @@ class MediaViewModel @Inject constructor(
         detailJob?.cancel()
         _detail.value = DetailUi(MediaDetail(item))
         detailJob = viewModelScope.launch {
+            // How long each part takes (logcat "TitleLoad"): the page used to wait on each in turn.
+            val t0 = android.os.SystemClock.elapsedRealtime()
+            fun took(what: String) = android.util.Log.i("TitleLoad", "$what after ${android.os.SystemClock.elapsedRealtime() - t0} ms")
             val accounts = store.current()
             val hasTrakt = accounts.trakt != null
             _detail.update { it?.copy(hasAddons = accounts.activeAddons.isNotEmpty()) }
+            // Your copies don't need TMDB's details when the title already has its TMDB id: ask for both at once.
+            val earlyCopies = if (item.tmdbId != null) async { runCatching { repo.copiesOf(item) }.getOrNull() } else null
             val full = repo.detail(item)
+            took("details")
+            val show = full.item.type == MediaType.Show
             _detail.update {
-                it?.copy(detail = full, loading = false, hasTrakt = hasTrakt && full.item.tmdbId != null, watchlisted = repo.inTraktWatchlist(full.item))
+                it?.copy(detail = full, loading = false, hasTrakt = hasTrakt && full.item.tmdbId != null,
+                    // A show's seasons (TMDB's) straight away, so the episodes can start loading.
+                    seasons = if (show && full.seasons.isNotEmpty()) full.seasons else it.seasons)
+            }
+            launch {
+                val on = runCatching { repo.inTraktWatchlist(full.item) }.getOrDefault(false)
+                _detail.update { if (it?.detail?.item?.key == full.item.key) it.copy(watchlisted = on) else it }
             }
             // Home servers first (then away, then IPTV): the order they're listed in and tried by Play.
-            val copies = runCatching { repo.copiesOf(full.item) }.getOrDefault(emptyList()).let { list ->
+            val copies = (earlyCopies?.await() ?: runCatching { repo.copiesOf(full.item) }.getOrDefault(emptyList())).let { list ->
                 val home = list.associateWith { c -> runCatching { repo.isHomeCopy(c) }.getOrDefault(false) }
                 list.sortedWith(compareBy({ if (home[it] == true) 0 else if (it.source == io.github.petebutty.viewarr.data.media.PROVIDER) 2 else 1 }))
             }
+            took("copies (${copies.size})")
             _detail.update { it?.copy(copies = copies) }
+            if (full.item.type == MediaType.Movie) launch {
+                val w = runCatching { repo.filmWatched(full.item, copies) }.getOrNull()
+                _detail.update { if (it?.detail?.item?.key == full.item.key) it.copy(watched = w) else it }
+            }
+            if (full.item.type == MediaType.Movie) launch {
+                val t = runCatching { repo.titleTracks(copies) }.getOrNull()?.takeIf { it.audio.size > 1 || it.subtitles.isNotEmpty() }
+                _detail.update { if (it?.detail?.item?.key == full.item.key) it.copy(tracks = t) else it }
+            }
             launch {
                 val ratings = runCatching { repo.extraRatings(full.item, copies) }.getOrDefault(emptyList())
                 _detail.update { if (it?.detail?.item?.key == full.item.key) it.copy(ratings = ratings) else it }
@@ -576,33 +650,58 @@ class MediaViewModel @Inject constructor(
                     if (u?.detail?.item?.key != full.item.key) u else u.copy(detail = u.detail.copy(reviews = user + u.detail.reviews))
                 }
             }
-            if (full.item.type == MediaType.Show) launch {
-                // Your Trakt history: episodes watched anywhere get their tick.
-                runCatching { repo.traktWatched() }
-                val seen = repo.traktEpisodesOf(full.item)
-                if (seen.isNotEmpty()) _detail.update { if (it?.detail?.item?.key == full.item.key) it.copy(traktEpisodes = seen) else it }
-            }
-            if (full.item.type == MediaType.Show) {
+            if (show) {
+                fun same(u: DetailUi?) = u?.detail?.item?.key == full.item.key
+                launch {
+                    // Your Trakt history: episodes watched anywhere get their tick.
+                    runCatching { repo.traktWatched() }
+                    val seen = repo.traktEpisodesOf(full.item)
+                    if (seen.isNotEmpty()) _detail.update { if (same(it)) it!!.copy(traktEpisodes = seen) else it }
+                }
+                // Where you're up to, and each server's episodes: all at once, each shown as it arrives.
+                launch {
+                    val next = runCatching { repo.nextEpisodeFor(full.item, copies) }.getOrNull()
+                    took("up to")
+                    _detail.update { if (same(it)) it!!.copy(nextUp = next, nextUpChecked = true) else it }
+                }
                 val showKey = copies.firstOrNull { it.source == "Plex" }?.ref
-                val plexEps = showKey?.let { runCatching { repo.plexEpisodes(it) }.getOrDefault(emptyMap()) }.orEmpty()
+                val plexEps = async { showKey?.let { runCatching { repo.plexEpisodes(it) }.getOrDefault(emptyMap()) }.orEmpty().also { e -> took("plex episodes"); _detail.update { if (same(it)) it!!.copy(plexEpisodes = e) else it } } }
                 val providerRef = copies.firstOrNull { it.source == io.github.petebutty.viewarr.data.media.PROVIDER }?.ref
-                val providerEps = providerRef?.let { repo.providerEpisodes(it) }.orEmpty()
+                val providerEps = async { providerRef?.let { runCatching { repo.providerEpisodes(it) }.getOrDefault(emptyMap()) }.orEmpty().also { e -> _detail.update { if (same(it)) it!!.copy(providerEpisodes = e) else it } } }
                 val serverCopy = copies.firstOrNull { (it.source == "Jellyfin" || it.source == "Emby") && it.ref != null }
-                val serverEps = serverCopy?.let { repo.serverEpisodes(it.source, it.ref!!) }.orEmpty()
-                // A provider-only series (no TMDB match) gets its seasons from the provider's own episode list.
-                val seasons = full.seasons
-                    .ifEmpty { showKey?.let { runCatching { repo.plexSeasons(it) }.getOrDefault(emptyList()) }.orEmpty() }
-                    .ifEmpty {
-                        (providerEps.keys + serverEps.keys).groupBy { it.first }.toSortedMap().map { (n, eps) ->
-                            io.github.petebutty.viewarr.data.media.SeasonInfo(n, "Season $n", eps.size, null)
+                val serverEps = async { serverCopy?.let { runCatching { repo.serverEpisodes(it.source, it.ref!!) }.getOrDefault(emptyMap()) }.orEmpty().also { e -> _detail.update { if (same(it)) it!!.copy(serverEpisodes = e) else it } } }
+                // A show TMDB has no seasons for: from Plex, else from the provider's / server's own episode lists.
+                if (full.seasons.isEmpty()) {
+                    val seasons = showKey?.let { runCatching { repo.plexSeasons(it) }.getOrDefault(emptyList()) }.orEmpty()
+                        .ifEmpty {
+                            (providerEps.await().keys + serverEps.await().keys).groupBy { it.first }.toSortedMap().map { (n, eps) ->
+                                io.github.petebutty.viewarr.data.media.SeasonInfo(n, "Season $n", eps.size, null)
+                            }
                         }
-                    }
-                _detail.update { it?.copy(plexEpisodes = plexEps, providerEpisodes = providerEps, serverEpisodes = serverEps, seasons = seasons) }
-                val next = runCatching { repo.nextEpisodeFor(full.item, copies) }.getOrNull()
-                _detail.update { if (it?.detail?.item?.key == full.item.key) it.copy(nextUp = next, nextUpChecked = true) else it }
+                    _detail.update { if (same(it)) it!!.copy(seasons = seasons) else it }
+                }
+                plexEps.await()
             }
         }
     }
+
+    /** Films: Mark watched / unwatched (your servers and Trakt). */
+    fun toggleWatched() {
+        val d = _detail.value ?: return
+        val to = d.watched != true
+        _detail.update { it?.copy(watched = to) }
+        viewModelScope.launch {
+            val ok = runCatching { repo.setFilmWatched(d.detail.item, d.copies.orEmpty(), to) }.getOrDefault(false)
+            _detail.update {
+                if (it?.detail?.item?.key != d.detail.item.key) it
+                else if (ok) it.copy(message = if (to) "Marked as watched" else "Marked as unwatched")
+                else it.copy(watched = !to, message = "Couldn't change it on your servers or Trakt. Try again in a moment.")
+            }
+        }
+    }
+
+    /** Audio & subtitles picked on a film's page, for when Play starts it (null = the usual choice). */
+    fun pickTracks(audio: Int?, subtitle: Int?) = _detail.update { it?.copy(pickedAudio = audio, pickedSubtitle = subtitle) }
 
     fun close() {
         detailJob?.cancel()

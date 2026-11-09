@@ -609,6 +609,15 @@ class PlaybackViewModel @Inject constructor(
         _state.value = PlaybackState.Idle
     }
 
+    /** A film or episode is playing instead: live TV ends and its player is let go (a new one is made for the next channel). */
+    fun close() {
+        stop()
+        player?.release()
+        player = null
+        // The screen lets go of it too.
+        _playerVersion.value++
+    }
+
     override fun onCleared() {
         player?.release()
         player = null

@@ -111,6 +111,8 @@ fun AppRoot(vm: AppViewModel = hiltViewModel()) {
             is StartState.Ready -> {
                 // Composed straight away, under the splash, so rows and the guide load while it shows.
                 HomeScreen(session = s.session, onSignOut = vm::signOut)
+                // Films, episodes and recordings: above every page, full screen or shrunk to a corner.
+                io.github.petebutty.viewarr.ui.media.VodHostLayer()
                 // Over everything: the "update available" pop-up (and the automatic check on start).
                 if (!splashShown) io.github.petebutty.viewarr.ui.update.UpdateHost()
                 // Once after an update: a few lines on what's new.
