@@ -105,8 +105,11 @@ fun HomeRowsSettingsScreen(onBack: () -> Unit) {
             }
             Spacer(Modifier.width(40.dp))
             // Same view model as the Films / Shows page, so the rows are shared and changes show there at once.
-            androidx.compose.runtime.key(type, menu) {
-                RowsEditor(type, menu, moving, onMoving = { moving = it })
+            // Left from the rows: back to the page selected on the left (not the nearest entry).
+            Box(Modifier.weight(1f).fillMaxHeight().leftReturnsTo { tabFocus[(if (type == MediaType.Show) 2 else 0) + (if (menu) 1 else 0)] }) {
+                androidx.compose.runtime.key(type, menu) {
+                    RowsEditor(type, menu, moving, onMoving = { moving = it })
+                }
             }
         }
     }

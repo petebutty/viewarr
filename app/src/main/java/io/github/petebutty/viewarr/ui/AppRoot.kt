@@ -9,6 +9,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.layout.padding
+import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -89,9 +95,13 @@ fun AppRoot(vm: AppViewModel = hiltViewModel()) {
     val splashAlpha by androidx.compose.animation.core.animateFloatAsState(
         if (splashShown) 1f else 0f, androidx.compose.animation.core.tween(300), label = "splash",
     )
+    // Settings → Appearance → Text size: everything scaled together (layout and text).
+    val baseDensity = androidx.compose.ui.platform.LocalDensity.current
+    val scale = io.github.petebutty.viewarr.ui.theme.AppColors.palette.textScale
     androidx.compose.runtime.CompositionLocalProvider(
         io.github.petebutty.viewarr.data.settings.LocalRemote provides remote,
         io.github.petebutty.viewarr.data.settings.LocalPlayback provides playbackSettings,
+        androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(baseDensity.density * scale, baseDensity.fontScale),
     ) {
     Box(
         Modifier
@@ -113,6 +123,8 @@ fun AppRoot(vm: AppViewModel = hiltViewModel()) {
                 HomeScreen(session = s.session, onSignOut = vm::signOut)
                 // Films, episodes and recordings: above every page, full screen or shrunk to a corner.
                 io.github.petebutty.viewarr.ui.media.VodHostLayer()
+                // Settings → Appearance → Clock.
+                if (!splashShown && io.github.petebutty.viewarr.ui.theme.AppColors.palette.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.CLOCK) == 1) Clock(Modifier.align(Alignment.TopEnd))
                 // Over everything: the "update available" pop-up (and the automatic check on start).
                 if (!splashShown) io.github.petebutty.viewarr.ui.update.UpdateHost()
                 // Once after an update: a few lines on what's new.
@@ -125,4 +137,20 @@ fun AppRoot(vm: AppViewModel = hiltViewModel()) {
         }
     }
 }
+}
+
+/** The time, small, in the top corner (Settings → Appearance → Clock). */
+@Composable
+private fun Clock(modifier: Modifier) {
+    val format = remember { java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT) }
+    var now by remember { androidx.compose.runtime.mutableStateOf(format.format(java.util.Date())) }
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        while (true) { now = format.format(java.util.Date()); kotlinx.coroutines.delay(5_000) }
+    }
+    androidx.tv.material3.Text(
+        now, fontSize = 15.sp, color = Color.White,
+        modifier = modifier.padding(top = 10.dp, end = 18.dp)
+            .background(Color.Black.copy(alpha = 0.45f), androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
+            .padding(horizontal = 10.dp, vertical = 3.dp),
+    )
 }

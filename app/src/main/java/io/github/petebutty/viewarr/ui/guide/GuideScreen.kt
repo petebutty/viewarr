@@ -203,8 +203,10 @@ fun GuideScreen(
             },
     ) {
         // The highlighted programme's picture (looked up once you rest on it a moment), else the channel logo.
-        val art by androidx.compose.runtime.produceState<String?>(null, focused?.rowId) {
+        val art by androidx.compose.runtime.produceState<String?>(null, focused?.rowId, io.github.petebutty.viewarr.ui.theme.AppColors.palette.guideArt) {
             // The guide's own picture first (from Dispatcharr / the guide source), else a lookup by title.
+            // Settings → Appearance → Programme pictures off (or low-memory mode): none at all.
+            if (!io.github.petebutty.viewarr.ui.theme.AppColors.palette.guideArt) { value = null; return@produceState }
             focused?.image?.let { value = it; return@produceState }
             val t = focused?.title ?: run { value = null; return@produceState }
             kotlinx.coroutines.delay(350)
@@ -441,7 +443,7 @@ private fun GuideRow(
                 maxLines = 1,
             )
             Box(Modifier.width(52.dp).fillMaxHeight().padding(vertical = 4.dp), contentAlignment = Alignment.Center) {
-                if (channel.logoId != null || channel.logoUrl != null) {
+                if ((channel.logoId != null || channel.logoUrl != null) && io.github.petebutty.viewarr.ui.theme.AppColors.palette.channelLogos) {
                     AsyncImage(
                         model = channelLogo(serverUrl, channel),
                         contentDescription = null,

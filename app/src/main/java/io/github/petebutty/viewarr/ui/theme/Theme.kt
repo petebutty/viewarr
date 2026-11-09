@@ -16,7 +16,24 @@ import androidx.compose.material3.darkColorScheme as m3DarkColorScheme
 data class Palette(val main: Color, val highlight: Color, val transparency: Float = 0f, val showNumbers: Boolean = true, val squareCorners: Boolean = true, val hideMedia: Boolean = false, /** Guide progress bars: 0 every channel, 1 only the one you're watching, 2 none. */ val progressBars: Int = 0,
     /** Picture behind pages: 0 none, 1 built-in, 2 from your library, 3 what's selected. */ val wallpaper: Int = 0,
     /** Which built-in wallpaper (WallpaperStyles). */ val wallpaperStyle: Int = 0,
-    /** How much the background colour covers the wallpaper (0.3 light … 0.9 dark). */ val wallpaperDim: Float = 0.6f) {
+    /** How much the background colour covers the wallpaper (0.3 light … 0.9 dark). */ val wallpaperDim: Float = 0.6f,
+    /** Title pages: the parts switched off in Settings → Appearance (TitleParts ids). */ val titleHidden: Set<String> = emptySet(),
+    /** Small display / behaviour options (UiOpts names → chosen index; 0 = the default). */ val opts: Map<String, Int> = emptyMap()) {
+    fun shows(part: String) = part !in titleHidden
+    fun opt(name: String) = opts[name] ?: 0
+    /** Low-memory mode: the heavy extras are off whatever their own settings say. */
+    val lowMemory get() = opt(UiOpts.LOW_MEMORY) == 1
+    val guideArt get() = opt(UiOpts.GUIDE_ART) == 0 && !lowMemory
+    val channelLogos get() = opt(UiOpts.CHANNEL_LOGOS) == 0
+    val sourceBadges get() = opt(UiOpts.BADGE_SOURCE) == 0
+    val progressBadges get() = opt(UiOpts.BADGE_PROGRESS) == 0
+    val serverPreviews get() = opt(UiOpts.SEEK_PREVIEWS) != 2
+    val boxPreviews get() = opt(UiOpts.SEEK_PREVIEWS) == 0 && !lowMemory
+    val controlsMs get() = longArrayOf(4_000, 3_000, 6_000, 10_000)[opt(UiOpts.CONTROLS_TIME).coerceIn(0, 3)]
+    val upNextSeconds get() = intArrayOf(10, 5, 20)[opt(UiOpts.UP_NEXT).coerceIn(0, 2)]
+    val textScale get() = floatArrayOf(1f, 0.9f, 1.12f, 1.25f)[opt(UiOpts.TEXT_SIZE).coerceIn(0, 3)]
+    /** Hours of no button presses on Live TV before "Still watching?" (0 = never). */
+    val stillWatchingHours get() = intArrayOf(0, 2, 3, 4, 6)[opt(UiOpts.STILL_WATCHING).coerceIn(0, 4)]
     val menuAlpha = 1f - transparency
     val panel = lerp(main, Color.White, 0.07f)
     val panelAlt = lerp(main, Color.White, 0.04f)
@@ -111,4 +128,66 @@ fun ViewarrTheme(content: @Composable () -> Unit) {
             content = content,
         )
     }
+}
+
+/** What a title page can show, each switchable in Settings → Appearance. Off: not shown, and not fetched either. */
+object TitleParts {
+    /** Ratings: the badge names (RatingBadge.source; TMDB's own is "TMDB"). */
+    val ratings = listOf("TMDB" to "TMDB", "IMDb" to "IMDb", "RT" to "Rotten Tomatoes (critics)", "Audience" to "Rotten Tomatoes (audience)",
+        "Metacritic" to "Metacritic", "Letterboxd" to "Letterboxd", "Trakt" to "Trakt")
+    fun rating(source: String) = "rating:$source"
+    const val LOGO = "logo"
+    const val UP_NEXT = "upnext"
+    const val TRAILER = "trailer"
+    const val EPISODES = "episodes"
+    const val CAST = "cast"
+    const val REVIEWS = "reviews"
+    const val COLLECTION = "collection"
+    const val SIMILAR = "similar"
+    const val DETAILS = "details"
+    val sections = listOf(
+        LOGO to ("Title logo" to "The title's logo instead of its name in plain text."),
+        UP_NEXT to ("Up next line" to "Shows: the episode you're up to, above the synopsis."),
+        TRAILER to ("Trailer button" to "Off: the trailer isn't looked up either."),
+        EPISODES to ("Seasons & episodes row" to "Shows: the seasons and episodes on the page (Play and holding OK still work)."),
+        CAST to ("Cast & crew" to "The cast & crew tab."),
+        REVIEWS to ("Reviews" to "The reviews tab. Off: Trakt's reviews aren't fetched."),
+        COLLECTION to ("Collection" to "Films in a series: the collection tab."),
+        SIMILAR to ("More like this" to "The more like this tab."),
+        DETAILS to ("Details" to "The details tab (released, runtime, studio, language…)."),
+    )
+}
+
+/** Small display / behaviour settings (Appearance and Playback), each a list of choices; the first is the default. */
+object UiOpts {
+    const val TEXT_SIZE = "text_size"
+    const val CLOCK = "clock"
+    const val BADGE_SOURCE = "badge_source"
+    const val BADGE_PROGRESS = "badge_progress"
+    const val GUIDE_ART = "guide_art"
+    const val CHANNEL_LOGOS = "channel_logos"
+    const val MINI_SIZE = "mini_size"
+    const val MINI_CORNER = "mini_corner"
+    const val PLAYER_BACK = "player_back"
+    const val SEEK_PREVIEWS = "seek_previews"
+    const val CONTROLS_TIME = "controls_time"
+    const val UP_NEXT = "up_next"
+    const val STILL_WATCHING = "still_watching"
+    const val LOW_MEMORY = "low_memory"
+    val choices = mapOf(
+        TEXT_SIZE to listOf("Normal", "Small", "Large", "Extra large"),
+        CLOCK to listOf("Off", "On"),
+        BADGE_SOURCE to listOf("On", "Off"),
+        BADGE_PROGRESS to listOf("On", "Off"),
+        GUIDE_ART to listOf("On", "Off"),
+        CHANNEL_LOGOS to listOf("On", "Off"),
+        MINI_SIZE to listOf("Medium", "Small", "Large"),
+        MINI_CORNER to listOf("Bottom right", "Bottom left", "Top right", "Top left"),
+        PLAYER_BACK to listOf("Shrink to a corner", "Stop"),
+        SEEK_PREVIEWS to listOf("Server's, else the box makes them", "Server's only", "Off"),
+        CONTROLS_TIME to listOf("4 seconds", "3 seconds", "6 seconds", "10 seconds"),
+        UP_NEXT to listOf("10 seconds", "5 seconds", "20 seconds"),
+        STILL_WATCHING to listOf("Never", "After 2 hours", "After 3 hours", "After 4 hours", "After 6 hours"),
+        LOW_MEMORY to listOf("Off", "On"),
+    )
 }

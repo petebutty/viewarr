@@ -1416,6 +1416,7 @@ class CatalogRepository @Inject constructor(
             val deck = runCatching { plexGet(a, p, "/library/metadata/$rk?includeOnDeck=1") }.getOrNull()
                 ?.array("Metadata")?.firstOrNull()?.child("OnDeck")?.array("Metadata")?.firstOrNull()
             val s = deck.int("parentIndex"); val e = deck.int("index")
+            Log.i(TAG, "up to: plex ${c.source} deck=$s/$e")
             if (s != null && e != null) { found += Triple(s, e, (deck.long("viewOffset") ?: 0) > 0); return@forEach }
         }
         } }
@@ -1432,6 +1433,7 @@ class CatalogRepository @Inject constructor(
         } }
         launch { runCatching {
         val t = a.trakt?.let { freshTrakt(it) }
+        Log.i(TAG, "up to: trakt signed in=${t != null} imdb=${item.imdbId != null} tmdb=${item.tmdbId}")
         // Trakt's show address takes an IMDb id or its own; with only a TMDB id, look its own up.
         val id = item.imdbId ?: if (t != null) item.tmdbId?.let { tm ->
             runCatching { http.get("https://api.trakt.tv/search/tmdb/$tm?type=show", trakt.headers(t.accessToken)) }.getOrNull()
@@ -1442,6 +1444,7 @@ class CatalogRepository @Inject constructor(
             val next = r?.body?.child("next_episode")
             val s = next.int("season"); val e = next.int("number")
             // Only when you've started the show: otherwise Trakt's "next" is just the first episode anyway.
+            Log.i(TAG, "up to: trakt http=${r?.code} next=$s/$e completed=${r?.body.int("completed")}")
             if (s != null && e != null && (r?.body.int("completed") ?: 0) > 0) found += Triple(s, e, false)
         }
         } }

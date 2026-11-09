@@ -166,7 +166,8 @@ fun PluginsSettingsScreen(onBack: () -> Unit, vm: PluginsViewModel = hiltViewMod
                 }
             }
             Spacer(Modifier.width(40.dp))
-            Column(Modifier.weight(1f).fillMaxHeight()) {
+            // Left from the details: back to the plugin selected on the left (not the nearest entry).
+            Column(Modifier.weight(1f).fillMaxHeight().leftReturnsTo { selected?.let { memory.of(if (it == STORE) "side:store" else "side:$it") } }) {
                 ui.message?.let { Text(it, fontSize = 14.sp, color = AppColors.Accent, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 26.dp, bottom = 6.dp, start = 4.dp)) }
                     ?: Spacer(Modifier.padding(top = 26.dp))
                 val plugin = ui.installed.firstOrNull { it.key == selected }

@@ -319,6 +319,23 @@ fun HomeScreen(
     }
     // …and a channel started while a film is in the corner ends the film (one stream, one sound).
     LaunchedEffect(playing?.id) { if (playing != null) io.github.petebutty.viewarr.ui.media.VodHost.close() }
+    // Settings → Playback → Still watching?: after hours without a button press on live TV, ask, then stop (a TV left
+    // on otherwise holds a provider connection all night).
+    var lastKeyAt by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    var stillAsk by remember { mutableStateOf(false) }
+    val stillHours = io.github.petebutty.viewarr.ui.theme.AppColors.palette.stillWatchingHours
+    LaunchedEffect(stillHours, playing?.id) {
+        if (stillHours == 0) return@LaunchedEffect
+        while (true) {
+            delay(60_000)
+            if (playing != null && !stillAsk && System.currentTimeMillis() - lastKeyAt > stillHours * 3_600_000L) stillAsk = true
+        }
+    }
+    LaunchedEffect(stillAsk) {
+        if (!stillAsk) return@LaunchedEffect
+        delay(60_000)
+        if (stillAsk) { stillAsk = false; fullscreen = false; playback.stop() }
+    }
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) { playback.pause() }
     LifecycleEventEffect(Lifecycle.Event.ON_START) { playback.resume() }
 
@@ -404,6 +421,9 @@ fun HomeScreen(
         Modifier
             .fillMaxSize()
             .onPreviewKeyEvent { e ->
+                lastKeyAt = System.currentTimeMillis()
+                // "Still watching?" up: any button answers yes.
+                if (stillAsk) { if (e.type == KeyEventType.KeyUp) stillAsk = false; return@onPreviewKeyEvent true }
                 // A reminder on screen: OK switches to it, Back dismisses it; other buttons work as usual.
                 dueReminder?.let { r ->
                     val ok = e.key == Key.DirectionCenter || e.key == Key.Enter || e.key == Key.NumPadEnter
@@ -855,6 +875,16 @@ fun HomeScreen(
                 val year = prog.description?.let { Regex("\\((19|20)\\d{2}\\)").findAll(it).lastOrNull()?.value?.trim('(', ')')?.toIntOrNull() }
                 fromStartScope.launch { searchMedia.watchFromStart(prog.title, prog.season, prog.episode, year) }
             }) { recordTarget = null }
+        }
+
+        if (stillAsk) Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.55f)), contentAlignment = Alignment.Center) {
+            Column(
+                Modifier.width(560.dp).background(AppColors.Panel, RoundedCornerShape(14.dp)).padding(28.dp),
+                horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text("Still watching?", fontSize = 24.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, color = AppColors.TextPrimary)
+                Text("Press any button to carry on. Live TV stops in a minute otherwise.", fontSize = 15.sp, color = AppColors.TextSecondary, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+            }
         }
 
         if (exitArmed != 0L && !menuOpen) {

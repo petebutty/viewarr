@@ -33,6 +33,8 @@ class ThemeStore @Inject constructor(@ApplicationContext private val context: Co
             wallpaper = (prefs[WALLPAPER] ?: 0).takeIf { it != 2 } ?: 0,
             wallpaperStyle = prefs[WALLPAPER_STYLE] ?: 0,
             wallpaperDim = prefs[WALLPAPER_DIM] ?: 0.6f,
+            titleHidden = prefs[TITLE_HIDDEN] ?: emptySet(),
+            opts = prefs.asMap().entries.mapNotNull { (k, v) -> if (k.name.startsWith("opt_") && v is Int) k.name.removePrefix("opt_") to v else null }.toMap(),
         )
     }
 
@@ -67,6 +69,24 @@ class ThemeStore @Inject constructor(@ApplicationContext private val context: Co
         }
     }
 
+    /** Title pages: switch one part (TitleParts) on or off. */
+    suspend fun saveTitlePart(part: String, on: Boolean) {
+        context.appearanceStore.edit { val now = it[TITLE_HIDDEN] ?: emptySet(); it[TITLE_HIDDEN] = if (on) now - part else now + part }
+    }
+
+    /** A UiOpts setting (its chosen index). */
+    suspend fun saveOpt(name: String, value: Int) {
+        context.appearanceStore.edit { it[intPreferencesKey("opt_$name")] = value }
+    }
+
+    suspend fun resetOpts(names: Collection<String>) {
+        context.appearanceStore.edit { p -> names.forEach { p.remove(intPreferencesKey("opt_$it")) } }
+    }
+
+    suspend fun resetTitleParts() {
+        context.appearanceStore.edit { it.remove(TITLE_HIDDEN) }
+    }
+
     suspend fun saveShowNumbers(on: Boolean) {
         context.appearanceStore.edit { it[NUMBERS] = on }
     }
@@ -82,5 +102,6 @@ class ThemeStore @Inject constructor(@ApplicationContext private val context: Co
         val WALLPAPER = intPreferencesKey("wallpaper")
         val WALLPAPER_STYLE = intPreferencesKey("wallpaper_style")
         val WALLPAPER_DIM = floatPreferencesKey("wallpaper_dim")
+        val TITLE_HIDDEN = androidx.datastore.preferences.core.stringSetPreferencesKey("title_hidden")
     }
 }

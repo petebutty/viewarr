@@ -72,6 +72,8 @@ class AppearanceViewModel @Inject constructor(private val store: ThemeStore) : V
         viewModelScope.launch { store.saveProgressBars(mode) }
     }
 
+    fun setTitlePart(part: String, on: Boolean) { viewModelScope.launch { store.saveTitlePart(part, on) } }
+    fun resetTitleParts() { viewModelScope.launch { store.resetTitleParts() } }
     fun setShowNumbers(on: Boolean) {
         viewModelScope.launch { store.saveShowNumbers(on) }
     }
@@ -95,7 +97,7 @@ private val HighlightNames = listOf("Cyan", "Pink", "Sky blue", "Blue", "Teal", 
 
 /** Settings → Appearance, full screen like the other settings pages. */
 @Composable
-fun AppearanceSettingsScreen(onBack: () -> Unit, vm: AppearanceViewModel = hiltViewModel()) {
+fun AppearanceSettingsScreen(onBack: () -> Unit, vm: AppearanceViewModel = hiltViewModel(), opts: UiOptsViewModel = hiltViewModel()) {
     val palette = AppColors.palette
     val presets = ThemePresets.map { Choice(it.name, it.name) }
     val currentPreset = ThemePresets.firstOrNull { it.main == palette.main && it.highlight == palette.highlight }
@@ -127,6 +129,8 @@ fun AppearanceSettingsScreen(onBack: () -> Unit, vm: AppearanceViewModel = hiltV
                     highs.firstOrNull { it.value == palette.highlight } ?: Choice("Custom", palette.highlight)) { c ->
                     vm.apply(palette.main, (c as Choice).value as androidx.compose.ui.graphics.Color)
                 },
+                optItem(opts, "Text size", "How big text and everything else on screen is. Larger is easier to read from the sofa.", io.github.petebutty.viewarr.ui.theme.UiOpts.TEXT_SIZE),
+                optItem(opts, "Clock", "The time in the top corner.", io.github.petebutty.viewarr.ui.theme.UiOpts.CLOCK),
                 SettingItem("Menu transparency", "How much of the picture shows through the side menu while you watch full screen. Over the guide and other pages the menu is always solid.", transparencies,
                     transparencies.first { it.value == currentT }) { c -> vm.setTransparency(((c as Choice).value as Int) / 100f) }
             ),
@@ -153,7 +157,29 @@ fun AppearanceSettingsScreen(onBack: () -> Unit, vm: AppearanceViewModel = hiltV
                     progressChoices[palette.progressBars.coerceIn(0, 2)]) { c -> vm.setProgressBars((c as Choice).value as Int) },
                 SettingItem("Corners", "Rounded or square corners on the guide's programmes and channel names.", corners,
                     if (palette.squareCorners) corners[1] else corners[0]) { c -> vm.setSquareCorners((c as Choice).value == true) },
+                optItem(opts, "Channel logos", "Logos beside the channel names.", io.github.petebutty.viewarr.ui.theme.UiOpts.CHANNEL_LOGOS),
+                optItem(opts, "Programme pictures", "The highlighted programme's picture at the top of the guide. Off: no pictures are looked up (the channel's logo shows instead).", io.github.petebutty.viewarr.ui.theme.UiOpts.GUIDE_ART),
             ),
+        ),
+        SettingCategory(
+            "Posters", "What's drawn on posters in Movies, Shows and search.",
+            listOf(
+                optItem(opts, "Where it's from", "The label saying which of your servers has it (e.g. \"Plex · MINIPC\").", io.github.petebutty.viewarr.ui.theme.UiOpts.BADGE_SOURCE),
+                optItem(opts, "Progress bars", "How far through you are, along the bottom of posters and episodes.", io.github.petebutty.viewarr.ui.theme.UiOpts.BADGE_PROGRESS),
+            ),
+        ),
+        SettingCategory(
+            "Title pages", "What a film's or show's page shows. Anything off isn't fetched either, so pages open with less to do.",
+            io.github.petebutty.viewarr.ui.theme.TitleParts.sections.map { (id, text) ->
+                SettingItem(text.first, text.second, onOff, if (palette.shows(id)) onOff[0] else onOff[1]) { c -> vm.setTitlePart(id, (c as Choice).value == true) }
+            },
+        ),
+        SettingCategory(
+            "Ratings", "Which ratings show on title pages and the Movies / Shows header. With all but TMDB off, the other ratings aren't fetched.",
+            io.github.petebutty.viewarr.ui.theme.TitleParts.ratings.map { (src, name) ->
+                val id = io.github.petebutty.viewarr.ui.theme.TitleParts.rating(src)
+                SettingItem(name, "", onOff, if (palette.shows(id)) onOff[0] else onOff[1]) { c -> vm.setTitlePart(id, (c as Choice).value == true) }
+            },
         ),
         SettingCategory(
             "Menu", "What the side menu offers.",
@@ -165,7 +191,8 @@ fun AppearanceSettingsScreen(onBack: () -> Unit, vm: AppearanceViewModel = hiltV
     )
     SettingsPage(title = "Appearance", categories = categories, onBack = onBack, onReset = {
         vm.apply(ThemePresets[0].main, ThemePresets[0].highlight); vm.setTransparency(0f)
-        vm.setShowNumbers(true); vm.setSquareCorners(true); vm.setHideMedia(false); vm.setWallpaper(0, 0, 0.6f)
+        vm.setShowNumbers(true); vm.setSquareCorners(true); vm.setHideMedia(false); vm.setWallpaper(0, 0, 0.6f); vm.resetTitleParts()
+        opts.reset(listOf(io.github.petebutty.viewarr.ui.theme.UiOpts.TEXT_SIZE, io.github.petebutty.viewarr.ui.theme.UiOpts.CLOCK, io.github.petebutty.viewarr.ui.theme.UiOpts.CHANNEL_LOGOS, io.github.petebutty.viewarr.ui.theme.UiOpts.GUIDE_ART, io.github.petebutty.viewarr.ui.theme.UiOpts.BADGE_SOURCE, io.github.petebutty.viewarr.ui.theme.UiOpts.BADGE_PROGRESS))
     })
 }
 

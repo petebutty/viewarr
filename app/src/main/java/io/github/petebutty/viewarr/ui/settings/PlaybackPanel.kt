@@ -34,7 +34,7 @@ private inline fun <reified E> choices(): List<RemoteChoice> where E : Enum<E>, 
 
 /** Settings → Playback, full screen. Defaults are the safe choice for most TVs; each setting explains itself. */
 @Composable
-fun PlaybackSettingsScreen(onBack: () -> Unit, vm: PlaybackSettingsViewModel = hiltViewModel()) {
+fun PlaybackSettingsScreen(onBack: () -> Unit, vm: PlaybackSettingsViewModel = hiltViewModel(), opts: UiOptsViewModel = hiltViewModel()) {
     val s by vm.settings.collectAsStateWithLifecycle()
     val r by vm.remote.collectAsStateWithLifecycle()
     fun item(title: String, description: String, key: String, all: List<RemoteChoice>, current: RemoteChoice) =
@@ -47,6 +47,9 @@ fun PlaybackSettingsScreen(onBack: () -> Unit, vm: PlaybackSettingsViewModel = h
                 item("Player", "mpv plays almost any file and soundtrack. The built-in player is lighter on weak boxes.", k.ENGINE, choices<io.github.petebutty.viewarr.data.settings.PlayerEngine>(), s.engine),
                 SettingItem("Skip with Left / Right", "How far each press jumps.", choices<io.github.petebutty.viewarr.data.settings.SeekStep>(), r.seek) { vm.setRemote(RemoteStore.SEEK, it) },
                 item("Resume", "Carry on where you stopped last time, or always start at the beginning.", k.RESUME, choices<io.github.petebutty.viewarr.data.settings.ResumeMode>(), s.resume),
+                optItem(opts, "Back while watching", "Back during a film or episode: shrink it to a corner and keep it playing while you browse (hold Back for full screen again), or stop.", io.github.petebutty.viewarr.ui.theme.UiOpts.PLAYER_BACK),
+                optItem(opts, "Controls stay up for", "How long the seek bar and buttons stay on screen after a button press.", io.github.petebutty.viewarr.ui.theme.UiOpts.CONTROLS_TIME),
+                optItem(opts, "Seek-bar previews", "Pictures above the seek bar. Without the server's own, the box reads the film a second time to make them: \"Server's only\" or Off saves bandwidth and memory.", io.github.petebutty.viewarr.ui.theme.UiOpts.SEEK_PREVIEWS),
                 item("mpv decoding", "Direct to screen is smoothest; picture subtitles (Blu-ray PGS) switch to the GPU way by themselves. Try software only if the picture glitches or shows colour blocks.", k.MPV_DECODING, choices<io.github.petebutty.viewarr.data.settings.MpvDecoding>(), s.mpvDecoding),
             ),
         ),
@@ -91,7 +94,21 @@ fun PlaybackSettingsScreen(onBack: () -> Unit, vm: PlaybackSettingsViewModel = h
         SettingCategory(
             "Episodes", "Watching shows.",
             listOf(
-                item("Play next episode automatically", "When an episode ends, the next one starts after a 10-second countdown.", k.AUTO_NEXT, choices<io.github.petebutty.viewarr.data.settings.AutoNext>(), s.autoNext),
+                item("Play next episode automatically", "When an episode ends, the next one starts after a countdown.", k.AUTO_NEXT, choices<io.github.petebutty.viewarr.data.settings.AutoNext>(), s.autoNext),
+                optItem(opts, "Next episode countdown", "How long before the next episode starts.", io.github.petebutty.viewarr.ui.theme.UiOpts.UP_NEXT),
+            ),
+        ),
+        SettingCategory(
+            "Picture-in-picture", "A film or episode shrunk to a corner (Back while watching).",
+            listOf(
+                optItem(opts, "Size", "How big the window is.", io.github.petebutty.viewarr.ui.theme.UiOpts.MINI_SIZE),
+                optItem(opts, "Corner", "Where it sits.", io.github.petebutty.viewarr.ui.theme.UiOpts.MINI_CORNER),
+            ),
+        ),
+        SettingCategory(
+            "Live TV", "Watching live channels.",
+            listOf(
+                optItem(opts, "Still watching?", "After this long without a button press, live TV asks whether you're still there and stops if nobody answers within a minute (frees a provider connection when the TV's left on).", io.github.petebutty.viewarr.ui.theme.UiOpts.STILL_WATCHING),
             ),
         ),
         SettingCategory(
@@ -106,8 +123,12 @@ fun PlaybackSettingsScreen(onBack: () -> Unit, vm: PlaybackSettingsViewModel = h
             "Troubleshooting", "Tools for when something doesn't play right.",
             listOf(
                 item("Show playback info", "Shows the video and audio format, decoder and dropped frames while playing.", k.STATS, choices<io.github.petebutty.viewarr.data.settings.StatsOverlay>(), s.stats),
+                optItem(opts, "Low-memory mode", "For boxes with 1-2 GB: no seek-bar previews made by the box, no programme pictures in the guide, no title logos and only TMDB's rating. Turn on if Viewarr is slow or closes by itself.", io.github.petebutty.viewarr.ui.theme.UiOpts.LOW_MEMORY),
             ),
         ),
     )
-    SettingsPage(title = "Playback", categories = categories, onBack = onBack, onReset = { vm.reset() })
+    SettingsPage(title = "Playback", categories = categories, onBack = onBack, onReset = {
+        vm.reset()
+        opts.reset(listOf(io.github.petebutty.viewarr.ui.theme.UiOpts.PLAYER_BACK, io.github.petebutty.viewarr.ui.theme.UiOpts.CONTROLS_TIME, io.github.petebutty.viewarr.ui.theme.UiOpts.SEEK_PREVIEWS, io.github.petebutty.viewarr.ui.theme.UiOpts.UP_NEXT, io.github.petebutty.viewarr.ui.theme.UiOpts.MINI_SIZE, io.github.petebutty.viewarr.ui.theme.UiOpts.MINI_CORNER, io.github.petebutty.viewarr.ui.theme.UiOpts.STILL_WATCHING, io.github.petebutty.viewarr.ui.theme.UiOpts.LOW_MEMORY))
+    })
 }

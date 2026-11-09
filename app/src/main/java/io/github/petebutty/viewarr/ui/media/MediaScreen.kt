@@ -494,6 +494,9 @@ private fun Hero(
                 val heroRatings by produceState<List<io.github.petebutty.viewarr.data.media.RatingBadge>>(emptyList(), item.key) {
                     value = emptyList()
                     if (ratingsOf == null) return@produceState
+                    // All but TMDB's switched off (Settings → Appearance → Ratings): nothing to fetch.
+                    val tp = io.github.petebutty.viewarr.ui.theme.TitleParts
+                    if (AppColors.palette.lowMemory || tp.ratings.none { (src, _) -> src != "TMDB" && AppColors.palette.shows(tp.rating(src)) }) return@produceState
                     delay(600)
                     value = ratingsOf(item)
                 }
@@ -944,7 +947,7 @@ private fun PosterCard(item: MediaItem, modifier: Modifier, onClick: () -> Unit,
             )
             item.poster?.let { AsyncImage(model = it, contentDescription = item.title, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
             // Search: this one's in your library, and where ("Plex", "Jellyfin · IPTV").
-            if (item.owned) Text(
+            if (item.owned && AppColors.palette.sourceBadges) Text(
                 item.ownedFrom ?: "In library",
                 fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = AppColors.OnAccent, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.align(Alignment.TopEnd).padding(6.dp).background(AppColors.Accent, RoundedCornerShape(6.dp)).padding(horizontal = 6.dp, vertical = 2.dp),
@@ -954,7 +957,7 @@ private fun PosterCard(item: MediaItem, modifier: Modifier, onClick: () -> Unit,
                 item.title, fontSize = 11.sp, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center,
                 modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(Color.Black.copy(alpha = 0.7f)).padding(horizontal = 4.dp, vertical = 3.dp),
             )
-            item.progress?.let { p ->
+            item.progress?.takeIf { AppColors.palette.progressBadges }?.let { p ->
                 Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(4.dp).background(Color.Black.copy(alpha = 0.6f))) {
                     Box(Modifier.fillMaxHeight().fillMaxWidth(p.coerceIn(0f, 1f)).background(AppColors.Accent))
                 }
@@ -983,7 +986,8 @@ private fun DetailScreen(
     val serverName = ui.copies?.firstOrNull { (it.source == "Jellyfin" || it.source == "Emby") && it.ref != null }?.source
     val onServer = serverName != null
     val show = item.type == MediaType.Show
-    val trailerId by produceState<String?>(null, item.key) { value = vm.trailers.youtubeId(item) }
+    val parts = AppColors.palette
+    val trailerId by produceState<String?>(null, item.key, parts.shows(io.github.petebutty.viewarr.ui.theme.TitleParts.TRAILER)) { value = if (parts.shows(io.github.petebutty.viewarr.ui.theme.TitleParts.TRAILER)) vm.trailers.youtubeId(item) else null }
     var trailerOpen by remember { mutableStateOf(false) }
     // Other sources: every copy (each Plex server, Jellyfin / Emby, IPTV) and the addon search, to pick one by hand.
     var sourcesOpen by remember { mutableStateOf(false) }
@@ -1036,7 +1040,7 @@ private fun DetailScreen(
         val sectionsFree = !ui.episodesOpen && ui.streams == null && !trailerOpen
         // Shows: the seasons and episodes come between the header and the tabs, so the page scrolls (focus leads it).
         val episodesEntry = remember { FocusRequester() }
-        val inlineEpisodes = show && ui.seasons.isNotEmpty()
+        val inlineEpisodes = show && ui.seasons.isNotEmpty() && parts.shows(io.github.petebutty.viewarr.ui.theme.TitleParts.EPISODES)
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 56.dp, end = 40.dp, top = 24.dp, bottom = 12.dp)) {
         Row(verticalAlignment = Alignment.Top) {
             item.poster?.let {
@@ -1057,7 +1061,7 @@ private fun DetailScreen(
                 ).joinToString("  ·  ")
                 if (meta.isNotEmpty()) Text(meta, fontSize = 13.sp, color = AppColors.TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 RatingsLine(item.rating, d.voteCount, ui.ratings)
-                item.subtitle?.let { Text("Up next: $it", fontSize = 13.sp, color = AppColors.Accent, maxLines = 1) }
+                item.subtitle?.takeIf { parts.shows(io.github.petebutty.viewarr.ui.theme.TitleParts.UP_NEXT) }?.let { Text("Up next: $it", fontSize = 13.sp, color = AppColors.Accent, maxLines = 1) }
                 item.overview?.let { Text(it, fontSize = 14.sp, lineHeight = 20.sp, color = AppColors.TextPrimary, maxLines = if (show) 2 else 3, overflow = TextOverflow.Ellipsis) }
                 Text(
                     listOfNotNull(
@@ -1094,6 +1098,8 @@ private fun DetailScreen(
                             // Holding OK: pick the episode (and its source) yourself.
                             // The seasons and episodes are on the page itself now (below); holding OK still opens the full list.
                             Button(onClick = vm::playNextUp, onLongClick = vm::openEpisodes, modifier = (Modifier.focusRequester(playFocus)).free()) { Text(if (ui.searching) "Looking…" else label) }
+                            // Part-way through that episode: or start it again.
+                            if (next?.third == true) OutlinedButton(onClick = vm::playFromStart, modifier = Modifier.free()) { Text("From the start") }
                         } else {
                             Button(onClick = vm::openEpisodes, modifier = (Modifier.focusRequester(playFocus)).free()) { Text("Episodes") }
                         }
@@ -1103,6 +1109,8 @@ private fun DetailScreen(
                         Button(onClick = vm::playBest, onLongClick = { sourcesOpen = true }, modifier = (Modifier.focusRequester(playFocus)).free()) {
                             Text(if (ui.searching) "Looking…" else if (item.progress != null) "Resume" else "Play")
                         }
+                        // Part-way through: or watch it again from the beginning.
+                        if (item.progress != null) OutlinedButton(onClick = vm::playFromStart, modifier = Modifier.free()) { Text("From the start") }
                     }
                     // Films on your own server: pick the soundtrack and subtitles before Play (this play only).
                     if (!show && ui.tracks != null) {
@@ -1488,7 +1496,7 @@ private fun InlineEpisodes(ui: DetailUi, vm: MediaViewModel, free: Boolean, entr
                                     Modifier.align(Alignment.TopEnd).padding(6.dp).size(24.dp).background(AppColors.Accent, androidx.compose.foundation.shape.CircleShape),
                                     contentAlignment = Alignment.Center,
                                 ) { androidx.compose.material3.Icon(io.github.petebutty.viewarr.ui.common.AppIcons.Check, contentDescription = "Watched", tint = AppColors.OnAccent, modifier = Modifier.size(16.dp)) }
-                                plex?.takeIf { it.viewOffsetMs > 0 && !it.watched }?.let {
+                                plex?.takeIf { it.viewOffsetMs > 0 && !it.watched && AppColors.palette.progressBadges }?.let {
                                     Box(Modifier.align(Alignment.BottomStart).fillMaxWidth(0.5f).height(4.dp).background(AppColors.Accent))
                                 }
                             }
@@ -1589,7 +1597,8 @@ private fun Modifier.free(): Modifier {
 /** "Next episode in 10 s": OK plays now, Back cancels. */
 @Composable
 private fun UpNextOverlay(ep: io.github.petebutty.viewarr.data.media.EpisodeInfo, onPlay: () -> Unit, onCancel: () -> Unit) {
-    var left by remember(ep) { androidx.compose.runtime.mutableIntStateOf(10) }
+    // Settings → Playback → Next episode countdown.
+    var left by remember(ep) { androidx.compose.runtime.mutableIntStateOf(AppColors.palette.upNextSeconds) }
     val focus = remember { FocusRequester() }
     BackHandler(onBack = onCancel)
     LaunchedEffect(ep) {
@@ -1672,9 +1681,11 @@ private fun QuickOptions(item: MediaItem, vm: MediaViewModel, onTrailer: () -> U
  */
 @Composable
 private fun TitleLogo(item: MediaItem, logoOf: (suspend (MediaItem) -> String?)?, height: androidx.compose.ui.unit.Dp, maxWidth: androidx.compose.ui.unit.Dp, fontSize: Int, waitMs: Long = 0) {
-    val logo by produceState<String?>(null, item.key) {
+    // Settings → Appearance → Title logo off: the name as text, and no logo lookup.
+    val logosOn = AppColors.palette.shows(io.github.petebutty.viewarr.ui.theme.TitleParts.LOGO) && !AppColors.palette.lowMemory
+    val logo by produceState<String?>(null, item.key, logosOn) {
         value = null
-        if (logoOf == null) return@produceState
+        if (logoOf == null || !logosOn) return@produceState
         if (waitMs > 0) delay(waitMs)
         value = logoOf(item)
     }
@@ -1702,8 +1713,10 @@ private fun TitleLogo(item: MediaItem, logoOf: (suspend (MediaItem) -> String?)?
 private fun RatingsLine(tmdb: Double?, votes: Int?, more: List<io.github.petebutty.viewarr.data.media.RatingBadge>) {
     val all = buildList {
         // Scores only (no vote counts), so up to seven sources fit on one line.
-        tmdb?.takeIf { it > 0 }?.let { add("TMDB" to "%.1f".format(it)) }
-        more.forEach { add(it.source to it.value) }
+        // Settings → Appearance → Ratings: only the ones switched on.
+        val p = AppColors.palette
+        tmdb?.takeIf { it > 0 && p.shows(io.github.petebutty.viewarr.ui.theme.TitleParts.rating("TMDB")) }?.let { add("TMDB" to "%.1f".format(it)) }
+        more.filter { p.shows(io.github.petebutty.viewarr.ui.theme.TitleParts.rating(it.source)) }.forEach { add(it.source to it.value) }
     }
     if (all.isEmpty()) return
     // Wraps onto a second line rather than running past its column (e.g. under the trailer on the Movies page).
@@ -1758,11 +1771,13 @@ private fun DetailTabs(
         d.writers.takeIf { it.isNotEmpty() }?.let { "Written by" to it.take(3).joinToString(", ") },
     )
     val tabs = buildList {
-        if (d.cast.isNotEmpty()) add(DetailTab.Cast)
-        if (d.reviews.isNotEmpty()) add(DetailTab.Reviews)
-        if (d.collection.isNotEmpty()) add(DetailTab.Collection)
-        if (d.similar.isNotEmpty()) add(DetailTab.Similar)
-        if (facts.isNotEmpty()) add(DetailTab.Details)
+        // Settings → Appearance → Title pages: only the tabs switched on.
+        val p = AppColors.palette
+        if (d.cast.isNotEmpty() && p.shows(io.github.petebutty.viewarr.ui.theme.TitleParts.CAST)) add(DetailTab.Cast)
+        if (d.reviews.isNotEmpty() && p.shows(io.github.petebutty.viewarr.ui.theme.TitleParts.REVIEWS)) add(DetailTab.Reviews)
+        if (d.collection.isNotEmpty() && p.shows(io.github.petebutty.viewarr.ui.theme.TitleParts.COLLECTION)) add(DetailTab.Collection)
+        if (d.similar.isNotEmpty() && p.shows(io.github.petebutty.viewarr.ui.theme.TitleParts.SIMILAR)) add(DetailTab.Similar)
+        if (facts.isNotEmpty() && p.shows(io.github.petebutty.viewarr.ui.theme.TitleParts.DETAILS)) add(DetailTab.Details)
     }
     if (tabs.isEmpty()) return
     var tab by remember(d.item.key) { mutableStateOf(tabs.first()) }

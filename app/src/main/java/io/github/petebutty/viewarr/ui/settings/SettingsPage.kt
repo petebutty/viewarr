@@ -1,5 +1,12 @@
 package io.github.petebutty.viewarr.ui.settings
 
+import kotlinx.coroutines.launch
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.Key
 import io.github.petebutty.viewarr.ui.theme.appBackground
 
 import androidx.activity.compose.BackHandler
@@ -64,6 +71,15 @@ class SettingItem(
 class SettingCategory(val name: String, val blurb: String, val items: List<SettingItem>)
 
 /**
+ * Settings pages: Left from the right-hand side goes back to the entry selected on the left (it went to whichever was
+ * nearest on screen). Only when nothing on the right used the Left itself.
+ */
+fun Modifier.leftReturnsTo(target: () -> FocusRequester?): Modifier = onKeyEvent { e ->
+    if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionLeft) target()?.let { runCatching { it.requestFocus() }.isSuccess } ?: false
+    else false
+}
+
+/**
  * Full-screen settings: categories on the left, their settings on the right, each with a plain explanation.
  * OK flips a toggle, or opens the list of choices.
  */
@@ -75,6 +91,10 @@ fun SettingsPage(
     onReset: (() -> Unit)? = null,
 ) {
     var category by remember { mutableIntStateOf(0) }
+    // The settings list starts at the top for each category (it kept the last one's scroll).
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    val pageScope = androidx.compose.runtime.rememberCoroutineScope()
+    LaunchedEffect(category) { runCatching { listState.scrollToItem(0) } }
     var choosing by remember { mutableStateOf<SettingItem?>(null) }
     val catFocus = remember { categories.map { FocusRequester() } }
     // After a choice list closes, focus goes back to the setting it was opened from (it used to vanish).
@@ -108,7 +128,19 @@ fun SettingsPage(
                         modifier = Modifier
                             .focusRequester(catFocus[i])
                             .focusProperties { canFocus = choosing == null }
-                            .onFocusChanged { if (it.isFocused) category = i },
+                            .onFocusChanged { if (it.isFocused) category = i }
+                            // Right: the category's first setting (not the one nearest on screen).
+                            .onPreviewKeyEvent { e ->
+                                if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionRight) {
+                                    val first = categories[i].items.firstOrNull()?.title ?: return@onPreviewKeyEvent false
+                                    pageScope.launch {
+                                        runCatching { listState.scrollToItem(0) }
+                                        awaitFrame()
+                                        runCatching { rowFocus[first]?.requestFocus() }
+                                    }
+                                    true
+                                } else false
+                            },
                     )
                 }
                 Spacer(Modifier.weight(1f))
@@ -124,9 +156,9 @@ fun SettingsPage(
             }
             Spacer(Modifier.width(40.dp))
             val c = categories[category]
-            Column(Modifier.weight(1f).fillMaxHeight()) {
+            Column(Modifier.weight(1f).fillMaxHeight().leftReturnsTo { catFocus[category] }) {
                 Text(c.blurb, fontSize = 14.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(top = 26.dp, bottom = 14.dp, start = 4.dp))
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp), contentPadding = PaddingValues(bottom = 40.dp)) {
+                LazyColumn(state = listState, verticalArrangement = Arrangement.spacedBy(6.dp), contentPadding = PaddingValues(bottom = 40.dp)) {
                     itemsIndexed(c.items, key = { _, it -> c.name + it.title }) { _, item ->
                         SettingRow(item, enabled = choosing == null, focus = rowFocus.getOrPut(item.title) { FocusRequester() }) {
                             if (item.action != null) item.action.invoke()

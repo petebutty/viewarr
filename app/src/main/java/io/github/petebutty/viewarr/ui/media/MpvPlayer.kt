@@ -96,7 +96,7 @@ fun MpvPlayer(
     var buffering by remember { mutableStateOf(true) }
     var ended by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
-    var osdUntil by remember { mutableLongStateOf(System.currentTimeMillis() + 4_000) }
+    var osdUntil by remember { mutableLongStateOf(System.currentTimeMillis() + io.github.petebutty.viewarr.ui.theme.AppColors.palette.controlsMs) }
     var tracksOpen by remember { mutableStateOf(false) }
     // Audio & subtitles opened from the Subtitles button: start on the subtitles.
     var tracksSubs by remember { mutableStateOf(false) }
@@ -112,7 +112,7 @@ fun MpvPlayer(
     val scrub = remember { Scrubber() }
     // Still drawing straight to the screen (Hardware); false once picture subtitles moved this film to the GPU.
     var direct by remember { mutableStateOf(settings.mpvDecoding == MpvDecoding.Hardware) }
-    val thumbs = remember(stream) { io.github.petebutty.viewarr.playback.SeekThumbs.forStream(stream.url, stream.headers, stream.thumbs, stream.boxPreviews) }
+    val thumbs = remember(stream) { io.github.petebutty.viewarr.playback.SeekThumbs.forStream(stream.url, stream.headers, stream.thumbs.takeIf { io.github.petebutty.viewarr.ui.theme.AppColors.palette.serverPreviews }, stream.boxPreviews && io.github.petebutty.viewarr.ui.theme.AppColors.palette.boxPreviews) }
     DisposableEffect(thumbs) { onDispose { thumbs?.close() } }
 
     val mpv = remember(stream) {
@@ -265,7 +265,7 @@ fun MpvPlayer(
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) { while (true) { delay(500); now = System.currentTimeMillis() } }
 
-    fun showOsd() { osdUntil = System.currentTimeMillis() + 4_000 }
+    fun showOsd() { osdUntil = System.currentTimeMillis() + io.github.petebutty.viewarr.ui.theme.AppColors.palette.controlsMs }
     // Back: closes audio & subtitles, then hides the controls, then stops (resume point saved). As Netflix / Plex.
     BackHandler(enabled = !mini) {
         when {
@@ -275,7 +275,8 @@ fun MpvPlayer(
             menu.open -> { menu.open = false; osdUntil = 0L }
             System.currentTimeMillis() < osdUntil && !paused -> osdUntil = 0L
             // Back again: into the corner, still playing (hold Back to bring it back).
-            else -> VodHost.minimise().also { if (!VodHost.active) onClose() }
+            // (Settings → Playback → Back while watching: or stop.)
+            else -> if (io.github.petebutty.viewarr.ui.theme.AppColors.palette.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.PLAYER_BACK) == 1) onClose() else VodHost.minimise().also { if (!VodHost.active) onClose() }
         }
     }
 
@@ -303,7 +304,7 @@ fun MpvPlayer(
         if (paused) { delay(2_500); pausedLong = true } else detailsOn = false
     }
     LaunchedEffect(menu.open, menu.lastKey, paused) {
-        if (menu.open && !paused) { delay(8_000); menu.open = false }
+        if (menu.open && !paused) { delay(maxOf(8_000L, 2 * io.github.petebutty.viewarr.ui.theme.AppColors.palette.controlsMs)); menu.open = false }
     }
 
     Box(

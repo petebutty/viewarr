@@ -93,13 +93,19 @@ fun VodHostLayer() {
     }
     val s = stream ?: return
     val mini = VodHost.mini
+    // Settings → Playback → Picture-in-picture: size and corner.
+    val p = AppColors.palette
+    val (w, h) = when (p.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.MINI_SIZE)) { 1 -> 320.dp to 180.dp; 2 -> 512.dp to 288.dp; else -> 400.dp to 225.dp }
+    val corner = when (p.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.MINI_CORNER)) { 1 -> Alignment.BottomStart; 2 -> Alignment.TopEnd; 3 -> Alignment.TopStart; else -> Alignment.BottomEnd }
+    val top = corner == Alignment.TopEnd || corner == Alignment.TopStart
+    val left = corner == Alignment.BottomStart || corner == Alignment.TopStart
     Box(Modifier.fillMaxSize()) {
         // The same player either way (only its frame changes), so it carries on without a pause.
         Box(
             if (mini) Modifier
-                .align(Alignment.BottomEnd)
-                .padding(end = 40.dp, bottom = 32.dp)
-                .size(400.dp, 225.dp)
+                .align(corner)
+                .padding(start = if (left) 40.dp else 0.dp, end = if (left) 0.dp else 40.dp, top = if (top) 56.dp else 0.dp, bottom = if (top) 0.dp else 32.dp)
+                .size(w, h)
                 .border(2.dp, AppColors.Accent.copy(alpha = 0.8f), RoundedCornerShape(10.dp))
                 .padding(2.dp)
                 .clip(RoundedCornerShape(8.dp))
@@ -111,7 +117,10 @@ fun VodHostLayer() {
         if (mini) androidx.tv.material3.Text(
             "Hold Back: full screen",
             fontSize = 12.sp, color = AppColors.TextPrimary,
-            modifier = Modifier.align(Alignment.BottomEnd).padding(end = 48.dp, bottom = 262.dp)
+            modifier = Modifier.align(corner).padding(
+                start = if (left) 48.dp else 0.dp, end = if (left) 0.dp else 48.dp,
+                top = if (top) 56.dp + h + 8.dp else 0.dp, bottom = if (top) 0.dp else 32.dp + h + 8.dp,
+            )
                 .background(AppColors.Panel.copy(alpha = 0.9f), RoundedCornerShape(12.dp))
                 .padding(horizontal = 10.dp, vertical = 3.dp),
         )

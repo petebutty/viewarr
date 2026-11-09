@@ -78,6 +78,8 @@ class MediaViewModel @Inject constructor(
     private val rowLayouts: io.github.petebutty.viewarr.data.settings.RowLayoutStore,
     private val watchNext: io.github.petebutty.viewarr.data.media.WatchNext,
     private val seerr: io.github.petebutty.viewarr.data.remote.services.SeerrService,
+    /** Settings → Appearance → Title pages / Ratings: parts switched off aren't fetched. */
+    private val themeStore: io.github.petebutty.viewarr.data.settings.ThemeStore,
 ) : ViewModel() {
     /** Seerr: where this title stands (null = Seerr not set up, or the title has no TMDB id). */
     suspend fun seerrStatus(item: MediaItem): io.github.petebutty.viewarr.data.remote.services.SeerrService.Status? {
@@ -216,10 +218,26 @@ class MediaViewModel @Inject constructor(
         val flow = MutableStateFlow<io.github.petebutty.viewarr.data.media.VodStream?>(null)
         var value: io.github.petebutty.viewarr.data.media.VodStream?
             get() = flow.value
-            set(v) { flow.value = v?.let(::withPicks) }
+            set(v) { flow.value = v?.let(::withPicks)?.let(::fromStartIfAsked) }
     }
     private val _playing = Playing()
     val playing = _playing.flow.asStateFlow()
+
+    /** From the start (the page's button): the next film or episode Play starts begins at 0, not where you left off.
+     *  Only for a minute after pressing it, so a Play that found nothing doesn't affect a later one. */
+    private var fromStartAt = 0L
+    private fun fromStartIfAsked(v: io.github.petebutty.viewarr.data.media.VodStream): io.github.petebutty.viewarr.data.media.VodStream {
+        if (System.currentTimeMillis() - fromStartAt > 60_000) return v
+        fromStartAt = 0L
+        return v.copy(startMs = 0L, fallback = v.fallback?.copy(startMs = 0L))
+    }
+
+    /** Play from the very beginning: the film, or (shows) the episode Resume would carry on. */
+    fun playFromStart() {
+        val d = _detail.value ?: return
+        fromStartAt = System.currentTimeMillis()
+        if (d.detail.item.type == MediaType.Show) playNextUp() else playBest()
+    }
 
     /** The picks apply only to the copy the tracks were read from (another source numbers its tracks differently). */
     private fun withPicks(v: io.github.petebutty.viewarr.data.media.VodStream): io.github.petebutty.viewarr.data.media.VodStream {
@@ -640,11 +658,14 @@ class MediaViewModel @Inject constructor(
                 val t = runCatching { repo.titleTracks(copies) }.getOrNull()?.takeIf { it.audio.size > 1 || it.subtitles.isNotEmpty() }
                 _detail.update { if (it?.detail?.item?.key == full.item.key) it.copy(tracks = t) else it }
             }
-            launch {
+            val pal = runCatching { themeStore.palette.first() }.getOrNull()
+            val hidden = pal?.titleHidden.orEmpty()
+            val wantRatings = pal?.lowMemory != true && io.github.petebutty.viewarr.ui.theme.TitleParts.ratings.any { (src, _) -> src != "TMDB" && io.github.petebutty.viewarr.ui.theme.TitleParts.rating(src) !in hidden }
+            if (wantRatings) launch {
                 val ratings = runCatching { repo.extraRatings(full.item, copies) }.getOrDefault(emptyList())
                 _detail.update { if (it?.detail?.item?.key == full.item.key) it.copy(ratings = ratings) else it }
             }
-            launch {
+            if (io.github.petebutty.viewarr.ui.theme.TitleParts.REVIEWS !in hidden) launch {
                 val user = runCatching { repo.traktReviews(full.item) }.getOrDefault(emptyList())
                 if (user.isNotEmpty()) _detail.update { u ->
                     if (u?.detail?.item?.key != full.item.key) u else u.copy(detail = u.detail.copy(reviews = user + u.detail.reviews))
@@ -658,18 +679,28 @@ class MediaViewModel @Inject constructor(
                     val seen = repo.traktEpisodesOf(full.item)
                     if (seen.isNotEmpty()) _detail.update { if (same(it)) it!!.copy(traktEpisodes = seen) else it }
                 }
-                // Where you're up to, and each server's episodes: all at once, each shown as it arrives.
-                launch {
-                    val next = runCatching { repo.nextEpisodeFor(full.item, copies) }.getOrNull()
-                    took("up to")
-                    _detail.update { if (same(it)) it!!.copy(nextUp = next, nextUpChecked = true) else it }
-                }
                 val showKey = copies.firstOrNull { it.source == "Plex" }?.ref
                 val plexEps = async { showKey?.let { runCatching { repo.plexEpisodes(it) }.getOrDefault(emptyMap()) }.orEmpty().also { e -> took("plex episodes"); _detail.update { if (same(it)) it!!.copy(plexEpisodes = e) else it } } }
                 val providerRef = copies.firstOrNull { it.source == io.github.petebutty.viewarr.data.media.PROVIDER }?.ref
                 val providerEps = async { providerRef?.let { runCatching { repo.providerEpisodes(it) }.getOrDefault(emptyMap()) }.orEmpty().also { e -> _detail.update { if (same(it)) it!!.copy(providerEpisodes = e) else it } } }
                 val serverCopy = copies.firstOrNull { (it.source == "Jellyfin" || it.source == "Emby") && it.ref != null }
                 val serverEps = async { serverCopy?.let { runCatching { repo.serverEpisodes(it.source, it.ref!!) }.getOrDefault(emptyMap()) }.orEmpty().also { e -> _detail.update { if (same(it)) it!!.copy(serverEpisodes = e) else it } } }
+                // Where you're up to: what Plex / Jellyfin / Trakt say, else worked out from the ticks (Plex can mark an
+                // episode watched yet name nothing "on deck", and Trakt may not know: the next was S1 E1 after E1).
+                launch {
+                    val said = runCatching { repo.nextEpisodeFor(full.item, copies) }.getOrNull()
+                    val next = said ?: run {
+                        val plex = plexEps.await(); val server = serverEps.await()
+                        val trakt = runCatching { repo.traktWatched(); repo.traktEpisodesOf(full.item) }.getOrDefault(emptySet())
+                        val all = (plex.keys + server.keys).filter { it.first > 0 }.sortedWith(compareBy({ it.first }, { it.second }))
+                        fun watched(k: Pair<Int, Int>) = plex[k]?.watched == true || server[k]?.watched == true || k in trakt
+                        val last = all.lastOrNull(::watched) ?: return@run null
+                        val after = all.firstOrNull { compareValuesBy(it, last, { p -> p.first }, { p -> p.second }) > 0 && !watched(it) } ?: return@run null
+                        Triple(after.first, after.second, ((plex[after] ?: server[after])?.viewOffsetMs ?: 0) > 0)
+                    }
+                    took("up to")
+                    _detail.update { if (same(it)) it!!.copy(nextUp = next, nextUpChecked = true) else it }
+                }
                 // A show TMDB has no seasons for: from Plex, else from the provider's / server's own episode lists.
                 if (full.seasons.isEmpty()) {
                     val seasons = showKey?.let { runCatching { repo.plexSeasons(it) }.getOrDefault(emptyList()) }.orEmpty()

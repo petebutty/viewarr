@@ -82,16 +82,16 @@ fun VodPlayer(
     var pausedLong by remember { mutableStateOf(false) }
     var okDown by remember { mutableStateOf(false) }
     val scrub = remember { Scrubber() }
-    val thumbs = remember(stream) { io.github.petebutty.viewarr.playback.SeekThumbs.forStream(stream.url, stream.headers, stream.thumbs, stream.boxPreviews) }
+    val thumbs = remember(stream) { io.github.petebutty.viewarr.playback.SeekThumbs.forStream(stream.url, stream.headers, stream.thumbs.takeIf { io.github.petebutty.viewarr.ui.theme.AppColors.palette.serverPreviews }, stream.boxPreviews && io.github.petebutty.viewarr.ui.theme.AppColors.palette.boxPreviews) }
     DisposableEffect(thumbs) { onDispose { thumbs?.close() } }
     // The app's own controls (as mpv's): state read from the player a few times a second.
     var positionMs by remember { mutableStateOf(0L) }
     var durationMs by remember { mutableStateOf(0L) }
     var paused by remember { mutableStateOf(false) }
     var buffering by remember { mutableStateOf(true) }
-    var osdUntil by remember { mutableStateOf(System.currentTimeMillis() + 4_000) }
+    var osdUntil by remember { mutableStateOf(System.currentTimeMillis() + io.github.petebutty.viewarr.ui.theme.AppColors.palette.controlsMs) }
     var now by remember { mutableStateOf(System.currentTimeMillis()) }
-    fun showOsd() { osdUntil = System.currentTimeMillis() + 4_000 }
+    fun showOsd() { osdUntil = System.currentTimeMillis() + io.github.petebutty.viewarr.ui.theme.AppColors.palette.controlsMs }
     // Shrunk to the corner (picture-in-picture): just the picture; the page has the remote.
     val mini = VodHost.mini
     LaunchedEffect(mini) {
@@ -249,7 +249,8 @@ fun VodPlayer(
             menu.open -> { menu.open = false; osdUntil = 0L }
             System.currentTimeMillis() < osdUntil && player.isPlaying -> osdUntil = 0L
             // Back again: into the corner, still playing (hold Back to bring it back).
-            else -> VodHost.minimise().also { if (!VodHost.active) onClose() }
+            // (Settings → Playback → Back while watching: or stop.)
+            else -> if (io.github.petebutty.viewarr.ui.theme.AppColors.palette.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.PLAYER_BACK) == 1) onClose() else VodHost.minimise().also { if (!VodHost.active) onClose() }
         }
     }
     val buttons = listOfNotNull(PlayerButton.PlayPause, PlayerButton.Stop, PlayerButton.Details, PlayerButton.Audio, PlayerButton.Subtitles, PlayerButton.Info, if (onSwitchPlayer != null) PlayerButton.SwitchPlayer else null)
@@ -271,7 +272,7 @@ fun VodPlayer(
         if (paused) { delay(2_500); pausedLong = true } else detailsOn = false
     }
     LaunchedEffect(menu.open, menu.lastKey, paused) {
-        if (menu.open && !paused) { kotlinx.coroutines.delay(8_000); menu.open = false }
+        if (menu.open && !paused) { kotlinx.coroutines.delay(maxOf(8_000L, 2 * io.github.petebutty.viewarr.ui.theme.AppColors.palette.controlsMs)); menu.open = false }
     }
     // The player must hold focus itself, or the remote keeps driving the screen underneath (the controls never respond).
     LaunchedEffect(mini) {
