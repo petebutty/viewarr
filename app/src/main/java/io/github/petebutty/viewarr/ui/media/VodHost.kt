@@ -61,6 +61,8 @@ object VodHost {
         source = src
         if (samePage && now != null && now === shown) return
         if (!samePage) old?.onClose()
+        // A film or episode ends the music.
+        io.github.petebutty.viewarr.playback.MusicPlayer.stop()
         shown = now
         mini = false
     }

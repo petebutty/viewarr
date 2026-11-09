@@ -364,7 +364,7 @@ fun PlayerDetails(title: String, art: io.github.petebutty.viewarr.data.media.Pla
     Box(modifier.fillMaxSize().background(Brush.horizontalGradient(0f to Color.Black.copy(alpha = 0.88f), 0.55f to Color.Black.copy(alpha = 0.6f), 1f to Color.Transparent))) {
         Row(Modifier.padding(start = 64.dp, top = 56.dp, end = 64.dp).fillMaxWidth(0.7f), verticalAlignment = Alignment.Top) {
             art?.poster?.let {
-                coil.compose.AsyncImage(it, null, contentScale = ContentScale.Crop, modifier = Modifier.width(180.dp).height(270.dp).clip(RoundedCornerShape(10.dp)))
+                io.github.petebutty.viewarr.ui.common.PosterImage(it, null, Modifier.width(180.dp).height(270.dp).clip(RoundedCornerShape(10.dp)))
                 Spacer(Modifier.width(28.dp))
             }
             Column(Modifier.weight(1f)) {

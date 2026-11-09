@@ -102,6 +102,7 @@ private enum class Section(val label: String, val available: Boolean) {
     Tv("Live TV", true),
     Movies("Movies", true),
     Shows("Shows", true),
+    Music("Music", true),
     Recordings("Recordings", true),
     Search("Search", true),
     Settings("Settings", true),
@@ -110,7 +111,7 @@ private enum class Section(val label: String, val available: Boolean) {
 private val LogoFont = androidx.compose.ui.text.font.FontFamily(androidx.compose.ui.text.font.Font(io.github.petebutty.viewarr.R.font.poppins_bold))
 
 /** What fills the screen behind the menu. */
-enum class Page { Tv, Movies, Shows, Recordings, Search }
+enum class Page { Tv, Movies, Shows, Music, Recordings, Search }
 
 @Composable
 fun HomeScreen(
@@ -184,6 +185,7 @@ fun HomeScreen(
         if (AppColors.palette.hideMedia && (page == Page.Movies || page == Page.Shows)) page = Page.Tv
     }
     val mediaFocus = remember { FocusRequester() }
+    val musicVm: io.github.petebutty.viewarr.ui.music.MusicViewModel = hiltViewModel()
     // Channel number typed on the remote's number keys.
     var digits by remember { mutableStateOf("") }
     // Up/Down while watching: a see-through channel list over the picture.
@@ -300,8 +302,8 @@ fun HomeScreen(
             }
         }
     }
-    LaunchedEffect(menuOpen, fullscreen, osdVisible, showAccounts, page, recordTarget == null, io.github.petebutty.viewarr.ui.media.VodHost.covering, infoTarget == null, channelListOpen, quickSearch) {
-        if (channelListOpen || quickSearch) return@LaunchedEffect
+    LaunchedEffect(menuOpen, fullscreen, osdVisible, showAccounts, page, recordTarget == null, io.github.petebutty.viewarr.ui.media.VodHost.covering, infoTarget == null, channelListOpen, quickSearch, io.github.petebutty.viewarr.playback.MusicPlayer.nowPlayingOpen) {
+        if (channelListOpen || quickSearch || io.github.petebutty.viewarr.playback.MusicPlayer.nowPlayingOpen) return@LaunchedEffect
         if (recordTarget != null || io.github.petebutty.viewarr.ui.media.VodHost.covering || infoTarget != null) return@LaunchedEffect
         awaitFrame()
         runCatching {
@@ -318,7 +320,10 @@ fun HomeScreen(
         if (vodOver) { fullscreen = false; playback.close() }
     }
     // …and a channel started while a film is in the corner ends the film (one stream, one sound).
-    LaunchedEffect(playing?.id) { if (playing != null) io.github.petebutty.viewarr.ui.media.VodHost.close() }
+    LaunchedEffect(playing?.id) { if (playing != null) { io.github.petebutty.viewarr.ui.media.VodHost.close(); io.github.petebutty.viewarr.playback.MusicPlayer.stop() } }
+    // Music starting ends Live TV (as a film does).
+    val musicOn = io.github.petebutty.viewarr.playback.MusicPlayer.active
+    LaunchedEffect(musicOn) { if (musicOn) { fullscreen = false; playback.close() } }
     // Settings → Playback → Still watching?: after hours without a button press on live TV, ask, then stop (a TV left
     // on otherwise holds a provider connection all night).
     var lastKeyAt by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -455,6 +460,25 @@ fun HomeScreen(
                         e.type == KeyEventType.KeyUp && pipBackHeld -> { pipBackHeld = false; io.github.petebutty.viewarr.ui.media.VodHost.eatBackRelease = false; return@onPreviewKeyEvent true }
                     }
                 }
+                // Music playing in the bar: hold Back for Now Playing; the remote's media buttons control it.
+                val music = io.github.petebutty.viewarr.playback.MusicPlayer
+                // The rest of the held Back that opened Now Playing (before that screen has the remote).
+                if (e.key == Key.Back && music.eatBackRelease) {
+                    if (e.type == KeyEventType.KeyUp) music.eatBackRelease = false
+                    return@onPreviewKeyEvent true
+                }
+                if (music.active && !music.nowPlayingOpen && !io.github.petebutty.viewarr.ui.media.VodHost.active) {
+                    if (e.key == Key.Back && e.type == KeyEventType.KeyDown && e.nativeKeyEvent.repeatCount > 0) {
+                        if (e.nativeKeyEvent.repeatCount == 1) { music.eatBackRelease = true; music.nowPlayingOpen = true }
+                        return@onPreviewKeyEvent true
+                    }
+                    if (e.type == KeyEventType.KeyDown) when (e.nativeKeyEvent.keyCode) {
+                        android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, android.view.KeyEvent.KEYCODE_MEDIA_PLAY, android.view.KeyEvent.KEYCODE_MEDIA_PAUSE -> { music.toggle(); return@onPreviewKeyEvent true }
+                        android.view.KeyEvent.KEYCODE_MEDIA_NEXT -> { music.next(); return@onPreviewKeyEvent true }
+                        android.view.KeyEvent.KEYCODE_MEDIA_PREVIOUS -> { music.previous(); return@onPreviewKeyEvent true }
+                        android.view.KeyEvent.KEYCODE_MEDIA_STOP -> { music.stop(); return@onPreviewKeyEvent true }
+                    }
+                }
                 // The search button (Settings → Remote): pops search up over whatever's on screen.
                 if (searchHeld) {
                     if (e.type == KeyEventType.KeyUp) searchHeld = false
@@ -533,6 +557,7 @@ fun HomeScreen(
                 onProgramme = { ch, prog -> recordTarget = ch to prog },
                 onOpenMenu = { menuOpen = true },
                 onExit = ::backOnPage,
+                onMusic = { card -> musicVm.openFromSearch(card); openPage(Page.Music) },
                 onChannel = { ch ->
                     vm.reveal(ch) {
                         page = Page.Tv
@@ -542,6 +567,14 @@ fun HomeScreen(
                         showBanner()
                     }
                 },
+            )
+        } else if (page == Page.Music) {
+            io.github.petebutty.viewarr.ui.music.MusicScreen(
+                focusRequester = mediaFocus,
+                focusEnabled = !menuOpen && !showAccounts && !quickSearch && !io.github.petebutty.viewarr.ui.media.VodHost.covering && !io.github.petebutty.viewarr.playback.MusicPlayer.nowPlayingOpen,
+                onOpenMenu = { menuOpen = true },
+                onBack = ::backOnPage,
+                onSetUp = { showAccounts = true },
             )
         } else if (page == Page.Recordings) {
             RecordingsScreen(
@@ -808,6 +841,7 @@ fun HomeScreen(
                     // Left at the edge stays in search (it used to close it and open the menu); Back is the way out.
                     onOpenMenu = {},
                     onExit = { quickSearch = false; searchStart = null },
+                    onMusic = { card -> quickSearch = false; searchStart = null; musicVm.openFromSearch(card); openPage(Page.Music) },
                     onChannel = { ch ->
                         quickSearch = false
                         vm.reveal(ch) {
@@ -953,7 +987,7 @@ private fun MenuOverlay(
     val channels by vm.channels.collectAsStateWithLifecycle()
     val sync by vm.sync.collectAsStateWithLifecycle()
     var section by remember {
-        mutableStateOf(when (page) { Page.Tv -> Section.Tv; Page.Movies -> Section.Movies; Page.Shows -> Section.Shows; Page.Recordings -> Section.Recordings; Page.Search -> Section.Search })
+        mutableStateOf(when (page) { Page.Tv -> Section.Tv; Page.Movies -> Section.Movies; Page.Shows -> Section.Shows; Page.Music -> Section.Music; Page.Recordings -> Section.Recordings; Page.Search -> Section.Search })
     }
     var showAppearance by remember { mutableStateOf(false) }
     var showHomeRows by remember { mutableStateOf(false) }
@@ -982,6 +1016,8 @@ private fun MenuOverlay(
         runCatching { target.requestFocus() }
         returnTo = null
     }
+    // Music: in the menu only once it's turned on (setup, Music).
+    val musicMenuOn by hiltViewModel<io.github.petebutty.viewarr.ui.music.MusicViewModel>().enabled.collectAsStateWithLifecycle()
     val remote = LocalRemote.current
     val navFocus = remember { Section.entries.associateWith { FocusRequester() } }
     val settingsFirst = remember { FocusRequester() }
@@ -1018,6 +1054,7 @@ private fun MenuOverlay(
             Section.Movies -> onOpenPage(Page.Movies)
             Section.Shows -> onOpenPage(Page.Shows)
             Section.Recordings -> onOpenPage(Page.Recordings)
+            Section.Music -> onOpenPage(Page.Music)
             Section.Search -> onOpenPage(Page.Search)
             else -> Unit
         }
@@ -1058,7 +1095,7 @@ private fun MenuOverlay(
                 )
             }
             // Settings → Appearance → Movies & Shows off: a live-TV-only menu.
-            Section.entries.filter { !(AppColors.palette.hideMedia && (it == Section.Movies || it == Section.Shows)) }.forEach { s ->
+            Section.entries.filter { !(AppColors.palette.hideMedia && (it == Section.Movies || it == Section.Shows)) && (it != Section.Music || musicMenuOn) }.forEach { s ->
                 MenuItem(
                     text = s.label,
                     selected = s == section,
@@ -1076,7 +1113,7 @@ private fun MenuOverlay(
                                 // Movies / Shows with recently added posters showing: Right goes onto them (OK opens the page).
                                 val t = if (s == Section.Movies) MediaType.Movie else if (s == Section.Shows) MediaType.Show else null
                                 // (Movies / Shows always have their list: home, libraries, catalogues.)
-                                if (t != null || (s == Section.Recordings && recordingsCount > 0)) {
+                                if (t != null || s == Section.Music || (s == Section.Recordings && recordingsCount > 0)) {
                                     if (runCatching { recentFocus.requestFocus() }.isFailure) {
                                         menuScope.launch { awaitFrame(); awaitFrame(); runCatching { recentFocus.requestFocus() } }
                                     }
@@ -1172,8 +1209,13 @@ private fun MenuOverlay(
                     },
                     onSignOut = onSignOut,
                 )
+                Section.Music -> MusicMenuPanel(
+                    focusRequester = recentFocus,
+                    onOpenPage = { onOpenPage(Page.Music) },
+                )
                 Section.Search -> Text(
-                    "Press OK to search films, shows, your Plex library, addons and TV channels.",
+                    if (musicMenuOn) "Press OK to search films, shows, music, your Plex library, addons and TV channels."
+                    else "Press OK to search films, shows, your Plex library, addons and TV channels.",
                     fontSize = 15.sp,
                     color = AppColors.TextSecondary,
                     modifier = Modifier.padding(12.dp),
@@ -1407,6 +1449,8 @@ private fun SearchPage(
     openKeyboard: Boolean = false,
     /** Opened on this search (Watch from the start). */
     startQuery: String? = null,
+    /** A music artist or album picked: open it on the Music page. */
+    onMusic: (io.github.petebutty.viewarr.ui.music.MusicCard) -> Unit = {},
 ) {
     var fieldFocused by remember { mutableStateOf(false) }
     // Typing in the box (else read-only: no keyboard just for focus passing through).
@@ -1437,6 +1481,9 @@ private fun SearchPage(
     }
     val filter by media.searchFilter.collectAsStateWithLifecycle()
     val showTv = filter == io.github.petebutty.viewarr.ui.media.SearchFilter.All || filter == io.github.petebutty.viewarr.ui.media.SearchFilter.LiveTv
+    val showMusic = filter == io.github.petebutty.viewarr.ui.media.SearchFilter.All || filter == io.github.petebutty.viewarr.ui.media.SearchFilter.Music
+    val musicVm: io.github.petebutty.viewarr.ui.music.MusicViewModel = hiltViewModel()
+    val musicOn by musicVm.connected.collectAsStateWithLifecycle()
     LaunchedEffect(query) { media.search(query) }
     // Quick picks under the box while typing: tap one instead of typing the rest.
     val picks by androidx.compose.runtime.produceState(emptyList<String>(), query) {
@@ -1644,7 +1691,7 @@ private fun SearchPage(
                             Spacer(Modifier.width(10.dp))
                             Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
                                 if (voice.listening) Text("Listening… say a film, show, person or channel", fontSize = 15.sp, color = AppColors.Accent, maxLines = 1)
-                                else if (query.isEmpty()) Text("Search films, shows, people, channels and the TV guide", fontSize = 15.sp, color = AppColors.TextSecondary, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                                else if (query.isEmpty()) Text(if (musicOn == true) "Search films, shows, music, people, channels and the TV guide" else "Search films, shows, people, channels and the TV guide", fontSize = 15.sp, color = AppColors.TextSecondary, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                                 inner()
                             }
                         }
@@ -1681,7 +1728,7 @@ private fun SearchPage(
                 if (query.trim().length >= 2) {
                     Spacer(Modifier.height(10.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        io.github.petebutty.viewarr.ui.media.SearchFilter.entries.forEach { f ->
+                        io.github.petebutty.viewarr.ui.media.SearchFilter.entries.filter { it != io.github.petebutty.viewarr.ui.media.SearchFilter.Music || musicOn == true }.forEach { f ->
                             val on = f == filter
                             androidx.tv.material3.Surface(
                                 onClick = { media.setSearchFilter(f) },
@@ -1700,10 +1747,10 @@ private fun SearchPage(
                         }
                     }
                 }
-                if (tvFirst) tvSections()
+                if (tvFirst) { tvSections(); if (showMusic && query.trim().length >= 2) io.github.petebutty.viewarr.ui.music.MusicSearchResults(query, fieldFree && focusEnabled, onMusic) }
             }
         },
-        searchFooter = if (tvFirst) null else ({ Column(Modifier.padding(horizontal = 48.dp)) { tvSections() } }),
+        searchFooter = if (tvFirst) null else ({ Column(Modifier.padding(horizontal = 48.dp)) { tvSections(); if (showMusic && query.trim().length >= 2) io.github.petebutty.viewarr.ui.music.MusicSearchResults(query, fieldFree && focusEnabled, onMusic) } }),
         vm = media,
     )
 }
@@ -2030,6 +2077,55 @@ private fun MediaMenuPanel(type: MediaType, focusRequester: FocusRequester, onCo
         if (rowsOpen) items(rows, key = { "r-" + it.id }) { row ->
             val go = { media.openLibrary(null, type); media.jumpTo(row.id); onOpenPage() }
             MenuItem(text = "   " + row.title, trailing = row.items.size.toString(), selected = browse == null && row.id == current, onClick = go, modifier = Modifier.rightDoes(go))
+        }
+    }
+}
+
+/**
+ * The menu's Music panel, like Movies and Shows: the Music home, the whole library by kind, quick play, and each music
+ * source with an on/off switch (only Navidrome, only Plex…).
+ */
+@Composable
+private fun MusicMenuPanel(focusRequester: FocusRequester, onOpenPage: () -> Unit) {
+    val music: io.github.petebutty.viewarr.ui.music.MusicViewModel = hiltViewModel()
+    val connected by music.connected.collectAsStateWithLifecycle()
+    val sources by music.sources.collectAsStateWithLifecycle()
+    val browse by music.browse.collectAsStateWithLifecycle()
+    val detail by music.detail.collectAsStateWithLifecycle()
+    LazyColumn(Modifier.focusRequester(focusRequester), verticalArrangement = Arrangement.spacedBy(1.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
+        if (connected != true) {
+            item(key = "setup") {
+                MenuItem(text = "Connect music", selected = false, onClick = onOpenPage, modifier = Modifier.rightDoes(onOpenPage))
+            }
+            item(key = "setup-text") {
+                Text("Navidrome, or Plex, Jellyfin or Emby with a music library (Settings → Accounts & sources).", fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(12.dp))
+            }
+            return@LazyColumn
+        }
+        item(key = "home") {
+            val go = { music.showHome(); onOpenPage() }
+            MenuItem(text = "Music home", selected = browse == null && detail == null, onClick = go, modifier = Modifier.rightDoes(go))
+        }
+        item(key = "h-browse") { Text("Library", fontSize = 12.sp, color = AppColors.Accent, modifier = Modifier.padding(start = 12.dp, top = 10.dp, bottom = 2.dp)) }
+        items(io.github.petebutty.viewarr.ui.music.MusicBrowseKind.entries, key = { "b-" + it.name }) { k ->
+            val go = { music.openBrowse(k); onOpenPage() }
+            MenuItem(text = k.label, selected = browse?.kind == k && detail == null, onClick = go, modifier = Modifier.rightDoes(go))
+        }
+        item(key = "h-play") { Text("Play", fontSize = 12.sp, color = AppColors.Accent, modifier = Modifier.padding(start = 12.dp, top = 10.dp, bottom = 2.dp)) }
+        item(key = "shuffle") {
+            val go = { music.shuffleLibrary(); onOpenPage() }
+            MenuItem(text = "Shuffle my library", selected = false, onClick = go, modifier = Modifier.rightDoes(go))
+        }
+        if (io.github.petebutty.viewarr.playback.MusicPlayer.active) item(key = "now") {
+            val go = { io.github.petebutty.viewarr.playback.MusicPlayer.nowPlayingOpen = true; onOpenPage() }
+            MenuItem(text = "Now playing", trailing = io.github.petebutty.viewarr.playback.MusicPlayer.current?.title, selected = false, onClick = go, modifier = Modifier.rightDoes(go))
+        }
+        // Each source on or off (with more than one): e.g. only Navidrome, or only Plex.
+        if (sources.size > 1) {
+            item(key = "h-src") { Text("Music sources", fontSize = 12.sp, color = AppColors.Accent, modifier = Modifier.padding(start = 12.dp, top = 10.dp, bottom = 2.dp)) }
+            items(sources, key = { "s-" + it.id }) { src ->
+                MenuItem(text = src.name, trailing = if (src.on) "On" else "Off", selected = false, dim = !src.on, onClick = { music.setSourceOn(src.id, !src.on) })
+            }
         }
     }
 }

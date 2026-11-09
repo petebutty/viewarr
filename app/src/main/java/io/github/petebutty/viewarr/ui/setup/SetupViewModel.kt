@@ -39,7 +39,7 @@ import javax.inject.Inject
 
 enum class SetupMode { FirstRun, Manage }
 
-enum class SetupStep { Phone, Welcome, Choose, Server, SignIn, Tmdb, Trakt, Plex, Stremio, Jellyfin, Emby, Vod, Seerr, Mdblist, Done }
+enum class SetupStep { Phone, Welcome, Choose, Server, SignIn, Tmdb, Trakt, Plex, Stremio, Jellyfin, Emby, Vod, Seerr, Mdblist, Music, Navidrome, Done }
 
 enum class SetupItem(val id: String, val label: String, val description: String, val steps: List<SetupStep>) {
     LiveTv("livetv", "Live TV", "Dispatcharr, an IPTV login (Xtream Codes) or an M3U playlist: channels, TV guide and catch-up (recordings with Dispatcharr)", listOf(SetupStep.Server, SetupStep.SignIn)),
@@ -51,6 +51,7 @@ enum class SetupItem(val id: String, val label: String, val description: String,
     Emby("emby", "Emby", "Play from an Emby server", listOf(SetupStep.Emby)),
     Vod("vod", "Provider VOD", "Films and series from your IPTV provider, through Dispatcharr (an IPTV login includes them already)", listOf(SetupStep.Vod)),
     Seerr("seerr", "Seerr", "Request films and shows to keep (Overseerr / Jellyseerr)", listOf(SetupStep.Seerr)),
+    Navidrome("music", "Music", "Add a Music section: your music from Plex, Jellyfin or Emby music libraries, and/or a Navidrome server", listOf(SetupStep.Music)),
     Mdblist("mdblist", "MDBList ratings", "IMDb, Rotten Tomatoes, Metacritic and Letterboxd ratings on every title (free key)", listOf(SetupStep.Mdblist)),
 }
 
@@ -84,6 +85,8 @@ data class SetupUiState(
     /** Machine ids of the Plex servers ticked on the chooser (all of them to start with). */
     val plexOn: Set<String> = emptySet(),
     val vodCount: Int? = null,
+    /** Music step: your servers with a music library (id, name); null while looking. */
+    val musicServers: List<Pair<String, String>>? = null,
     /** Phone setup: the phone has talked to the TV at least once. */
     val phoneConnected: Boolean = false,
     /** Phone setup: what the phone is doing right now, shown on the TV. */
@@ -112,6 +115,8 @@ class SetupViewModel @Inject constructor(
     private val mediaServers: MediaServerService,
     private val stremio: StremioService,
     private val seerr: io.github.petebutty.viewarr.data.remote.services.SeerrService,
+    private val subsonic: io.github.petebutty.viewarr.data.music.SubsonicClient,
+    private val musicLib: io.github.petebutty.viewarr.data.music.MusicLibrary,
     private val httpJson: io.github.petebutty.viewarr.data.remote.services.HttpJson,
     private val rowLayouts: io.github.petebutty.viewarr.data.settings.RowLayoutStore,
 ) : ViewModel() {
@@ -194,6 +199,7 @@ class SetupViewModel @Inject constructor(
                 SetupItem.Vod -> store.update { it.copy(vodEnabled = false) }
                 SetupItem.Seerr -> store.update { it.copy(seerr = null) }
                 SetupItem.Mdblist -> store.update { it.copy(mdblistKey = null) }
+                SetupItem.Navidrome -> { io.github.petebutty.viewarr.playback.MusicPlayer.stop(); store.update { it.copy(navidrome = null, musicEnabled = false) } }
             }
         }
     }
@@ -222,6 +228,36 @@ class SetupViewModel @Inject constructor(
         }
     }
 
+    /** Music step: the Music section on or off (off: nothing music-related anywhere). */
+    fun setMusic(on: Boolean) = viewModelScope.launch {
+        store.update { it.copy(musicEnabled = on) }
+        if (!on) io.github.petebutty.viewarr.playback.MusicPlayer.stop()
+    }
+    /** Music step: one server's music library in use or not. */
+    fun toggleMusicServer(id: String) = viewModelScope.launch {
+        store.update { a -> a.copy(musicOff = if (id in a.musicOff) a.musicOff - id else a.musicOff + id) }
+    }
+    /** Music step: "No music" leaves it off and moves on. */
+    fun skipMusic() = viewModelScope.launch { store.update { it.copy(musicEnabled = false) }; io.github.petebutty.viewarr.playback.MusicPlayer.stop(); advance() }
+    fun openNavidrome() = go(SetupStep.Navidrome)
+    fun backToMusic() = go(SetupStep.Music)
+    fun removeNavidrome() = viewModelScope.launch { store.update { it.copy(navidrome = null, musicOff = it.musicOff - "nd") } }
+    private fun findMusicServers() = viewModelScope.launch {
+        _state.update { it.copy(musicServers = null) }
+        val found = runCatching { musicLib.servers() }.getOrDefault(emptyList())
+        _state.update { it.copy(musicServers = found) }
+    }
+    private fun findNavidrome() = viewModelScope.launch {
+        if (!_state.value.fields[SERVER].isNullOrBlank()) return@launch
+        _state.update { it.copy(info = "Looking for Navidrome on your network…") }
+        val found = runCatching { subsonic.discover() }.getOrDefault(emptyList()).firstOrNull()
+        if (_state.value.step != SetupStep.Navidrome || !_state.value.fields[SERVER].isNullOrBlank()) return@launch
+        _state.update {
+            if (found == null) it.copy(info = "Couldn't find Navidrome automatically. Type its address (usually port 4533).")
+            else it.copy(fields = it.fields + (SERVER to found.removePrefix("http://")), info = "Found Navidrome at ${found.removePrefix("http://")}. Now your username and password (or scan the code).")
+        }
+    }
+
     fun onField(key: String, value: String) = _state.update { it.copy(fields = it.fields + (key to value), error = null) }
     fun onServerInput(value: String) = _state.update { it.copy(serverInput = value, error = null) }
     fun onUsername(value: String) = _state.update { it.copy(username = value, error = null) }
@@ -230,7 +266,7 @@ class SetupViewModel @Inject constructor(
     private fun go(step: SetupStep) {
         cleanUp()
         // SignIn too: its username & password QR opens the phone page.
-        if (step !in setOf(SetupStep.Phone, SetupStep.SignIn, SetupStep.Stremio, SetupStep.Tmdb, SetupStep.Seerr, SetupStep.Mdblist, SetupStep.Jellyfin, SetupStep.Emby)) stopPhone()
+        if (step !in setOf(SetupStep.Phone, SetupStep.SignIn, SetupStep.Stremio, SetupStep.Tmdb, SetupStep.Seerr, SetupStep.Mdblist, SetupStep.Jellyfin, SetupStep.Emby, SetupStep.Music, SetupStep.Navidrome)) stopPhone()
         _state.update {
             it.copy(step = step, busy = false, error = null, info = null, code = null, codeUrl = null, plexChoices = emptyList(), fields = emptyMap())
         }
@@ -242,6 +278,8 @@ class SetupViewModel @Inject constructor(
             SetupStep.Vod -> checkVod()
             SetupStep.Jellyfin, SetupStep.Emby -> { startPhone(); findMediaServer(step == SetupStep.Emby) }
             SetupStep.Seerr -> { startPhone(); findSeerr() }
+            SetupStep.Music -> { startPhone(); findMusicServers() }
+            SetupStep.Navidrome -> { startPhone(); findNavidrome() }
             SetupStep.Server -> if (_state.value.serverInput.isBlank()) viewModelScope.launch {
                 _state.update { it.copy(info = "Looking for Dispatcharr on your network…") }
                 val found = runCatching { auth.discover() }.getOrDefault(emptyList())
@@ -349,6 +387,12 @@ class SetupViewModel @Inject constructor(
                 if (!mdblistValid(key)) return@work fail("MDBList didn't accept that key. Check it and try again.")
                 store.update { it.copy(mdblistKey = key) }
                 advance()
+            }
+            SetupStep.Navidrome -> work {
+                subsonic.connect(s.fields[SERVER].orEmpty(), s.fields[USER].orEmpty(), s.fields[PASSWORD].orEmpty()).fold(
+                    onSuccess = { auth -> store.update { it.copy(navidrome = auth, musicEnabled = true) }; go(SetupStep.Music) },
+                    onFailure = { e -> fail(e.message ?: "Couldn't connect to Navidrome.") },
+                )
             }
             SetupStep.Seerr -> work {
                 seerr.connect(s.fields[SERVER].orEmpty(), s.fields[API_KEY].orEmpty()).fold(
@@ -601,6 +645,35 @@ class SetupViewModel @Inject constructor(
                         }
                     }
                 }
+            }
+            "music-status" -> {
+                val a = store.current()
+                val servers = runCatching { musicLib.servers() }.getOrDefault(emptyList())
+                reply(true) {
+                    put("enabled", a.musicOn)
+                    put("navidrome", a.navidrome?.let { "${it.user} at ${it.url.removePrefix("http://")}" } ?: "")
+                    putJsonArray("servers") { servers.forEach { (id, n) -> add(buildJsonObject { put("id", id); put("name", n); put("on", id !in a.musicOff) }) } }
+                }
+            }
+            "music-set" -> {
+                val on = v["enabled"] == "1"
+                val off = v["off"].orEmpty().split(',').filter { it.isNotBlank() }.toSet()
+                // The phone lists only the servers; Navidrome's own switch (in the Music menu) is kept as it was.
+                store.update { it.copy(musicEnabled = on, musicOff = off + it.musicOff.filter { id -> id == "nd" }) }
+                if (!on) io.github.petebutty.viewarr.playback.MusicPlayer.stop()
+                activity(if (on) "Music turned on" else "Music turned off")
+                reply(true, if (on) "Music is on." else "Music is off.")
+            }
+            "navidrome-discover" -> {
+                val found = runCatching { subsonic.discover() }.getOrDefault(emptyList())
+                reply(true) { putJsonArray("servers") { found.forEach { add(JsonPrimitive(it)) } } }
+            }
+            "navidrome" -> {
+                activity("Connecting Navidrome…")
+                subsonic.connect(v["server"].orEmpty(), v["user"].orEmpty(), v["password"].orEmpty()).fold(
+                    onSuccess = { auth -> store.update { it.copy(navidrome = auth, musicEnabled = true) }; activity("Navidrome connected"); reply(true, "Navidrome connected.") },
+                    onFailure = { e -> activity("Navidrome didn't connect"); reply(false, e.message ?: "Couldn't connect to Navidrome.") },
+                )
             }
             "seerr-discover" -> {
                 val found = runCatching { seerr.discover() }.getOrDefault(emptyList())
@@ -883,5 +956,6 @@ fun statusText(item: SetupItem, a: Accounts, session: io.github.petebutty.viewar
     SetupItem.Emby -> a.emby?.let { "${it.userName} on ${it.serverName}" }
     SetupItem.Vod -> if (a.vodEnabled) "On" else null
     SetupItem.Mdblist -> a.mdblistKey?.let { "Connected" }
+    SetupItem.Navidrome -> if (!a.musicOn) null else "On" + (a.navidrome?.let { " · Navidrome (${it.user})" } ?: "")
     SetupItem.Seerr -> a.seerr?.let { s -> s.userName?.let { "Connected as $it" } ?: "Connected" }
 }

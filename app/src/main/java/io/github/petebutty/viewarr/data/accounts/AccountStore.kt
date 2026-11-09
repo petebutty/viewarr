@@ -58,7 +58,16 @@ data class Accounts(
     val plexOff: Set<String> = emptySet(),
     /** Mark on Plex what Trakt says you've watched (Settings → Trakt). Off unless switched on: it changes Plex. */
     val traktToPlex: Boolean = false,
+    /** Navidrome (Subsonic) for Music: address, user and a salted token (never the password). */
+    val navidrome: io.github.petebutty.viewarr.data.music.NavidromeAuth? = null,
+    /** Music sources switched off (MusicSource ids, e.g. "nd", "px…"): left out of the Music pages and search. */
+    val musicOff: Set<String> = emptySet(),
+    /** Music turned on in setup (Settings → Accounts & sources → Music). Off: no Music in the menu or search. */
+    val musicEnabled: Boolean? = null,
 ) {
+    /** Music on: only once you choose it in setup (off by default). */
+    val musicOn: Boolean get() = musicEnabled == true
+
     /** The addons switched on in Settings → Addons. */
     val activeAddons: List<AddonInfo> get() = addons.filter { it.enabled }
 }

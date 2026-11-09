@@ -56,4 +56,19 @@ object AppIcons {
 
     /** Tick (watched). */
     val Check: ImageVector by lazy { icon("check", "M9,16.17L4.83,12l-1.42,1.41L9,19 21,7l-1.41,-1.41z") }
+
+    /** Next track. */
+    val SkipNext: ImageVector by lazy { icon("next", "M6,18l8.5,-6L6,6v12zM16,6v12h2V6h-2z") }
+
+    /** Previous track. */
+    val SkipPrevious: ImageVector by lazy { icon("previous", "M6,6h2v12H6zM9.5,12l8.5,6V6z") }
+
+    /** Crossed arrows (shuffle). */
+    val Shuffle: ImageVector by lazy { icon("shuffle", "M10.59,9.17L5.41,4 4,5.41l5.17,5.17 1.42,-1.41zM14.5,4l2.04,2.04L4,18.59 5.41,20 17.96,7.46 20,9.5V4h-5.5zM14.83,13.41l-1.41,1.41 3.13,3.13L14.5,20H20v-5.5l-2.04,2.04 -3.13,-3.13z") }
+
+    /** Loop arrows (repeat). */
+    val Repeat: ImageVector by lazy { icon("repeat", "M7,7h10v3l4,-4 -4,-4v3H5v6h2V7zM17,17H7v-3l-4,4 4,4v-3h12v-6h-2v4z") }
+
+    /** Loop arrows with a 1 (repeat this track). */
+    val RepeatOne: ImageVector by lazy { icon("repeat1", "M7,7h10v3l4,-4 -4,-4v3H5v6h2V7zM17,17H7v-3l-4,4 4,4v-3h12v-6h-2v4zM13,15V9h-1l-2,1v1h1.5v4H13z") }
 }

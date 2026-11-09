@@ -155,7 +155,7 @@ a.link.alt{background:transparent;border:1px solid var(--line);color:var(--text)
     if (pos < 0) return chooseScreen();
     if (pos >= chosen.length) return doneScreen();
     ({ livetv: liveTv, tmdb: tmdb, trakt: () => linkScreen('trakt'), plex: () => linkScreen('plex'),
-       stremio: stremio, jellyfin: () => mediaServer('jellyfin'), emby: () => mediaServer('emby'), vod: vod, seerr: seerr, mdblist: mdblist })[chosen[pos]]();
+       stremio: stremio, jellyfin: () => mediaServer('jellyfin'), emby: () => mediaServer('emby'), vod: vod, seerr: seerr, mdblist: mdblist, music: music })[chosen[pos]]();
   }
 
   function chooseScreen() {
@@ -343,6 +343,52 @@ a.link.alt{background:transparent;border:1px solid var(--line);color:var(--text)
       } catch (e) {}
     })();
     form(async () => saved(await api('seerr', { server: val('server'), key: val('key') }), 'Seerr connected.'));
+  }
+
+  // Music: off unless turned on here; then which servers' music to use, and an optional Navidrome login.
+  async function music() {
+    let st = { enabled: false, servers: [], navidrome: '' };
+    try { st = await api('music-status'); } catch (e) {}
+    render(`<h1>Music</h1>
+      <p>A Music section in Viewarr: your albums, artists and playlists, a visualiser while it plays, and music in search. It stays off unless you turn it on.</p>
+      <label class="row"><span><b>Music section</b></span><input type="checkbox" id="mon" ${st.enabled ? 'checked' : ''} style="width:22px;height:22px"></label>
+      <div id="mopts">
+        ${st.servers.length ? `<p>Your servers' music libraries:</p>` + st.servers.map((x) => `<label class="row"><span>${esc(x.name)}</span><input type="checkbox" data-src="${esc(x.id)}" ${x.on ? 'checked' : ''} style="width:22px;height:22px"></label>`).join('') : `<p><small>None of your connected servers (Plex, Jellyfin, Emby) has a music library.</small></p>`}
+        <h2>Navidrome / Subsonic</h2>
+        ${st.navidrome ? `<p>✓ Connected: ${esc(st.navidrome)}. Sign in again below to change it.</p>` : `<p>Optional: add your Navidrome server.</p>`}
+        <form id="nd" autocomplete="off" novalidate>
+          <label class="f" for="server">Navidrome address</label><input type="url" id="server" autocapitalize="off" spellcheck="false" placeholder="192.168.1.50:4533">
+          <label class="f" for="user">Username</label><input type="text" id="user" autocapitalize="off" spellcheck="false">
+          <label class="f" for="password">Password</label><input type="password" id="password">
+          <div class="btns"><button class="primary" type="submit">Connect Navidrome</button></div>
+        </form>
+      </div>
+      ${nav('<button class="primary" id="msave">Save</button>', { skipLabel: 'Skip' })}`);
+    wireNav();
+    const mon = view.querySelector('#mon'), opts = view.querySelector('#mopts');
+    const sync = () => { opts.style.display = mon.checked ? '' : 'none'; };
+    mon.addEventListener('change', sync); sync();
+    view.querySelector('#msave').addEventListener('click', async (e) => {
+      const off = [...view.querySelectorAll('[data-src]')].filter((c) => !c.checked).map((c) => c.dataset.src).join(',');
+      e.target.disabled = true;
+      try { await saved(await api('music-set', { enabled: mon.checked ? '1' : '0', off: off })); } catch (err) { msg(err.message, 'err'); } finally { e.target.disabled = false; }
+    });
+    // Fill in the address if the TV finds Navidrome on the network.
+    (async () => {
+      const srv = view.querySelector('#server');
+      try {
+        const r = await api('navidrome-discover');
+        const u = ((r && r.servers) || [])[0];
+        if (u && srv && !srv.value) { srv.value = u.replace(/^http:\/\//, ''); msg('✓ Found Navidrome on your network', 'ok'); }
+      } catch (e) {}
+    })();
+    form(async () => {
+      const r = await api('navidrome', { server: val('server'), user: val('user'), password: val('password') });
+      if (!r.ok) return msg(r.message || 'Couldn\'t connect to Navidrome.', 'err');
+      msg(r.message || 'Navidrome connected.', 'ok');
+      await refresh().catch(() => {});
+      setTimeout(music, 900);
+    }, '#nd');
   }
 
   async function linkScreen(kind) {

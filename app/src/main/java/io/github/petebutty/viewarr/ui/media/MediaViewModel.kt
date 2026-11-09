@@ -1172,11 +1172,11 @@ class MediaViewModel @Inject constructor(
 
 /** Search filter buttons: what the results show. */
 enum class SearchFilter(val label: String) {
-    All("All"), Films("Films"), Shows("Shows"), LiveTv("Live TV"), Library("In my library");
+    All("All"), Films("Films"), Shows("Shows"), LiveTv("Live TV"), Music("Music"), Library("In my library");
 
     fun apply(rows: List<io.github.petebutty.viewarr.data.media.MediaRow>): List<io.github.petebutty.viewarr.data.media.MediaRow> = when (this) {
         All -> rows
-        LiveTv -> emptyList()
+        LiveTv, Music -> emptyList()
         Library -> rows.filter { it.id == "search-library" }
         Films, Shows -> {
             val want = if (this == Films) MediaType.Movie else MediaType.Show

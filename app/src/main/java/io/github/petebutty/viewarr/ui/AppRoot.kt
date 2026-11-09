@@ -123,6 +123,8 @@ fun AppRoot(vm: AppViewModel = hiltViewModel()) {
                 HomeScreen(session = s.session, onSignOut = vm::signOut)
                 // Films, episodes and recordings: above every page, full screen or shrunk to a corner.
                 io.github.petebutty.viewarr.ui.media.VodHostLayer()
+                // Music: the Now Playing screen, or the small now-playing bar while you browse.
+                io.github.petebutty.viewarr.ui.music.MusicLayer()
                 // Settings → Appearance → Clock.
                 if (!splashShown && io.github.petebutty.viewarr.ui.theme.AppColors.palette.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.CLOCK) == 1) Clock(Modifier.align(Alignment.TopEnd))
                 // Over everything: the "update available" pop-up (and the automatic check on start).

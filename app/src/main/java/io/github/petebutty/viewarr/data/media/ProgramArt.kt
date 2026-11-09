@@ -43,7 +43,7 @@ class ProgramArt @Inject constructor(
         return url
     }
 
-    /** "New: Bridge of Lies", "Film: Heat (1995)", "Celtic v Besiktas ᴸᶦᵛᵉ" → the name to look up. */
+    /** "New: Bridge of Lies", "Film: Heat (1995)", "Arsenal v Chelsea ᴸᶦᵛᵉ" → the name to look up. */
     private fun clean(t: String) = t
         .replace(Regex("^(New|Live|Film|Premiere|Movie)\\s*:\\s*", RegexOption.IGNORE_CASE), "")
         .replace(Regex("\\s*\\(\\d{4}\\)\\s*$"), "")

@@ -175,6 +175,58 @@ fun SetupWizard(
                     },
                 )
                 SetupStep.Trakt, SetupStep.Plex -> CodeStep(state, firstFocus, vm)
+                // Music: off unless you turn it on; then which servers' music to use, and Navidrome (its own step).
+                SetupStep.Music -> TextStep(
+                    qrUrl = state.qrUrl?.let { u -> u.substringBefore('#') + "?go=music#" + u.substringAfter('#') },
+                    qrCaption = "Scan to set up Music from your phone (easier for typing a Navidrome login).",
+                    fields = {
+                        val on = accounts.musicOn
+                        MenuItem(
+                            text = "Music section", trailing = if (on) "On" else "Off", selected = false,
+                            onClick = { vm.setMusic(!on) }, modifier = Modifier.focusRequester(firstFocus),
+                        )
+                        if (on) {
+                            val servers = state.musicServers
+                            Text(
+                                when {
+                                    servers == null -> "Looking for music libraries on your servers…"
+                                    servers.isEmpty() -> "None of your connected servers (Plex, Jellyfin, Emby) has a music library."
+                                    else -> "Your servers' music libraries:"
+                                },
+                                fontSize = 14.sp, color = io.github.petebutty.viewarr.ui.theme.AppColors.TextSecondary,
+                                modifier = Modifier.padding(start = 12.dp, top = 6.dp),
+                            )
+                            servers.orEmpty().forEach { (id, name) ->
+                                val use = id !in accounts.musicOff
+                                MenuItem(text = "$name music", trailing = if (use) "On" else "Off", selected = false, dim = !use, onClick = { vm.toggleMusicServer(id) })
+                            }
+                            Text("Navidrome / Subsonic:", fontSize = 14.sp, color = io.github.petebutty.viewarr.ui.theme.AppColors.TextSecondary, modifier = Modifier.padding(start = 12.dp, top = 6.dp))
+                            val nd = accounts.navidrome
+                            if (nd == null) MenuItem(text = "Add a Navidrome server", trailing = "›", selected = false, onClick = vm::openNavidrome)
+                            else {
+                                MenuItem(text = "Navidrome: ${nd.user}", trailing = "Change", selected = false, onClick = vm::openNavidrome)
+                                MenuItem(text = "Remove Navidrome", selected = false, onClick = { vm.removeNavidrome() })
+                            }
+                        }
+                    },
+                    actions = {
+                        Button(onClick = vm::advance) { Text(if (accounts.musicOn) "Done" else "Continue without Music") }
+                        if (accounts.musicOn) OutlinedButton(onClick = { vm.skipMusic() }) { Text("No music") }
+                    },
+                )
+                SetupStep.Navidrome -> TextStep(
+                    qrUrl = state.qrUrl?.let { u -> u.substringBefore('#') + "?go=music#" + u.substringAfter('#') },
+                    qrCaption = "Scan to type the address and login on your phone instead.",
+                    fields = {
+                        WizardField(state.fields[SERVER].orEmpty(), { vm.onField(SERVER, it) }, "Navidrome address", firstFocus, KeyboardType.Uri, ImeAction.Next) {}
+                        WizardField(state.fields[USER].orEmpty(), { vm.onField(USER, it) }, "Username", null, KeyboardType.Text, ImeAction.Next) {}
+                        WizardField(state.fields[PASSWORD].orEmpty(), { vm.onField(PASSWORD, it) }, "Password", null, KeyboardType.Password, ImeAction.Done, vm::submit, password = true)
+                    },
+                    actions = {
+                        Button(onClick = vm::submit, enabled = !state.busy) { Text(if (state.busy) "Connecting…" else "Sign in") }
+                        OutlinedButton(onClick = vm::backToMusic) { Text("Back") }
+                    },
+                )
                 SetupStep.Seerr -> TextStep(
                     qrUrl = state.qrUrl?.let { u -> u.substringBefore('#') + "?go=seerr#" + u.substringAfter('#') },
                     qrCaption = "Scan to paste the address and API key from your phone (easier than typing).",
@@ -557,6 +609,8 @@ private fun titleFor(step: SetupStep, mode: SetupMode) = when (step) {
     SetupStep.Emby -> "Connect Emby"
     SetupStep.Vod -> "Provider VOD"
     SetupStep.Seerr -> "Connect Seerr"
+    SetupStep.Music -> "Add music?"
+    SetupStep.Navidrome -> "Connect Navidrome"
     SetupStep.Mdblist -> "MDBList ratings"
     SetupStep.Done -> "You're all set"
 }
@@ -588,5 +642,7 @@ private fun bodyFor(state: SetupUiState) = when (state.step) {
     SetupStep.Mdblist -> "Optional: a free MDBList key adds IMDb, Rotten Tomatoes, Metacritic and Letterboxd ratings to every film and show. " +
         "Sign in at mdblist.com, open Preferences → API access, and copy your API key."
     SetupStep.Seerr -> "Your Seerr address (for example 192.168.1.50:5055) and its API key from Seerr → Settings → General. The key is long: the phone setup is easier."
+    SetupStep.Music -> "A Music section with your albums, artists and playlists, a visualiser while it plays, and music in search. It's off unless you turn it on here: then choose which servers' music to use, and add Navidrome if you have it."
+    SetupStep.Navidrome -> "Viewarr looks for Navidrome on your network (port 4533). Then your username and password; only a secure token is kept, never the password."
     SetupStep.Done -> "Everything you connected is ready. You can change any of it in Settings → Accounts & sources."
 }

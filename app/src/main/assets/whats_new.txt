@@ -1,5 +1,6 @@
 # Shown once, the first time a new version opens (not on a fresh install). Keep it to the few things worth knowing.
 # Lines starting with "- " are the points; the first line without "#" or "-" is the heading.
-Smaller player controls
-- The controls over a film or episode are smaller and cover less of the picture. Settings → Playback → Player controls size: Medium, Small or Large (the old size)
-- Fixed: starting another film or episode while one was in the corner froze the picture and played only the new sound
+Music
+- New: a Music section (turn it on in Settings → Accounts & sources → Music): your music from Navidrome and the music libraries on your Plex, Jellyfin or Emby, as one library
+- Now Playing with a visualiser, a now-playing bar while you browse (hold Back for Now Playing), and music in search
+- Fixed: posters in library grids were cropped; box art of any shape now shows whole

@@ -164,7 +164,7 @@ fun AppearanceSettingsScreen(onBack: () -> Unit, vm: AppearanceViewModel = hiltV
         SettingCategory(
             "Posters", "What's drawn on posters in Movies, Shows and search.",
             listOf(
-                optItem(opts, "Where it's from", "The label saying which of your servers has it (e.g. \"Plex · MINIPC\").", io.github.petebutty.viewarr.ui.theme.UiOpts.BADGE_SOURCE),
+                optItem(opts, "Where it's from", "The label saying which of your servers has it (e.g. \"Plex · Living room\").", io.github.petebutty.viewarr.ui.theme.UiOpts.BADGE_SOURCE),
                 optItem(opts, "Progress bars", "How far through you are, along the bottom of posters and episodes.", io.github.petebutty.viewarr.ui.theme.UiOpts.BADGE_PROGRESS),
             ),
         ),

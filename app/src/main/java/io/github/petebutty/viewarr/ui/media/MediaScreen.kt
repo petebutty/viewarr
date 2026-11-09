@@ -654,6 +654,7 @@ private fun LibraryGrid(
                         },
                     onClick = { onOpen(item) },
                     onLongClick = { onLong(item) },
+                    fill = true,
                 )
             }
             if (showNext) item(key = "next") {
@@ -840,7 +841,8 @@ private fun LibrarySearchBox(query: String, onQuery: (String) -> Unit, onFocus: 
 private fun PageCard(arrow: String, label: String, sub: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
     Surface(
         onClick = onClick,
-        modifier = modifier.size(width = 100.dp, height = 150.dp),
+        // In the library grid: the same size as the posters around it.
+        modifier = modifier.fillMaxWidth().aspectRatio(2f / 3f),
         scale = ClickableSurfaceDefaults.scale(scale = 1f, focusedScale = 1f, pressedScale = 1f),
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
         border = ClickableSurfaceDefaults.border(focusedBorder = Border(BorderStroke(3.dp, AppColors.Accent), shape = RoundedCornerShape(8.dp))),
@@ -930,11 +932,13 @@ private fun PosterRow(
 }
 
 @Composable
-private fun PosterCard(item: MediaItem, modifier: Modifier, onClick: () -> Unit, onLongClick: () -> Unit = {}) {
+private fun PosterCard(item: MediaItem, modifier: Modifier, onClick: () -> Unit, onLongClick: () -> Unit = {}, fill: Boolean = false) {
     Surface(
         onClick = onClick,
         onLongClick = onLongClick,
-        modifier = modifier.free().size(width = 100.dp, height = 150.dp),
+        // In a grid ([fill]): as wide as its column, always 2:3 (a fixed size was squeezed to the column's width
+        // but kept its height, so posters came out too wide).
+        modifier = modifier.free().then(if (fill) Modifier.fillMaxWidth().aspectRatio(2f / 3f) else Modifier.size(width = 100.dp, height = 150.dp)),
         scale = ClickableSurfaceDefaults.scale(scale = 1f, focusedScale = 1f, pressedScale = 1f),
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
         border = ClickableSurfaceDefaults.border(focusedBorder = Border(BorderStroke(3.dp, AppColors.Accent), shape = RoundedCornerShape(8.dp))),
@@ -945,7 +949,7 @@ private fun PosterCard(item: MediaItem, modifier: Modifier, onClick: () -> Unit,
                 item.title, fontSize = 13.sp, color = AppColors.TextSecondary, textAlign = TextAlign.Center,
                 modifier = Modifier.align(Alignment.Center).padding(8.dp), maxLines = 4, overflow = TextOverflow.Ellipsis,
             )
-            item.poster?.let { AsyncImage(model = it, contentDescription = item.title, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
+            item.poster?.let { io.github.petebutty.viewarr.ui.common.PosterImage(it, item.title, Modifier.fillMaxSize()) }
             // Search: this one's in your library, and where ("Plex", "Jellyfin · IPTV").
             if (item.owned && AppColors.palette.sourceBadges) Text(
                 item.ownedFrom ?: "In library",
@@ -1044,10 +1048,7 @@ private fun DetailScreen(
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 56.dp, end = 40.dp, top = 24.dp, bottom = 12.dp)) {
         Row(verticalAlignment = Alignment.Top) {
             item.poster?.let {
-                AsyncImage(
-                    model = it, contentDescription = null, contentScale = ContentScale.Crop,
-                    modifier = Modifier.size(width = 120.dp, height = 180.dp).clip(RoundedCornerShape(10.dp)),
-                )
+                io.github.petebutty.viewarr.ui.common.PosterImage(it, null, Modifier.size(width = 120.dp, height = 180.dp).clip(RoundedCornerShape(10.dp)))
                 Spacer(Modifier.width(24.dp))
             }
             Column(Modifier.fillMaxWidth(0.68f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
