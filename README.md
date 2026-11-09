@@ -84,7 +84,7 @@ Viewarr doesn't provide any content. It plays only what your own servers and acc
 ## Install
 
 1. On your TV, install the **Downloader** app (by AFTVnews) from the Play Store / Amazon Appstore.
-2. In Downloader, enter this link (it always gets the newest version):
+2. In Downloader, enter the code **7623981** (or this link; both always get the newest version):
 
    `https://github.com/petebutty/viewarr/releases/latest/download/viewarr.apk`
 
