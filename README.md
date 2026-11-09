@@ -83,8 +83,12 @@ Viewarr doesn't provide any content. It plays only what your own servers and acc
 
 ## Install
 
-1. Download the latest `Viewarr-x.y.z.apk` from [Releases](../../releases).
-2. Install it on your TV. The easiest way is the **Downloader** app (by AFTVnews): enter the APK's download link, then allow Downloader to install apps when asked. Alternatively, copy it with **Send Files to TV**, or use `adb install`.
+1. On your TV, install the **Downloader** app (by AFTVnews) from the Play Store / Amazon Appstore.
+2. In Downloader, enter this link (it always gets the newest version):
+
+   `https://github.com/petebutty/viewarr/releases/latest/download/viewarr.apk`
+
+   Allow Downloader to install apps when asked. (Or download `viewarr.apk` from [Releases](../../releases) and copy it over with **Send Files to TV**, or use `adb install`.)
 3. Open Viewarr and follow the setup. It takes a few minutes.
 
 The full walkthrough, with what each step needs and troubleshooting tips, is in the **[setup guide](docs/SETUP.md)**.

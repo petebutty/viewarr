@@ -22,7 +22,7 @@ Have these ready. Only the things you want to use are needed.
 ## 2. Install the app
 
 1. On the TV, install **Downloader** (by AFTVnews) from the Play Store / App Store.
-2. Open Downloader and enter the download link of the latest APK from the [Releases page](../../../releases).
+2. Open Downloader and enter `https://github.com/petebutty/viewarr/releases/latest/download/viewarr.apk` (it always gets the newest version; the [Releases page](../../../releases) has every version).
 3. When Android asks, allow Downloader to **install unknown apps**, then press **Install**.
 4. Open **Viewarr** from your apps. On Google TV it may be under *Apps → See all*.
 
