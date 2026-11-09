@@ -29,6 +29,8 @@ data class Palette(val main: Color, val highlight: Color, val transparency: Floa
     val progressBadges get() = opt(UiOpts.BADGE_PROGRESS) == 0
     val serverPreviews get() = opt(UiOpts.SEEK_PREVIEWS) != 2
     val boxPreviews get() = opt(UiOpts.SEEK_PREVIEWS) == 0 && !lowMemory
+    /** Player controls (seek bar area and buttons) scale: Medium, Small, Large (the original size). */
+    val controlsScale get() = floatArrayOf(0.8f, 0.65f, 1f)[opt(UiOpts.CONTROLS_SIZE).coerceIn(0, 2)]
     val controlsMs get() = longArrayOf(4_000, 3_000, 6_000, 10_000)[opt(UiOpts.CONTROLS_TIME).coerceIn(0, 3)]
     val upNextSeconds get() = intArrayOf(10, 5, 20)[opt(UiOpts.UP_NEXT).coerceIn(0, 2)]
     val textScale get() = floatArrayOf(1f, 0.9f, 1.12f, 1.25f)[opt(UiOpts.TEXT_SIZE).coerceIn(0, 3)]
@@ -171,6 +173,7 @@ object UiOpts {
     const val PLAYER_BACK = "player_back"
     const val SEEK_PREVIEWS = "seek_previews"
     const val CONTROLS_TIME = "controls_time"
+    const val CONTROLS_SIZE = "controls_size"
     const val UP_NEXT = "up_next"
     const val STILL_WATCHING = "still_watching"
     const val LOW_MEMORY = "low_memory"
@@ -186,6 +189,7 @@ object UiOpts {
         PLAYER_BACK to listOf("Shrink to a corner", "Stop"),
         SEEK_PREVIEWS to listOf("Server's, else the box makes them", "Server's only", "Off"),
         CONTROLS_TIME to listOf("4 seconds", "3 seconds", "6 seconds", "10 seconds"),
+        CONTROLS_SIZE to listOf("Medium", "Small", "Large"),
         UP_NEXT to listOf("10 seconds", "5 seconds", "20 seconds"),
         STILL_WATCHING to listOf("Never", "After 2 hours", "After 3 hours", "After 4 hours", "After 6 hours"),
         LOW_MEMORY to listOf("Off", "On"),

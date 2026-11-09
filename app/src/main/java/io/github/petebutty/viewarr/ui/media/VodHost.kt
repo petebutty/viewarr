@@ -112,7 +112,11 @@ fun VodHostLayer() {
                 .background(Color.Black)
             else Modifier.fillMaxSize(),
         ) {
-            PlayerHost(stream = s, onClose = src.onClose, art = art, onProgress = src.onProgress)
+            // A new film or episode gets a fresh player and picture surface. Without this the old screen's
+            // surface stayed attached to the old player: the picture froze and only the new one's sound played.
+            androidx.compose.runtime.key(s) {
+                PlayerHost(stream = s, onClose = src.onClose, art = art, onProgress = src.onProgress)
+            }
         }
         if (mini) androidx.tv.material3.Text(
             "Hold Back: full screen",

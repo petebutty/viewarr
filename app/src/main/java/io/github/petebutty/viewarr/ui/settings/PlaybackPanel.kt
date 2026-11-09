@@ -49,6 +49,7 @@ fun PlaybackSettingsScreen(onBack: () -> Unit, vm: PlaybackSettingsViewModel = h
                 item("Resume", "Carry on where you stopped last time, or always start at the beginning.", k.RESUME, choices<io.github.petebutty.viewarr.data.settings.ResumeMode>(), s.resume),
                 optItem(opts, "Back while watching", "Back during a film or episode: shrink it to a corner and keep it playing while you browse (hold Back for full screen again), or stop.", io.github.petebutty.viewarr.ui.theme.UiOpts.PLAYER_BACK),
                 optItem(opts, "Controls stay up for", "How long the seek bar and buttons stay on screen after a button press.", io.github.petebutty.viewarr.ui.theme.UiOpts.CONTROLS_TIME),
+                optItem(opts, "Player controls size", "How big the seek bar, title and buttons are while a film or episode plays. Smaller sizes cover less of the picture.", io.github.petebutty.viewarr.ui.theme.UiOpts.CONTROLS_SIZE),
                 optItem(opts, "Seek-bar previews", "Pictures above the seek bar. Without the server's own, the box reads the film a second time to make them: \"Server's only\" or Off saves bandwidth and memory.", io.github.petebutty.viewarr.ui.theme.UiOpts.SEEK_PREVIEWS),
                 item("mpv decoding", "Direct to screen is smoothest; picture subtitles (Blu-ray PGS) switch to the GPU way by themselves. Try software only if the picture glitches or shows colour blocks.", k.MPV_DECODING, choices<io.github.petebutty.viewarr.data.settings.MpvDecoding>(), s.mpvDecoding),
             ),
@@ -129,6 +130,6 @@ fun PlaybackSettingsScreen(onBack: () -> Unit, vm: PlaybackSettingsViewModel = h
     )
     SettingsPage(title = "Playback", categories = categories, onBack = onBack, onReset = {
         vm.reset()
-        opts.reset(listOf(io.github.petebutty.viewarr.ui.theme.UiOpts.PLAYER_BACK, io.github.petebutty.viewarr.ui.theme.UiOpts.CONTROLS_TIME, io.github.petebutty.viewarr.ui.theme.UiOpts.SEEK_PREVIEWS, io.github.petebutty.viewarr.ui.theme.UiOpts.UP_NEXT, io.github.petebutty.viewarr.ui.theme.UiOpts.MINI_SIZE, io.github.petebutty.viewarr.ui.theme.UiOpts.MINI_CORNER, io.github.petebutty.viewarr.ui.theme.UiOpts.STILL_WATCHING, io.github.petebutty.viewarr.ui.theme.UiOpts.LOW_MEMORY))
+        opts.reset(listOf(io.github.petebutty.viewarr.ui.theme.UiOpts.PLAYER_BACK, io.github.petebutty.viewarr.ui.theme.UiOpts.CONTROLS_TIME, io.github.petebutty.viewarr.ui.theme.UiOpts.CONTROLS_SIZE, io.github.petebutty.viewarr.ui.theme.UiOpts.SEEK_PREVIEWS, io.github.petebutty.viewarr.ui.theme.UiOpts.UP_NEXT, io.github.petebutty.viewarr.ui.theme.UiOpts.MINI_SIZE, io.github.petebutty.viewarr.ui.theme.UiOpts.MINI_CORNER, io.github.petebutty.viewarr.ui.theme.UiOpts.STILL_WATCHING, io.github.petebutty.viewarr.ui.theme.UiOpts.LOW_MEMORY))
     })
 }

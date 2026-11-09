@@ -170,6 +170,10 @@ fun PlayerOsd(
     barFocused: Boolean = false,
 ) {
     val scrubbing = scrubMs != null
+    // Settings → Playback → Player controls size.
+    val k = AppColors.palette.controlsScale
+    fun d(v: Int) = (v * k).dp
+    fun t(v: Int) = (v * (0.5f + k / 2)).sp
     // The preview: fetched once the marker rests for a moment, the last one stays up meanwhile.
     var thumb by remember { mutableStateOf<Bitmap?>(null) }
     LaunchedEffect(scrubMs?.div(5_000), thumbs) {
@@ -183,7 +187,7 @@ fun PlayerOsd(
         modifier
             .fillMaxWidth()
             .background(Brush.verticalGradient(0f to Color.Transparent, 0.35f to Color.Black.copy(alpha = 0.55f), 1f to Color.Black.copy(alpha = 0.9f)))
-            .padding(start = 56.dp, end = 56.dp, top = if (scrubbing && thumbs != null) 24.dp else 80.dp, bottom = 36.dp),
+            .padding(start = 56.dp, end = 56.dp, top = if (scrubbing && thumbs != null) 24.dp else d(80), bottom = d(36)),
     ) {
         // With a logo: the logo, then just the episode ("S1 E1"), if any, beside the play state.
         var logoShown by remember(logo) { mutableStateOf(false) }
@@ -194,14 +198,14 @@ fun PlayerOsd(
             contentScale = ContentScale.Fit,
             alignment = Alignment.CenterStart,
             onSuccess = { logoShown = true },
-            modifier = Modifier.padding(start = 40.dp, bottom = 10.dp).height(if (logoShown) 48.dp else 0.dp).width(280.dp),
+            modifier = Modifier.padding(start = d(40), bottom = d(10)).height(if (logoShown) d(48) else 0.dp).width(d(280)),
         )
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(if (buffering) "◌" else if (paused) "❚❚" else "▶", fontSize = 22.sp, color = Color.White, modifier = Modifier.width(40.dp))
-            Text(if (logoShown) title.substringAfter(" · ", "") else title, fontSize = 22.sp, fontWeight = FontWeight.Medium, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            Text(if (buffering) "◌" else if (paused) "❚❚" else "▶", fontSize = t(22), color = Color.White, modifier = Modifier.width(d(40)))
+            Text(if (logoShown) title.substringAfter(" · ", "") else title, fontSize = t(22), fontWeight = FontWeight.Medium, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
             Text(if (buffering) "Loading…" else "", fontSize = 15.sp, color = Color.White.copy(alpha = 0.8f))
         }
-        Spacer(Modifier.height(14.dp))
+        Spacer(Modifier.height(d(14)))
         BoxWithConstraints(Modifier.fillMaxWidth()) {
             val barWidth = maxWidth
             val played = if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
@@ -241,9 +245,9 @@ fun PlayerOsd(
                 }
             }
         }
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(d(8)))
         Row {
-            Text(clockMs(positionMs), fontSize = 14.sp, color = Color.White)
+            Text(clockMs(positionMs), fontSize = t(14), color = Color.White)
             Spacer(Modifier.weight(1f))
             Text(
                 when {
@@ -252,28 +256,28 @@ fun PlayerOsd(
                     buttons != null -> "▲ seek bar  ·  ⏯ play / pause"
                     else -> "OK: controls  ·  ◀ ▶ skip  ·  ⏯ play / pause"
                 },
-                fontSize = 13.sp, color = Color.White.copy(alpha = 0.7f),
+                fontSize = t(13), color = Color.White.copy(alpha = 0.7f),
             )
             Spacer(Modifier.weight(1f))
-            Text(if (durationMs > 0) "-" + clockMs(durationMs - positionMs) else "", fontSize = 14.sp, color = Color.White)
+            Text(if (durationMs > 0) "-" + clockMs(durationMs - positionMs) else "", fontSize = t(14), color = Color.White)
         }
-        if (buttons != null) Row(Modifier.padding(top = 14.dp), verticalAlignment = Alignment.Top) {
+        if (buttons != null) Row(Modifier.padding(top = d(14)), verticalAlignment = Alignment.Top) {
             buttons.forEachIndexed { i, b ->
                 val on = i == buttonFocus
                 // Icons only; the focused one's name underneath (so each is still easy to learn).
-                androidx.compose.foundation.layout.Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(72.dp)) {
+                androidx.compose.foundation.layout.Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(d(72))) {
                     Box(
-                        Modifier.size(48.dp).background(if (on) AppColors.Accent else Color.White.copy(alpha = 0.14f), androidx.compose.foundation.shape.CircleShape),
+                        Modifier.size(d(48)).background(if (on) AppColors.Accent else Color.White.copy(alpha = 0.14f), androidx.compose.foundation.shape.CircleShape),
                         contentAlignment = Alignment.Center,
                     ) {
-                        androidx.compose.material3.Icon(b.icon, contentDescription = b.label, tint = if (on) AppColors.OnAccent else Color.White, modifier = Modifier.size(26.dp))
+                        androidx.compose.material3.Icon(b.icon, contentDescription = b.label, tint = if (on) AppColors.OnAccent else Color.White, modifier = Modifier.size(d(26)))
                     }
                     Text(
-                        if (on) b.label else "", fontSize = 12.sp, color = Color.White, maxLines = 1, softWrap = false,
-                        modifier = Modifier.padding(top = 4.dp).then(Modifier.wrapContentWidth(unbounded = true)),
+                        if (on) b.label else "", fontSize = t(12), color = Color.White, maxLines = 1, softWrap = false,
+                        modifier = Modifier.padding(top = d(4)).then(Modifier.wrapContentWidth(unbounded = true)),
                     )
                 }
-                if (b.groupEnd) Box(Modifier.padding(horizontal = 10.dp, vertical = 10.dp).width(1.dp).height(28.dp).background(Color.White.copy(alpha = 0.3f)))
+                if (b.groupEnd) Box(Modifier.padding(horizontal = d(10), vertical = d(10)).width(1.dp).height(d(28)).background(Color.White.copy(alpha = 0.3f)))
             }
         }
     }

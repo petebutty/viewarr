@@ -1,7 +1,5 @@
 # Shown once, the first time a new version opens (not on a fresh install). Keep it to the few things worth knowing.
 # Lines starting with "- " are the points; the first line without "#" or "-" is the heading.
-Make Viewarr yours
-- Settings → Appearance: text size, a clock, channel logos and programme pictures, poster labels, and what title pages show (each rating, tabs, logo, trailer)
-- Settings → Playback: picture-in-picture size and corner, what Back does, how long controls stay up, seek-bar previews, next-episode countdown, "Still watching?" and a low-memory mode
-- From the start: a button next to Resume plays a film or episode from the beginning
-- Settings pages: Left goes back to the section you came from
+Smaller player controls
+- The controls over a film or episode are smaller and cover less of the picture. Settings → Playback → Player controls size: Medium, Small or Large (the old size)
+- Fixed: starting another film or episode while one was in the corner froze the picture and played only the new sound
