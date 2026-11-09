@@ -69,7 +69,7 @@ class PluginResult(val ok: Boolean, val message: String)
 @Singleton
 class PluginsRepository @Inject constructor(private val http: HttpJson, private val sessions: SessionStore) {
 
-    private suspend fun session(): Session? = sessions.session.first()?.takeIf { !it.isXc }
+    private suspend fun session(): Session? = sessions.session.first()?.takeIf { !it.isDirect }
     private fun url(s: Session, path: String) = "${s.serverUrl.trimEnd('/')}/api/plugins/$path"
     private fun h(s: Session) = mapOf("X-API-Key" to s.apiKey)
 

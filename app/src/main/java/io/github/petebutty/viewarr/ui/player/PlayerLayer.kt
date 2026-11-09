@@ -75,6 +75,8 @@ fun PlayerLayer(
     val position by vm.position.collectAsStateWithLifecycle()
     val paused by vm.paused.collectAsStateWithLifecycle()
     val aspect by vm.aspect.collectAsStateWithLifecycle()
+    // Read so a new player (after switching source) is attached in update below.
+    val playerVersion by vm.playerVersion.collectAsStateWithLifecycle()
 
     Box(modifier.background(Color.Black)) {
         AndroidView(
@@ -91,6 +93,7 @@ fun PlayerLayer(
                 }
             },
             update = { view ->
+                @Suppress("UNUSED_EXPRESSION") playerVersion
                 if (view.player !== vm.player) view.player = vm.player
                 view.resizeMode = when (aspect) {
                     AspectMode.Fit -> AspectRatioFrameLayout.RESIZE_MODE_FIT

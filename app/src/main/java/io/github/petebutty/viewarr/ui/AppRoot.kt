@@ -65,7 +65,7 @@ class AppViewModel @Inject constructor(
         viewModelScope.launch {
             guide.clear()
             accounts.clear()
-            auth.signOut()
+            auth.signOutEverywhere()
             accounts.setSetupComplete(false)
             // Signing in again offers the saved copy rather than overwriting it with an empty setup.
             settingsSync.reset()

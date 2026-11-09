@@ -16,6 +16,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
@@ -40,14 +42,22 @@ sealed interface SyncState {
 
 @Singleton
 class GuideRepository @Inject constructor(
-    private val db: AppDatabase,
+    private val dbs: io.github.petebutty.viewarr.data.local.GuideDatabases,
     private val apiFactory: ApiFactory,
     private val xtream: io.github.petebutty.viewarr.data.xtream.XtreamClient,
+    private val m3u: io.github.petebutty.viewarr.data.m3u.M3uClient,
     @ApplicationContext context: Context,
 ) {
     private val prefs = context.getSharedPreferences("guide", Context.MODE_PRIVATE)
     private val mutex = Mutex()
+    /** The active source's guide database (each saved source keeps its own; see GuideDatabases). */
+    private val _db = MutableStateFlow(dbs.get(prefs.getString(KEY_SOURCE, null) ?: "none"))
+    private val db get() = _db.value
     private val dao get() = db.guideDao()
+    /** Which source the guide is showing (its sourceId). */
+    private val activeSource get() = prefs.getString(KEY_SOURCE, null) ?: "none"
+    /** This source's own record (last sync, how far back): each cached source has its own. */
+    private fun k(key: String) = "$key|$activeSource"
 
     private val _sync = MutableStateFlow<SyncState>(SyncState.Idle)
     val sync = _sync.asStateFlow()
@@ -58,13 +68,13 @@ class GuideRepository @Inject constructor(
     private val pastLimiter = Semaphore(4)
 
     /** Start of the window covered by the last full sync; anything earlier is fetched on demand. */
-    fun syncedFrom(): Long = prefs.getLong(KEY_SYNCED_FROM, System.currentTimeMillis() - LOOKBACK_MS)
+    fun syncedFrom(): Long = prefs.getLong(k(KEY_SYNCED_FROM), System.currentTimeMillis() - LOOKBACK_MS)
 
     /** Fetches one past chunk for one guide key; only programmes starting inside the chunk and ending before
      *  the synced window are kept, so nothing overlaps what the full sync already stored. */
     suspend fun loadPastChunk(session: Session, tvgId: String, chunkStart: Long, chunkEnd: Long) = pastLimiter.withPermit {
         // IPTV providers: their guide file already includes the past days, loaded in the full sync.
-        if (session.isXc) return@withPermit Result.success(Unit)
+        if (session.isDirect) return@withPermit Result.success(Unit)
         runCatching {
             val api = apiFactory.create(session.serverUrl, session.apiKey)
             val syncedFrom = syncedFrom()
@@ -84,7 +94,7 @@ class GuideRepository @Inject constructor(
                         tvgId = tvgId,
                         title = p.title.orEmpty(),
                         subTitle = p.subTitle?.takeIf { it.isNotBlank() },
-                        description = p.description?.takeIf { it.isNotBlank() },
+                        description = io.github.petebutty.viewarr.data.local.Packed.of(p.description),
                         startTime = start,
                         endTime = end,
                         season = p.props?.intOrNull("season"),
@@ -106,27 +116,85 @@ class GuideRepository @Inject constructor(
 
     private fun JsonObject.intOrNull(key: String): Int? = (this[key] as? JsonPrimitive)?.contentOrNull?.toIntOrNull()
 
-    fun observeGroups() = dao.observeGroups()
-    fun observeChannels(groupId: Int?) = dao.observeChannels(groupId)
+    // Follow the active source's database: switching sources switches what these show, at once.
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    fun observeGroups() = _db.flatMapLatest { it.guideDao().observeGroups() }
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    fun observeChannels(groupId: Int?) = _db.flatMapLatest { it.guideDao().observeChannels(groupId) }
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     fun observeProgramBlock(groupId: Int?, offset: Int, count: Int, start: Long, end: Long) =
-        dao.observeProgramBlock(groupId, offset, count, start, end)
+        _db.flatMapLatest { it.guideDao().observeProgramBlock(groupId, offset, count, start, end) }
+
+    /**
+     * [session]'s channels once it's the active source: at once when its guide is cached, else when its sync has put
+     * them in (null if that takes over [timeoutMs]).
+     */
+    suspend fun channelsFor(session: Session, timeoutMs: Long = 180_000): List<io.github.petebutty.viewarr.data.local.ChannelListItem>? {
+        activate(session)
+        val dao = dbs.get(sourceId(session)).guideDao()
+        return kotlinx.coroutines.withTimeoutOrNull(timeoutMs) { dao.observeChannels(null).first { it.isNotEmpty() } }
+    }
+
+    // ---- Groups you've hidden (per source): their channels and guide aren't stored at all.
+
+    /** Hidden groups of the active source, by name (group ids can change between syncs; names don't). */
+    fun hiddenGroups(): Set<String> = prefs.getStringSet(k("hidden_groups"), emptySet()).orEmpty()
+    fun setHiddenGroups(names: Set<String>) = prefs.edit().putStringSet(k("hidden_groups"), names).apply()
+
+    /** Every group the active source has (shown or hidden), with its channel count, from the last sync. */
+    fun allGroups(): List<Pair<String, Int>> = runCatching {
+        val a = org.json.JSONArray(prefs.getString(k("all_groups"), "[]"))
+        (0 until a.length()).map { i -> a.getJSONObject(i).let { it.getString("n") to it.getInt("c") } }
+    }.getOrDefault(emptyList())
+
+    /** Records every group (for Choose groups), then leaves out the hidden ones and their channels. */
+    private fun onlyShown(groups: List<GroupEntity>, channels: List<ChannelEntity>): Pair<List<GroupEntity>, List<ChannelEntity>> {
+        val counts = channels.groupingBy { it.groupId }.eachCount()
+        prefs.edit().putString(k("all_groups"), org.json.JSONArray().apply {
+            groups.forEach { g -> put(org.json.JSONObject().put("n", g.name).put("c", counts[g.id] ?: 0)) }
+        }.toString()).apply()
+        val hidden = hiddenGroups()
+        if (hidden.isEmpty()) return groups to channels
+        val hiddenIds = groups.filter { it.name in hidden }.mapTo(HashSet()) { it.id }
+        return groups.filter { it.id !in hiddenIds } to channels.filter { it.groupId !in hiddenIds }
+    }
+
+    /** The last channel watched on the active source (switching back to a source carries on there). */
+    fun lastChannel(): Int? = prefs.getInt(k("last_channel"), -1).takeIf { it >= 0 }
+    fun rememberChannel(id: Int) = prefs.edit().putInt(k("last_channel"), id).apply()
+
+    /**
+     * Makes [session]'s guide the one shown: its own database (kept for the three most recent sources), so a source
+     * switched back to shows straight away and is only refreshed when its guide is old.
+     */
+    @Synchronized
+    private fun activate(session: Session) {
+        val id = sourceId(session)
+        if (prefs.getString(KEY_SOURCE, null) == id) return
+        android.util.Log.i("Guide", "switching to source ${id.hashCode()}")
+        prefs.edit().putString(KEY_SOURCE, id).apply()
+        _db.value = dbs.get(id)
+        _generation.value++
+    }
 
     suspend fun searchPrograms(q: String, from: Long, limit: Int) = dao.searchPrograms(q, from, limit)
     suspend fun programsFor(channelId: Int, guideKey: String, from: Long, to: Long) = dao.programsFor(channelId, guideKey, from, to)
 
     suspend fun syncIfStale(session: Session) {
-        val age = System.currentTimeMillis() - prefs.getLong(KEY_LAST_SYNC, 0)
-        // Signed in somewhere else (another server, user, or Dispatcharr ↔ provider): the stored channels are the old
-        // server's, with its channel ids, so reload now rather than when they'd normally go stale.
-        val other = prefs.getString(KEY_SOURCE, null) != sourceId(session)
-        if (age > STALE_MS || dao.programCount() == 0 || other) sync(session)
+        activate(session)
+        val age = System.currentTimeMillis() - prefs.getLong(k(KEY_LAST_SYNC), 0)
+        val count = dao.programCount()
+        android.util.Log.i("Guide", "source ${activeSource.hashCode()}: guide ${age / 60_000} min old, $count programmes")
+        if (age > STALE_MS || count == 0) sync(session)
     }
 
-    private fun sourceId(s: Session) = "${s.serverUrl}|${s.username}|${s.isXc}"
+    private fun sourceId(s: Session) = "${s.serverUrl}|${s.username}|${s.isXc}|${s.isM3u}|${s.m3uEpg}"
 
     suspend fun sync(session: Session) = mutex.withLock {
-        prefs.edit().putString(KEY_SOURCE, sourceId(session)).apply()
+        // Each source fills its own database (another source's stays as it is, for switching back).
+        activate(session)
         if (session.isXc) return@withLock syncXc(session)
+        if (session.isM3u) return@withLock syncM3u(session)
         try {
             _sync.value = SyncState.Running("Updating channels…")
             val api = apiFactory.create(session.serverUrl, session.apiKey)
@@ -139,7 +207,7 @@ class GuideRepository @Inject constructor(
             val epgTvgIds = withContext(Dispatchers.IO) {
                 api.epgData().use { parseEpgData(it.byteStream(), referenced) }
             }
-            val channelRows = channels.map {
+            val allChannelRows = channels.map {
                 ChannelEntity(
                     id = it.id,
                     uuid = it.uuid,
@@ -151,7 +219,9 @@ class GuideRepository @Inject constructor(
                     catchupDays = if (it.isCatchup) it.catchupDays else 0,
                 )
             }
-            val groupRows = groups.map { GroupEntity(it.id, it.name) }
+            val (groupRows, channelRows) = onlyShown(groups.map { GroupEntity(it.id, it.name) }, allChannelRows)
+            // With groups hidden, only the shown channels' programmes are kept.
+            val keep = if (hiddenGroups().isEmpty()) null else channelRows.flatMapTo(HashSet()) { listOf(it.guideKey, it.uuid) }
 
             _sync.value = SyncState.Running("Loading TV guide…")
             val now = System.currentTimeMillis()
@@ -165,7 +235,8 @@ class GuideRepository @Inject constructor(
                     dao.insertGroups(groupRows)
                     dao.insertChannels(channelRows)
                     var total = 0
-                    parseGrid(body.byteStream()) { batch ->
+                    parseGrid(body.byteStream()) { all ->
+                        val batch = if (keep == null) all else all.filter { it.tvgId in keep }
                         dao.insertPrograms(batch)
                         total += batch.size
                         _sync.value = SyncState.Running("Loading TV guide… %,d programmes".format(total))
@@ -173,7 +244,7 @@ class GuideRepository @Inject constructor(
                     dao.useUuidWhereGuideMissing()
                 }
             }
-            prefs.edit().putLong(KEY_LAST_SYNC, now).putLong(KEY_SYNCED_FROM, now - LOOKBACK_MS).apply()
+            prefs.edit().putLong(k(KEY_LAST_SYNC), now).putLong(k(KEY_SYNCED_FROM), now - LOOKBACK_MS).apply()
             _generation.value++
             _sync.value = SyncState.Idle
         } catch (e: CancellationException) {
@@ -194,8 +265,8 @@ class GuideRepository @Inject constructor(
             }
             val groupIds = HashMap<String, Int>()
             fun groupId(id: String?) = id?.let { groupIds.getOrPut(it) { it.toIntOrNull() ?: (it.hashCode() and 0x3fffffff) } }
-            val groupRows = groups.map { GroupEntity(groupId(it.id)!!, it.name) }.distinctBy { it.id }
-            val channelRows = channels.distinctBy { it.streamId }.map {
+            val allGroupRows = groups.map { GroupEntity(groupId(it.id)!!, it.name) }.distinctBy { it.id }
+            val allChannelRows = channels.distinctBy { it.streamId }.map {
                 ChannelEntity(
                     id = it.streamId,
                     uuid = it.streamId.toString(),
@@ -208,6 +279,7 @@ class GuideRepository @Inject constructor(
                     catchupDays = it.archiveDays,
                 )
             }
+            val (groupRows, channelRows) = onlyShown(allGroupRows, allChannelRows)
             _sync.value = SyncState.Running("Loading TV guide…")
             val now = System.currentTimeMillis()
             // Catch-up channels can go back days; keep up to two days of the past (the box has little room).
@@ -230,7 +302,7 @@ class GuideRepository @Inject constructor(
                 }
             }.onFailure { if (it is CancellationException) throw it }
             dao.useUuidWhereGuideMissing()
-            prefs.edit().putLong(KEY_LAST_SYNC, now).putLong(KEY_SYNCED_FROM, now - back).apply()
+            prefs.edit().putLong(k(KEY_LAST_SYNC), now).putLong(k(KEY_SYNCED_FROM), now - back).apply()
             _generation.value++
             _sync.value = SyncState.Idle
         } catch (e: CancellationException) {
@@ -240,8 +312,66 @@ class GuideRepository @Inject constructor(
         }
     }
 
+    /**
+     * An M3U playlist: its live channels (numbered by tvg-chno, else in playlist order), groups from group-title,
+     * and the guide from the XMLTV link given at sign-in or the playlist's own. The stream link is kept in the
+     * channel's uuid (what plays). No catch-up: plain playlists don't describe it reliably.
+     */
+    private suspend fun syncM3u(session: Session) {
+        try {
+            _sync.value = SyncState.Running("Updating channels…")
+            val playlist = m3u.load(session.serverUrl)
+            val groupIds = LinkedHashMap<String, Int>()
+            playlist.channels.forEach { c -> c.group?.let { g -> groupIds.getOrPut(g) { groupIds.size + 1 } } }
+            val allGroupRows = groupIds.map { (name, id) -> GroupEntity(id, name) }
+            val allChannelRows = playlist.channels.distinctBy { it.url }.mapIndexed { i, c ->
+                ChannelEntity(
+                    id = i + 1,
+                    uuid = c.url,
+                    name = c.name,
+                    number = c.number ?: (i + 1).toDouble(),
+                    groupId = c.group?.let { groupIds[it] },
+                    logoId = null,
+                    logoUrl = c.logo,
+                    guideKey = c.tvgId ?: c.name,
+                    catchupDays = 0,
+                )
+            }
+            val (groupRows, channelRows) = onlyShown(allGroupRows, allChannelRows)
+            val now = System.currentTimeMillis()
+            db.withTransaction {
+                dao.clearPrograms()
+                dao.clearChannels()
+                dao.clearGroups()
+                dao.insertGroups(groupRows)
+                dao.insertChannels(channelRows)
+            }
+            val guide = session.m3uEpg ?: playlist.guideUrl
+            var total = 0
+            if (guide != null) {
+                _sync.value = SyncState.Running("Loading TV guide…")
+                val wanted = channelRows.mapTo(HashSet()) { it.guideKey }
+                runCatching {
+                    xtream.guideFromUrl(guide, wanted, now - LOOKBACK_MS, now + FORWARD_MS) { batch ->
+                        dao.insertPrograms(batch)
+                        total += batch.size
+                        _sync.value = SyncState.Running("Loading TV guide… %,d programmes".format(total))
+                    }
+                }.onFailure { if (it is CancellationException) throw it }
+            }
+            prefs.edit().putLong(k(KEY_LAST_SYNC), now).putLong(k(KEY_SYNCED_FROM), now - LOOKBACK_MS).apply()
+            _generation.value++
+            _sync.value = SyncState.Idle
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            _sync.value = SyncState.Failed("Couldn't load your playlist: ${e.message ?: e.javaClass.simpleName}")
+        }
+    }
+
     suspend fun clear() = withContext(Dispatchers.IO) {
-        db.clearAllTables()
+        dbs.deleteAll()
+        _db.value = dbs.get("none")
         prefs.edit().clear().apply()
     }
 
@@ -329,7 +459,7 @@ class GuideRepository @Inject constructor(
             tvgId = tvgId,
             title = title.orEmpty(),
             subTitle = subTitle?.takeIf { it.isNotBlank() },
-            description = description?.takeIf { it.isNotBlank() },
+            description = io.github.petebutty.viewarr.data.local.Packed.of(description),
             startTime = start,
             endTime = end,
             season = season,

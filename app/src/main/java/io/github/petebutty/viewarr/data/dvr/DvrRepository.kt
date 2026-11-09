@@ -82,8 +82,8 @@ class DvrRepository @Inject constructor(
 
     suspend fun refresh() {
         val s = session() ?: return
-        _xc.value = s.isXc
-        if (s.isXc) { _allowed.value = false; _recordings.value = emptyList(); return }
+        _xc.value = s.isDirect
+        if (s.isDirect) { _allowed.value = false; _recordings.value = emptyList(); return }
         val r = runCatching { http.get("${s.serverUrl}/api/channels/recordings/", headers(s)) }.getOrNull() ?: return
         if (r.code == 403 || r.code == 401) {
             _allowed.value = false

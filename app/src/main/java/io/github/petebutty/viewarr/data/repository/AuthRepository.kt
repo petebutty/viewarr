@@ -10,6 +10,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.sync.withPermit
 import javax.inject.Inject
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import javax.inject.Singleton
 
 sealed interface ProbeResult {
@@ -22,6 +23,7 @@ class AuthRepository @Inject constructor(
     private val apiFactory: ApiFactory,
     private val sessions: SessionStore,
     private val xtream: io.github.petebutty.viewarr.data.xtream.XtreamClient,
+    private val m3u: io.github.petebutty.viewarr.data.m3u.M3uClient,
 ) {
     /**
      * IPTV provider (Xtream Codes) sign-in: the username and password from the provider. Tries the address as typed,
@@ -46,6 +48,41 @@ class AuthRepository @Inject constructor(
             }
         }
         return Result.failure(last)
+    }
+
+    /**
+     * An M3U playlist link (with an optional XMLTV guide link). A provider's get.php link carries an Xtream Codes
+     * login, which gives more (catch-up, films and series): that signs in as Xtream instead.
+     */
+    suspend fun signInM3u(playlist: String, guide: String?): Result<Session> {
+        val url = playlist.trim().let { if (it.contains("://")) it else "http://$it" }
+        if (playlist.isBlank()) return Result.failure(IllegalStateException("Enter your playlist link."))
+        val parsed = url.toHttpUrlOrNull() ?: return Result.failure(IllegalStateException("That doesn't look like a link."))
+        val user = parsed.queryParameter("username")
+        val pass = parsed.queryParameter("password")
+        if (parsed.encodedPath.endsWith("get.php") && !user.isNullOrBlank() && !pass.isNullOrEmpty()) {
+            val server = parsed.newBuilder().encodedPath("/").query(null).build().toString().trimEnd('/')
+            signInXc(server, user, pass).onSuccess { return Result.success(it) }
+        }
+        return try {
+            val list = m3u.load(url)
+            val epg = guide?.trim()?.takeIf { it.isNotEmpty() }?.let { if (it.contains("://")) it else "http://$it" }
+            val session = Session(url, parsed.host, apiKey = "", isM3u = true, m3uEpg = epg)
+            sessions.save(session)
+            android.util.Log.i("Auth", "m3u: ${list.channels.size} channels, guide ${if (epg != null || list.guideUrl != null) "yes" else "no"}")
+            Result.success(session)
+        } catch (e: io.github.petebutty.viewarr.data.m3u.M3uException) {
+            Result.failure(IllegalStateException(e.message))
+        } catch (e: Exception) {
+            Result.failure(IllegalStateException("Couldn't load that playlist. Check the link with your provider."))
+        }
+    }
+
+    /** An address that's a playlist link rather than a server (setup takes either). */
+    fun looksLikePlaylist(input: String): Boolean {
+        val l = input.trim().lowercase()
+        // ".m3u" / ".m3u8" files, paths like /output/m3u or /playlist/m3u, and providers' get.php links.
+        return "m3u" in l || "get.php" in l || "output=ts" in l
     }
 
     /**
@@ -168,7 +205,11 @@ class AuthRepository @Inject constructor(
         Result.failure(e)
     }
 
+    /** Signs out of the active Live TV source; another saved one, if any, takes over. */
     suspend fun signOut() = sessions.clear()
+
+    /** Signs out of every Live TV source (the app's own Sign out, which starts setup again). */
+    suspend fun signOutEverywhere() = sessions.clearAll()
 
     private class LoginRefused(val code: Int) : Exception()
 

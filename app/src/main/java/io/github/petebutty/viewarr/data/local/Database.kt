@@ -38,7 +38,8 @@ data class ProgramEntity(
     val tvgId: String,
     val title: String,
     val subTitle: String?,
-    val description: String?,
+    /** The synopsis, stored compressed (see [Packed]). */
+    val description: Packed?,
     val startTime: Long,
     val endTime: Long,
     val season: Int?,
@@ -49,6 +50,43 @@ data class ProgramEntity(
     /** The programme's own picture from the guide source (XMLTV icon), if it has one. */
     val image: String? = null,
 )
+
+/**
+ * A programme's synopsis, compressed: synopses are most of the guide's size, and only the highlighted programme's is
+ * ever shown, so it's unpacked then (once), not for every programme in the grid.
+ */
+class Packed(val bytes: ByteArray) {
+    val text: String by lazy {
+        runCatching {
+            val inf = java.util.zip.Inflater(true)
+            inf.setInput(bytes)
+            val out = java.io.ByteArrayOutputStream(bytes.size * 3)
+            val buf = ByteArray(1024)
+            while (!inf.finished()) { val n = inf.inflate(buf); if (n == 0 && (inf.needsInput() || inf.needsDictionary())) break; out.write(buf, 0, n) }
+            inf.end()
+            out.toString(Charsets.UTF_8.name())
+        }.getOrDefault("")
+    }
+
+    companion object {
+        /** Packs [text] (null for none). */
+        fun of(text: String?): Packed? {
+            if (text.isNullOrBlank()) return null
+            val def = java.util.zip.Deflater(java.util.zip.Deflater.BEST_COMPRESSION, true)
+            def.setInput(text.toByteArray(Charsets.UTF_8)); def.finish()
+            val out = java.io.ByteArrayOutputStream(text.length)
+            val buf = ByteArray(1024)
+            while (!def.finished()) out.write(buf, 0, def.deflate(buf))
+            def.end()
+            return Packed(out.toByteArray())
+        }
+    }
+}
+
+class PackedConverters {
+    @androidx.room.TypeConverter fun toBytes(p: Packed?): ByteArray? = p?.bytes
+    @androidx.room.TypeConverter fun toPacked(b: ByteArray?): Packed? = b?.let(::Packed)
+}
 
 data class ChannelListItem(
     val id: Int,
@@ -73,7 +111,7 @@ data class GuideProgram(
     val rowId: Long,
     val title: String,
     val subTitle: String?,
-    val description: String?,
+    @androidx.room.ColumnInfo(name = "description") val packedDescription: Packed?,
     val startTime: Long,
     val endTime: Long,
     val season: Int?,
@@ -82,7 +120,10 @@ data class GuideProgram(
     val isLive: Boolean,
     val isPremiere: Boolean,
     val image: String? = null,
-)
+) {
+    /** The synopsis (unpacked the first time it's read). */
+    val description: String? get() = packedDescription?.text?.takeIf { it.isNotEmpty() }
+}
 
 @Dao
 interface GuideDao {
@@ -191,9 +232,10 @@ interface GuideDao {
 
 @Database(
     entities = [ChannelEntity::class, GroupEntity::class, ProgramEntity::class],
-    version = 5,
+    version = 6,
     exportSchema = false,
 )
+@androidx.room.TypeConverters(PackedConverters::class)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun guideDao(): GuideDao
 }

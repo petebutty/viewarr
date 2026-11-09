@@ -187,6 +187,18 @@ class XtreamClient @Inject constructor(private val client: OkHttpClient, private
         }
     }
 
+    /** Any XMLTV guide by its link (M3U playlists' guides); gzipped files (.xml.gz) are unpacked as they download. */
+    suspend fun guideFromUrl(url: String, wanted: Set<String>, from: Long, to: Long, onBatch: suspend (List<ProgramEntity>) -> Unit) = withContext(Dispatchers.IO) {
+        client.newCall(Request.Builder().url(url).header("User-Agent", UA).build()).execute().use { r ->
+            if (!r.isSuccessful) throw XtreamException("The TV guide didn't load (error ${r.code}).")
+            val raw = java.io.BufferedInputStream(r.body!!.byteStream())
+            raw.mark(2)
+            val gz = raw.read() == 0x1f && raw.read() == 0x8b
+            raw.reset()
+            parseXmltv(if (gz) java.util.zip.GZIPInputStream(raw) else raw, wanted, from, to, onBatch)
+        }
+    }
+
     private suspend fun parseXmltv(stream: InputStream, wanted: Set<String>, from: Long, to: Long, onBatch: suspend (List<ProgramEntity>) -> Unit) {
         val p = Xml.newPullParser()
         p.setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, false)
@@ -234,7 +246,7 @@ class XtreamClient @Inject constructor(private val client: OkHttpClient, private
                     if (p.name == "programme" && keep) {
                         batch += ProgramEntity(
                             tvgId = channel!!, title = title?.trim().orEmpty(), subTitle = sub?.trim()?.takeIf { it.isNotEmpty() },
-                            description = desc?.trim()?.takeIf { it.isNotEmpty() }, startTime = start, endTime = end,
+                            description = io.github.petebutty.viewarr.data.local.Packed.of(desc?.trim()), startTime = start, endTime = end,
                             season = season, episode = episode, isNew = false, isLive = false, isPremiere = false, image = icon,
                         )
                         if (batch.size >= BATCH) { onBatch(batch.toList()); batch.clear() }

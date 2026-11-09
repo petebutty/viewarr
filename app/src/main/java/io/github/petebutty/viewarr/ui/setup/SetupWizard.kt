@@ -258,7 +258,8 @@ private fun ColumnScope.ChooseStep(
     onClose: () -> Unit,
 ) {
     val manage = state.mode == SetupMode.Manage
-    val items = SetupItem.entries.filter { it.available && (it != SetupItem.Vod || session != null) }
+    // Provider VOD is Dispatcharr's: an IPTV login already includes its films and series.
+    val items = SetupItem.entries.filter { it.available && (it != SetupItem.Vod || (session != null && !session.isDirect)) }
     val anything = summary(accounts, session).isNotEmpty()
     // The hub: one row per service. OK runs that service's steps and comes back here. Buttons stay on top.
     val itemFocus = remember { HashMap<SetupItem, FocusRequester>() }
@@ -316,12 +317,15 @@ private fun ServiceOptions(item: SetupItem, status: String, onChange: () -> Unit
         ) {
             Text(item.label, fontSize = 20.sp, color = AppColors.TextPrimary)
             Text(status, fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(bottom = 10.dp))
-            MenuItem(text = if (item == SetupItem.Stremio) "Add or remove addons" else "Change", selected = false, onClick = onChange, modifier = Modifier.focusRequester(first))
+            MenuItem(text = when (item) { SetupItem.Stremio -> "Add or remove addons"; SetupItem.LiveTv -> "Add another source"; else -> "Change" }, selected = false, onClick = onChange, modifier = Modifier.focusRequester(first))
+            // Several Dispatcharr instances / IPTV logins / playlists: switch between them here (or from the menu).
+            if (item == SetupItem.LiveTv) io.github.petebutty.viewarr.ui.settings.LiveSourcesItems()
             // The on/off switches that belong with the service: each Plex server, each Stremio addon.
             if (item == SetupItem.Plex) io.github.petebutty.viewarr.ui.settings.PlexServersItems()
             if (item == SetupItem.Stremio) io.github.petebutty.viewarr.ui.settings.AddonSwitches()
             if (item == SetupItem.Trakt) io.github.petebutty.viewarr.ui.settings.TraktSyncItems()
-            MenuItem(
+            // Live TV: sources are removed one by one in the list above.
+            if (item != SetupItem.LiveTv) MenuItem(
                 text = if (confirm) "Press OK again to disconnect" else "Disconnect",
                 selected = false,
                 onClick = { if (confirm) onDisconnect() else confirm = true },
@@ -543,8 +547,8 @@ private fun titleFor(step: SetupStep, mode: SetupMode) = when (step) {
     SetupStep.Phone -> if (mode == SetupMode.Manage) "Set up on your phone" else "Welcome to Viewarr"
     SetupStep.Welcome -> "Welcome"
     SetupStep.Choose -> if (mode == SetupMode.Manage) "Accounts & sources" else "Set up Viewarr"
-    SetupStep.Server -> "Find your live TV server"
-    SetupStep.SignIn -> "Sign in to Dispatcharr"
+    SetupStep.Server -> "Live TV: your server or playlist"
+    SetupStep.SignIn -> "Sign in"
     SetupStep.Tmdb -> "Connect TMDB"
     SetupStep.Trakt -> "Sign in to Trakt"
     SetupStep.Plex -> "Link Plex"
@@ -562,11 +566,12 @@ private fun bodyFor(state: SetupUiState) = when (state.step) {
         "Typing passwords and links there is much easier than with the remote."
     SetupStep.Welcome -> "Let's connect this TV to your services. It only takes a few minutes."
     SetupStep.Choose -> if (state.mode == SetupMode.Manage) "Choose a service to connect, change or check."
-    else if (true) "Pick each service you use and connect it, one at a time. Live TV finds your Dispatcharr server by itself. " +
+    else if (true) "Pick each service you use and connect it, one at a time. Live TV works with Dispatcharr (found by itself), an IPTV login or an M3U playlist. " +
         "Or set everything up from your phone. When you're done, choose Start watching."
     else "Tick everything you use. Movies & Shows need TMDB, so it's added automatically when you pick a film or TV source."
     SetupStep.Server -> "Dispatcharr: the address you open it at in a browser, for example 192.168.1.50:9191 (9191 is tried if you leave out the port). " +
-        "IPTV provider: the server address from your provider's welcome email (Xtream Codes / XC login)."
+        "No Dispatcharr? Type your IPTV provider's server address from their welcome email (Xtream Codes / XC login), or paste an M3U playlist link. " +
+        "Long links are easier from your phone (Set up on your phone)."
     SetupStep.SignIn -> if (state.xc) "That isn't a Dispatcharr server, so Viewarr will sign in to it as an IPTV provider (Xtream Codes). " +
         "Use the username and password from your provider. You'll get channels, the guide, catch-up and the provider's films and series; " +
         "recordings need Dispatcharr." else if (state.useKey) "Found Dispatcharr ${state.serverVersion} at ${state.serverUrl}. Enter your API key: in Dispatcharr, " +

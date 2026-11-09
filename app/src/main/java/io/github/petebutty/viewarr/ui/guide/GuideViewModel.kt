@@ -10,6 +10,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -74,7 +75,9 @@ class GuideViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            sessions.session.filterNotNull().distinctUntilChanged().collect { repo.syncIfStale(it) }
+            // collectLatest: a new source (another server, a playlist) cancels the old one's sync, which otherwise
+            // held the guide until it finished (its 45 MB guide) and the new one never showed until a rescan.
+            sessions.session.filterNotNull().distinctUntilChanged().collectLatest { repo.syncIfStale(it) }
         }
         viewModelScope.launch {
             repo.generation.collect {
@@ -172,6 +175,10 @@ class GuideViewModel @Inject constructor(
             onResult(hit)
         }
     }
+
+    /** Switching sources while watching: the new source's channels, and its last-watched channel. */
+    suspend fun channelsFor(session: io.github.petebutty.viewarr.data.session.Session) = repo.channelsFor(session)
+    fun lastChannelOfSource(): Int? = repo.lastChannel()
 
     suspend fun channelById(id: Int): ChannelListItem? = repo.observeChannels(null).first().firstOrNull { it.id == id }
 

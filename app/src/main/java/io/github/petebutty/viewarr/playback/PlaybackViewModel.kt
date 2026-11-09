@@ -78,7 +78,7 @@ class PlaybackViewModel @Inject constructor(
             // Providers' archives run a little behind: within ~45 s of now, just play live.
             if (time >= now - 45_000) { play(channel, s); return@launch }
             val program = programAt(channel, time) ?: run { play(channel, s); return@launch }
-            start(channel, program, s, catchupUrl(s, channel, program), (time - program.startTime).coerceAtLeast(0))
+            startCatchup(channel, program, s, time - program.startTime)
         }
     }
 
@@ -88,7 +88,7 @@ class PlaybackViewModel @Inject constructor(
         livePausedAt?.let { return now - it }
         val program = _catchup.value ?: return null
         if (program.endTime < now - 6 * 3_600_000L) return null
-        val at = program.startTime + (player?.currentPosition ?: 0)
+        val at = program.startTime + catchupOffset + (player?.currentPosition ?: 0)
         return (now - at).takeIf { it > 0 }
     }
 
@@ -98,7 +98,7 @@ class PlaybackViewModel @Inject constructor(
     data class LiveSource(val streamId: Int, val name: String, val provider: String, val current: Boolean)
 
     /** Live TV through Dispatcharr (not a provider login, not catch-up): sources and stream info are available. */
-    val dispatcharrLive get() = session?.isXc == false && _catchup.value == null
+    val dispatcharrLive get() = session?.isDirect == false && _catchup.value == null
 
     private val _sources = MutableStateFlow<List<LiveSource>?>(null)
     val sources = _sources.asStateFlow()
@@ -205,12 +205,36 @@ class PlaybackViewModel @Inject constructor(
 
     /** Live stream address: Dispatcharr's proxy, or the IPTV provider's own stream. */
     private fun liveUrl(s: Session, channel: ChannelListItem) =
-        if (s.isXc) xtream.liveUrl(s, channel.id) else "${s.serverUrl.trimEnd('/')}/proxy/ts/stream/${channel.uuid}"
+        when {
+            s.isXc -> xtream.liveUrl(s, channel.id)
+            s.isM3u -> channel.uuid // the playlist's own stream link
+            else -> "${s.serverUrl.trimEnd('/')}/proxy/ts/stream/${channel.uuid}"
+        }
 
-    private fun catchupUrl(s: Session, channel: ChannelListItem, program: GuideProgram): String {
-        val minutes = maxOf(1L, (program.endTime - program.startTime) / 60_000)
-        return if (s.isXc) xtream.catchupUrl(s, channel.id, program.startTime, minutes)
-        else "${s.serverUrl.trimEnd('/')}/proxy/catchup/${channel.uuid}?start=${program.startTime / 1000}&duration=$minutes"
+    /** Catch-up from [from] (a moment in [program]) to the programme's end. */
+    private fun catchupUrl(s: Session, channel: ChannelListItem, program: GuideProgram, from: Long = program.startTime): String {
+        val minutes = maxOf(1L, (program.endTime - from + 59_999) / 60_000)
+        return if (s.isXc) xtream.catchupUrl(s, channel.id, from, minutes)
+        else "${s.serverUrl.trimEnd('/')}/proxy/catchup/${channel.uuid}?start=${from / 1000}&duration=$minutes"
+    }
+
+    /**
+     * How far into the catch-up programme the current stream starts. Catch-up streams can't be seeked (the player
+     * ignored seeks, and fast-forward from the start went back to the beginning), so every jump asks the server for
+     * the stream from that moment, and positions are this plus the player's own.
+     */
+    private var catchupOffset = 0L
+    private var seekJob: Job? = null
+    private var seekTarget: Long? = null
+
+    private fun startCatchup(channel: ChannelListItem, program: GuideProgram, s: Session, offsetMs: Long) {
+        seekJob?.cancel(); seekTarget = null
+        val length = program.endTime - program.startTime
+        val wanted = program.startTime + offsetMs.coerceIn(0, maxOf(0, length - 30_000))
+        // Provider (Xtream) catch-up is by the minute; Dispatcharr's by the second.
+        val from = if (s.isXc) wanted - wanted % 60_000 else wanted - wanted % 1_000
+        catchupOffset = from - program.startTime
+        start(channel, program, s, catchupUrl(s, channel, program, from))
     }
 
     private var session: Session? = null
@@ -249,13 +273,18 @@ class PlaybackViewModel @Inject constructor(
             while (true) {
                 delay(500)
                 val p = player ?: continue
-                if (_catchup.value != null) _position.value = p.currentPosition to p.duration.coerceAtLeast(0)
+                val c = _catchup.value
+                if (c != null && seekTarget == null) _position.value = (catchupOffset + p.currentPosition) to (c.endTime - c.startTime)
             }
         }
     }
 
     var player: ExoPlayer? = null
         private set
+
+    /** Bumped when a new player replaces the old one (another source): the screen re-attaches. */
+    private val _playerVersion = MutableStateFlow(0)
+    val playerVersion = _playerVersion.asStateFlow()
 
     private fun ensurePlayer(session: Session): ExoPlayer {
         if (player != null && this.session == session) return player!!
@@ -265,6 +294,8 @@ class PlaybackViewModel @Inject constructor(
             p.playWhenReady = true
             attachListener(p)
             player = p
+            // The screen shows this one now (it kept the released player's last frame, with the new one's sound).
+            _playerVersion.value++
         }
     }
 
@@ -294,7 +325,7 @@ class PlaybackViewModel @Inject constructor(
             .setConnectTimeoutMs(10_000)
             .setReadTimeoutMs(20_000)
             // Optional for Dispatcharr's proxy, but attributes the stream to this user (limits, "who's watching").
-            .setDefaultRequestProperties(if (session.isXc) emptyMap() else mapOf("X-API-Key" to session.apiKey))
+            .setDefaultRequestProperties(if (session.isDirect) emptyMap() else mapOf("X-API-Key" to session.apiKey))
         val extractors = DefaultExtractorsFactory().setTsExtractorFlags(
             DefaultTsPayloadReaderFactory.FLAG_ALLOW_NON_IDR_KEYFRAMES or
                 DefaultTsPayloadReaderFactory.FLAG_DETECT_ACCESS_UNITS
@@ -368,7 +399,9 @@ class PlaybackViewModel @Inject constructor(
         if (_channel.value?.id != channel.id) { _sourceNote.value = null; _sources.value = null }
         start(channel, null, s, liveUrl(s, channel))
         viewModelScope.launch { runCatching { remoteStore.setLastChannel(channel.id) } }
-        if (!s.isXc) checkConnections(channel, s)
+        // Also per source, so switching back to a saved source carries on with its channel.
+        runCatching { guide.rememberChannel(channel.id) }
+        if (!s.isDirect) checkConnections(channel, s)
     }
 
     // ---------------------------------------------------------------- Dispatcharr: provider connections in use
@@ -429,7 +462,7 @@ class PlaybackViewModel @Inject constructor(
     fun playCatchup(channel: ChannelListItem, program: GuideProgram, session: Session? = this.session) {
         val s = session ?: return
         livePausedAt = null // a programme picked from the guide: not "behind" any earlier live pause
-        start(channel, program, s, catchupUrl(s, channel, program))
+        startCatchup(channel, program, s, 0)
     }
 
     private fun start(channel: ChannelListItem, program: GuideProgram?, s: Session, url: String, startAt: Long = 0) {
@@ -438,7 +471,8 @@ class PlaybackViewModel @Inject constructor(
         if (_channel.value?.id != channel.id || _catchup.value != program) retried = false
         _channel.value = channel
         _catchup.value = program
-        _position.value = startAt to 0L
+        if (program == null) catchupOffset = 0
+        _position.value = (if (program != null) catchupOffset else startAt) to (program?.let { it.endTime - it.startTime } ?: 0L)
         _paused.value = false
         _state.value = PlaybackState.Buffering
         p.setMediaItem(MediaItem.fromUri(url), startAt)
@@ -452,7 +486,7 @@ class PlaybackViewModel @Inject constructor(
         val program = _catchup.value
         if (program == null) play(channel, s)
         else {
-            start(channel, program, s, catchupUrl(s, channel, program), startAt)
+            startCatchup(channel, program, s, startAt)
         }
     }
 
@@ -472,13 +506,21 @@ class PlaybackViewModel @Inject constructor(
             return
         }
         val now = System.currentTimeMillis()
-        val atMs = program.startTime + p.currentPosition + deltaMs
+        // Repeated presses build on the last one's target; the stream is fetched once they stop.
+        val atMs = (seekTarget ?: (program.startTime + catchupOffset + p.currentPosition)) + deltaMs
         // Before this programme: the previous one; past what's been broadcast: back to live.
-        if (atMs < program.startTime && deltaMs < 0) { playFrom(channel, atMs); return }
-        if (program.endTime > now - 60_000 && atMs >= now - 45_000) { goLive(); return }
-        val target = (p.currentPosition + deltaMs).coerceAtLeast(0)
-        p.seekTo(if (p.duration > 0) target.coerceAtMost(p.duration - 1_000) else target)
-        _position.value = p.currentPosition to p.duration.coerceAtLeast(0)
+        if (atMs < program.startTime && deltaMs < 0) { seekJob?.cancel(); seekTarget = null; playFrom(channel, atMs); return }
+        if (program.endTime > now - 60_000 && atMs >= now - 45_000) { seekJob?.cancel(); seekTarget = null; goLive(); return }
+        if (atMs >= program.endTime - 5_000) { seekJob?.cancel(); seekTarget = null; playFrom(channel, program.endTime + 1_000); return }
+        seekTarget = atMs
+        _position.value = (atMs - program.startTime) to (program.endTime - program.startTime)
+        seekJob?.cancel()
+        seekJob = viewModelScope.launch {
+            delay(700)
+            val t = seekTarget ?: return@launch
+            val s = session ?: return@launch
+            startCatchup(channel, program, s, t - program.startTime)
+        }
     }
 
     /** Live, catch-up channels: plays from [time] (the rewind marker on the player menu's bar). */
@@ -490,11 +532,10 @@ class PlaybackViewModel @Inject constructor(
     }
 
     fun restartProgramme() {
-        val p = player ?: return
-        if (_catchup.value == null) return
-        p.seekTo(0)
-        if (!p.playWhenReady) togglePause()
-        _position.value = 0L to p.duration.coerceAtLeast(0)
+        val program = _catchup.value ?: return
+        val channel = _channel.value ?: return
+        val s = session ?: return
+        startCatchup(channel, program, s, 0)
     }
 
     fun selectTrack(option: TrackOption, type: Int) {
@@ -545,13 +586,19 @@ class PlaybackViewModel @Inject constructor(
     /** Releases the stream (and the provider connection) when the app goes to the background. */
     fun pause() {
         retryJob?.cancel()
-        player?.let { if (_catchup.value != null) _position.value = it.currentPosition to it.duration.coerceAtLeast(0) }
+        player?.let { p -> _catchup.value?.let { c -> _position.value = (catchupOffset + p.currentPosition) to (c.endTime - c.startTime) } }
         player?.stop()
     }
 
     /** Live resumes at the live edge; catch-up resumes where it was left. */
     fun resume() {
         restart(if (_catchup.value != null) _position.value.first else 0)
+    }
+
+    /** Live TV moved to another source: stop, and forget the last channel (its number was the old source's). */
+    fun forgetSource() {
+        stop()
+        viewModelScope.launch { runCatching { remoteStore.clearLastChannel() } }
     }
 
     fun stop() {

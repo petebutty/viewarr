@@ -1,7 +1,7 @@
 # Shown once, the first time a new version opens (not on a fresh install). Keep it to the few things worth knowing.
 # Lines starting with "- " are the points; the first line without "#" or "-" is the heading.
-Trakt sync, Watch from the start and new player controls
-- Your Trakt watched history now shows in Viewarr: ticks on everything you've watched, and Play / Resume picks up where you really are. Sync now in Accounts & sources → Trakt
-- Missed the start of something in the guide? Hold OK on it and choose Watch from the start to play it from your library or addons
-- Films and shows: OK brings up the seek bar and Audio, Subtitles and Media info buttons; Play/Pause on the remote pauses. The Info button shows the synopsis, and so does pausing
-- Catch-up channels: press OK, Up to the progress bar, and move back with Left to rewind
+Several Live TV sources, and M3U playlists
+- Save several Dispatcharr instances, IPTV logins or playlists, name them, and switch from the guide's menu or full screen (Up, Left, Left). The last three switch instantly
+- M3U playlists work as a Live TV source; for logins and playlists, Choose groups leaves out groups you never watch
+- Catch-up: rewinding to the start then fast-forwarding works, and Watch from the start shows the search when a title is ambiguous
+- The TV guide takes less space on the box

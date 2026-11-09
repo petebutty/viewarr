@@ -184,7 +184,7 @@ a.link.alt{background:transparent;border:1px solid var(--line);color:var(--text)
 
   function liveTv() {
     render(`<h1>Live TV</h1>
-      <div class="tabs"><button type="button" data-s="d" class="on">Dispatcharr</button><button type="button" data-s="x">IPTV provider</button></div>
+      <div class="tabs"><button type="button" data-s="d" class="on">Dispatcharr</button><button type="button" data-s="x">IPTV login</button><button type="button" data-s="m">M3U playlist</button></div>
       <form id="dform" autocomplete="off" novalidate>
         <div id="found"></div>
         <label class="f" for="server">Dispatcharr address</label><input type="text" id="server" inputmode="url" placeholder="192.168.1.50:9191" autocapitalize="off" spellcheck="false">
@@ -203,10 +203,19 @@ a.link.alt{background:transparent;border:1px solid var(--line);color:var(--text)
       </form>
       <div id="xcform" hidden>
         <form id="xc" autocomplete="off" novalidate>
-          <div class="note">The login from your provider's welcome email (often called <b>Xtream Codes</b> or <b>XC</b>). Recordings need Dispatcharr.</div>
+          <div class="note">No Dispatcharr? Use your IPTV provider directly: the login from their welcome email (often called <b>Xtream Codes</b> or <b>XC</b>). You get channels, the TV guide, catch-up and the provider's films and series. Recordings need Dispatcharr.</div>
           <label class="f" for="xserver">Server address</label><input type="text" id="xserver" inputmode="url" placeholder="http://provider.example:8080" autocapitalize="none" autocorrect="off" spellcheck="false">
           <label class="f" for="xuser">Username</label><input type="text" id="xuser" autocapitalize="none" autocorrect="off" spellcheck="false">
           <label class="f" for="xpass">Password</label><input type="password" id="xpass"><label class="show"><input type="checkbox" onchange="document.getElementById('xpass').type=this.checked?'text':'password'"> Show password</label>
+          ${nav('<button class="primary" type="submit">Connect</button>')}
+        </form>
+      </div>
+      <div id="m3uform" hidden>
+        <form id="m3u" autocomplete="off" novalidate>
+          <div class="note">The playlist link from your provider (it usually ends in <b>.m3u</b> or <b>.m3u8</b>, or has <b>get.php</b> in it). Live channels only; a get.php link with your username and password signs in as an IPTV login instead, which also gives catch-up and films &amp; series.</div>
+          <label class="f" for="mlist">Playlist link</label><input type="text" id="mlist" inputmode="url" placeholder="http://provider.example/playlist.m3u" autocapitalize="none" autocorrect="off" spellcheck="false">
+          <label class="f" for="mguide">TV guide link (XMLTV, optional)</label><input type="text" id="mguide" inputmode="url" placeholder="http://provider.example/epg.xml.gz" autocapitalize="none" autocorrect="off" spellcheck="false">
+          <div class="note">Leave the guide empty if the playlist includes its own (most do).</div>
           ${nav('<button class="primary" type="submit">Connect</button>')}
         </form>
       </div>`);
@@ -214,6 +223,7 @@ a.link.alt{background:transparent;border:1px solid var(--line);color:var(--text)
     view.querySelectorAll('[data-s]').forEach((b) => b.addEventListener('click', () => {
       view.querySelectorAll('[data-s]').forEach((x) => x.classList.toggle('on', x === b));
       view.querySelector('#xcform').hidden = b.dataset.s !== 'x';
+      view.querySelector('#m3uform').hidden = b.dataset.s !== 'm';
       view.querySelector('#dform').hidden = b.dataset.s !== 'd';
     }));
     view.querySelector('#xc').addEventListener('submit', async (ev) => {
@@ -223,6 +233,14 @@ a.link.alt{background:transparent;border:1px solid var(--line);color:var(--text)
       if (!values.server || !values.username || !values.password) return msg('Enter the server address, username and password from your provider.', 'err');
       busy(btn, true, 'Connecting…'); msg('');
       try { await saved(await api('livetv-xc', values)); } catch (err) { msg(err.message, 'err'); } finally { busy(btn, false); }
+    });
+    view.querySelector('#m3u').addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const btn = ev.submitter || view.querySelector('#m3u button[type=submit]');
+      const values = { playlist: view.querySelector('#mlist').value.trim(), guide: view.querySelector('#mguide').value.trim() };
+      if (!values.playlist) return msg('Enter your playlist link.', 'err');
+      busy(btn, true, 'Loading…'); msg('');
+      try { await saved(await api('livetv-m3u', values)); } catch (err) { msg(err.message, 'err'); } finally { busy(btn, false); }
     });
     let mode = 'key';
     // From the TV's username & password QR (?pw=1): open on that form; ?pw=xc opens the IPTV provider tab.

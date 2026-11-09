@@ -171,6 +171,10 @@ class RemoteStore @Inject constructor(@ApplicationContext private val context: C
         }
     }
 
+    suspend fun clearLastChannel() {
+        context.remoteStore.edit { it.remove(intPreferencesKey(LAST_CHANNEL)) }
+    }
+
     suspend fun setLastChannel(id: Int) {
         context.remoteStore.edit { it[intPreferencesKey(LAST_CHANNEL)] = id }
     }

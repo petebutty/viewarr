@@ -1,8 +1,6 @@
 package io.github.petebutty.viewarr.di
 
 import android.content.Context
-import androidx.room.Room
-import io.github.petebutty.viewarr.data.local.AppDatabase
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -32,10 +30,5 @@ object AppModule {
         .readTimeout(60, TimeUnit.SECONDS)
         .build()
 
-    @Provides
-    @Singleton
-    fun database(@ApplicationContext context: Context): AppDatabase =
-        Room.databaseBuilder(context, AppDatabase::class.java, "viewarr.db")
-            .fallbackToDestructiveMigration()
-            .build()
+    // The guide's databases (one per Live TV source): see GuideDatabases.
 }

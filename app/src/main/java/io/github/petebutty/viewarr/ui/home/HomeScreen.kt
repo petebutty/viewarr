@@ -194,6 +194,8 @@ fun HomeScreen(
     var osdVisible by remember { mutableStateOf(false) }
     // Several channels on screen at once (from the player menu).
     var multiView by remember { mutableStateOf(false) }
+    // A Menu press that's still a tap (not held for search).
+    var menuTap by remember { mutableStateOf(false) }
     // "Watch from the start" from the guide: search opens on the programme's title.
     var searchStart by remember { mutableStateOf<String?>(null) }
     val searchMedia: MediaViewModel = hiltViewModel(key = "media-search")
@@ -229,6 +231,17 @@ fun HomeScreen(
     fun showBanner() {
         bannerVisible = true
         bannerToken = System.nanoTime()
+    }
+
+    // Live TV moved to another source: what was playing belongs to the old one (its picture froze), so stop it.
+    var lastSource by remember { mutableStateOf(session?.id) }
+    LaunchedEffect(session?.id) {
+        val now = session?.id
+        val previous = lastSource
+        lastSource = now
+        if (previous == null || now == previous || session == null) return@LaunchedEffect
+        // What's playing carries on (full screen, or the guide's preview); the guide and channel list show the new
+        // source's channels, and only picking one changes the channel.
     }
 
     fun showOsd(audio: Boolean = false) {
@@ -611,7 +624,19 @@ fun HomeScreen(
                     .focusRequester(playerFocus)
                     .focusable(enabled = !osdVisible && !channelListOpen)
                     .onPreviewKeyEvent { e ->
-                        if (osdVisible || channelListOpen || e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                        if (osdVisible || channelListOpen) return@onPreviewKeyEvent false
+                        // Menu: a tap opens audio & subtitles when it's let go. Holding it is search (handled above),
+                        // so acting on the press opened audio as well.
+                        if (e.key == Key.Menu) {
+                            if (e.type == KeyEventType.KeyDown && e.nativeKeyEvent.repeatCount == 0) menuTap = true
+                            if (e.type == KeyEventType.KeyDown && e.nativeKeyEvent.repeatCount > 0) menuTap = false
+                            if (e.type == KeyEventType.KeyUp && menuTap) {
+                                menuTap = false
+                                if (playState is PlaybackState.Error) playback.retry() else showOsd(audio = true)
+                            }
+                            return@onPreviewKeyEvent true
+                        }
+                        if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                         when (e.key) {
                             Key.DirectionUp, Key.DirectionDown -> when (remote.zap) {
                                 ZapDirection.ChannelList -> channelListOpen = true
@@ -620,8 +645,6 @@ fun HomeScreen(
                             }
                             Key.ChannelDown -> zap(-1)
                             Key.ChannelUp -> zap(1)
-                            // Menu = audio & subtitles, as in the film players.
-                            Key.Menu -> if (playState is PlaybackState.Error) playback.retry() else showOsd(audio = true)
                             Key.DirectionCenter, Key.Enter, Key.NumPadEnter -> when {
                                 playState is PlaybackState.Error -> playback.retry()
                                 remote.playerOk == PlayerOk.Banner -> showBanner()
@@ -653,7 +676,8 @@ fun HomeScreen(
                     now = now,
                     onPick = { ch ->
                         channelListOpen = false
-                        if (ch.id != channel.id) {
+                        // Another channel, or the same number on another source (after switching source).
+                        if (ch.id != channel.id || ch.uuid != channel.uuid) {
                             playback.play(ch, session)
                             vm.selectChannel(ch.id)
                         }
@@ -1031,6 +1055,7 @@ private fun MenuOverlay(
         ) {
             when (section) {
                 Section.Tv -> GroupList(
+                    sourcesVm = hiltViewModel(),
                     focusRequester = groupsFocus,
                     groups = groups,
                     allCount = if (groupId == null) channels.size else null,
@@ -1171,11 +1196,34 @@ private fun MenuOverlay(
 }
 
 @Composable
-private fun GroupList(focusRequester: FocusRequester, groups: List<GroupWithCount>, allCount: Int?, selectedId: Int?, onSelect: (Int?) -> Unit) {
-    val selectedIndex = if (selectedId == null) 0 else groups.indexOfFirst { it.id == selectedId } + 1
+private fun GroupList(sourcesVm: io.github.petebutty.viewarr.ui.settings.LiveSourcesViewModel, focusRequester: FocusRequester, groups: List<GroupWithCount>, allCount: Int?, selectedId: Int?, onSelect: (Int?) -> Unit) {
+    // Several Live TV sources (Dispatcharr instances, IPTV logins, playlists): the active one heads the list; OK
+    // opens the others to switch to.
+    val saved by sourcesVm.saved.collectAsStateWithLifecycle()
+    val active by sourcesVm.active.collectAsStateWithLifecycle()
+    var sourcesOpen by remember { mutableStateOf(false) }
+    val showSources = saved.size > 1
+    val head = if (showSources) 1 + (if (sourcesOpen) saved.size - 1 else 0) else 0
+    val selectedIndex = head + (if (selectedId == null) 0 else groups.indexOfFirst { it.id == selectedId } + 1)
     val state = rememberLazyListState(initialFirstVisibleItemIndex = maxOf(0, selectedIndex - 3))
     val selectedFocus = focusRequester
     LazyColumn(state = state, verticalArrangement = Arrangement.spacedBy(1.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
+        if (showSources) {
+            item(key = "source") {
+                MenuItem(
+                    text = active?.label ?: "Live TV source",
+                    selected = false,
+                    trailing = if (sourcesOpen) "▴" else "Switch ▾",
+                    onClick = { sourcesOpen = !sourcesOpen },
+                )
+            }
+            if (sourcesOpen) items(saved.filter { it.id != active?.id }, key = { "src:" + it.id }) { s ->
+                MenuItem(
+                    text = "   " + s.label, selected = false, dim = true,
+                    onClick = { sourcesOpen = false; sourcesVm.switchTo(s); onSelect(null) },
+                )
+            }
+        }
         item(key = "all") {
             GroupItem(
                 name = "All channels",
@@ -1246,11 +1294,11 @@ private fun SettingsPanel(playbackItem: FocusRequester, onPlayback: () -> Unit, 
         SettingsGroup("Watching")
         MenuItem(text = "Playback", selected = false, onClick = onPlayback, modifier = Modifier.focusRequester(playbackItem).rightDoes(onPlayback))
         SettingsGroup("Live TV")
-        if (session != null && !session.isXc) MenuItem(text = "Dispatcharr plugins", selected = false, onClick = onPlugins, modifier = Modifier.focusRequester(pluginsItem).rightDoes(onPlugins))
+        if (session != null && !session.isDirect) MenuItem(text = "Dispatcharr plugins", selected = false, onClick = onPlugins, modifier = Modifier.focusRequester(pluginsItem).rightDoes(onPlugins))
         MenuItem(text = "Refresh channels & guide", selected = false, onClick = onRefresh, modifier = Modifier.rightIgnored())
         SettingsGroup("This TV")
         // Viewarr's setup kept on the Dispatcharr server (Dispatcharr sign-ins only).
-        if (session != null && !session.isXc) io.github.petebutty.viewarr.ui.sync.BackupSyncItem()
+        if (session != null && !session.isDirect) io.github.petebutty.viewarr.ui.sync.BackupSyncItem()
         MenuItem(text = "Updates", selected = false, onClick = onUpdates, modifier = Modifier.focusRequester(updatesItem).rightDoes(onUpdates))
         var confirmUntil by remember { mutableLongStateOf(0L) }
         LaunchedEffect(confirmUntil) {
@@ -1292,6 +1340,8 @@ private fun SearchPage(
     startQuery: String? = null,
 ) {
     var fieldFocused by remember { mutableStateOf(false) }
+    // Typing in the box (else read-only: no keyboard just for focus passing through).
+    var typing by remember { mutableStateOf(openKeyboard) }
     val searchScope = androidx.compose.runtime.rememberCoroutineScope()
     val media: MediaViewModel = hiltViewModel(key = "media-search")
     var query by rememberSaveable { mutableStateOf(startQuery ?: "") }
@@ -1473,6 +1523,10 @@ private fun SearchPage(
                     singleLine = true,
                     cursorBrush = androidx.compose.ui.graphics.SolidColor(AppColors.Accent),
                     textStyle = androidx.compose.ui.text.TextStyle(fontSize = 15.sp, color = AppColors.TextPrimary),
+                    // The keyboard only when asked for (OK on the box, or search opened with the search button): focus
+                    // passing through the box as pages close (a title opened from the guide, then Back) made it flash.
+                    // A read-only box never brings it up, so the box is read-only until OK.
+                    readOnly = !typing,
                     keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Search),
                     keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = {
                         keyboard?.hide()
@@ -1483,13 +1537,20 @@ private fun SearchPage(
                         .height(44.dp)
                         .focusRequester(fieldFocus)
                         .focusProperties { canFocus = fieldFree && focusEnabled }
-                        .onFocusChanged { fieldFocused = it.isFocused; if (!it.isFocused) keyboard?.hide() }
+                        .onFocusChanged { fieldFocused = it.isFocused; if (!it.isFocused) { typing = false; keyboard?.hide() } }
                         // The text box would keep the remote: Down always leaves it for the results.
                         .onPreviewKeyEvent { e ->
                             // Left in an empty box: the mic if there is one, else the menu (with text, Left moves the cursor).
                             if (e.key == Key.DirectionLeft && query.isEmpty()) {
                                 if (canVoice) return@onPreviewKeyEvent false
                                 if (e.type == KeyEventType.KeyDown) onOpenMenu()
+                                return@onPreviewKeyEvent true
+                            }
+                            if (!typing && (e.key == Key.DirectionCenter || e.key == Key.Enter || e.key == Key.NumPadEnter)) {
+                                if (e.type == KeyEventType.KeyUp) {
+                                    typing = true
+                                    searchScope.launch { kotlinx.coroutines.android.awaitFrame(); keyboard?.show() }
+                                }
                                 return@onPreviewKeyEvent true
                             }
                             if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionDown) {
@@ -1610,11 +1671,18 @@ private fun ChannelListOverlay(
     val groupId by vm.groupId.collectAsStateWithLifecycle()
     var showGroups by remember { mutableStateOf(false) }
     val groupFocus = remember { FocusRequester() }
+    // One more Left from the groups: your Live TV sources (several Dispatcharr instances, logins, playlists).
+    val sourcesVm: io.github.petebutty.viewarr.ui.settings.LiveSourcesViewModel = hiltViewModel()
+    val savedSources by sourcesVm.saved.collectAsStateWithLifecycle()
+    val activeSource by sourcesVm.active.collectAsStateWithLifecycle()
+    var showSources by remember { mutableStateOf(false) }
+    val sourceFocus = remember { FocusRequester() }
+    LaunchedEffect(showSources) { if (showSources) { awaitFrame(); runCatching { sourceFocus.requestFocus() } } else if (showGroups) { awaitFrame(); runCatching { groupFocus.requestFocus() } } }
     val start = channels.indexOfFirst { it.id == current.id }.coerceAtLeast(0)
     val listState = rememberLazyListState(initialFirstVisibleItemIndex = maxOf(0, start - 4))
     val focus = remember { FocusRequester() }
     var activity by remember { mutableLongStateOf(System.nanoTime()) }
-    BackHandler { if (epgFor != null) epgFor = null else if (showGroups) showGroups = false else onClose() }
+    BackHandler { if (epgFor != null) epgFor = null else if (showSources) showSources = false else if (showGroups) showGroups = false else onClose() }
     // Focus: the current channel (or the first one after a group change), or the selected group.
     var groupSeen by remember { mutableStateOf(groupId) }
     LaunchedEffect(showGroups, groupId) {
@@ -1644,6 +1712,9 @@ private fun ChannelListOverlay(
             e.key == Key.DirectionRight && !showGroups -> { focusedCh?.let { epgFor = it }; true }
             // Left from the channels opens the groups; Right (or Back) from the groups returns.
             e.key == Key.DirectionLeft && !showGroups -> { showGroups = true; true }
+            e.key == Key.DirectionLeft && showGroups && !showSources && savedSources.size > 1 -> { showSources = true; true }
+            e.key == Key.DirectionLeft && showSources -> true
+            e.key == Key.DirectionRight && showSources -> { showSources = false; true }
             e.key == Key.DirectionRight && showGroups -> { showGroups = false; true }
             else -> false
         }
@@ -1654,6 +1725,22 @@ private fun ChannelListOverlay(
     fun preview(id: Int?) {
         previewJob?.cancel()
         previewJob = previewScope.launch { delay(250); if (vm.groupId.value != id) vm.selectGroup(id) }
+    }
+    if (showSources) io.github.petebutty.viewarr.ui.common.GrowFromLeft(300.dp) {
+        Box(Modifier.fillMaxHeight().width(300.dp).background(AppColors.Panel.copy(alpha = 0.95f)).padding(16.dp)) {
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                item { Text("Sources", fontSize = 13.sp, color = AppColors.Accent, modifier = Modifier.padding(start = 12.dp, bottom = 6.dp)) }
+                items(savedSources, key = { "src:" + it.id }) { src ->
+                    val on = src.id == activeSource?.id
+                    MenuItem(
+                        text = src.label, selected = on, trailing = if (on) "✓" else null,
+                        modifier = if (on) Modifier.focusRequester(sourceFocus) else Modifier,
+                        // The list stays open on the new source's groups, to pick a channel there.
+                        onClick = { if (!on) { sourcesVm.switchTo(src); vm.selectGroup(null) }; showSources = false },
+                    )
+                }
+            }
+        }
     }
     if (showGroups) io.github.petebutty.viewarr.ui.common.GrowFromLeft(280.dp) {
         Box(Modifier.fillMaxHeight().width(280.dp).background(AppColors.Panel.copy(alpha = 0.92f)).padding(16.dp)) {

@@ -128,7 +128,7 @@ class SettingsSync @Inject constructor(
         started = true
         scope.launch {
             sessions.session.filterNotNull().map { it }.distinctUntilChanged { a, b -> a.serverUrl == b.serverUrl && a.username == b.username && a.apiKey == b.apiKey }
-                .collect { s -> if (!s.isXc) runCatching { onSignedIn(s) }.onFailure { Log.w(TAG, "sync check failed", it) } }
+                .collect { s -> if (!s.isDirect) runCatching { onSignedIn(s) }.onFailure { Log.w(TAG, "sync check failed", it) } }
         }
         scope.launch {
             val changes: List<Flow<Any?>> = stores.values.map { it.data } + listOf(accounts.accounts, context.syncStore.data, accounts.setupComplete)
@@ -171,7 +171,7 @@ class SettingsSync @Inject constructor(
 
     /** Settings → "Restore from Dispatcharr": reads the saved copy now and offers it. */
     suspend fun checkNow(): String {
-        val s = sessions.session.first()?.takeIf { !it.isXc } ?: return "Sign in to Dispatcharr first."
+        val s = sessions.session.first()?.takeIf { !it.isDirect } ?: return "Sign in to Dispatcharr first."
         val copy = runCatching { fetch(s) }.getOrNull() ?: return "Nothing saved on Dispatcharr yet."
         pending = copy
         _offer.value = offerOf(copy)
@@ -221,7 +221,7 @@ class SettingsSync @Inject constructor(
         if (currentMode() != SyncMode.On || _offer.value != null) return@withLock
         // Never save a half-set-up TV over a good copy (e.g. right after signing out and back in).
         if (accounts.setupComplete.first() == false) return@withLock
-        val s = sessions.session.first()?.takeIf { !it.isXc } ?: return@withLock
+        val s = sessions.session.first()?.takeIf { !it.isDirect } ?: return@withLock
         val signIns = context.syncStore.data.first()[SIGN_INS] ?: true
         val prefs = exportPrefs()
         val acct = if (signIns) accountsJson() else null

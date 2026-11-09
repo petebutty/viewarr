@@ -42,14 +42,14 @@ enum class SetupMode { FirstRun, Manage }
 enum class SetupStep { Phone, Welcome, Choose, Server, SignIn, Tmdb, Trakt, Plex, Stremio, Jellyfin, Emby, Vod, Seerr, Mdblist, Done }
 
 enum class SetupItem(val id: String, val label: String, val description: String, val steps: List<SetupStep>) {
-    LiveTv("livetv", "Live TV", "Dispatcharr or an IPTV provider: channels, TV guide and catch-up (recordings with Dispatcharr)", listOf(SetupStep.Server, SetupStep.SignIn)),
+    LiveTv("livetv", "Live TV", "Dispatcharr, an IPTV login (Xtream Codes) or an M3U playlist: channels, TV guide and catch-up (recordings with Dispatcharr)", listOf(SetupStep.Server, SetupStep.SignIn)),
     Tmdb("tmdb", "TMDB", "Posters, descriptions and discovery for Movies & Shows", listOf(SetupStep.Tmdb)),
     Trakt("trakt", "Trakt", "Watchlist, history, recommendations and continue watching", listOf(SetupStep.Trakt)),
     Plex("plex", "Plex", "Play films and shows from your Plex library", listOf(SetupStep.Plex)),
     Stremio("stremio", "Stremio addons", "Streams from addons such as AIOStreams", listOf(SetupStep.Stremio)),
     Jellyfin("jellyfin", "Jellyfin", "Play from a Jellyfin server", listOf(SetupStep.Jellyfin)),
     Emby("emby", "Emby", "Play from an Emby server", listOf(SetupStep.Emby)),
-    Vod("vod", "Provider VOD", "Films and series from your IPTV provider, via Dispatcharr", listOf(SetupStep.Vod)),
+    Vod("vod", "Provider VOD", "Films and series from your IPTV provider, through Dispatcharr (an IPTV login includes them already)", listOf(SetupStep.Vod)),
     Seerr("seerr", "Seerr", "Request films and shows to keep (Overseerr / Jellyseerr)", listOf(SetupStep.Seerr)),
     Mdblist("mdblist", "MDBList ratings", "IMDb, Rotten Tomatoes, Metacritic and Letterboxd ratings on every title (free key)", listOf(SetupStep.Mdblist)),
 }
@@ -249,9 +249,10 @@ class SetupViewModel @Inject constructor(
                 if (found.isEmpty()) {
                     _state.update { it.copy(info = "Couldn't find Dispatcharr automatically. Type its address, or your IPTV provider's.") }
                 } else if (_state.value.serverInput.isBlank()) {
-                    // Found it: no typing needed, go straight to sign-in (Back returns here to change the address).
-                    _state.update { it.copy(serverInput = found.first().url.removePrefix("http://"), info = null) }
-                    checkServer()
+                    // Found it: filled in, but you press Continue (with several Dispatcharr instances the one found may
+                    // be the one you already have: change the address first).
+                    val more = if (found.size > 1) " (and ${found.size - 1} more: ${found.drop(1).joinToString(", ") { it.url.removePrefix("http://") }})" else ""
+                    _state.update { it.copy(serverInput = found.first().url.removePrefix("http://"), info = "Found Dispatcharr at ${found.first().url.removePrefix("http://")}$more. Press Continue, or change the address first.") }
                 }
             }
             else -> Unit
@@ -506,6 +507,14 @@ class SetupViewModel @Inject constructor(
     }
 
     private fun checkServer() = work {
+        // A playlist link (M3U, or a provider's get.php link): signs in with it straight away, nothing else to ask.
+        val typed = _state.value.serverInput.trim()
+        if (auth.looksLikePlaylist(typed)) {
+            auth.signInM3u(typed, null)
+                .onSuccess { queue = queue.toMutableList().apply { remove(SetupStep.SignIn) }; _state.update { it.copy(busy = false) }; advance() }
+                .onFailure { e -> fail(e.message ?: "Couldn't load that playlist.") }
+            return@work
+        }
         when (val result = auth.probe(_state.value.serverInput)) {
             is ProbeResult.Found -> {
                 _state.update { it.copy(busy = false, serverUrl = result.url, serverVersion = result.version, xc = false) }
@@ -613,6 +622,13 @@ class SetupViewModel @Inject constructor(
                         found.forEach { f -> add(buildJsonObject { put("url", f.url); put("version", f.version) }) }
                     }
                 }
+            }
+            "livetv-m3u" -> {
+                activity("Loading your playlist…")
+                auth.signInM3u(v["playlist"].orEmpty(), v["guide"]).fold(
+                    onSuccess = { s -> activity(if (s.isM3u) "Live TV: playlist loaded" else "Live TV: signed in to your provider as ${s.username}"); reply(true, if (s.isM3u) "Playlist loaded." else "That's an Xtream Codes login: signed in to your provider as ${s.username}.") },
+                    onFailure = { e -> activity("Playlist didn't load"); reply(false, e.message ?: "Couldn't load that playlist.") },
+                )
             }
             "livetv-xc" -> {
                 activity("Signing in to your IPTV provider…")
@@ -858,7 +874,7 @@ class SetupViewModel @Inject constructor(
 
 /** What's connected for one item, or null. Shared by the TV screens and the phone page. */
 fun statusText(item: SetupItem, a: Accounts, session: io.github.petebutty.viewarr.data.session.Session?): String? = when (item) {
-    SetupItem.LiveTv -> session?.let { "Signed in as ${it.username}" }
+    SetupItem.LiveTv -> session?.let { when { it.isM3u -> "M3U playlist (${it.username})"; it.isXc -> "IPTV login: ${it.username}"; else -> "Dispatcharr: ${it.username}" } }
     SetupItem.Tmdb -> a.tmdbKey?.let { "Connected" }
     SetupItem.Trakt -> a.trakt?.let { "Signed in as ${it.username}" }
     SetupItem.Plex -> a.plex?.let { "Connected to ${it.serverName}" + if (a.plexMore.isNotEmpty()) " + ${a.plexMore.joinToString { m -> m.serverName }}" else "" }

@@ -76,6 +76,7 @@ fun VodPlayer(
     // Audio & subtitles opened from the Subtitles button: start on the subtitles.
     var tracksSubs by remember { mutableStateOf(false) }
     val menu = remember { PlayerMenu() }
+    var menuTap by remember { mutableStateOf(false) }
     // What's playing (poster, synopsis): the Info button, the Details button, or a moment after pausing.
     var detailsOn by remember { mutableStateOf(false) }
     var pausedLong by remember { mutableStateOf(false) }
@@ -317,6 +318,12 @@ fun VodPlayer(
                     }
                     return@onPreviewKeyEvent true
                 }
+                // Menu: audio & subtitles on a tap, when it's let go (holding Menu is search).
+                if (e.key == Key.Menu) {
+                    if (e.type == KeyEventType.KeyDown) menuTap = e.nativeKeyEvent.repeatCount == 0
+                    else if (menuTap) { menuTap = false; tracksSubs = false; tracksOpen = true }
+                    return@onPreviewKeyEvent true
+                }
                 if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 when (e.key) {
                     Key.DirectionLeft, Key.MediaRewind -> { player.seekTo(maxOf(0, player.currentPosition - seekMs)); showOsd() }
@@ -325,7 +332,6 @@ fun VodPlayer(
                     Key.DirectionUp -> showOsd()
                     Key.Info -> detailsOn = !detailsOn
                     Key.MediaPlayPause, Key.MediaPlay, Key.MediaPause -> { player.playWhenReady = !player.playWhenReady; showOsd() }
-                    Key.Menu -> tracksOpen = true
                     else -> return@onPreviewKeyEvent false
                 }
                 true

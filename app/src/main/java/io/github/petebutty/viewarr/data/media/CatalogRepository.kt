@@ -372,25 +372,24 @@ class CatalogRepository @Inject constructor(
         val clean = title.removePrefix("New: ").trim()
         // Guides abbreviate ("Pt1" for "Part 1") and punctuate differently: compare letters and numbers only.
         fun norm(t: String) = t.lowercase().replace("&", "and").replace(Regex("\\bpart\\s*"), "pt").replace(Regex("[^a-z0-9]"), "")
-        val want = norm(clean)
-        val order = if (show) listOf(MediaType.Show, MediaType.Movie) else listOf(MediaType.Movie, MediaType.Show)
-        for (type in order) {
-            val row = runCatching { tmdbSearch(key, type, clean.replace(Regex("\\bPt\\s*(\\d)"), "Part $1")) }.getOrNull() ?: continue
-            row.items.firstOrNull { norm(it.title) == want && (year == null || it.year == null || it.year == year) }?.let { return it }
-            // Not word for word, but the guide gave the year: the best match from that year with a similar title.
-            if (year != null) row.items.firstOrNull { it.year == year && (norm(it.title).startsWith(want.take(10)) || want.startsWith(norm(it.title).take(10))) }?.let { return it }
+        val types = if (show) listOf(MediaType.Show) else listOf(MediaType.Movie, MediaType.Show)
+        /**
+         * Only a sure match opens by itself: the one title with this name (a show, when the guide gives a season or
+         * episode; the year, when it gives one). Several with the same name ("Adultery" is a film and two shows):
+         * null, and search shows them all to pick from.
+         */
+        suspend fun sure(q: String): MediaItem? {
+            val w = norm(q)
+            val exact = types.flatMap { t -> runCatching { tmdbSearch(key, t, q.replace(Regex("\\bPt\\s*(\\d)"), "Part $1")) }.getOrNull()?.items.orEmpty() }
+                .filter { norm(it.title) == w }
+            val narrowed = if (year != null) exact.filter { it.year == year }.ifEmpty { exact.filter { it.year == null } } else exact
+            return narrowed.singleOrNull()
         }
+        sure(clean)?.let { return it }
         // Guides add an episode or special's name to the title ("Only Fools and Horses To Hull and Back"): drop words
-        // from the end until a show (or film) matches exactly, keeping at least two.
+        // from the end until one title matches surely, keeping at least two words.
         val words = clean.split(' ').filter { it.isNotBlank() }
-        for (n in words.size - 1 downTo 2) {
-            val shorter = words.take(n).joinToString(" ")
-            val w = norm(shorter)
-            for (type in order) {
-                val row = runCatching { tmdbSearch(key, type, shorter) }.getOrNull() ?: continue
-                row.items.firstOrNull { norm(it.title) == w }?.let { return it }
-            }
-        }
+        for (n in words.size - 1 downTo 2) sure(words.take(n).joinToString(" "))?.let { return it }
         return null
     }
 
@@ -1822,6 +1821,7 @@ class CatalogRepository @Inject constructor(
     private suspend fun xcSession(): io.github.petebutty.viewarr.data.session.Session? {
         val s = sessions.session.first() ?: return null
         if (s.isXc) return s
+        if (s.isM3u) return null
         if (!store.current().vodEnabled) return null
         val id = "${s.serverUrl}|${s.username}|${s.apiKey}"
         dispatcharrXc?.takeIf { it.first == id }?.let { return it.second }
@@ -1839,7 +1839,7 @@ class CatalogRepository @Inject constructor(
     // holds the whole list (20,000+ films froze the box when it was fetched in one go over XC).
 
     /** The Dispatcharr sign-in, when films and series come from Dispatcharr (Provider VOD on). */
-    private suspend fun dispatcharrVod() = sessions.session.first()?.takeIf { !it.isXc && store.current().vodEnabled }
+    private suspend fun dispatcharrVod() = sessions.session.first()?.takeIf { !it.isDirect && store.current().vodEnabled }
 
     private suspend fun dvodGet(path: String, params: Map<String, String>): JsonElement? {
         val s = dispatcharrVod() ?: return null
