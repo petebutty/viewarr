@@ -132,6 +132,44 @@ class JellyfinMusicSource private constructor(
         val songs = get("$u/Items?$q&IncludeItemTypes=Audio&Recursive=true").array("Items").map(::song)
         return MusicSearchResult(artists, albums, songs)
     }
+    // ---- The Albums grid
+
+    override suspend fun albumOptions() = listOf(
+        io.github.petebutty.viewarr.data.media.SortOption("title", "Title", false), io.github.petebutty.viewarr.data.media.SortOption("artist", "Artist", false),
+        io.github.petebutty.viewarr.data.media.SortOption("added", "Date added"), io.github.petebutty.viewarr.data.media.SortOption("played", "Recently played"),
+        io.github.petebutty.viewarr.data.media.SortOption("plays", "Most played"), io.github.petebutty.viewarr.data.media.SortOption("year", "Year"),
+        io.github.petebutty.viewarr.data.media.SortOption("jf.CommunityRating", "Rating"), io.github.petebutty.viewarr.data.media.SortOption("random", "Random"),
+    ) to listOf(
+        io.github.petebutty.viewarr.data.media.FilterGroup("favourites", "Favourites", toggle = true),
+        io.github.petebutty.viewarr.data.media.FilterGroup("genre", "Genre"),
+        io.github.petebutty.viewarr.data.media.FilterGroup("decade", "Decade"),
+    )
+
+    override suspend fun albumFilterValues(group: String) = when (group) {
+        "genre" -> genres().map { (g, _) -> io.github.petebutty.viewarr.data.media.FilterValue(g, g) }
+        "decade" -> decades()
+        else -> emptyList()
+    }
+
+    override suspend fun browseAlbums(q: io.github.petebutty.viewarr.data.media.LibraryQuery, size: Int, offset: Int): List<Album> {
+        val by = when (q.sort) {
+            "artist" -> "AlbumArtist,SortName"; "added" -> "DateCreated"; "played" -> "DatePlayed"; "plays" -> "PlayCount"
+            "year" -> "ProductionYear,SortName"; "random" -> "Random"; "jf.CommunityRating" -> "CommunityRating,SortName"; else -> "SortName"
+        }
+        val parts = arrayListOf("IncludeItemTypes=MusicAlbum", "SortBy=$by", "SortOrder=" + if (q.desc) "Descending" else "Ascending")
+        q.filters["genre"]?.takeIf { it.isNotEmpty() }?.let { vs ->
+            if (genreIds.isEmpty()) genres()
+            val ids = vs.mapNotNull { genreIds[MusicLibrary.norm(it.label)] }
+            if (ids.isEmpty()) return emptyList()
+            parts += "GenreIds=" + ids.joinToString("|")
+        }
+        q.filters["decade"]?.takeIf { it.isNotEmpty() }?.let { vs ->
+            parts += "Years=" + vs.flatMap { v -> v.id.toIntOrNull()?.let { d -> (d..d + 9).toList() }.orEmpty() }.joinToString(",")
+        }
+        if ("favourites" in q.toggles) parts += "Filters=IsFavorite"
+        return items(parts.joinToString("&"), size, offset).map(::album)
+    }
+
     override suspend fun scrobble(songId: String, submission: Boolean) {
         if (submission) runCatching { http.post("$u/PlayedItems/${localId(songId)}", null, headers) }
     }

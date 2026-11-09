@@ -80,6 +80,8 @@ class MediaViewModel @Inject constructor(
     private val seerr: io.github.petebutty.viewarr.data.remote.services.SeerrService,
     /** Settings → Appearance → Title pages / Ratings: parts switched off aren't fetched. */
     private val themeStore: io.github.petebutty.viewarr.data.settings.ThemeStore,
+    /** Each library's sort and filters (per profile). */
+    private val libraryViews: io.github.petebutty.viewarr.data.media.LibraryViews,
 ) : ViewModel() {
     /** Seerr: where this title stands (null = Seerr not set up, or the title has no TMDB id). */
     suspend fun seerrStatus(item: MediaItem): io.github.petebutty.viewarr.data.remote.services.SeerrService.Status? {
@@ -431,27 +433,34 @@ class MediaViewModel @Inject constructor(
 
     // ---- Browsing a whole library (menu → Movies / Shows → a library), one page at a time
 
-    /** A library being browsed: one page of it (so the box only ever holds [LIBRARY_PAGE] titles), sorted. */
+    /**
+     * A library being browsed: one continuous grid of [total] titles, of which only the stretches near where you
+     * are ([pages] of [LIBRARY_PAGE]) are held, so a big library stays light on a weak box and A–Z can jump anywhere.
+     */
     data class LibraryBrowse(
         val library: io.github.petebutty.viewarr.data.media.MediaLibrary,
         val type: MediaType,
-        val sort: io.github.petebutty.viewarr.data.media.LibrarySort,
-        val page: Int = 0,
-        val items: List<MediaItem> = emptyList(),
+        val query: io.github.petebutty.viewarr.data.media.LibraryQuery,
+        val options: io.github.petebutty.viewarr.data.media.LibraryOptions? = null,
         val total: Int = -1,
-        val loading: Boolean = true,
+        val pages: Map<Int, List<MediaItem>> = emptyMap(),
         val failed: Boolean = false,
-        /** Search within the library ("" = everything). */
-        val query: String = "",
-        /** Genre filter (server id to name), and unwatched only. */
-        val genre: Pair<String, String>? = null,
-        val unwatched: Boolean = false,
-        /** A–Z jump: the title on this page to focus (the first with that letter). */
-        val focusIndex: Int? = null,
+        /** Where each first letter starts (sorted by title), when the server can say. */
+        val letters: Map<Char, Int>? = null,
+        /** Each filter's choices once looked up (null while loading). */
+        val values: Map<String, List<io.github.petebutty.viewarr.data.media.FilterValue>?> = emptyMap(),
+        /** A–Z jump: the position to go to (and focus). */
+        val jump: Int? = null,
+        /** Changes whenever the sort, filters or search change: the grid starts again from the top. */
+        val version: Int = 0,
     ) {
-        val filtered get() = query.isNotBlank() || genre != null || unwatched
-        val pages get() = if (total <= 0) 1 else (total + LIBRARY_PAGE - 1) / LIBRARY_PAGE
-        val hasNext get() = page + 1 < pages
+        fun item(i: Int): MediaItem? = pages[i / LIBRARY_PAGE]?.getOrNull(i % LIBRARY_PAGE)
+        val items: List<MediaItem> get() = pages.keys.sorted().flatMap { pages.getValue(it) }
+        val filtered get() = query.filtered
+        /** The A–Z strip: sorted by title, A first, where the server can find a letter. */
+        val byTitle get() = options?.let { o -> query.sort == o.titleSort && !query.desc && library.source != io.github.petebutty.viewarr.data.media.PROVIDER_LIBRARY } == true
+        /** The A–Z strip is there whatever the sort (picking a letter sorts by title); not for IPTV lists. */
+        val canLetters get() = options?.letters == true && library.source != io.github.petebutty.viewarr.data.media.PROVIDER_LIBRARY
     }
 
     private val _libraries = MutableStateFlow<List<io.github.petebutty.viewarr.data.media.MediaLibrary>?>(null)
@@ -486,99 +495,159 @@ class MediaViewModel @Inject constructor(
     private val _browse = MutableStateFlow<LibraryBrowse?>(null)
     val browse = _browse.asStateFlow()
     private var browseJob: kotlinx.coroutines.Job? = null
+    private val pageJobs = HashMap<Int, kotlinx.coroutines.Job>()
+    /** The last title focused in the open library (to come back to it), per [LibraryBrowse.version]. */
+    var lastIndex = 0
+    private var lastIndexVersion = -1
+    fun setLastIndex(version: Int, i: Int) { lastIndex = i; lastIndexVersion = version }
+    fun lastIndexFor(version: Int) = if (lastIndexVersion == version) lastIndex else null
 
-    /** Opens a library on its first page, or (null) goes back to the page's rows. */
+    /** Opens a library as you last left it (its sort and filters), or (null) goes back to the page's rows. */
     fun openLibrary(library: io.github.petebutty.viewarr.data.media.MediaLibrary?, type: MediaType) {
-        browseJob?.cancel()
-        queryJob?.cancel()
+        browseJob?.cancel(); queryJob?.cancel(); pageJobs.values.forEach { it.cancel() }; pageJobs.clear()
         if (library == null) { _browse.value = null; return }
-        // How you last left this library (sort, genre, unwatched), kept across restarts.
-        val saved = viewPrefs.getString(library.key, null)?.split('\u0001')
-        val sort = saved?.getOrNull(0)?.let { n -> io.github.petebutty.viewarr.data.media.LibrarySort.entries.firstOrNull { it.name == n } }
-            ?: io.github.petebutty.viewarr.data.media.LibrarySort.Released
-        val genre = saved?.getOrNull(1)?.takeIf { it.isNotEmpty() }?.let { it to (saved.getOrNull(2) ?: it) }
-        val unwatched = saved?.getOrNull(3) == "1"
-        showLibraryPage(LibraryBrowse(library, type, sort, genre = genre, unwatched = unwatched), 0)
-    }
-
-    private val viewPrefs by lazy { appContext.getSharedPreferences("library_view", android.content.Context.MODE_PRIVATE) }
-    private fun saveView(b: LibraryBrowse) {
-        viewPrefs.edit().putString(b.library.key, listOf(b.sort.name, b.genre?.first.orEmpty(), b.genre?.second.orEmpty(), if (b.unwatched) "1" else "0").joinToString("\u0001")).apply()
-    }
-
-    fun setLibrarySort(sort: io.github.petebutty.viewarr.data.media.LibrarySort) {
-        val b = _browse.value ?: return
-        if (b.sort != sort) showLibraryPage(b.copy(sort = sort, total = -1), 0)
-    }
-
-    /** The open library's genres (null while loading). */
-    private val _genres = MutableStateFlow<List<Pair<String, String>>?>(null)
-    val genres = _genres.asStateFlow()
-    private var genresFor: String? = null
-    fun loadGenres() {
-        val b = _browse.value ?: return
-        if (genresFor == b.library.key && _genres.value != null) return
-        genresFor = b.library.key
-        _genres.value = null
-        viewModelScope.launch {
-            val got = runCatching { repo.libraryGenres(b.library, b.type) }.getOrDefault(emptyList())
-            if (genresFor == b.library.key) _genres.value = got
-        }
-    }
-    fun setLibraryGenre(g: Pair<String, String>?) {
-        val b = _browse.value ?: return
-        if (b.genre != g) showLibraryPage(b.copy(genre = g, total = -1), 0)
-    }
-    fun toggleUnwatched() {
-        val b = _browse.value ?: return
-        showLibraryPage(b.copy(unwatched = !b.unwatched, total = -1), 0)
-    }
-
-    private var queryJob: kotlinx.coroutines.Job? = null
-    /** Search this library: results a page at a time, as you type (short pause first). */
-    fun setLibraryQuery(q: String) {
-        val b = _browse.value ?: return
-        if (b.query == q) return
-        _browse.value = b.copy(query = q)
-        queryJob?.cancel()
-        queryJob = viewModelScope.launch {
-            kotlinx.coroutines.delay(450)
-            _browse.value?.let { showLibraryPage(it.copy(total = -1), 0) }
-        }
-    }
-
-    /** A–Z: to the first title starting with [letter] (sorting A–Z if it wasn't). */
-    fun jumpToLetter(letter: Char) {
-        val b = _browse.value ?: return
-        viewModelScope.launch {
-            val before = runCatching { repo.libraryLetterStart(b.library, b.type, letter, b.query, b.genre?.first, b.unwatched) }.getOrNull()
-            if (before == null) { _browse.update { it?.copy(failed = false) }; return@launch }
-            val total = if (b.total > 0) b.total else Int.MAX_VALUE
-            val at = before.coerceAtMost((total - 1).coerceAtLeast(0))
-            val sorted = b.copy(sort = io.github.petebutty.viewarr.data.media.LibrarySort.Title, total = if (b.sort == io.github.petebutty.viewarr.data.media.LibrarySort.Title) b.total else -1)
-            showLibraryPage(sorted.copy(focusIndex = at % LIBRARY_PAGE), at / LIBRARY_PAGE)
-        }
-    }
-
-    fun libraryPage(delta: Int) {
-        val b = _browse.value ?: return
-        val to = (b.page + delta).coerceIn(0, b.pages - 1)
-        if (to != b.page) showLibraryPage(b.copy(focusIndex = null), to)
-    }
-
-    private fun showLibraryPage(b: LibraryBrowse, page: Int) {
-        browseJob?.cancel()
-        _browse.value = b.copy(page = page, items = emptyList(), loading = true, failed = false)
-        saveView(b)
+        val saved = libraryViews.load(library.key)
+        val start = LibraryBrowse(library, type, saved ?: io.github.petebutty.viewarr.data.media.LibraryQuery("", true), version = nextVersion())
+        _browse.value = start
         browseJob = viewModelScope.launch {
-            val got = runCatching { repo.libraryPage(b.library, b.type, b.sort, page * LIBRARY_PAGE, LIBRARY_PAGE, b.query, b.genre?.first, b.unwatched) }.getOrNull()
+            val options = runCatching { repo.libraryOptions(library, type) }.getOrNull()
+                ?: io.github.petebutty.viewarr.data.media.LibraryOptions(emptyList(), emptyList(), false, "")
+            val ids = options.sorts.map { it.id }
+            // A saved sort this library no longer has (or none yet): newest releases first, as before.
+            val q = saved?.takeIf { it.sort in ids } ?: run {
+                val def = options.sorts.firstOrNull { it.id in setOf("originallyAvailableAt", "PremiereDate", "Released") } ?: options.sorts.firstOrNull()
+                io.github.petebutty.viewarr.data.media.LibraryQuery(def?.id ?: "", def?.descFirst ?: true)
+            }
+            if (_browse.value?.library?.key != library.key) return@launch
+            reload(start.copy(options = options, query = q))
+        }
+    }
+
+    private var versions = 0
+    private fun nextVersion() = ++versions
+
+    /** The sort, filters or search changed: from the top again. */
+    private fun reload(b: LibraryBrowse) {
+        pageJobs.values.forEach { it.cancel() }; pageJobs.clear()
+        val fresh = b.copy(total = -1, pages = emptyMap(), failed = false, letters = null, jump = null, version = nextVersion())
+        _browse.value = fresh
+        libraryViews.save(fresh.library.key, fresh.query)
+        loadPage(fresh, 0)
+        if (fresh.byTitle && fresh.options?.letters == true) viewModelScope.launch {
+            val idx = runCatching { repo.letterIndex(fresh.library, fresh.type, fresh.query) }
+                .onFailure { android.util.Log.w("Library", "letter index failed", it) }.getOrNull()
+            _browse.update { if (it?.version == fresh.version) it.copy(letters = idx) else it }
+        }
+    }
+
+    private fun loadPage(b: LibraryBrowse, page: Int) {
+        if (page in b.pages || pageJobs[page]?.isActive == true) return
+        if (b.total >= 0 && page * LIBRARY_PAGE >= b.total) return
+        pageJobs[page] = viewModelScope.launch {
+            val got = runCatching { repo.libraryPage(b.library, b.type, b.query, page * LIBRARY_PAGE, LIBRARY_PAGE) }.getOrNull()
             _browse.update { now ->
-                if (now == null || now.library.key != b.library.key || now.sort != b.sort || now.page != page || now.query != b.query || now.genre != b.genre || now.unwatched != b.unwatched) now
-                else if (got == null) now.copy(loading = false, failed = true)
-                else now.copy(items = got.first.distinctBy { it.key }, total = got.second, loading = false)
+                if (now == null || now.version != b.version) now
+                else if (got == null) (if (now.pages.isEmpty()) now.copy(failed = true, total = maxOf(now.total, 0)) else now)
+                else now.copy(pages = now.pages + (page to got.first), total = got.second, failed = false)
             }
         }
     }
+
+    /** The grid shows positions [first]..[last]: their stretches are loaded; ones far away are let go. */
+    fun ensureRange(first: Int, last: Int) {
+        val b = _browse.value ?: return
+        val p0 = (first / LIBRARY_PAGE - 1).coerceAtLeast(0)
+        val p1 = last / LIBRARY_PAGE + 1
+        for (p in p0..p1) loadPage(b, p)
+        val far = b.pages.keys.filter { it < p0 - 4 || it > p1 + 4 }
+        if (far.isNotEmpty()) _browse.update { if (it?.version == b.version) it.copy(pages = it.pages - far.toSet()) else it }
+    }
+
+    /** A sort picked: the same one again turns it round. */
+    fun setLibrarySort(id: String) {
+        val b = _browse.value ?: return
+        val o = b.options ?: return
+        val opt = o.sorts.firstOrNull { it.id == id } ?: return
+        val q = if (b.query.sort == id) (if (o.directions) b.query.copy(desc = !b.query.desc) else b.query) else b.query.copy(sort = id, desc = opt.descFirst)
+        reload(b.copy(query = q))
+    }
+    fun setLibraryDesc(desc: Boolean) {
+        val b = _browse.value ?: return
+        if (b.query.desc != desc && b.options?.directions == true) reload(b.copy(query = b.query.copy(desc = desc)))
+    }
+
+    /** A filter's choices (looked up the first time it's opened). */
+    fun loadFilterValues(group: String) {
+        val b = _browse.value ?: return
+        if (b.values.containsKey(group)) return
+        _browse.update { it?.copy(values = it.values + (group to null)) }
+        viewModelScope.launch {
+            val got = runCatching { repo.filterValues(b.library, b.type, group) }.getOrDefault(emptyList())
+            _browse.update { if (it?.library?.key == b.library.key) it.copy(values = it.values + (group to got)) else it }
+        }
+    }
+    fun toggleFilterValue(group: String, value: io.github.petebutty.viewarr.data.media.FilterValue) {
+        val b = _browse.value ?: return
+        val multi = b.options?.filters?.firstOrNull { it.id == group }?.multi != false
+        val cur = b.query.filters[group].orEmpty()
+        val next = when {
+            cur.any { it.id == value.id } -> cur.filter { it.id != value.id }
+            multi -> cur + value
+            else -> listOf(value)
+        }
+        val filters = if (next.isEmpty()) b.query.filters - group else b.query.filters + (group to next)
+        reload(b.copy(query = b.query.copy(filters = filters)))
+    }
+    fun toggleFlag(id: String) {
+        val b = _browse.value ?: return
+        val t = b.query.toggles
+        reload(b.copy(query = b.query.copy(toggles = if (id in t) t - id else t + id)))
+    }
+    fun clearFilters() {
+        val b = _browse.value ?: return
+        if (b.query.active > 0) reload(b.copy(query = b.query.copy(filters = emptyMap(), toggles = emptySet())))
+    }
+
+    private var queryJob: kotlinx.coroutines.Job? = null
+    /** Search this library, as you type (short pause first). */
+    fun setLibraryQuery(q: String) {
+        val b = _browse.value ?: return
+        if (b.query.query == q) return
+        _browse.value = b.copy(query = b.query.copy(query = q))
+        queryJob?.cancel()
+        queryJob = viewModelScope.launch {
+            kotlinx.coroutines.delay(450)
+            _browse.value?.let { reload(it) }
+        }
+    }
+
+    /** A–Z strip: to the first title starting with [letter] (sorting by title A→Z first, keeping the filters). */
+    fun jumpToLetter(letter: Char) {
+        val b0 = _browse.value ?: return
+        viewModelScope.launch {
+            var b = b0
+            if (!b.byTitle) {
+                val o = b.options ?: return@launch
+                reload(b.copy(query = b.query.copy(sort = o.titleSort, desc = false)))
+                val v = _browse.value?.version
+                // Wait for the re-sorted list (and, on Plex, where each letter starts).
+                b = kotlinx.coroutines.withTimeoutOrNull(10_000) {
+                    _browse.first { it == null || it.version != v || (it.total >= 0 && (it.letters != null || it.library.server == null)) }
+                } ?: return@launch
+                if (b.version != v) return@launch
+            }
+            val known = b.letters
+            val at = if (known != null) {
+                if (letter == '#') 0 else known.entries.firstOrNull { it.key != '#' && it.key >= letter }?.value ?: (b.total - 1)
+            } else runCatching { repo.letterStart(b.library, b.type, b.query, letter) }.getOrNull() ?: return@launch
+            val now = _browse.value ?: return@launch
+            if (now.version != b.version) return@launch
+            val idx = at.coerceIn(0, (now.total - 1).coerceAtLeast(0))
+            loadPage(now, idx / LIBRARY_PAGE)
+            _browse.value = now.copy(jump = idx)
+        }
+    }
+    fun letterJumpDone() { _browse.update { it?.copy(jump = null) } }
 
     /** Picks up your other Plex servers (e.g. a second machine) so their titles count as yours. */
     fun refreshPlexServers() { viewModelScope.launch { runCatching { repo.refreshPlexServers() } } }

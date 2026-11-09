@@ -1,6 +1,5 @@
 # Shown once, the first time a new version opens (not on a fresh install). Keep it to the few things worth knowing.
 # Lines starting with "- " are the points; the first line without "#" or "-" is the heading.
-Music
-- New: a Music section (turn it on in Settings → Accounts & sources → Music): your music from Navidrome and the music libraries on your Plex, Jellyfin or Emby, as one library
-- Now Playing with a visualiser, a now-playing bar while you browse (hold Back for Now Playing), and music in search
-- Fixed: posters in library grids were cropped; box art of any shape now shows whole
+Sorting and filtering
+- Libraries (films, shows, IPTV and music): Sort and Filter with the options your own server offers, removable filter chips, one continuous grid
+- A–Z strip down the right: jump straight to a letter (letters with nothing are faded); Back goes up to sort and filter

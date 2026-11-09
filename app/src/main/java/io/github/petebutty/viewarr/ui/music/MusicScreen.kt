@@ -31,6 +31,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -86,6 +88,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -113,9 +117,22 @@ data class MusicBrowse(
     val next: Map<String, Int> = emptyMap(),
     /** Albums in this genre (opened from Genres). */
     val genre: String? = null,
+    /** Album grids: their sort and filters (null for artists, playlists and the genre list). */
+    val query: io.github.petebutty.viewarr.data.media.LibraryQuery? = null,
+    val options: io.github.petebutty.viewarr.data.media.LibraryOptions? = null,
+    /** Each filter's choices once looked up (null while loading). */
+    val values: Map<String, List<io.github.petebutty.viewarr.data.media.FilterValue>?> = emptyMap(),
+    /** Changes with the sort and filters: the grid starts again from the top. */
+    val version: Int = 0,
+    /** A–Z: the position to go to. */
+    val jump: Int? = null,
 ) {
-    val key get() = "browse:${kind.name}:${genre.orEmpty()}"
+    val key get() = "browse:${kind.name}:${genre.orEmpty()}:$version"
     val more get() = next.values.any { it >= 0 }
+    /** The A–Z strip: albums sorted by title, A first. */
+    val byTitle get() = query?.let { it.sort == "title" && !it.desc } == true
+    /** Album grids always have the A–Z strip (picking a letter sorts by title). */
+    val canLetters get() = kind == MusicBrowseKind.Artists || (query != null && options?.sorts?.any { it.id == "title" } == true)
 }
 
 /** An album, playlist or artist opened: its tracks (or, for an artist, albums). */
@@ -137,6 +154,13 @@ data class MusicSourceInfo(val id: String, val name: String, val on: Boolean)
 private val scrobbleScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
 private const val PAGE = 300
+private const val ALBUMS_VIEW = "music:albums"
+
+/** '#' for albums starting with a number or symbol, else the first letter (ignoring "The "). */
+internal fun firstAlbumLetter(title: String): Char {
+    val c = title.trim().removePrefix("The ").removePrefix("the ").uppercase().firstOrNull { !it.isWhitespace() } ?: return '#'
+    return if (c in 'A'..'Z') c else '#'
+}
 
 internal fun albumCard(a: Album) = MusicCard(MusicKind.Album, a.id, a.name, a.artist, a.art)
 internal fun artistCard(a: Artist) = MusicCard(MusicKind.Artist, a.id, a.name, if (a.albumCount > 0) "${a.albumCount} album${if (a.albumCount == 1) "" else "s"}" else "", a.art)
@@ -146,6 +170,8 @@ internal fun playlistCard(p: Playlist) = MusicCard(MusicKind.Playlist, p.id, p.n
 class MusicViewModel @Inject constructor(
     private val library: MusicLibrary,
     store: AccountStore,
+    /** The Albums grid's sort and filters, remembered (per profile). */
+    private val libraryViews: io.github.petebutty.viewarr.data.media.LibraryViews,
     @ApplicationContext private val context: Context,
 ) : ViewModel() {
     /** Something to play from: any music source connected (Navidrome, or Plex / Jellyfin / Emby with a music library). */
@@ -216,6 +242,14 @@ class MusicViewModel @Inject constructor(
         stack.clear(); _detail.value = null
         val cur = _browse.value
         if (cur?.kind == kind && cur.genre == null && !cur.loading) return
+        // Album grids: sorted and filtered (Albums as you left it; Recently added and Favourites preset).
+        val q = when (kind) {
+            MusicBrowseKind.Albums -> libraryViews.load(ALBUMS_VIEW) ?: io.github.petebutty.viewarr.data.media.LibraryQuery("title", false)
+            MusicBrowseKind.Newest -> io.github.petebutty.viewarr.data.media.LibraryQuery("added", true)
+            MusicBrowseKind.Favourites -> io.github.petebutty.viewarr.data.media.LibraryQuery("title", false, toggles = setOf("favourites"))
+            else -> null
+        }
+        if (q != null) { runAlbums(MusicBrowse(kind, query = q)); return }
         _browse.value = MusicBrowse(kind)
         browseJob?.cancel()
         browseJob = viewModelScope.launch {
@@ -232,13 +266,80 @@ class MusicViewModel @Inject constructor(
     }
 
     private fun openGenre(name: String) {
-        _browse.value = MusicBrowse(MusicBrowseKind.Genres, title = name, genre = name)
+        val q = io.github.petebutty.viewarr.data.media.LibraryQuery("title", false, filters = mapOf("genre" to listOf(io.github.petebutty.viewarr.data.media.FilterValue(name, name))))
+        runAlbums(MusicBrowse(MusicBrowseKind.Genres, title = name, genre = name, query = q))
+    }
+
+    private var albumOptions: io.github.petebutty.viewarr.data.media.LibraryOptions? = null
+    private var versions = 0
+
+    /** An album grid with its sort and filters: from the top. */
+    private fun runAlbums(b: MusicBrowse) {
+        val q = b.query ?: return
+        val fresh = b.copy(cards = emptyList(), loading = true, next = emptyMap(), version = ++versions, jump = null, options = b.options ?: albumOptions)
+        _browse.value = fresh
+        if (fresh.kind == MusicBrowseKind.Albums && fresh.genre == null) libraryViews.save(ALBUMS_VIEW, q)
         browseJob?.cancel()
         browseJob = viewModelScope.launch {
-            val (albums, next) = library.albumsInGenre(name, PAGE)
-            if (_browse.value?.genre == name) _browse.value = MusicBrowse(MusicBrowseKind.Genres, name, albums.map(::albumCard), loading = false, next = next, genre = name)
+            val options = fresh.options ?: runCatching { library.albumOptions() }.getOrNull()?.also { albumOptions = it }
+            val (albums, next) = library.browseAlbums(q, PAGE)
+            if (_browse.value?.version == fresh.version) _browse.value = fresh.copy(cards = albums.map(::albumCard), loading = false, next = next, options = options)
         }
     }
+
+    /** Album grids: a sort picked (the same one again turns it round). */
+    fun setAlbumSort(id: String) {
+        val b = _browse.value ?: return
+        val q = b.query ?: return
+        val opt = b.options?.sorts?.firstOrNull { it.id == id } ?: return
+        runAlbums(b.copy(query = if (q.sort == id) q.copy(desc = !q.desc) else q.copy(sort = id, desc = opt.descFirst)))
+    }
+    fun setAlbumDesc(desc: Boolean) { val b = _browse.value ?: return; val q = b.query ?: return; if (q.desc != desc) runAlbums(b.copy(query = q.copy(desc = desc))) }
+    fun loadAlbumFilter(group: String) {
+        val b = _browse.value ?: return
+        if (b.values.containsKey(group)) return
+        _browse.value = b.copy(values = b.values + (group to null))
+        viewModelScope.launch {
+            val got = runCatching { library.albumFilterValues(group) }.getOrDefault(emptyList())
+            _browse.update { it?.copy(values = it.values + (group to got)) }
+        }
+    }
+    fun toggleAlbumValue(group: String, value: io.github.petebutty.viewarr.data.media.FilterValue) {
+        val b = _browse.value ?: return
+        val q = b.query ?: return
+        val multi = b.options?.filters?.firstOrNull { it.id == group }?.multi != false
+        val cur = q.filters[group].orEmpty()
+        val next = when { cur.any { it.id == value.id } -> cur.filter { it.id != value.id }; multi -> cur + value; else -> listOf(value) }
+        runAlbums(b.copy(query = q.copy(filters = if (next.isEmpty()) q.filters - group else q.filters + (group to next))))
+    }
+    fun toggleAlbumFlag(id: String) { val b = _browse.value ?: return; val q = b.query ?: return; runAlbums(b.copy(query = q.copy(toggles = if (id in q.toggles) q.toggles - id else q.toggles + id))) }
+    fun clearAlbumFilters() { val b = _browse.value ?: return; val q = b.query ?: return; if (q.active > 0) runAlbums(b.copy(query = q.copy(filters = emptyMap(), toggles = emptySet()))) }
+
+    /** A–Z: the first album from [letter] on (loading further until it's there). */
+    fun jumpToAlbumLetter(letter: Char) {
+        val first = _browse.value ?: return
+        viewModelScope.launch {
+            var start = first
+            // Not sorted by title: sort A→Z (keeping the filters) and wait for it.
+            if (!start.byTitle && start.query != null) {
+                val q = start.query
+                runAlbums(start.copy(query = q.copy(sort = "title", desc = false)))
+                val v = _browse.value?.version
+                start = kotlinx.coroutines.withTimeoutOrNull(15_000) { _browse.first { it == null || it.version != v || !it.loading } } ?: return@launch
+                if (start.version != v) return@launch
+            }
+            var tries = 0
+            while (true) {
+                val b = _browse.value ?: return@launch
+                if (b.version != start.version) return@launch
+                val i = b.cards.indexOfFirst { letter == '#' || firstAlbumLetter(it.title) >= letter }
+                if (i >= 0 && (letter == '#' || firstAlbumLetter(b.cards[i].title) != '#')) { _browse.value = b.copy(jump = i); return@launch }
+                if (!b.more || tries++ > 20) { _browse.value = b.copy(jump = (b.cards.size - 1).coerceAtLeast(0)); return@launch }
+                loadMore(); browseJob?.join()
+            }
+        }
+    }
+    fun albumJumpDone() { _browse.update { it?.copy(jump = null) } }
 
     /** Near the end of a long grid: the next lot from each source that has more. */
     fun loadMore() {
@@ -248,9 +349,7 @@ class MusicViewModel @Inject constructor(
         val offsets = b.next
         browseJob = viewModelScope.launch {
             val (more, next) = when {
-                b.genre != null -> library.albumsInGenre(b.genre, PAGE, offsets)
-                b.kind == MusicBrowseKind.Albums -> library.albums(AlbumList.AZ, PAGE, offsets)
-                b.kind == MusicBrowseKind.Newest -> library.albums(AlbumList.Newest, PAGE, offsets)
+                b.query != null -> library.browseAlbums(b.query, PAGE, offsets)
                 else -> emptyList<Album>() to emptyMap()
             }
             // Sources that had finished stay finished.
@@ -446,35 +545,117 @@ private const val COLUMNS = 7
 @Composable
 private fun MusicBrowsePage(b: MusicBrowse, vm: MusicViewModel, page: String, mem: FocusMemory, grid: LazyGridState, focusRequester: FocusRequester, onOpenMenu: () -> Unit) {
     val genres = b.kind == MusicBrowseKind.Genres && b.genre == null
-    Column(Modifier.fillMaxSize().padding(top = 28.dp)) {
-        Row(Modifier.padding(horizontal = 48.dp), verticalAlignment = Alignment.Bottom) {
-            Text(b.title, fontSize = 26.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary)
-            Spacer(Modifier.width(14.dp))
-            Text(
-                if (b.loading) "Loading…" else "${b.cards.size}${if (b.more) "+" else ""}",
-                fontSize = 14.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(bottom = 4.dp),
+    val albums = b.query != null
+    var panel by remember { mutableStateOf<String?>(null) }
+    val toolbar = remember { FocusRequester() }
+    val railFocus = remember { FocusRequester() }
+    var railOn by remember { mutableStateOf(false) }
+    var railLetter by remember { mutableStateOf('A') }
+    val cols = if (genres) 5 else COLUMNS
+    // A–Z: the grid moves to the letter; picked with OK, focus goes there too.
+    LaunchedEffect(b.jump) {
+        val j = b.jump ?: return@LaunchedEffect
+        runCatching { grid.scrollToItem(j - j % cols) }
+        if (!railOn) { awaitFrame(); awaitFrame(); b.cards.getOrNull(j)?.let { c -> runCatching { mem.of("$page|${c.key}").requestFocus() } } }
+        vm.albumJumpDone()
+    }
+    val current by androidx.compose.runtime.rememberUpdatedState(b)
+    val shownLetter by remember(b.version) { androidx.compose.runtime.derivedStateOf { current.cards.getOrNull(grid.firstVisibleItemIndex)?.title?.let(::firstAlbumLetter) } }
+    // A panel closed (or a new list arrived while it was open): back onto the albums.
+    LaunchedEffect(panel == null, b.version, b.loading) {
+        if (panel != null || b.loading || b.cards.isEmpty()) return@LaunchedEffect
+        awaitFrame(); awaitFrame()
+        if (!mem.restore(page)) runCatching { focusRequester.requestFocus() }
+    }
+    Box(Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize().padding(top = 28.dp)) {
+            Row(Modifier.padding(horizontal = 48.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(b.title, fontSize = 26.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary)
+                Spacer(Modifier.width(14.dp))
+                val sortLabel = b.query?.let { q -> b.options?.sorts?.firstOrNull { it.id == q.sort }?.let { "${it.label} ${if (q.desc) "↓" else "↑"}" } }
+                Text(
+                    listOfNotNull(if (b.loading) "Loading…" else "${b.cards.size}${if (b.more) "+" else ""}", sortLabel).joinToString("  ·  "),
+                    fontSize = 14.sp, color = AppColors.TextSecondary,
+                )
+                Spacer(Modifier.weight(1f))
+                if (albums) {
+                    io.github.petebutty.viewarr.ui.library.ToolButton(
+                        "Sort" + (b.query?.let { q -> b.options?.sorts?.firstOrNull { it.id == q.sort }?.let { ": ${it.label}" } } ?: ""),
+                        active = false, modifier = Modifier.focusRequester(toolbar),
+                    ) { if (b.options != null) panel = "sort" }
+                    if (b.options?.filters?.isNotEmpty() == true) io.github.petebutty.viewarr.ui.library.ToolButton(
+                        b.query?.active?.takeIf { it > 0 }?.let { "Filter · $it" } ?: "Filter", active = (b.query?.active ?: 0) > 0, modifier = Modifier.padding(start = 8.dp),
+                    ) { panel = "filter" }
+                }
+            }
+            // What's filtered, each removable.
+            val q = b.query
+            if (q != null && q.active > 0) androidx.compose.foundation.lazy.LazyRow(
+                contentPadding = PaddingValues(horizontal = 48.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 10.dp),
+            ) {
+                val groups = b.options?.filters.orEmpty()
+                items(q.toggles.toList().size) { k -> val t = q.toggles.toList()[k]; io.github.petebutty.viewarr.ui.library.FilterChip(groups.firstOrNull { it.id == t }?.label ?: t) { vm.toggleAlbumFlag(t) } }
+                q.filters.forEach { (g, vs) -> items(vs.size) { k -> io.github.petebutty.viewarr.ui.library.FilterChip(vs[k].label) { vm.toggleAlbumValue(g, vs[k]) } } }
+                item { io.github.petebutty.viewarr.ui.library.FilterChip("Clear all", clear = true) { vm.clearAlbumFilters() } }
+            }
+            if (!b.loading && b.cards.isEmpty()) Text(
+                if (q?.active ?: 0 > 0) "No albums match these filters." else "Nothing here yet.", fontSize = 15.sp, color = AppColors.TextSecondary,
+                modifier = Modifier.padding(horizontal = 48.dp, vertical = 16.dp).focusRequester(focusRequester),
             )
-        }
-        if (!b.loading && b.cards.isEmpty()) Text(
-            "Nothing here yet.", fontSize = 15.sp, color = AppColors.TextSecondary,
-            modifier = Modifier.padding(horizontal = 48.dp, vertical = 16.dp).focusRequester(focusRequester),
-        )
-        val cols = if (genres) 5 else COLUMNS
-        LazyVerticalGrid(
-            columns = GridCells.Fixed(cols), state = grid,
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(start = 48.dp, end = 48.dp, top = 16.dp, bottom = 110.dp),
-            horizontalArrangement = Arrangement.spacedBy(14.dp), verticalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
-            items(b.cards.size, key = { b.cards[it].key }) { i ->
-                val c = b.cards[i]
-                if (i >= b.cards.size - cols * 3) LaunchedEffect(b.cards.size) { vm.loadMore() }
-                val m = Modifier.remembered(mem, page, "$page|${c.key}")
-                    .then(if (i == 0) Modifier.focusRequester(focusRequester) else Modifier)
-                    .then(if (i % cols == 0) Modifier.leftOpens(onOpenMenu) else Modifier)
-                if (genres) GenreTile(c, m) { vm.open(c) } else MusicCardView(c, null, m) { vm.open(c) }
+            Row(Modifier.fillMaxWidth().weight(1f)) {
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(cols), state = grid,
+                    modifier = Modifier.weight(1f).fillMaxHeight(),
+                    contentPadding = PaddingValues(start = 48.dp, end = if (b.canLetters) 12.dp else 48.dp, top = 16.dp, bottom = 110.dp),
+                    horizontalArrangement = Arrangement.spacedBy(14.dp), verticalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
+                    items(b.cards.size, key = { b.cards[it].key }) { i ->
+                        val c = b.cards[i]
+                        if (i >= b.cards.size - cols * 3) LaunchedEffect(b.cards.size) { vm.loadMore() }
+                        val m = Modifier.remembered(mem, page, "$page|${c.key}")
+                            .then(if (i == 0) Modifier.focusRequester(focusRequester) else Modifier)
+                            .onPreviewKeyEvent { e ->
+                                // Back in an album grid: up to Sort / Filter, keeping your place.
+                                if (albums && e.key == Key.Back) {
+                                    if (e.type == KeyEventType.KeyUp) runCatching { toolbar.requestFocus() }
+                                    return@onPreviewKeyEvent true
+                                }
+                                if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                                when {
+                                    e.key == Key.DirectionLeft && i % cols == 0 -> { onOpenMenu(); true }
+                                    e.key == Key.DirectionRight && b.canLetters && (i % cols == cols - 1 || i == b.cards.lastIndex) -> { runCatching { railFocus.requestFocus() }; true }
+                                    else -> false
+                                }
+                            }
+                        if (genres) GenreTile(c, m) { vm.open(c) } else MusicCardView(c, null, m) { vm.open(c) }
+                    }
+                }
+                if (b.canLetters) io.github.petebutty.viewarr.ui.library.AlphabetRail(
+                    letters = null, shown = shownLetter, focusRequester = railFocus,
+                    onFocus = { railOn = it },
+                    onMove = { railLetter = it },
+                    onLetter = { vm.jumpToAlbumLetter(it) },
+                    onPick = { vm.jumpToAlbumLetter(it); railOn = false },
+                    onUp = { runCatching { toolbar.requestFocus() } },
+                    onLeft = {
+                        val first = grid.firstVisibleItemIndex
+                        b.cards.getOrNull((first + cols - 1).coerceAtMost(b.cards.lastIndex))?.let { c -> runCatching { mem.of("$page|${c.key}").requestFocus() } }
+                    },
+                )
             }
         }
+        if (railOn) Box(
+            Modifier.align(Alignment.Center).size(140.dp).background(AppColors.Panel.copy(alpha = 0.92f), RoundedCornerShape(24.dp)),
+            contentAlignment = Alignment.Center,
+        ) { Text(railLetter.toString(), fontSize = 72.sp, fontWeight = FontWeight.Bold, color = AppColors.Accent) }
+        val o = b.options
+        val q = b.query
+        if (panel == "sort" && o != null && q != null) io.github.petebutty.viewarr.ui.library.SortPanel(
+            o, q, onPick = { id -> val same = id == q.sort; vm.setAlbumSort(id); if (!same) panel = null }, onDesc = vm::setAlbumDesc, onClose = { panel = null },
+        )
+        if (panel == "filter" && o != null && q != null) io.github.petebutty.viewarr.ui.library.FilterPanel(
+            o, q, b.values, onOpenGroup = vm::loadAlbumFilter, onToggle = vm::toggleAlbumFlag, onValue = vm::toggleAlbumValue, onClear = vm::clearAlbumFilters, onClose = { panel = null },
+        )
     }
 }
 

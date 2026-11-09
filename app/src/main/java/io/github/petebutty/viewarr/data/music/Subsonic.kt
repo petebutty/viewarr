@@ -121,4 +121,45 @@ class NavidromeSource(private val c: SubsonicClient, private val a: NavidromeAut
         return MusicSearchResult(r.array("artist").map(::artist), r.array("album").map(::album), r.array("song").map(::song))
     }
     override suspend fun scrobble(songId: String, submission: Boolean) { c.call(a, "scrobble", "&id=${enc(localId(songId))}&submission=$submission") }
+
+    // Navidrome's album lists: one sort or one filter at a time (favourites, else genre, else decade).
+    override suspend fun albumOptions() = listOf(
+        io.github.petebutty.viewarr.data.media.SortOption("title", "Title", false), io.github.petebutty.viewarr.data.media.SortOption("artist", "Artist", false),
+        io.github.petebutty.viewarr.data.media.SortOption("added", "Date added"), io.github.petebutty.viewarr.data.media.SortOption("played", "Recently played"),
+        io.github.petebutty.viewarr.data.media.SortOption("plays", "Most played"), io.github.petebutty.viewarr.data.media.SortOption("year", "Year"),
+        io.github.petebutty.viewarr.data.media.SortOption("random", "Random"),
+    ) to listOf(
+        io.github.petebutty.viewarr.data.media.FilterGroup("favourites", "Favourites", toggle = true),
+        io.github.petebutty.viewarr.data.media.FilterGroup("genre", "Genre", multi = false),
+        io.github.petebutty.viewarr.data.media.FilterGroup("decade", "Decade", multi = false),
+    )
+
+    override suspend fun albumFilterValues(group: String) = when (group) {
+        "genre" -> genres().map { (g, _) -> io.github.petebutty.viewarr.data.media.FilterValue(g, g) }
+        "decade" -> decades()
+        else -> emptyList()
+    }
+
+    override suspend fun browseAlbums(q: io.github.petebutty.viewarr.data.media.LibraryQuery, size: Int, offset: Int): List<Album> {
+        val genre = q.filters["genre"]?.firstOrNull()?.id
+        val decade = q.filters["decade"]?.firstOrNull()?.id?.toIntOrNull()
+        val extra = when {
+            "favourites" in q.toggles -> "&type=starred"
+            genre != null -> "&type=byGenre&genre=${enc(genre)}"
+            decade != null -> if (q.desc) "&type=byYear&fromYear=${decade + 9}&toYear=$decade" else "&type=byYear&fromYear=$decade&toYear=${decade + 9}"
+            else -> when (q.sort) {
+                "artist" -> "&type=alphabeticalByArtist"; "added" -> "&type=newest"; "played" -> "&type=recent"; "plays" -> "&type=frequent"
+                "random" -> "&type=random"
+                "year" -> if (q.desc) "&type=byYear&fromYear=9999&toYear=0" else "&type=byYear&fromYear=0&toYear=9999"
+                else -> "&type=alphabeticalByName"
+            }
+        }
+        return c.call(a, "getAlbumList2", "$extra&size=$size&offset=$offset").child("albumList2").array("album").map(::album)
+    }
+}
+
+/** The decades a music library can be filtered by ("2020" → "2020s"), newest first. */
+internal fun decades(): List<io.github.petebutty.viewarr.data.media.FilterValue> {
+    val now = java.time.Year.now().value / 10 * 10
+    return (now downTo 1950 step 10).map { io.github.petebutty.viewarr.data.media.FilterValue(it.toString(), "${it}s") }
 }

@@ -44,6 +44,17 @@ data class MusicSearchResult(val artists: List<Artist> = emptyList(), val albums
 
 /** One server's music. */
 interface MusicSource {
+    /**
+     * What this source's albums can be sorted and filtered by. Shared ids mean the same on every source (sorts:
+     * title, artist, added, played, plays, year, random; filters: genre, decade, favourites); a source's own extras
+     * (Plex's moods and styles…) have ids with a dot and are offered when it's the only source in use.
+     */
+    suspend fun albumOptions(): Pair<List<io.github.petebutty.viewarr.data.media.SortOption>, List<io.github.petebutty.viewarr.data.media.FilterGroup>>
+    /** One filter's choices. Genres are named the same on every source (their id is the name); decades are "1990". */
+    suspend fun albumFilterValues(group: String): List<io.github.petebutty.viewarr.data.media.FilterValue>
+    /** Albums with a sort and filters, [size] from [offset]. */
+    suspend fun browseAlbums(q: io.github.petebutty.viewarr.data.media.LibraryQuery, size: Int, offset: Int): List<Album>
+
     /** The id prefix ("nd", "plex-<machine>", "jf", "emby"). */
     val id: String
     /** For the menu: "Navidrome", "Plex · Living room". */
@@ -137,6 +148,11 @@ class MusicLibrary @Inject constructor(
             AlbumList.Newest -> compareByDescending { it.added ?: 0 }
             else -> null
         }
+        return pageMerge(per, size, offsets, order) { lists -> mergeAlbums(lists, list) }
+    }
+
+    /** As above, in any order ([order] null: no shared order, sources take turns). */
+    private fun pageMerge(per: List<Pair<String, List<Album>>>, size: Int, offsets: Map<String, Int>, order: Comparator<Album>?, merge: (List<List<Album>>) -> List<Album>): Pair<List<Album>, Map<String, Int>> {
         val full = per.filter { it.second.size >= size }
         val cutoff = if (order != null && per.size > 1 && full.isNotEmpty()) full.map { it.second.last() }.minWithOrNull(order) else null
         // Every source (a short last page too) gives only what comes before the cutoff, as an unbroken run from the
@@ -146,7 +162,42 @@ class MusicLibrary @Inject constructor(
         val next = per.zip(kept).associate { (orig, k) ->
             orig.first to if (orig.second.size < size && k.second.size == orig.second.size) -1 else (offsets[orig.first] ?: 0) + k.second.size
         }
-        return mergeAlbums(kept.map { it.second }, list) to next
+        return merge(kept.map { it.second }) to next
+    }
+
+    // ---- Sorting and filtering albums (the Albums grid)
+
+    /** What the albums can be sorted / filtered by: one source, all it offers; several, what they share. */
+    suspend fun albumOptions(): io.github.petebutty.viewarr.data.media.LibraryOptions {
+        val per = coroutineScope { sources().map { s -> async { runCatching { s.albumOptions() }.getOrNull() } }.awaitAll().filterNotNull() }
+        if (per.isEmpty()) return io.github.petebutty.viewarr.data.media.LibraryOptions(emptyList(), emptyList(), false, "title")
+        val sorts = if (per.size == 1) per[0].first else per[0].first.filter { s -> '.' !in s.id && per.all { p -> p.first.any { it.id == s.id } } }
+        val filters = if (per.size == 1) per[0].second else per[0].second.filter { f -> '.' !in f.id && per.all { p -> p.second.any { it.id == f.id } } }
+        return io.github.petebutty.viewarr.data.media.LibraryOptions(sorts, filters, letters = true, titleSort = "title", directions = true)
+    }
+
+    /** A filter's choices from every source in use, one of each. */
+    suspend fun albumFilterValues(group: String): List<io.github.petebutty.viewarr.data.media.FilterValue> = merged(null) { it.albumFilterValues(group) }
+        .distinctBy { norm(it.label) }.let { v -> if (group == "decade") v.sortedByDescending { it.id.toIntOrNull() ?: 0 } else v.sortedBy { it.label.lowercase() } }
+
+    /** A page of albums with [q] from every source, merged in [q]'s order (one copy of each album). */
+    suspend fun browseAlbums(q: io.github.petebutty.viewarr.data.media.LibraryQuery, size: Int, offsets: Map<String, Int> = emptyMap()): Pair<List<Album>, Map<String, Int>> {
+        val srcs = sources().filter { offsets[it.id] != -1 }
+        val per = coroutineScope { srcs.map { s -> async { s.id to runCatching { s.browseAlbums(q, size, offsets[s.id] ?: 0) }.getOrDefault(emptyList()) } }.awaitAll() }
+        val base: Comparator<Album>? = when (q.sort) {
+            "title" -> compareBy { sortKey(it.name) }
+            "artist" -> compareBy<Album> { sortKey(it.artist) }.thenBy { sortKey(it.name) }
+            "added" -> compareBy { it.added ?: 0 }
+            "played" -> compareBy { it.played ?: 0 }
+            "plays" -> compareBy { it.plays ?: 0 }
+            "year" -> compareBy { it.year ?: 0 }
+            else -> null
+        }
+        val order = base?.let { if (q.desc) it.reversed() else it }
+        return pageMerge(per, size, offsets, order) { lists ->
+            val all = if (order != null) lists.flatten().sortedWith(order) else buildList { val n = lists.maxOfOrNull { it.size } ?: 0; for (i in 0 until n) lists.forEach { l -> l.getOrNull(i)?.let(::add) } }
+            all.distinctBy { norm(it.artist) + "|" + norm(it.name) }
+        }
     }
 
     suspend fun albumsInGenre(genre: String, size: Int, offsets: Map<String, Int> = emptyMap(), only: String? = null): Pair<List<Album>, Map<String, Int>> {

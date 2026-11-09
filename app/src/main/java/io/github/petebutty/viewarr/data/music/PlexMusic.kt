@@ -132,6 +132,81 @@ class PlexMusicSource private constructor(
         return MusicSearchResult(of("artist").map(::artist), of("album").map(::album), of("track").mapNotNull(::song))
     }
 
+    // ---- The Albums grid: Plex's own sorts and filters for its music library
+
+    /** Plex sort keys for the shared ids (the rest of Plex's are offered as its own, when it's the only source). */
+    private val sharedSorts = mapOf(
+        "titleSort" to "title", "addedAt" to "added", "lastViewedAt" to "played", "viewCount" to "plays",
+        "originallyAvailableAt" to "year", "random" to "random",
+    )
+    private val sharedFilters = mapOf("genre" to "genre", "decade" to "decade")
+    private val keepFilters = setOf("mood", "style", "year", "studio", "format", "subformat", "collection", "label")
+    /** Plex's own sort key for each id we offer. */
+    private val sortKeys = HashMap<String, String>()
+
+    override suspend fun albumOptions(): Pair<List<io.github.petebutty.viewarr.data.media.SortOption>, List<io.github.petebutty.viewarr.data.media.FilterGroup>> {
+        val s0 = sections.first()
+        val sorts = get("/library/sections/$s0/sorts?type=9").array("Directory").mapNotNull { d ->
+            val k = d.str("key") ?: return@mapNotNull null
+            val id = when {
+                k in sharedSorts -> sharedSorts.getValue(k)
+                k.startsWith("artist.titleSort") -> "artist"
+                else -> "px.$k"
+            }
+            sortKeys[id] = k
+            val label = when (id) {
+                "title" -> "Title"; "artist" -> "Artist"; "added" -> "Date added"; "played" -> "Recently played"; "plays" -> "Most played"
+                "year" -> "Year"; "random" -> "Random"; else -> if (k == "userRating") "Your rating" else d.str("title") ?: k
+            }
+            io.github.petebutty.viewarr.data.media.SortOption(id, label, descFirst = id !in setOf("title", "artist"))
+        }
+        val filters = get("/library/sections/$s0/filters?type=9").array("Directory").mapNotNull { d ->
+            val k = d.str("filter") ?: return@mapNotNull null
+            when {
+                k in sharedFilters -> io.github.petebutty.viewarr.data.media.FilterGroup(sharedFilters.getValue(k), d.str("title") ?: k)
+                k in keepFilters -> io.github.petebutty.viewarr.data.media.FilterGroup("px.$k", d.str("title") ?: k)
+                else -> null
+            }
+        }
+        return sorts to filters
+    }
+
+    // Each filter's values as Plex knows them: shown name → Plex's id (genres are matched across sources by name).
+    private val valueIds = HashMap<String, HashMap<String, String>>()
+
+    override suspend fun albumFilterValues(group: String): List<io.github.petebutty.viewarr.data.media.FilterValue> {
+        val key = group.removePrefix("px.")
+        val ids = valueIds.getOrPut(group) { HashMap() }
+        return sections.flatMap { s -> get("/library/sections/$s/$key?type=9").array("Directory") }.mapNotNull { d ->
+            val id = d.str("key") ?: return@mapNotNull null
+            val label = d.str("title") ?: id
+            ids[MusicLibrary.norm(label)] = id
+            // Genres: by name, so the same genre on Navidrome / Jellyfin matches. Decades: "1990" everywhere.
+            io.github.petebutty.viewarr.data.media.FilterValue(if (group == "genre") label else id, label)
+        }
+    }
+
+    override suspend fun browseAlbums(q: io.github.petebutty.viewarr.data.media.LibraryQuery, size: Int, offset: Int): List<Album> {
+        if (sortKeys.isEmpty()) albumOptions()
+        val parts = ArrayList<String>()
+        val key = sortKeys[q.sort] ?: "titleSort"
+        // Plex's artist sort is a list of keys: only the first is turned round.
+        parts += "sort=" + enc(if (q.desc) key.substringBefore(',') + ":desc" + key.substringAfter(',', "").let { if (it.isEmpty()) "" else ",$it" } else key)
+        for ((g, vs) in q.filters) {
+            if (vs.isEmpty()) continue
+            val pk = g.removePrefix("px.")
+            val ids = if (g == "genre") {
+                if (valueIds["genre"].isNullOrEmpty()) albumFilterValues("genre")
+                vs.mapNotNull { valueIds["genre"]?.get(MusicLibrary.norm(it.label)) }
+            } else vs.map { it.id }
+            // A genre this server doesn't have: nothing here matches.
+            if (ids.isEmpty()) return emptyList()
+            parts += "$pk=" + ids.joinToString(",") { enc(it) }
+        }
+        if ("favourites" in q.toggles) parts += "userRating>>=1"
+        return all(9, parts.joinToString("&"), size, offset).map(::album)
+    }
+
     override suspend fun scrobble(songId: String, submission: Boolean) {
         if (submission) get("/:/scrobble?identifier=com.plexapp.plugins.library&key=${enc(localId(songId))}")
     }

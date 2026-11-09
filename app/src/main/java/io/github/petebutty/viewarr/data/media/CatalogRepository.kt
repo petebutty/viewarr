@@ -805,6 +805,195 @@ class CatalogRepository @Inject constructor(
         return r.body.int("TotalRecordCount")
     }
 
+    // ---- Library sorting and filtering (what each server offers, and loading with any of it)
+
+    /** Plex filters worth offering on a TV (people lists and folder paths are left out: too long to pick from). */
+    private val plexFilterKeys = listOf(
+        "genre", "decade", "year", "contentRating", "collection", "studio", "network", "country", "resolution",
+        "editionTitle", "label", "audioLanguage", "subtitleLanguage",
+    )
+    private val plexToggleKeys = listOf("unwatched", "unwatchedLeaves", "inProgress", "hdr", "dovi", "hdr10plus", "atmos")
+    private val plexToggleLabels = mapOf(
+        "unwatched" to "Unwatched", "unwatchedLeaves" to "Unwatched", "inProgress" to "In progress",
+        "hdr" to "HDR", "dovi" to "Dolby Vision", "hdr10plus" to "HDR10+", "atmos" to "Dolby Atmos",
+    )
+    private val plexFilterLabels = mapOf("contentRating" to "Age rating", "editionTitle" to "Edition", "label" to "Labels")
+
+    /** What [lib] can be sorted and filtered by (from the server itself where it says). */
+    suspend fun libraryOptions(lib: MediaLibrary, type: MediaType): LibraryOptions {
+        val a = store.current()
+        if (lib.source == PROVIDER_LIBRARY) return LibraryOptions(
+            sorts = listOf(SortOption("Title", "Title", false), SortOption("Added", "Date added"), SortOption("Released", "Release date"), SortOption("Rating", "Rating")),
+            filters = listOf(FilterGroup("category", "Category", multi = false)),
+            letters = false, titleSort = "Title", directions = false,
+        )
+        if (lib.server != null) {
+            val p = plexServers(a).firstOrNull { it.machineId == lib.server }
+            val t = if (type == MediaType.Movie) 1 else 2
+            val sorts = p?.let { runCatching { plexGet(a, it, "/library/sections/${lib.id}/sorts?type=$t") }.getOrNull() }
+                ?.array("Directory")?.mapNotNull { d ->
+                    val k = d.str("key") ?: return@mapNotNull null
+                    SortOption(k, plexSortLabel(k, d.str("title")), descFirst = k != "titleSort")
+                }.orEmpty()
+            val filters = p?.let { runCatching { plexGet(a, it, "/library/sections/${lib.id}/filters?type=$t") }.getOrNull() }
+                ?.array("Directory").orEmpty()
+            val keys = filters.mapNotNull { it.str("filter") }.toSet()
+            val groups = plexToggleKeys.filter { it in keys }.map { FilterGroup(it, plexToggleLabels[it] ?: it, toggle = true) } +
+                plexFilterKeys.filter { it in keys }.map { k -> FilterGroup(k, plexFilterLabels[k] ?: filters.first { it.str("filter") == k }.str("title") ?: k) }
+            return LibraryOptions(
+                sorts = sorts.ifEmpty { listOf(SortOption("titleSort", "Title", false), SortOption("addedAt", "Date added"), SortOption("originallyAvailableAt", "Release date")) },
+                filters = groups, letters = true, titleSort = "titleSort",
+            )
+        }
+        // Jellyfin / Emby: the same lists for every library.
+        val movie = type == MediaType.Movie
+        return LibraryOptions(
+            sorts = listOf(
+                SortOption("SortName", "Title", false), SortOption("DateCreated", "Date added"), SortOption("PremiereDate", "Release date"),
+                SortOption("ProductionYear", "Year"), SortOption("CommunityRating", "Rating"), SortOption("CriticRating", "Critic rating"),
+                SortOption("OfficialRating", "Age rating", false), SortOption("Runtime", "Duration"), SortOption("DatePlayed", "Date watched"),
+                SortOption("PlayCount", "Plays"), SortOption("Random", "Random"),
+            ),
+            filters = listOfNotNull(
+                FilterGroup("IsUnplayed", "Unwatched", toggle = true), FilterGroup("IsResumable", "In progress", toggle = true),
+                FilterGroup("IsFavorite", "Favourites", toggle = true),
+                if (movie) FilterGroup("Is4K", "4K", toggle = true) else null, FilterGroup("IsHD", "HD", toggle = true),
+                FilterGroup("Genres", "Genre"), FilterGroup("Years", "Year"), FilterGroup("OfficialRatings", "Age rating"),
+                FilterGroup("Studios", if (movie) "Studio" else "Network"), FilterGroup("Tags", "Tags"),
+            ),
+            letters = true, titleSort = "SortName",
+        )
+    }
+
+    private fun plexSortLabel(key: String, title: String?) = when (key) {
+        "titleSort" -> "Title"; "originallyAvailableAt" -> "Release date"; "addedAt" -> "Date added"; "lastViewedAt" -> "Date watched"
+        "rating" -> "Critic rating"; "audienceRating" -> "Audience rating"; "mediaHeight" -> "Resolution"; "random" -> "Random"
+        "duration" -> "Duration"; "viewCount" -> "Plays"; "year" -> "Year"; "episode.addedAt" -> "Latest episode"
+        "unviewedLeafCount" -> "Unwatched episodes"
+        else -> title ?: key
+    }
+
+    /** The choices inside one filter (a library's genres, decades…). */
+    suspend fun filterValues(lib: MediaLibrary, type: MediaType, group: String): List<FilterValue> {
+        val a = store.current()
+        if (lib.source == PROVIDER_LIBRARY) return libraryGenres(lib, type).map { (id, name) -> FilterValue(id, name) }
+        if (lib.server != null) {
+            val p = plexServers(a).firstOrNull { it.machineId == lib.server } ?: return emptyList()
+            val t = if (type == MediaType.Movie) 1 else 2
+            val c = runCatching { plexGet(a, p, "/library/sections/${lib.id}/$group?type=$t") }.getOrNull() ?: return emptyList()
+            val values = c.array("Directory").mapNotNull { d -> val k = d.str("key") ?: return@mapNotNull null; FilterValue(k, d.str("title") ?: k) }
+            // Newest years and decades first.
+            return if (group == "year" || group == "decade") values.sortedByDescending { it.id.toIntOrNull() ?: 0 } else values
+        }
+        val emby = lib.source == "Emby"
+        val srv = (if (emby) a.emby else a.jellyfin) ?: return emptyList()
+        val kind = if (type == MediaType.Movie) "Movie" else "Series"
+        val h = mediaServers.headers(emby, a.deviceId, srv.token)
+        val base = "ParentId=${enc(lib.id)}&UserId=${srv.userId}&IncludeItemTypes=$kind&Recursive=true"
+        return when (group) {
+            "Genres" -> libraryGenres(lib, type).map { (id, n) -> FilterValue(id, n) }
+            "Studios" -> runCatching { http.get("${srv.serverUrl}/Studios?$base&SortBy=SortName", h) }.getOrNull()?.takeIf { it.ok }
+                ?.body.array("Items").mapNotNull { s -> val id = s.str("Id") ?: return@mapNotNull null; FilterValue(id, s.str("Name") ?: id) }
+            else -> {
+                val f = runCatching { http.get("${srv.serverUrl}/Items/Filters?$base", h) }.getOrNull()?.takeIf { it.ok }?.body
+                val list = ((f as? kotlinx.serialization.json.JsonObject)?.get(group) as? kotlinx.serialization.json.JsonArray).orEmpty().mapNotNull { (it as? kotlinx.serialization.json.JsonPrimitive)?.content }
+                val values = list.map { FilterValue(it, it) }
+                if (group == "Years") values.sortedByDescending { it.id.toIntOrNull() ?: 0 } else values
+            }
+        }
+    }
+
+    /** One stretch of [lib] with [q] applied: titles from [start], and how many match in all. */
+    suspend fun libraryPage(lib: MediaLibrary, type: MediaType, q: LibraryQuery, start: Int, size: Int): Pair<List<MediaItem>, Int>? {
+        val a = store.current()
+        val text = q.query.trim()
+        if (lib.source == PROVIDER_LIBRARY) {
+            val sort = LibrarySort.entries.firstOrNull { it.name == q.sort } ?: LibrarySort.Released
+            val got = providerPage(type, sort, start, size, text, q.filters["category"]?.firstOrNull()?.id) ?: return null
+            // The provider sorts one way only: the other way is the same list reversed (fine for its smaller lists).
+            return got
+        }
+        if (lib.server != null) {
+            val p = plexServers(a).firstOrNull { it.machineId == lib.server } ?: return null
+            val c = runCatching { plexGet(a, p, "/library/sections/${lib.id}/all?" + plexQuery(q, type) + "&includeGuids=1&X-Plex-Container-Start=$start&X-Plex-Container-Size=$size") }.getOrNull() ?: return null
+            val items = c.array("Metadata").mapNotNull { plexItem(p, it, type) }
+            return items to (c.int("totalSize") ?: c.int("size") ?: items.size)
+        }
+        val emby = lib.source == "Emby"
+        val srv = (if (emby) a.emby else a.jellyfin) ?: return null
+        val r = runCatching {
+            http.get(
+                "${srv.serverUrl}/Users/${srv.userId}/Items?" + jellyfinQuery(lib, type, q) + "&StartIndex=$start&Limit=$size&Fields=ProviderIds,Overview,ProductionYear",
+                mediaServers.headers(emby, a.deviceId, srv.token),
+            )
+        }.getOrNull()?.takeIf { it.ok } ?: return null
+        val items = r.body.array("Items").mapNotNull { serverItem(srv, it, type, lib.source) }
+        return items to (r.body.int("TotalRecordCount") ?: items.size)
+    }
+
+    private fun plexQuery(q: LibraryQuery, type: MediaType): String = buildString {
+        append("type=").append(if (type == MediaType.Movie) 1 else 2)
+        append("&sort=").append(enc(if (q.desc) "${q.sort}:desc" else q.sort))
+        val text = q.query.trim()
+        if (text.isNotEmpty()) append("&title=").append(enc(text))
+        // Several values of one filter: any of them (Plex takes them comma-separated).
+        q.filters.forEach { (k, v) -> if (v.isNotEmpty()) append("&").append(k).append("=").append(v.joinToString(",") { enc(it.id) }) }
+        q.toggles.forEach { append("&").append(it).append("=1") }
+    }
+
+    private fun jellyfinQuery(lib: MediaLibrary, type: MediaType, q: LibraryQuery): String = buildString {
+        append("ParentId=").append(enc(lib.id)).append("&IncludeItemTypes=").append(if (type == MediaType.Movie) "Movie" else "Series").append("&Recursive=true")
+        append("&SortBy=").append(if (q.sort == "SortName") "SortName" else "${q.sort},SortName")
+        append("&SortOrder=").append(if (q.desc) "Descending" else "Ascending")
+        val text = q.query.trim()
+        if (text.isNotEmpty()) append("&SearchTerm=").append(enc(text))
+        q.filters["Genres"]?.takeIf { it.isNotEmpty() }?.let { append("&GenreIds=").append(it.joinToString("|") { v -> enc(v.id) }) }
+        q.filters["Studios"]?.takeIf { it.isNotEmpty() }?.let { append("&StudioIds=").append(it.joinToString("|") { v -> enc(v.id) }) }
+        q.filters["Tags"]?.takeIf { it.isNotEmpty() }?.let { append("&Tags=").append(it.joinToString("|") { v -> enc(v.id) }) }
+        q.filters["OfficialRatings"]?.takeIf { it.isNotEmpty() }?.let { append("&OfficialRatings=").append(it.joinToString("|") { v -> enc(v.id) }) }
+        q.filters["Years"]?.takeIf { it.isNotEmpty() }?.let { append("&Years=").append(it.joinToString(",") { v -> enc(v.id) }) }
+        val flags = q.toggles.filter { it in setOf("IsUnplayed", "IsResumable", "IsFavorite") }
+        if (flags.isNotEmpty()) append("&Filters=").append(flags.joinToString(","))
+        if ("Is4K" in q.toggles) append("&Is4K=true")
+        if ("IsHD" in q.toggles) append("&IsHD=true")
+    }
+
+    /**
+     * Where each first letter starts, sorted by title with [q]'s filters ('#' = numbers and symbols): for the A–Z
+     * strip. Null when the server can't say up front (the strip then asks per letter, see [letterStart]).
+     */
+    suspend fun letterIndex(lib: MediaLibrary, type: MediaType, q: LibraryQuery): Map<Char, Int>? {
+        if (lib.server == null) return null
+        val a = store.current()
+        val p = plexServers(a).firstOrNull { it.machineId == lib.server } ?: return null
+        val qq = q.copy(sort = "titleSort", desc = false)
+        val c = runCatching { plexGet(a, p, "/library/sections/${lib.id}/firstCharacter?" + plexQuery(qq, type)) }.getOrNull() ?: return null
+        val out = LinkedHashMap<Char, Int>()
+        var at = 0
+        for (d in c.array("Directory")) {
+            val t = (d.str("title") ?: d.str("key") ?: "").uppercase().firstOrNull() ?: continue
+            val ch = if (t in 'A'..'Z') t else '#'
+            if (ch !in out) out[ch] = at
+            at += d.int("size") ?: 0
+        }
+        return out
+    }
+
+    /** How many titles (sorted by title, with [q]'s filters) come before [letter]. Null when the server can't say. */
+    suspend fun letterStart(lib: MediaLibrary, type: MediaType, q: LibraryQuery, letter: Char): Int? {
+        if (letter == '#') return 0
+        if (lib.source == PROVIDER_LIBRARY) return null
+        if (lib.server != null) return letterIndex(lib, type, q)?.let { idx -> idx.entries.firstOrNull { it.key != '#' && it.key >= letter }?.value ?: idx.values.maxOrNull() }
+        val a = store.current()
+        val emby = lib.source == "Emby"
+        val srv = (if (emby) a.emby else a.jellyfin) ?: return null
+        val qq = q.copy(sort = "SortName", desc = false)
+        val r = runCatching {
+            http.get("${srv.serverUrl}/Users/${srv.userId}/Items?" + jellyfinQuery(lib, type, qq) + "&Limit=0&NameLessThan=${enc(letter.toString())}", mediaServers.headers(emby, a.deviceId, srv.token))
+        }.getOrNull()?.takeIf { it.ok } ?: return null
+        return r.body.int("TotalRecordCount")
+    }
+
     /** Finds your other Plex servers on the account (e.g. a second machine) and remembers them. */
     suspend fun refreshPlexServers() {
         val a = store.current()
