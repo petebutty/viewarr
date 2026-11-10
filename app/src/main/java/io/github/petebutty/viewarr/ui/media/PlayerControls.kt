@@ -119,22 +119,22 @@ class PlayerMenu {
      */
     fun handle(e: androidx.compose.ui.input.key.KeyEvent, buttons: List<PlayerButton>, beginScrub: (dir: Int, repeat: Int) -> Unit, press: (PlayerButton) -> Unit, upFromBar: () -> Unit = {}): Boolean {
         val down = e.type == androidx.compose.ui.input.key.KeyEventType.KeyDown
-        val k = e.key
-        val center = k == androidx.compose.ui.input.key.Key.DirectionCenter || k == androidx.compose.ui.input.key.Key.Enter || k == androidx.compose.ui.input.key.Key.NumPadEnter
+        val a = io.github.petebutty.viewarr.ui.common.RemoteKeys.action(e)
+        val repeat = e.nativeKeyEvent.repeatCount
         if (down) touch()
         when {
-            onBar && (k == androidx.compose.ui.input.key.Key.DirectionLeft || k == androidx.compose.ui.input.key.Key.DirectionRight) -> {
-                if (down) beginScrub(if (k == androidx.compose.ui.input.key.Key.DirectionLeft) -1 else 1, e.nativeKeyEvent.repeatCount)
+            onBar && (a == io.github.petebutty.viewarr.ui.common.RemoteAction.Left || a == io.github.petebutty.viewarr.ui.common.RemoteAction.Right) -> {
+                if (down) beginScrub(if (a == io.github.petebutty.viewarr.ui.common.RemoteAction.Left) -1 else 1, repeat)
             }
-            onBar && k == androidx.compose.ui.input.key.Key.DirectionDown -> if (down && buttons.isNotEmpty()) onBar = false
+            onBar && a == io.github.petebutty.viewarr.ui.common.RemoteAction.Down -> if (down && buttons.isNotEmpty()) onBar = false
             // Up from the seek bar: pause, with what's playing (its synopsis) on screen.
-            onBar && k == androidx.compose.ui.input.key.Key.DirectionUp -> if (down && e.nativeKeyEvent.repeatCount == 0) upFromBar()
-            onBar && center -> Unit
-            !onBar && k == androidx.compose.ui.input.key.Key.DirectionLeft -> if (down) button = (button - 1).coerceAtLeast(0)
-            !onBar && k == androidx.compose.ui.input.key.Key.DirectionRight -> if (down) button = (button + 1).coerceAtMost(buttons.lastIndex)
-            !onBar && k == androidx.compose.ui.input.key.Key.DirectionUp -> if (down) onBar = true
-            !onBar && k == androidx.compose.ui.input.key.Key.DirectionDown -> Unit
-            !onBar && center -> if (down && e.nativeKeyEvent.repeatCount == 0) buttons.getOrNull(button)?.let(press)
+            onBar && a == io.github.petebutty.viewarr.ui.common.RemoteAction.Up -> if (down && repeat == 0) upFromBar()
+            onBar && a == io.github.petebutty.viewarr.ui.common.RemoteAction.Ok -> Unit
+            !onBar && a == io.github.petebutty.viewarr.ui.common.RemoteAction.Left -> if (down) button = (button - 1).coerceAtLeast(0)
+            !onBar && a == io.github.petebutty.viewarr.ui.common.RemoteAction.Right -> if (down) button = (button + 1).coerceAtMost(buttons.lastIndex)
+            !onBar && a == io.github.petebutty.viewarr.ui.common.RemoteAction.Up -> if (down) onBar = true
+            !onBar && a == io.github.petebutty.viewarr.ui.common.RemoteAction.Down -> Unit
+            !onBar && a == io.github.petebutty.viewarr.ui.common.RemoteAction.Ok -> if (down && repeat == 0) buttons.getOrNull(button)?.let(press)
             else -> return false
         }
         return true

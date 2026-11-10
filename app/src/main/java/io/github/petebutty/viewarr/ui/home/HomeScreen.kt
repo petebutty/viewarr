@@ -207,7 +207,8 @@ fun HomeScreen(
     // Several channels on screen at once (from the player menu).
     var multiView by remember { mutableStateOf(false) }
     // A Menu press that's still a tap (not held for search).
-    var menuTap by remember { mutableStateOf(false) }
+    // Menu on full-screen live TV: a tap (on release) opens audio & subtitles; holding it is search.
+    val liveMenuKey = remember { io.github.petebutty.viewarr.ui.common.TapHold() }
     // "Watch from the start" from the guide: search opens on the programme's title.
     var searchStart by remember { mutableStateOf<String?>(null) }
     var accountsFromMenu by remember { mutableStateOf(false) }
@@ -710,42 +711,40 @@ fun HomeScreen(
                         if (osdVisible || channelListOpen) return@onPreviewKeyEvent false
                         // Menu: a tap opens audio & subtitles when it's let go. Holding it is search (handled above),
                         // so acting on the press opened audio as well.
-                        if (e.key == Key.Menu) {
-                            if (e.type == KeyEventType.KeyDown && e.nativeKeyEvent.repeatCount == 0) menuTap = true
-                            if (e.type == KeyEventType.KeyDown && e.nativeKeyEvent.repeatCount > 0) menuTap = false
-                            if (e.type == KeyEventType.KeyUp && menuTap) {
-                                menuTap = false
+                        val action = io.github.petebutty.viewarr.ui.common.RemoteKeys.action(e)
+                        if (action == io.github.petebutty.viewarr.ui.common.RemoteAction.Menu) {
+                            if (liveMenuKey.feed(e) == io.github.petebutty.viewarr.ui.common.Press.Tap) {
                                 if (playState is PlaybackState.Error) playback.retry() else showOsd(audio = true)
                             }
                             return@onPreviewKeyEvent true
                         }
                         if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                        when (e.key) {
-                            Key.DirectionUp, Key.DirectionDown -> when (remote.zap) {
+                        when (action) {
+                            io.github.petebutty.viewarr.ui.common.RemoteAction.Up, io.github.petebutty.viewarr.ui.common.RemoteAction.Down -> when (remote.zap) {
                                 ZapDirection.ChannelList -> channelListOpen = true
-                                ZapDirection.UpNext -> zap(if (e.key == Key.DirectionUp) 1 else -1)
-                                ZapDirection.UpPrevious -> zap(if (e.key == Key.DirectionUp) -1 else 1)
+                                ZapDirection.UpNext -> zap(if (action == io.github.petebutty.viewarr.ui.common.RemoteAction.Up) 1 else -1)
+                                ZapDirection.UpPrevious -> zap(if (action == io.github.petebutty.viewarr.ui.common.RemoteAction.Up) -1 else 1)
                             }
-                            Key.ChannelDown -> zap(-1)
-                            Key.ChannelUp -> zap(1)
-                            Key.DirectionCenter, Key.Enter, Key.NumPadEnter -> when {
+                            io.github.petebutty.viewarr.ui.common.RemoteAction.ChannelDown -> zap(-1)
+                            io.github.petebutty.viewarr.ui.common.RemoteAction.ChannelUp -> zap(1)
+                            io.github.petebutty.viewarr.ui.common.RemoteAction.Ok -> when {
                                 playState is PlaybackState.Error -> playback.retry()
                                 remote.playerOk == PlayerOk.Banner -> showBanner()
                                 else -> showOsd()
                             }
-                            Key.MediaPlayPause, Key.MediaPlay, Key.MediaPause -> {
+                            io.github.petebutty.viewarr.ui.common.RemoteAction.PlayPause -> {
                                 playback.togglePause()
                                 showBanner()
                             }
-                            Key.DirectionLeft, Key.MediaRewind -> {
+                            io.github.petebutty.viewarr.ui.common.RemoteAction.Left, io.github.petebutty.viewarr.ui.common.RemoteAction.Rewind -> {
                                 playback.seekBy(-remote.seek.ms)
                                 showBanner()
                             }
-                            Key.DirectionRight, Key.MediaFastForward -> {
+                            io.github.petebutty.viewarr.ui.common.RemoteAction.Right, io.github.petebutty.viewarr.ui.common.RemoteAction.FastForward -> {
                                 playback.seekBy(remote.seek.ms)
                                 showBanner()
                             }
-                            Key.Info -> showBanner()
+                            io.github.petebutty.viewarr.ui.common.RemoteAction.Info -> showBanner()
                             else -> return@onPreviewKeyEvent false
                         }
                         true

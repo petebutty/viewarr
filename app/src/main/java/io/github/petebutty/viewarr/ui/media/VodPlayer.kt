@@ -76,11 +76,9 @@ fun VodPlayer(
     // Audio & subtitles opened from the Subtitles button: start on the subtitles.
     var tracksSubs by remember { mutableStateOf(false) }
     val menu = remember { PlayerMenu() }
-    var menuTap by remember { mutableStateOf(false) }
     // What's playing (poster, synopsis): the Info button, the Details button, or a moment after pausing.
     var detailsOn by remember { mutableStateOf(false) }
     var pausedLong by remember { mutableStateOf(false) }
-    var okDown by remember { mutableStateOf(false) }
     val scrub = remember { Scrubber() }
     val thumbs = remember(stream) { io.github.petebutty.viewarr.playback.SeekThumbs.forStream(stream.url, stream.headers, stream.thumbs.takeIf { io.github.petebutty.viewarr.ui.theme.AppColors.palette.serverPreviews }, stream.boxPreviews && io.github.petebutty.viewarr.ui.theme.AppColors.palette.boxPreviews) }
     DisposableEffect(thumbs) { onDispose { thumbs?.close() } }
@@ -266,6 +264,21 @@ fun VodPlayer(
         }
         showOsd()
     }
+    // The remote: shared with the mpv player (VodKeys).
+    val keys = remember { VodKeys(scrub, menu) }
+    val remote = object : VodRemote {
+        override val positionMs get() = player.currentPosition
+        override val durationMs get() = player.duration.coerceAtLeast(0)
+        override fun seekTo(ms: Long) = player.seekTo(ms)
+        override fun skip(ms: Long) = player.seekTo(maxOf(0, player.currentPosition + ms))
+        override fun togglePause() { player.playWhenReady = !player.playWhenReady }
+        override fun pause() { player.playWhenReady = false }
+    }
+    val hooks = VodHooks(
+        buttons = buttons, press = ::press, seekMs = seekMs, showOsd = ::showOsd,
+        openTracks = { subs -> subs?.let { tracksSubs = it }; tracksOpen = true },
+        toggleDetails = { detailsOn = !detailsOn }, showDetails = { detailsOn = true }, stop = onClose,
+    )
     // The controls close after a while without a key (not while paused).
     LaunchedEffect(paused) {
         pausedLong = false
@@ -303,65 +316,7 @@ fun VodPlayer(
             .onPreviewKeyEvent { e ->
                 if (VodHost.eatsBack(e)) return@onPreviewKeyEvent true
                 if (tracksOpen) return@onPreviewKeyEvent false
-                val center = e.key == Key.DirectionCenter || e.key == Key.Enter || e.key == Key.NumPadEnter
-                // On the seek bar: Left / Right move the marker, OK jumps there, Up leaves.
-                if (scrub.active) {
-                    val down = e.type == KeyEventType.KeyDown
-                    when {
-                        center -> {
-                            if (down && e.nativeKeyEvent.repeatCount == 0) {
-                                scrub.commit()?.let { player.seekTo(it) }
-                                okDown = false
-                                showOsd()
-                            }
-                            return@onPreviewKeyEvent true
-                        }
-                        e.key == Key.DirectionLeft || e.key == Key.MediaRewind -> {
-                            if (down) { scrub.step(-1, e.nativeKeyEvent.repeatCount, player.duration.coerceAtLeast(0)); showOsd() }
-                            return@onPreviewKeyEvent true
-                        }
-                        e.key == Key.DirectionRight || e.key == Key.MediaFastForward -> {
-                            if (down) { scrub.step(1, e.nativeKeyEvent.repeatCount, player.duration.coerceAtLeast(0)); showOsd() }
-                            return@onPreviewKeyEvent true
-                        }
-                        e.key == Key.DirectionUp -> { if (down) { scrub.cancel(); showOsd() }; return@onPreviewKeyEvent true }
-                        e.key == Key.DirectionDown -> { if (down && menu.open) { scrub.cancel(); menu.onBar = false }; return@onPreviewKeyEvent true }
-                    }
-                }
-                // The controls (opened with OK): seek bar and buttons.
-                if (menu.open && menu.handle(e, buttons, { dir, rep -> scrub.begin(player.currentPosition); scrub.step(dir, rep, player.duration.coerceAtLeast(0)); showOsd() }, ::press, upFromBar = { player.playWhenReady = false; detailsOn = true; menu.open = false })) return@onPreviewKeyEvent true
-                if (center) {
-                    // Tap OK: pause/play. Hold OK: audio & subtitles.
-                    when {
-                        e.type == KeyEventType.KeyDown && e.nativeKeyEvent.repeatCount == 0 -> okDown = true
-                        e.type == KeyEventType.KeyDown && okDown -> { okDown = false; tracksOpen = true }
-                        // Tap OK: the controls (Play/Pause on the remote pauses). Hold OK: audio & subtitles.
-                        e.type == KeyEventType.KeyUp && okDown -> {
-                            okDown = false
-                            menu.show()
-                            showOsd()
-                        }
-                    }
-                    return@onPreviewKeyEvent true
-                }
-                // Menu: audio & subtitles on a tap, when it's let go (holding Menu is search).
-                if (e.key == Key.Menu) {
-                    if (e.type == KeyEventType.KeyDown) menuTap = e.nativeKeyEvent.repeatCount == 0
-                    else if (menuTap) { menuTap = false; tracksSubs = false; tracksOpen = true }
-                    return@onPreviewKeyEvent true
-                }
-                if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                when (e.key) {
-                    Key.DirectionLeft, Key.MediaRewind -> { player.seekTo(maxOf(0, player.currentPosition - seekMs)); showOsd() }
-                    Key.DirectionRight, Key.MediaFastForward -> { player.seekTo(player.currentPosition + seekMs); showOsd() }
-                    Key.DirectionDown -> { scrub.begin(player.currentPosition); showOsd() }
-                    Key.DirectionUp -> showOsd()
-                    Key.Info -> detailsOn = !detailsOn
-                    Key.MediaPlayPause, Key.MediaPlay, Key.MediaPause -> { player.playWhenReady = !player.playWhenReady; showOsd() }
-                    Key.MediaStop -> onClose()
-                    else -> return@onPreviewKeyEvent false
-                }
-                true
+                keys.handle(e, remote, hooks)
             },
     ) {
         AndroidView(

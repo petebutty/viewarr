@@ -101,11 +101,9 @@ fun MpvPlayer(
     // Audio & subtitles opened from the Subtitles button: start on the subtitles.
     var tracksSubs by remember { mutableStateOf(false) }
     val menu = remember { PlayerMenu() }
-    var menuTap by remember { mutableStateOf(false) }
     // What's playing (poster, synopsis): the Info button, the Details button, or a moment after pausing.
     var detailsOn by remember { mutableStateOf(false) }
     var pausedLong by remember { mutableStateOf(false) }
-    var okDown by remember { mutableStateOf(false) }
     val focus = remember { FocusRequester() }
     var hasFocus by remember { mutableStateOf(false) }
     var subText by remember { mutableStateOf("") }
@@ -298,6 +296,21 @@ fun MpvPlayer(
         }
         showOsd()
     }
+    // The remote: shared with the built-in player (VodKeys).
+    val keys = remember { VodKeys(scrub, menu) }
+    val remote = object : VodRemote {
+        override val positionMs get() = (position * 1000).toLong()
+        override val durationMs get() = (duration * 1000).toLong()
+        override fun seekTo(ms: Long) = mpv.command(arrayOf("seek", (ms / 1000.0).toString(), "absolute"))
+        override fun skip(ms: Long) = seek(ms / 1000.0)
+        override fun togglePause() = mpv.setPropertyBoolean("pause", !paused)
+        override fun pause() = mpv.setPropertyBoolean("pause", true)
+    }
+    val hooks = VodHooks(
+        buttons = buttons, press = ::press, seekMs = (seekSec * 1000).toLong(), showOsd = ::showOsd,
+        openTracks = { subs -> subs?.let { tracksSubs = it }; tracksOpen = true },
+        toggleDetails = { detailsOn = !detailsOn }, showDetails = { detailsOn = true }, stop = onClose,
+    )
     // The controls close after a while without a key (not while paused).
     LaunchedEffect(paused) {
         pausedLong = false
@@ -317,64 +330,7 @@ fun MpvPlayer(
             .onPreviewKeyEvent { e ->
                 if (VodHost.eatsBack(e)) return@onPreviewKeyEvent true
                 if (tracksOpen) return@onPreviewKeyEvent false
-                val center = e.key == Key.DirectionCenter || e.key == Key.Enter || e.key == Key.NumPadEnter
-                // On the seek bar: Left / Right move the marker, OK jumps there, Up leaves.
-                if (scrub.active) {
-                    val down = e.type == KeyEventType.KeyDown
-                    when {
-                        center -> {
-                            if (down && e.nativeKeyEvent.repeatCount == 0) {
-                                scrub.commit()?.let { mpv.command(arrayOf("seek", (it / 1000.0).toString(), "absolute")) }
-                                okDown = false
-                                showOsd()
-                            }
-                            return@onPreviewKeyEvent true
-                        }
-                        e.key == Key.DirectionLeft || e.key == Key.MediaRewind -> {
-                            if (down) { scrub.step(-1, e.nativeKeyEvent.repeatCount, (duration * 1000).toLong()); showOsd() }
-                            return@onPreviewKeyEvent true
-                        }
-                        e.key == Key.DirectionRight || e.key == Key.MediaFastForward -> {
-                            if (down) { scrub.step(1, e.nativeKeyEvent.repeatCount, (duration * 1000).toLong()); showOsd() }
-                            return@onPreviewKeyEvent true
-                        }
-                        e.key == Key.DirectionUp -> { if (down) { scrub.cancel(); showOsd() }; return@onPreviewKeyEvent true }
-                        e.key == Key.DirectionDown -> { if (down && menu.open) { scrub.cancel(); menu.onBar = false }; return@onPreviewKeyEvent true }
-                    }
-                }
-                // The controls (opened with OK): seek bar and buttons.
-                if (menu.open && menu.handle(e, buttons, { dir, rep -> scrub.begin((position * 1000).toLong()); scrub.step(dir, rep, (duration * 1000).toLong()); showOsd() }, ::press, upFromBar = { mpv.setPropertyBoolean("pause", true); detailsOn = true; menu.open = false })) return@onPreviewKeyEvent true
-                if (center) {
-                    when {
-                        e.type == KeyEventType.KeyDown && e.nativeKeyEvent.repeatCount == 0 -> okDown = true
-                        e.type == KeyEventType.KeyDown && okDown -> { okDown = false; tracksOpen = true }
-                        // Tap OK: the controls (Play/Pause on the remote pauses). Hold OK: audio & subtitles.
-                        e.type == KeyEventType.KeyUp && okDown -> {
-                            okDown = false
-                            menu.show()
-                            showOsd()
-                        }
-                    }
-                    return@onPreviewKeyEvent true
-                }
-                // Menu: audio & subtitles on a tap, when it's let go (holding Menu is search).
-                if (e.key == Key.Menu) {
-                    if (e.type == KeyEventType.KeyDown) menuTap = e.nativeKeyEvent.repeatCount == 0
-                    else if (menuTap) { menuTap = false; tracksSubs = false; tracksOpen = true }
-                    return@onPreviewKeyEvent true
-                }
-                if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                when (e.key) {
-                    Key.DirectionLeft, Key.MediaRewind -> seek(-seekSec)
-                    Key.DirectionRight, Key.MediaFastForward -> seek(seekSec)
-                    Key.DirectionDown -> { scrub.begin((position * 1000).toLong()); showOsd() }
-                    Key.DirectionUp -> showOsd()
-                    Key.Info -> detailsOn = !detailsOn
-                    Key.MediaPlayPause, Key.MediaPlay, Key.MediaPause -> { mpv.setPropertyBoolean("pause", !paused); showOsd() }
-                    Key.MediaStop -> onClose()
-                    else -> return@onPreviewKeyEvent false
-                }
-                true
+                keys.handle(e, remote, hooks)
             },
     ) {
         AndroidView(
