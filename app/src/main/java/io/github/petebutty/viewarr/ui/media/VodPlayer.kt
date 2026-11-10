@@ -60,7 +60,8 @@ fun VodPlayer(
     /** Progress for Plex / Trakt: state is "playing", "paused" or "stopped". */
     onProgress: (state: String, positionMs: Long, durationMs: Long) -> Unit = { _, _, _ -> },
     /** Hold-OK menu → "Switch to mpv": carry on there from this position. */
-    onSwitchPlayer: ((positionMs: Long) -> Unit)? = null,
+    /** Swap players for this film: where it is, and the audio / subtitle tracks in use (ordinals; subtitles -1 = off). */
+    onSwitchPlayer: ((positionMs: Long, audio: Int?, subtitles: Int?) -> Unit)? = null,
     art: io.github.petebutty.viewarr.data.media.PlayerArt? = null,
 ) {
     val context = LocalContext.current
@@ -251,6 +252,15 @@ fun VodPlayer(
             else -> if (io.github.petebutty.viewarr.ui.theme.AppColors.palette.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.PLAYER_BACK) == 1) onClose() else VodHost.minimise().also { if (!VodHost.active) onClose() }
         }
     }
+    // The tracks in use, as ordinals of each kind (subtitles -1 = off): handed over when switching to mpv.
+    fun picks(): Pair<Int?, Int?> {
+        fun selected(type: Int): Int? {
+            val all = player.currentTracks.groups.filter { it.type == type }.flatMap { g -> (0 until g.length).map { g to it } }
+            if (all.isEmpty()) return null
+            return all.indexOfFirst { (g, i) -> g.isTrackSelected(i) }
+        }
+        return selected(androidx.media3.common.C.TRACK_TYPE_AUDIO)?.takeIf { it >= 0 } to selected(androidx.media3.common.C.TRACK_TYPE_TEXT)
+    }
     val buttons = listOfNotNull(PlayerButton.PlayPause, PlayerButton.Stop, PlayerButton.Details, PlayerButton.Audio, PlayerButton.Subtitles, PlayerButton.Info, if (onSwitchPlayer != null) PlayerButton.SwitchPlayer else null)
     fun press(b: PlayerButton) {
         when (b) {
@@ -259,7 +269,7 @@ fun VodPlayer(
             PlayerButton.Subtitles -> { tracksSubs = true; tracksOpen = true }
             PlayerButton.Info -> menu.infoOn = !menu.infoOn
             PlayerButton.Details -> { detailsOn = !detailsOn; if (detailsOn) menu.open = false }
-            PlayerButton.SwitchPlayer -> onSwitchPlayer?.invoke(player.currentPosition)
+            PlayerButton.SwitchPlayer -> picks().let { (a, t) -> onSwitchPlayer?.invoke(player.currentPosition, a, t) }
             PlayerButton.Stop -> { onClose(); return }
         }
         showOsd()
@@ -360,7 +370,7 @@ fun VodPlayer(
             barFocused = menu.open && menu.onBar,
         )
         PlayerLoading(stream.title, art, visible = !mini && !started && error == null)
-        if (tracksOpen && !mini) TrackPicker(player, subtitlesFirst = tracksSubs, onSwitchPlayer = onSwitchPlayer?.let { f -> { f(player.currentPosition) } }, onClose = { tracksOpen = false; runCatching { focus.requestFocus() } }, modifier = Modifier.align(Alignment.CenterEnd))
+        if (tracksOpen && !mini) TrackPicker(player, subtitlesFirst = tracksSubs, onSwitchPlayer = onSwitchPlayer?.let { f -> { picks().let { (a, t) -> f(player.currentPosition, a, t) } } }, onClose = { tracksOpen = false; runCatching { focus.requestFocus() } }, modifier = Modifier.align(Alignment.CenterEnd))
         if (!mini && (pb.stats == io.github.petebutty.viewarr.data.settings.StatsOverlay.On || menu.infoOn)) {
             var info by remember { mutableStateOf("") }
             LaunchedEffect(player) {

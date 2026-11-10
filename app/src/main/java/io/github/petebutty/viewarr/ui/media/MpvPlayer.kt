@@ -81,7 +81,8 @@ fun MpvPlayer(
     onClose: () -> Unit,
     onProgress: (state: String, positionMs: Long, durationMs: Long) -> Unit = { _, _, _ -> },
     /** Hold-OK menu → "Switch to the built-in player": carry on there from this position. */
-    onSwitchPlayer: ((positionMs: Long) -> Unit)? = null,
+    /** Swap players for this film: where it is, and the audio / subtitle tracks in use (ordinals; subtitles -1 = off). */
+    onSwitchPlayer: ((positionMs: Long, audio: Int?, subtitles: Int?) -> Unit)? = null,
     art: io.github.petebutty.viewarr.data.media.PlayerArt? = null,
 ) {
     val context = LocalContext.current
@@ -283,6 +284,14 @@ fun MpvPlayer(
         showOsd()
     }
 
+    // The tracks in use, as ordinals of each kind (mpv numbers them from 1; subtitles -1 = off): handed over when
+    // switching to the built-in player.
+    fun picks(): Pair<Int?, Int?> {
+        val a = mpv.getPropertyString("aid")?.toIntOrNull()?.minus(1)
+        val sid = mpv.getPropertyString("sid")
+        val t = if (sid == "no" || sid == "false") -1 else sid?.toIntOrNull()?.minus(1)
+        return a to t
+    }
     val buttons = listOfNotNull(PlayerButton.PlayPause, PlayerButton.Stop, PlayerButton.Details, PlayerButton.Audio, PlayerButton.Subtitles, PlayerButton.Info, if (onSwitchPlayer != null) PlayerButton.SwitchPlayer else null)
     fun press(b: PlayerButton) {
         when (b) {
@@ -291,7 +300,7 @@ fun MpvPlayer(
             PlayerButton.Subtitles -> { tracksSubs = true; tracksOpen = true }
             PlayerButton.Info -> menu.infoOn = !menu.infoOn
             PlayerButton.Details -> { detailsOn = !detailsOn; if (detailsOn) menu.open = false }
-            PlayerButton.SwitchPlayer -> onSwitchPlayer?.invoke((position * 1000).toLong())
+            PlayerButton.SwitchPlayer -> picks().let { (a, t) -> onSwitchPlayer?.invoke((position * 1000).toLong(), a, t) }
             PlayerButton.Stop -> { onClose(); return }
         }
         showOsd()
@@ -391,7 +400,7 @@ fun MpvPlayer(
         error?.let {
             Text(it, fontSize = 18.sp, color = Color.White, modifier = Modifier.align(Alignment.Center).background(Color.Black.copy(alpha = 0.7f)).padding(20.dp))
         }
-        if (tracksOpen && !mini) MpvTrackPicker(mpv, subtitlesFirst = tracksSubs, onSwitchPlayer = onSwitchPlayer?.let { f -> { f((position * 1000).toLong()) } }, onClose = { tracksOpen = false; runCatching { focus.requestFocus() } }, modifier = Modifier.align(Alignment.CenterEnd))
+        if (tracksOpen && !mini) MpvTrackPicker(mpv, subtitlesFirst = tracksSubs, onSwitchPlayer = onSwitchPlayer?.let { f -> { picks().let { (a, t) -> f((position * 1000).toLong(), a, t) } } }, onClose = { tracksOpen = false; runCatching { focus.requestFocus() } }, modifier = Modifier.align(Alignment.CenterEnd))
     }
 }
 
@@ -570,8 +579,9 @@ fun PlayerHost(
     val default = LocalPlayback.current.engine
     var engine by remember(stream) { mutableStateOf(default) }
     var current by remember(stream) { mutableStateOf(stream) }
-    val switch: (Long) -> Unit = { pos ->
-        current = current.copy(startMs = pos)
+    val switch: (Long, Int?, Int?) -> Unit = { pos, audio, subs ->
+        // Same moment, same soundtrack and subtitles.
+        current = current.copy(startMs = pos, audioTrack = audio ?: current.audioTrack, subtitleTrack = subs ?: current.subtitleTrack)
         engine = if (engine == io.github.petebutty.viewarr.data.settings.PlayerEngine.Mpv) io.github.petebutty.viewarr.data.settings.PlayerEngine.Builtin
         else io.github.petebutty.viewarr.data.settings.PlayerEngine.Mpv
     }

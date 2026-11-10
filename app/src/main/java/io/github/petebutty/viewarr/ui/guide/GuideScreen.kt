@@ -197,6 +197,8 @@ fun GuideScreen(
                     Key.ChannelDown, Key.PageDown -> vm.moveVertical(if (remote.channelKeys == ChannelKeys.Reversed) -PAGE else PAGE)
                     Key.DirectionRight, Key.MediaFastForward -> vm.moveRight()
                     Key.MediaRewind -> vm.moveLeft()
+                    // Record (remotes that have it): the highlighted programme's options, as holding OK.
+                    Key.MediaRecord -> selectedChannel?.let { ch -> focused?.let { onLongSelect(ch, it) } }
                     else -> return@onPreviewKeyEvent false
                 }
                 true

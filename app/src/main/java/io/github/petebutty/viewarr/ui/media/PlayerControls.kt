@@ -110,7 +110,8 @@ class PlayerMenu {
     var button by androidx.compose.runtime.mutableIntStateOf(0)
     var infoOn by mutableStateOf(false)
     var lastKey by androidx.compose.runtime.mutableLongStateOf(0L)
-    fun show() { open = true; onBar = true; touch() }
+    /** Opens on the seek bar, with Play / Pause highlighted below it (not the button used last time). */
+    fun show() { open = true; onBar = true; button = 0; touch() }
     fun touch() { lastKey = System.currentTimeMillis() }
 
     /**

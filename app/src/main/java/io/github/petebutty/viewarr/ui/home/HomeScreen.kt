@@ -461,7 +461,14 @@ fun HomeScreen(
                 // Hold Back with a film in the corner: back to full screen (before the guide's own hold-Back).
                 if (e.key == Key.Back && (io.github.petebutty.viewarr.ui.media.VodHost.mini || pipBackHeld)) {
                     when {
-                        e.type == KeyEventType.KeyDown && e.nativeKeyEvent.repeatCount > 0 && !pipBackHeld -> { pipBackHeld = true; io.github.petebutty.viewarr.ui.media.VodHost.expand(); return@onPreviewKeyEvent true }
+                        e.type == KeyEventType.KeyDown && e.nativeKeyEvent.repeatCount > 0 && !pipBackHeld -> {
+                            pipBackHeld = true
+                            // The menu (and any settings page) closes: left open under the film, it took the next Back presses.
+                            menuOpen = false
+                            quickSearch = false
+                            io.github.petebutty.viewarr.ui.media.VodHost.expand()
+                            return@onPreviewKeyEvent true
+                        }
                         e.type == KeyEventType.KeyDown && pipBackHeld -> return@onPreviewKeyEvent true
                         // The release reached here (the player hadn't the remote yet): that press is over.
                         e.type == KeyEventType.KeyUp && pipBackHeld -> { pipBackHeld = false; io.github.petebutty.viewarr.ui.media.VodHost.eatBackRelease = false; return@onPreviewKeyEvent true }
@@ -511,6 +518,42 @@ fun HomeScreen(
                         quickSearch = true
                         searchHeld = true // swallow the rest of this press
                         return@onPreviewKeyEvent true
+                    }
+                }
+                // Remotes with Guide / Record buttons (e.g. Formuler): the TV guide from anywhere, and recording what's on.
+                if (!showAccounts && recordTarget == null && infoTarget == null && e.type == KeyEventType.KeyDown) {
+                    when (io.github.petebutty.viewarr.ui.common.RemoteKeys.action(e)) {
+                        io.github.petebutty.viewarr.ui.common.RemoteAction.Guide -> {
+                            if (e.nativeKeyEvent.repeatCount == 0) {
+                                quickSearch = false
+                                menuOpen = false
+                                channelListOpen = false
+                                osdVisible = false
+                                io.github.petebutty.viewarr.playback.MusicPlayer.nowPlayingOpen = false
+                                // A film full screen goes to the corner and keeps playing, as with Back.
+                                if (io.github.petebutty.viewarr.ui.media.VodHost.covering) io.github.petebutty.viewarr.ui.media.VodHost.minimise()
+                                if (page == Page.Tv) { fullscreen = false; multiView = false } else openPage(Page.Tv)
+                            }
+                            return@onPreviewKeyEvent true
+                        }
+                        // Record on live TV: the programme's options (record it, its series, start over…), as holding
+                        // OK in the guide. The guide handles Record on the highlighted programme itself.
+                        io.github.petebutty.viewarr.ui.common.RemoteAction.Record -> {
+                            val ch = playing
+                            if (!quickSearch && page == Page.Tv && fullscreen && !multiView && catchup == null && ch != null &&
+                                !io.github.petebutty.viewarr.ui.media.VodHost.covering
+                            ) {
+                                if (e.nativeKeyEvent.repeatCount == 0) {
+                                    GuideViewModel.programAt(programsOf(ch), now)?.let { prog ->
+                                        osdVisible = false
+                                        channelListOpen = false
+                                        recordTarget = ch to prog
+                                    }
+                                }
+                                return@onPreviewKeyEvent true
+                            }
+                        }
+                        else -> Unit
                     }
                 }
                 if (quickSearch) return@onPreviewKeyEvent false
