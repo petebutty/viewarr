@@ -162,8 +162,29 @@ fun VodPlayer(
         var usedFallback = false
         // Audio & subtitles picked on the film's page: applied once the file's tracks are known.
         var picksApplied = stream.audioTrack == null && stream.subtitleTrack == null
+        // A file this player can't manage goes to mpv at the same moment (once; mpv never hands back), so
+        // nobody sees an error for something mpv plays. False when there's no mpv to hand to.
+        var handedOver = false
+        fun toMpv(why: String): Boolean {
+            val swap = onSwitchPlayer ?: return false
+            if (!handedOver) {
+                handedOver = true
+                android.util.Log.w("VodPlayer", "handing over to mpv: $why")
+                swap(player.currentPosition.takeIf { it > 0 } ?: startAt, null, null)
+            }
+            return true
+        }
         val listener = object : Player.Listener {
             override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
+                // The file opened but its picture or sound can't be played here (this player would carry on
+                // silently, or with a black screen).
+                if (!tracks.groups.isEmpty()) {
+                    val video = androidx.media3.common.C.TRACK_TYPE_VIDEO
+                    val audio = androidx.media3.common.C.TRACK_TYPE_AUDIO
+                    val badVideo = tracks.containsType(video) && !tracks.isTypeSupported(video, true)
+                    val badAudio = tracks.containsType(audio) && !tracks.isTypeSupported(audio, true)
+                    if ((badVideo || badAudio) && toMpv(if (badVideo) "picture format" else "sound format")) return
+                }
                 if (picksApplied || tracks.groups.isEmpty()) return
                 picksApplied = true
                 val text = androidx.media3.common.C.TRACK_TYPE_TEXT
@@ -215,6 +236,18 @@ fun VodPlayer(
                     player.playWhenReady = true
                     return
                 }
+                // Formats and decoding: mpv may well play it. (Network and server errors stay errors: mpv wouldn't help.)
+                val unplayable = e.errorCode in setOf(
+                    PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED,
+                    PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED,
+                    PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
+                    PlaybackException.ERROR_CODE_DECODER_QUERY_FAILED,
+                    PlaybackException.ERROR_CODE_DECODING_FAILED,
+                    PlaybackException.ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES,
+                    PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED,
+                    PlaybackException.ERROR_CODE_AUDIO_TRACK_INIT_FAILED,
+                )
+                if (unplayable && toMpv(e.errorCodeName)) return
                 error = when (e.errorCode) {
                     PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED ->
                         "This file's format isn't supported by the TV. Press Back and choose another source."

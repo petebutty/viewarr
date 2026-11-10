@@ -14,9 +14,10 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /** Settings → Playback. The first entry of each enum is the default. */
+/** The first entry is the default (anyone who never chose). Built-in since 0.23: mpv is the backup for unusual files. */
 enum class PlayerEngine(override val label: String) : RemoteChoice {
-    Mpv("mpv (plays almost anything)"),
-    Builtin("Built-in (lighter)"),
+    Builtin("Built-in (recommended)"),
+    Mpv("mpv (for unusual files)"),
 }
 
 enum class AudioLanguage(override val label: String, val code: String?) : RemoteChoice {

@@ -95,6 +95,8 @@ fun MpvPlayer(
     var duration by remember { mutableDoubleStateOf(0.0) }
     var paused by remember { mutableStateOf(false) }
     var buffering by remember { mutableStateOf(true) }
+    /** Waiting on the network (not a seek: a seek that never finishes is what a stalled soundtrack looks like). */
+    var cacheWait by remember { mutableStateOf(false) }
     var ended by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var osdUntil by remember { mutableLongStateOf(System.currentTimeMillis() + io.github.petebutty.viewarr.ui.theme.AppColors.palette.controlsMs) }
@@ -132,7 +134,10 @@ fun MpvPlayer(
                             paused = value
                             onProgress(if (value) "paused" else "playing", (position * 1000).toLong(), (duration * 1000).toLong())
                         }
-                        "paused-for-cache", "seeking" -> buffering = value
+                        "paused-for-cache", "seeking" -> {
+                            buffering = value
+                            if (property == "paused-for-cache") cacheWait = value
+                        }
                         "eof-reached" -> if (value) {
                             ended = true
                             onProgress("stopped", (duration * 1000).toLong(), (duration * 1000).toLong())
@@ -214,11 +219,32 @@ fun MpvPlayer(
     LaunchedEffect(mpv) {
         if (settings.passthrough != Passthrough.On) return@LaunchedEffect
         delay(if (settings.frameRate == io.github.petebutty.viewarr.data.settings.FrameRateMatch.On) 9_000 else 5_000)
-        val before = position
-        delay(3_000)
-        if (position - before < 0.5 && !paused && error == null) {
+        // Watched for the first two minutes, not checked once: a press of pause (people press it when nothing
+        // happens) used to skip the only check, leaving the film stuck. Stuck = meant to be playing, not waiting on
+        // the network, and the clock still for 5 s (including a resume jump that never completes). Once the clock runs normally, passthrough is working.
+        var last = position
+        var stillFor = 0
+        var stuck = false
+        for (i in 0 until 240) {
+            delay(500)
+            val step = position - last
+            last = position
+            if (error != null) return@LaunchedEffect
+            if (step in 0.2..2.0) return@LaunchedEffect
+            stillFor = if (paused || cacheWait || kotlin.math.abs(step) > 2.0) 0 else stillFor + 1
+            if (stillFor >= 10) { stuck = true; break }
+        }
+        if (stuck) {
             Log.w(TAG, "audio never started with passthrough: decoding in the box instead")
+            val aid = runCatching { mpv.getPropertyString("aid") }.getOrNull()
             runCatching { mpv.setPropertyString("audio-spdif", "") }
+            // Changing audio-spdif alone keeps the pass-through decoder running (seen on a Formuler: the film never
+            // started). Re-picking the soundtrack opens it again with the box decoding it.
+            if (aid != null && aid != "no" && aid != "auto") {
+                runCatching { mpv.setPropertyString("aid", "no") }
+                delay(300)
+                runCatching { mpv.setPropertyString("aid", aid) }
+            }
             runCatching { mpv.command(arrayOf("ao-reload")) }
         }
     }

@@ -44,7 +44,7 @@ fun PlaybackSettingsScreen(onBack: () -> Unit, vm: PlaybackSettingsViewModel = h
         SettingCategory(
             "Player", "Which player plays films, shows and recordings, and how it behaves.",
             listOf(
-                item("Player", "mpv plays almost any file and soundtrack. The built-in player is lighter on weak boxes.", k.ENGINE, choices<io.github.petebutty.viewarr.data.settings.PlayerEngine>(), s.engine),
+                item("Player", "The built-in player is lighter and handles surround sound best. If it can't play a file, Viewarr switches to mpv by itself. Choose mpv to use it for everything.", k.ENGINE, choices<io.github.petebutty.viewarr.data.settings.PlayerEngine>(), s.engine),
                 item("Resume", "Carry on where you stopped last time, or always start at the beginning.", k.RESUME, choices<io.github.petebutty.viewarr.data.settings.ResumeMode>(), s.resume),
                 optItem(opts, "Back while watching", "Back during a film or episode: shrink it to a corner and keep it playing while you browse (hold Back for full screen again), or stop.", io.github.petebutty.viewarr.ui.theme.UiOpts.PLAYER_BACK),
                 optItem(opts, "Controls stay up for", "How long the seek bar and buttons stay on screen after a button press.", io.github.petebutty.viewarr.ui.theme.UiOpts.CONTROLS_TIME),
