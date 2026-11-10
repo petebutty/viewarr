@@ -178,6 +178,38 @@ class GuideRepository @Inject constructor(
     }
 
     suspend fun searchPrograms(q: String, from: Long, limit: Int) = dao.searchPrograms(q, from, limit)
+
+    /**
+     * Catch-up search: programmes that have ended since [from] whose title matches [q], newest first, as
+     * (guide key, programme without a channel yet). Dispatcharr searches its own guide (it keeps the last few days);
+     * an IPTV login or playlist searches this TV's guide.
+     */
+    suspend fun searchPast(session: Session, q: String, from: Long, now: Long): List<Pair<String?, io.github.petebutty.viewarr.data.local.GuideProgram>> {
+        if (session.isDirect) return dao.searchPast(q, from, now, 60).map { null to it }
+        return runCatching {
+            val api = apiFactory.create(session.serverUrl, session.apiKey)
+            api.searchPast(title = q, startAfter = Instant.ofEpochMilli(from).toString(), endBefore = Instant.ofEpochMilli(now).toString())
+                .results.mapNotNull { p ->
+                    val start = parseTime(p.start) ?: return@mapNotNull null
+                    val end = parseTime(p.end) ?: return@mapNotNull null
+                    p.tvgId to io.github.petebutty.viewarr.data.local.GuideProgram(
+                        channelId = 0,
+                        // Not a row of this TV's guide: a stand-in key, unique per showing.
+                        rowId = -start,
+                        title = p.title.orEmpty(),
+                        subTitle = p.subTitle?.takeIf { it.isNotBlank() },
+                        packedDescription = io.github.petebutty.viewarr.data.local.Packed.of(p.description),
+                        startTime = start,
+                        endTime = end,
+                        season = p.props?.intOrNull("season"),
+                        episode = p.props?.intOrNull("episode"),
+                        isNew = false, isLive = false, isPremiere = false,
+                        image = programImage(p.props),
+                    )
+                }
+                .sortedByDescending { it.second.startTime }
+        }.getOrDefault(emptyList())
+    }
     suspend fun programsFor(channelId: Int, guideKey: String, from: Long, to: Long) = dao.programsFor(channelId, guideKey, from, to)
 
     suspend fun syncIfStale(session: Session) {

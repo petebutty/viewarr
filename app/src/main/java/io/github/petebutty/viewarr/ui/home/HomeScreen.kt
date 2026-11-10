@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -215,6 +216,9 @@ fun HomeScreen(
     val liveMenuKey = remember { io.github.petebutty.viewarr.ui.common.TapHold() }
     // "Watch from the start" from the guide: search opens on the programme's title.
     var searchStart by remember { mutableStateOf<String?>(null) }
+    // Search opened from the guide's "Search catch-up": with the Catch-up pill picked.
+    var searchCatchup by remember { mutableStateOf(false) }
+    LaunchedEffect(quickSearch) { if (!quickSearch) searchCatchup = false }
     var accountsFromMenu by remember { mutableStateOf(false) }
     var searchVoice by remember { mutableStateOf(false) }
     var menuOnSettings by remember { mutableStateOf(false) }
@@ -238,9 +242,13 @@ fun HomeScreen(
     val playing by playback.channel.collectAsStateWithLifecycle()
     val playState by playback.state.collectAsStateWithLifecycle()
     val catchup by playback.catchup.collectAsStateWithLifecycle()
-    // Back from full screen: the guide opens on the channel playing, at now (not wherever it was last scrolled to).
+    // The guide group a channel was started from (browsing another group later doesn't change it).
+    var playingGroup by remember { mutableStateOf<Int?>(null) }
+    LaunchedEffect(playing?.id) { if (playing != null) playingGroup = vm.groupId.value }
+    // Back from full screen: the guide opens on the channel playing, at now, in its group (not wherever the guide was
+    // last scrolled to, nor the group browsed since).
     LaunchedEffect(fullscreen) {
-        if (!fullscreen && page == Page.Tv) playing?.let { vm.selectChannel(it.id) }
+        if (!fullscreen && page == Page.Tv) playing?.let { vm.returnTo(it.id, playingGroup) }
     }
     val programs by vm.programs.collectAsStateWithLifecycle()
     // The guide only keeps programmes for the channels near where it's scrolled to. The channel you're watching
@@ -523,6 +531,38 @@ fun HomeScreen(
         page = p
         menuOpen = false
     }
+    // Live TV controls → Down: your shortcuts (Settings → Remote & navigation → Live TV shortcuts).
+    val movieLibs by moviesVm.libraries.collectAsStateWithLifecycle()
+    val showLibs by showsVm.libraries.collectAsStateWithLifecycle()
+    val movieMenuRows by moviesVm.menuRows.collectAsStateWithLifecycle()
+    val showMenuRows by showsVm.menuRows.collectAsStateWithLifecycle()
+    val musicOnNow by musicVm.enabled.collectAsStateWithLifecycle()
+    LaunchedEffect(osdVisible) { if (osdVisible) { moviesVm.loadLibraries(MediaType.Movie); showsVm.loadLibraries(MediaType.Show) } }
+    val liveShortcuts: List<Pair<String, () -> Unit>> = run {
+        val names = io.github.petebutty.viewarr.ui.player.LiveShortcuts.candidates(
+            movieLibs.orEmpty(), showLibs.orEmpty(), movieMenuRows.rows, showMenuRows.rows, musicOnNow,
+        ).toMap()
+        (remote.liveShortcuts ?: io.github.petebutty.viewarr.ui.player.LiveShortcuts.defaults).mapNotNull { id ->
+            val name = names[id] ?: return@mapNotNull null
+            name to {
+                osdVisible = false
+                val parts = id.split(":", limit = 3)
+                val type = if (parts.getOrNull(1) == "Show") MediaType.Show else MediaType.Movie
+                val mvm = if (type == MediaType.Show) showsVm else moviesVm
+                val target = if (type == MediaType.Show) Page.Shows else Page.Movies
+                when (parts[0]) {
+                    "home" -> { mvm.openLibrary(null, type); mvm.jumpTo(null); openPage(target) }
+                    "lib" -> { (if (type == MediaType.Show) showLibs else movieLibs).orEmpty().firstOrNull { it.key == parts[2] }?.let { mvm.openLibrary(it, type) }; openPage(target) }
+                    "row" -> { mvm.openLibrary(null, type); mvm.jumpTo(parts[2]); openPage(target) }
+                    "page" -> when (parts[1]) {
+                        "Music" -> openPage(Page.Music)
+                        "Recordings" -> openPage(Page.Recordings)
+                        else -> { searchStart = null; quickSearch = true }
+                    }
+                }
+            }
+        }
+    }
 
     Box(
         Modifier
@@ -726,6 +766,15 @@ fun HomeScreen(
                 serverUrl = session?.serverUrl.orEmpty(),
                 focusEnabled = !menuOpen && !showAccounts && !quickSearch && infoTarget == null && recordTarget == null && seasonPick == null,
                 onProgramme = { ch, prog -> recordTarget = ch to prog },
+                onCatchup = { ch, prog ->
+                    vm.reveal(ch) {
+                        page = Page.Tv
+                        playback.playCatchup(ch, prog, session)
+                        vm.selectChannel(ch.id)
+                        fullscreen = true
+                        showBanner()
+                    }
+                },
                 onOpenMenu = { menuOpen = true },
                 onExit = ::backOnPage,
                 onMusic = { card -> musicVm.openFromSearch(card); openPage(Page.Music) },
@@ -975,6 +1024,7 @@ fun HomeScreen(
                     // Settings over live TV: the menu opens on Settings; Back closes it, back to the channel.
                     onSettings = { osdVisible = false; menuOnSettings = true; menuOpen = true },
                     onTransparency = { osdVisible = false; transparencyOpen = true },
+                    shortcuts = liveShortcuts,
                     onMultiView = if (!AppColors.palette.heavyExtras) null else ({
                         osdVisible = false
                         if (catchup != null) playback.goLive()
@@ -1058,10 +1108,23 @@ fun HomeScreen(
                     openKeyboard = searchStart == null && !searchVoice,
                     startQuery = searchStart,
                     startVoice = searchVoice,
+                    startCatchup = searchCatchup,
                     onProgramme = { ch, prog -> recordTarget = ch to prog },
+                    onCatchup = { ch, prog ->
+                        quickSearch = false
+                        searchStart = null
+                        vm.reveal(ch) {
+                            page = Page.Tv
+                            playback.playCatchup(ch, prog, session)
+                            vm.selectChannel(ch.id)
+                            fullscreen = true
+                            multiView = false
+                            showBanner()
+                        }
+                    },
                     // Left at the edge stays in search (it used to close it and open the menu); Back is the way out.
                     onOpenMenu = {},
-                    onExit = { quickSearch = false; searchStart = null },
+                    onExit = { quickSearch = false; searchStart = null; searchCatchup = false },
                     onMusic = { card -> quickSearch = false; searchStart = null; musicVm.openFromSearch(card); openPage(Page.Music) },
                     onChannel = { ch ->
                         quickSearch = false
@@ -1145,6 +1208,14 @@ fun HomeScreen(
                     } else openTitle(ch, prog, play = true)
                 },
                 onGoTo = { recordTarget = null; openTitle(ch, prog, play = false) },
+                // Only when some channel has catch-up (nothing to find otherwise).
+                onSearchCatchup = if (vm.channels.value.none { it.catchupDays > 0 }) null else ({
+                    recordTarget = null
+                    searchStart = prog.title
+                    searchVoice = false
+                    searchCatchup = true
+                    quickSearch = true
+                }),
             ) { recordTarget = null }
         }
 
@@ -1720,12 +1791,16 @@ private fun SearchPage(
     onChannel: (ChannelListItem) -> Unit,
     /** A programme from the guide that hasn't started: its details (with Record). */
     onProgramme: (ChannelListItem, io.github.petebutty.viewarr.data.local.GuideProgram) -> Unit,
+    /** Catch-up: a past programme picked from the Catch-up row (plays it from the start). */
+    onCatchup: (ChannelListItem, io.github.petebutty.viewarr.data.local.GuideProgram) -> Unit = { _, _ -> },
     /** Popped up with the search button: the keyboard opens straight away, ready to type. */
     openKeyboard: Boolean = false,
     /** Opened on this search (Watch from the start, a recent search). */
     startQuery: String? = null,
     /** Opened from the menu's Voice search: start listening straight away. */
     startVoice: Boolean = false,
+    /** Opened with the Catch-up pill picked (the guide's "Search catch-up"). */
+    startCatchup: Boolean = false,
     /** A music artist or album picked: open it on the Music page. */
     onMusic: (io.github.petebutty.viewarr.ui.music.MusicCard) -> Unit = {},
 ) {
@@ -1756,8 +1831,17 @@ private fun SearchPage(
         delay(400)
         value = runCatching { guide.searchPrograms(query) }.getOrDefault(emptyList())
     }
+    // Catch-up: programmes that have been on, on channels with catch-up (Dispatcharr's own programme search).
+    val catchupHits by androidx.compose.runtime.produceState(emptyList<Pair<ChannelListItem, io.github.petebutty.viewarr.data.local.GuideProgram>>(), query) {
+        delay(500)
+        value = runCatching { guide.searchCatchup(query) }.getOrDefault(emptyList())
+    }
     val filter by media.searchFilter.collectAsStateWithLifecycle()
-    val showTv = filter == io.github.petebutty.viewarr.ui.media.SearchFilter.All || filter == io.github.petebutty.viewarr.ui.media.SearchFilter.LiveTv
+    // Catch-up: its own pill shows only past programmes; All and Live TV show them alongside the rest.
+    val catchupOnly = filter == io.github.petebutty.viewarr.ui.media.SearchFilter.Catchup
+    val searchFocus by media.searchFocus.collectAsStateWithLifecycle()
+    val catchupFirst = searchFocus == io.github.petebutty.viewarr.ui.media.SearchFilter.Catchup
+    val showTv = filter == io.github.petebutty.viewarr.ui.media.SearchFilter.All || filter == io.github.petebutty.viewarr.ui.media.SearchFilter.LiveTv || catchupOnly
     val showMusic = filter == io.github.petebutty.viewarr.ui.media.SearchFilter.All || filter == io.github.petebutty.viewarr.ui.media.SearchFilter.Music
     val musicVm: io.github.petebutty.viewarr.ui.music.MusicViewModel = hiltViewModel()
     val musicOn by musicVm.connected.collectAsStateWithLifecycle()
@@ -1791,7 +1875,10 @@ private fun SearchPage(
     androidx.compose.runtime.DisposableEffect(Unit) { onDispose { io.github.petebutty.viewarr.ui.common.RecentSearches.add(ctx, latestQuery) } }
     val micFocus = remember { FocusRequester() }
     // Each search starts showing everything.
-    LaunchedEffect(Unit) { media.setSearchFilter(io.github.petebutty.viewarr.ui.media.SearchFilter.All) }
+    LaunchedEffect(Unit) {
+        media.setSearchFilter(if (startCatchup) io.github.petebutty.viewarr.ui.media.SearchFilter.Catchup else io.github.petebutty.viewarr.ui.media.SearchFilter.All)
+        media.setSearchFocus(null)
+    }
     // Focus the box when the page opens (opened with a title already in it, e.g. from the guide when no match was
     // found: the box too, so the remote isn't left on nothing).
     LaunchedEffect(Unit) {
@@ -1805,14 +1892,52 @@ private fun SearchPage(
         if (openKeyboard) { awaitFrame(); keyboard?.show() }
     }
     // Live TV results (On TV, Channels): at the top when the search is a channel, else after the films and shows.
+    // Catch-up results (Search → Catch-up row): first when its pill is looked at.
+    val catchupRow: @Composable () -> Unit = {
+                // Catch-up: shown and gone, still in its channel's catch-up window. OK plays it from the start.
+                if (catchupHits.isNotEmpty()) {
+                    Spacer(Modifier.height(12.dp))
+                    Text("Catch-up", fontSize = 16.sp, color = AppColors.TextPrimary, modifier = Modifier.padding(bottom = 6.dp))
+                    androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp), modifier = Modifier.offset(x = (-10).dp)) {
+                        items(catchupHits, key = { (c, p) -> "cu:${c.id}:${p.startTime}" }) { (ch, p) ->
+                            androidx.tv.material3.Surface(
+                                onClick = { onCatchup(ch, p) },
+                                modifier = Modifier.width(250.dp).focusProperties { canFocus = fieldFree && focusEnabled },
+                                shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(androidx.compose.foundation.shape.RoundedCornerShape(8.dp)),
+                                colors = androidx.tv.material3.ClickableSurfaceDefaults.colors(
+                                    containerColor = AppColors.Panel, contentColor = AppColors.TextPrimary,
+                                    focusedContainerColor = AppColors.Accent, focusedContentColor = AppColors.OnAccent,
+                                ),
+                            ) {
+                                Row(Modifier.padding(horizontal = 10.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Box(Modifier.size(width = 52.dp, height = 32.dp), contentAlignment = Alignment.Center) {
+                                        io.github.petebutty.viewarr.ui.guide.channelLogo(serverUrl, ch)?.let { logo ->
+                                            coil.compose.AsyncImage(model = logo, contentDescription = null, contentScale = androidx.compose.ui.layout.ContentScale.Fit, modifier = Modifier.fillMaxSize())
+                                        }
+                                    }
+                                    Spacer(Modifier.width(10.dp))
+                                    Column {
+                                        Text(p.title + (p.subTitle?.let { " · $it" } ?: ""), fontSize = 14.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Medium, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                                        Text(
+                                            "↺ " + io.github.petebutty.viewarr.ui.theme.Dates.dayTime(p.startTime) + " on " + ch.name,
+                                            fontSize = 12.sp, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+    }
     val tvSections: @Composable () -> Unit = {
             if (query.trim().length >= 2 && showTv) {
+                if (catchupFirst) catchupRow()
                 // On TV: guide programmes that match. On now → watch; later → details and Record.
-                if (onTv.isNotEmpty()) {
+                if (onTv.isNotEmpty() && !catchupOnly) {
                     Spacer(Modifier.height(12.dp))
                     Text("On TV", fontSize = 16.sp, color = AppColors.TextPrimary, modifier = Modifier.padding(bottom = 6.dp))
                     val nowMs = System.currentTimeMillis()
-                    androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp), modifier = Modifier.offset(x = (-10).dp)) {
                         items(onTv, key = { (c, p) -> "${c.id}:${p.rowId}" }) { (ch, p) ->
                             val live = p.startTime <= nowMs
                             androidx.tv.material3.Surface(
@@ -1844,10 +1969,11 @@ private fun SearchPage(
                         }
                     }
                 }
+                if (!catchupFirst) catchupRow()
                 Spacer(Modifier.height(12.dp))
-                if (channels.isNotEmpty()) {
+                if (channels.isNotEmpty() && !catchupOnly) {
                     Text("Channels", fontSize = 16.sp, color = AppColors.TextPrimary, modifier = Modifier.padding(bottom = 6.dp))
-                    androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp), modifier = Modifier.offset(x = (-10).dp)) {
                         items(channels, key = { it.id }) { ch ->
                             // The channel's logo, name and number, like the guide.
                             androidx.tv.material3.Surface(
@@ -1881,7 +2007,10 @@ private fun SearchPage(
     val mediaRowsNow by media.rows.collectAsStateWithLifecycle()
     val q0 = query.trim()
     val titleHit = mediaRowsNow.rows.any { r -> r.items.any { it.title.equals(q0, ignoreCase = true) } }
-    val tvFirst = q0.length >= 2 && !titleHit && (channels.any { it.name.startsWith(q0, ignoreCase = true) } || onTv.any { it.second.title.equals(q0, ignoreCase = true) })
+    val musicFirst = searchFocus == io.github.petebutty.viewarr.ui.media.SearchFilter.Music
+    // Live TV / Catch-up looked at: the TV results move above the rest (music too, when its pill is looked at).
+    val tvFirst = musicFirst || searchFocus == io.github.petebutty.viewarr.ui.media.SearchFilter.LiveTv || catchupFirst ||
+        (q0.length >= 2 && !titleHit && (channels.any { it.name.startsWith(q0, ignoreCase = true) } || onTv.any { it.second.title.equals(q0, ignoreCase = true) }))
     MediaScreen(
         type = MediaType.Movie,
         focusRequester = rowsFocus,
@@ -2019,7 +2148,9 @@ private fun SearchPage(
                             val on = f == filter
                             androidx.tv.material3.Surface(
                                 onClick = { media.setSearchFilter(f) },
-                                modifier = (if (on) Modifier.focusRequester(filtersFocus) else Modifier).focusProperties { canFocus = fieldFree && focusEnabled },
+                                modifier = (if (on) Modifier.focusRequester(filtersFocus) else Modifier).focusProperties { canFocus = fieldFree && focusEnabled }
+                                    // Looking at a pill brings its kind of result to the top (OK filters to just that kind).
+                                    .onFocusChanged { if (it.isFocused) media.setSearchFocus(f) },
                                 scale = androidx.tv.material3.ClickableSurfaceDefaults.scale(scale = 1f, focusedScale = 1f, pressedScale = 1f),
                                 shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(androidx.compose.foundation.shape.RoundedCornerShape(18.dp)),
                                 colors = androidx.tv.material3.ClickableSurfaceDefaults.colors(
@@ -2034,7 +2165,11 @@ private fun SearchPage(
                         }
                     }
                 }
-                if (tvFirst) { tvSections(); if (showMusic && query.trim().length >= 2) io.github.petebutty.viewarr.ui.music.MusicSearchResults(query, fieldFree && focusEnabled, onMusic) }
+                if (tvFirst) {
+                    if (musicFirst && showMusic && query.trim().length >= 2) io.github.petebutty.viewarr.ui.music.MusicSearchResults(query, fieldFree && focusEnabled, onMusic)
+                    tvSections()
+                    if (!musicFirst && showMusic && query.trim().length >= 2) io.github.petebutty.viewarr.ui.music.MusicSearchResults(query, fieldFree && focusEnabled, onMusic)
+                }
             }
         },
         searchFooter = if (tvFirst) null else ({ Column(Modifier.padding(horizontal = 48.dp)) { tvSections(); if (showMusic && query.trim().length >= 2) io.github.petebutty.viewarr.ui.music.MusicSearchResults(query, fieldFree && focusEnabled, onMusic) } }),

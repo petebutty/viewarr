@@ -192,6 +192,19 @@ interface GuideDao {
     )
     suspend fun searchPrograms(q: String, from: Long, limit: Int): List<GuideProgram>
 
+    /** Catch-up search on this TV's own guide (IPTV logins / playlists): ended between [from] and [to], newest first. */
+    @Query(
+        """
+        SELECT c.id AS channelId, p.rowId, p.title, p.subTitle, p.description, p.startTime, p.endTime,
+               p.season, p.episode, p.isNew, p.isLive, p.isPremiere, p.image
+        FROM programs p JOIN channels c ON c.guideKey = p.tvgId
+        WHERE p.endTime <= :to AND p.startTime >= :from AND p.title LIKE '%' || :q || '%'
+        ORDER BY p.startTime DESC
+        LIMIT :limit
+        """
+    )
+    suspend fun searchPast(q: String, from: Long, to: Long, limit: Int): List<GuideProgram>
+
     @Query(
         """
         UPDATE channels SET guideKey = uuid

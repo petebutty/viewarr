@@ -178,9 +178,13 @@ class MediaViewModel @Inject constructor(
     private val _searchFilter = MutableStateFlow(SearchFilter.All)
     val searchFilter = _searchFilter.asStateFlow()
     fun setSearchFilter(f: SearchFilter) { _searchFilter.value = f }
+    /** The filter pill being looked at (not picked): its kind of result moves to the top, the rest stay. */
+    private val _searchFocus = MutableStateFlow<SearchFilter?>(null)
+    val searchFocus = _searchFocus.asStateFlow()
+    fun setSearchFocus(f: SearchFilter?) { _searchFocus.value = f }
 
-    val rows: kotlinx.coroutines.flow.StateFlow<RowsState> = kotlinx.coroutines.flow.combine(shownRows, layout, _searchFilter, openedFromMenu) { r, l, f, extra ->
-        if (l != null) r.copy(rows = l.ordered(r.rows).filter { it.id !in l.hidden || it.id == extra }) else r.copy(rows = orderSearch(f.apply(r.rows)))
+    val rows: kotlinx.coroutines.flow.StateFlow<RowsState> = kotlinx.coroutines.flow.combine(shownRows, layout, _searchFilter, openedFromMenu, _searchFocus) { r, l, f, extra, focus ->
+        if (l != null) r.copy(rows = l.ordered(r.rows).filter { it.id !in l.hidden || it.id == extra }) else r.copy(rows = focusFirst(orderSearch(f.apply(r.rows)), focus))
     }.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, RowsState(emptyList(), done = false))
     /** Every row in the chosen order with whether it's hidden, for Settings → Home rows. */
     val editableRows: kotlinx.coroutines.flow.StateFlow<Pair<List<Pair<io.github.petebutty.viewarr.data.media.MediaRow, Boolean>>, Boolean>> =
@@ -337,6 +341,18 @@ class MediaViewModel @Inject constructor(
      * Search results in the order you most likely meant: a person's name puts People first (unless a film or show has
      * that exact title); otherwise your library, then films and shows, as they come.
      */
+    /** Search: the looked-at pill's kind first (your library, or rows that are mostly films / shows); others as they were. */
+    private fun focusFirst(rows: List<io.github.petebutty.viewarr.data.media.MediaRow>, focus: SearchFilter?): List<io.github.petebutty.viewarr.data.media.MediaRow> {
+        fun mostly(r: io.github.petebutty.viewarr.data.media.MediaRow, t: MediaType) = r.items.isNotEmpty() && r.items.count { it.type == t } * 2 > r.items.size
+        val first: (io.github.petebutty.viewarr.data.media.MediaRow) -> Boolean = when (focus) {
+            SearchFilter.Library -> { r -> r.id == "search-library" }
+            SearchFilter.Films -> { r -> r.id != "search-people" && mostly(r, MediaType.Movie) }
+            SearchFilter.Shows -> { r -> r.id != "search-people" && mostly(r, MediaType.Show) }
+            else -> return rows
+        }
+        return rows.sortedBy { if (first(it)) 0 else 1 }
+    }
+
     private fun orderSearch(rows: List<io.github.petebutty.viewarr.data.media.MediaRow>): List<io.github.petebutty.viewarr.data.media.MediaRow> {
         val q = lastQuery.trim()
         if (q.length < 2) return rows
@@ -1255,11 +1271,11 @@ class MediaViewModel @Inject constructor(
 
 /** Search filter buttons: what the results show. */
 enum class SearchFilter(val label: String) {
-    All("All"), Films("Films"), Shows("Shows"), LiveTv("Live TV"), Music("Music"), Library("In my library");
+    All("All"), Films("Films"), Shows("Shows"), LiveTv("Live TV"), Catchup("Catch-up"), Music("Music"), Library("In my library");
 
     fun apply(rows: List<io.github.petebutty.viewarr.data.media.MediaRow>): List<io.github.petebutty.viewarr.data.media.MediaRow> = when (this) {
         All -> rows
-        LiveTv, Music -> emptyList()
+        LiveTv, Catchup, Music -> emptyList()
         Library -> rows.filter { it.id == "search-library" }
         Films, Shows -> {
             val want = if (this == Films) MediaType.Movie else MediaType.Show

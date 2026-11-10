@@ -1,8 +1,8 @@
 # Shown once, the first time a new version opens (not on a fresh install). Keep it to the few things worth knowing.
 # Lines starting with "- " are the points; the first line without "#" or "-" is the heading.
-Profiles, friends and a tidier app
-- Profiles: one per person, with an optional PIN; Dispatcharr admins manage users and what each can do in Settings → Users & profiles
-- Friends in another house sign in with your server's outside address and their API key; a new install asks "admin or invited?" and shows a short tour
-- Guide: hold OK for Start over (catch-up, else your servers or addons), Go to show, or Request on Seerr
-- New icon controls for live TV and title pages; Settings → Appearance → Colours & text sets the date and time format
-- Menu: recent searches and voice search under Search, clearer Recordings, search on every Music page, and Transparency sliders in Appearance
+Your remote, your way, and catch-up search
+- Settings → Remote & navigation: a remote picture for each screen and your choice of what Hold Back, Record, the colour buttons and Info do; Record now schedules in one press
+- Guide: Back goes full screen and back (always on your channel), hold Back for the channel groups; live TV glides into the guide's preview
+- Search finds catch-up: programmes from the last few days you can replay (also in the guide's hold-OK menu); pills bring their results to the top
+- Live TV controls: Transparency sliders over the picture, Settings, and Down for your own shortcuts
+- Title pages show badges (age rating, 4K / HDR / Dolby Vision, Atmos, Ends at); the built-in player is now the default, with mpv taking over for unusual files

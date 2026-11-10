@@ -129,6 +129,8 @@ data class RemoteSettings(
     val buttons: Map<String, Int> = emptyMap(),
     /** Settings → Remote → the button table: changes from ButtonMap's defaults ("Screen.Press" → action name). */
     val buttonMap: Map<String, String> = emptyMap(),
+    /** Shortcuts under the live TV controls (LiveShortcuts ids, in order); null: the defaults. */
+    val liveShortcuts: List<String>? = null,
     /** False until the stored settings have been read. */
     val loaded: Boolean = false,
 )
@@ -167,6 +169,7 @@ class RemoteStore @Inject constructor(@ApplicationContext private val context: C
                 val (k, v) = part.split('=').takeIf { it.size == 2 } ?: return@mapNotNull null
                 k to v
             }.toMap(),
+            liveShortcuts = p[stringPreferencesKey(LIVE_SHORTCUTS)]?.split('|')?.filter { it.isNotBlank() },
             loaded = true,
         )
     }
@@ -185,6 +188,10 @@ class RemoteStore @Inject constructor(@ApplicationContext private val context: C
             val next = if (code == null) now else now + (action to code)
             prefs[stringPreferencesKey(BUTTONS)] = next.entries.joinToString(",") { "${it.key}=${it.value}" }
         }
+    }
+
+    suspend fun setLiveShortcuts(ids: List<String>) {
+        context.remoteStore.edit { it[stringPreferencesKey(LIVE_SHORTCUTS)] = ids.joinToString("|") }
     }
 
     /** One row of the button table ([action] null: back to the default). */
@@ -263,5 +270,6 @@ class RemoteStore @Inject constructor(@ApplicationContext private val context: C
         const val LAST_CHANNEL = "last_channel"
         const val BUTTONS = "buttons_v1"
         const val BUTTON_MAP = "bmap_v1"
+        const val LIVE_SHORTCUTS = "live_shortcuts"
     }
 }

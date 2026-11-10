@@ -206,6 +206,8 @@ fun RecordDialog(
     onGoTo: (() -> Unit)? = null,
     /** Seerr set up: request the film / show from here; this opens the choose-series picker. */
     onChooseSeasons: ((GuideMatch) -> Unit)? = null,
+    /** Search opened on this title, Catch-up picked: every showing that can be replayed. */
+    onSearchCatchup: (() -> Unit)? = null,
     onClose: () -> Unit,
 ) {
     val dvrMessage by vm.message.collectAsStateWithLifecycle()
@@ -246,6 +248,7 @@ fun RecordDialog(
         add((if (rec.state == DvrState.Recording) "Keep recording" else "Keep this recording") to onClose)
         if (!future) onWatchFromStart?.let { add("Start over" to it) }
         onGoTo?.let { add((if (isFilm) "Go to film" else "Go to show") to it) }
+        onSearchCatchup?.let { add("Search catch-up" to it) }
         seerrChoices.forEach { (l, f) -> add(l to { if (l == SEERR_MORE) f() else run(f) }) }
         onDetails?.let { add("Details" to it) }
     } else buildList<Pair<String, () -> Unit>> {
@@ -253,6 +256,7 @@ fun RecordDialog(
         // aired, or now if it's still to come.
         if (onWatchFromStart != null && !future) add("Start over" to onWatchFromStart)
         onGoTo?.let { add((if (isFilm) "Go to film" else "Go to show") to it) }
+        onSearchCatchup?.let { add("Search catch-up" to it) }
         if (!canRecord) {
             // No recordings here (IPTV provider login, or a Dispatcharr user without DVR access): reminders still work.
         } else when {

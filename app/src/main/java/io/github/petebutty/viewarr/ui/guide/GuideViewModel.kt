@@ -236,6 +236,30 @@ class GuideViewModel @Inject constructor(
             .take(40)
     }
 
+    /**
+     * Search → Catch-up: past programmes whose title matches, on channels with catch-up and still inside their
+     * catch-up window, newest first (one per showing).
+     */
+    suspend fun searchCatchup(q: String): List<Pair<ChannelListItem, io.github.petebutty.viewarr.data.local.GuideProgram>> {
+        val t = q.trim()
+        if (t.length < 2) return emptyList()
+        val session = sessions.session.first() ?: return emptyList()
+        val all = repo.observeChannels(null).first().filter { it.catchupDays > 0 }
+        if (all.isEmpty()) return emptyList()
+        val now = System.currentTimeMillis()
+        val from = now - all.maxOf { it.catchupDays } * 86_400_000L
+        val byKey = all.groupBy { it.guideKey }
+        val byId = all.associateBy { it.id }
+        return repo.searchPast(session, t, from, now)
+            .flatMap { (key, p) ->
+                val chs = if (key != null) byKey[key].orEmpty() else listOfNotNull(byId[p.channelId])
+                chs.filter { p.startTime >= now - it.catchupDays * 86_400_000L }.map { it to p.copy(channelId = it.id) }
+            }
+            // The same showing on two copies of a channel: keep one.
+            .distinctBy { (c, p) -> Triple(c.name.lowercase(), p.title, p.startTime) }
+            .take(40)
+    }
+
     suspend fun searchChannels(q: String): List<ChannelListItem> {
         val t = q.trim()
         if (t.length < 2) return emptyList()
@@ -245,6 +269,24 @@ class GuideViewModel @Inject constructor(
     }
 
     /** Makes a channel tunable from anywhere: switches to All channels if it isn't in the current category. */
+    /**
+     * Back to the guide from full screen: the channel playing, at now, in the group it was started from ([groupId];
+     * All channels when it isn't there), whatever group was browsed since.
+     */
+    fun returnTo(channelId: Int, groupId: Int?) {
+        viewModelScope.launch {
+            if (_groupId.value != groupId) {
+                _groupId.value = groupId
+                kotlinx.coroutines.withTimeoutOrNull(3_000) { channels.first { list -> list.any { it.id == channelId } } }
+            }
+            if (channels.value.none { it.id == channelId }) {
+                _groupId.value = null
+                kotlinx.coroutines.withTimeoutOrNull(3_000) { channels.first { list -> list.any { it.id == channelId } } }
+            }
+            selectChannel(channelId)
+        }
+    }
+
     fun reveal(channel: ChannelListItem, onReady: () -> Unit) {
         viewModelScope.launch {
             if (channels.value.none { it.id == channel.id }) {

@@ -58,6 +58,16 @@ interface DispatcharrApi {
         @Query("page_size") pageSize: Int = 500,
     ): ProgramSearchPage
 
+    /** Catch-up search: programmes whose title matches [title] that started after [startAfter] and have ended. */
+    @GET("api/epg/programs/search/")
+    suspend fun searchPast(
+        @Query("title") title: String,
+        @Query("start_after") startAfter: String,
+        @Query("end_before") endBefore: String,
+        @Query("fields") fields: String = "title,sub_title,description,start_time,end_time,tvg_id,custom_properties",
+        @Query("page_size") pageSize: Int = 100,
+    ): ProgramSearchPage
+
     @GET
     suspend fun searchPage(@Url url: String): ProgramSearchPage
 

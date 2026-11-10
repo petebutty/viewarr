@@ -55,7 +55,12 @@ class RemoteViewModel @Inject constructor(private val store: RemoteStore) : View
         store.clear(keys)
     }
     fun resetButtons() = viewModelScope.launch { store.resetButtons() }
+    fun setLiveShortcuts(ids: List<String>) = viewModelScope.launch { store.setLiveShortcuts(ids) }
+    fun resetLiveShortcuts() = viewModelScope.launch { store.clear(listOf(RemoteStore.LIVE_SHORTCUTS)) }
 }
+
+/** On / Off for the Live TV shortcuts list. */
+private data class OnOff(override val label: String) : RemoteChoice
 
 /** A choice in the button table (the action's label). */
 private data class ActionChoice(val action: io.github.petebutty.viewarr.data.settings.BtnAction) : RemoteChoice { override val label get() = action.label }
@@ -161,6 +166,26 @@ fun RemoteSettingsScreen(onBack: () -> Unit, vm: RemoteViewModel = hiltViewModel
             if (it == io.github.petebutty.viewarr.data.settings.SearchButton.Chosen) learning = true else vm.set(key, it)
         }
     val k = RemoteStore.Companion
+    // Live TV shortcuts: what can be one (the same lists the menu shows).
+    val moviesM: io.github.petebutty.viewarr.ui.media.MediaViewModel = hiltViewModel(key = "media-Movie")
+    val showsM: io.github.petebutty.viewarr.ui.media.MediaViewModel = hiltViewModel(key = "media-Show")
+    val musicM: io.github.petebutty.viewarr.ui.music.MusicViewModel = hiltViewModel()
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        moviesM.load(io.github.petebutty.viewarr.data.media.MediaType.Movie); moviesM.loadLibraries(io.github.petebutty.viewarr.data.media.MediaType.Movie)
+        showsM.load(io.github.petebutty.viewarr.data.media.MediaType.Show); showsM.loadLibraries(io.github.petebutty.viewarr.data.media.MediaType.Show)
+    }
+    val mLibs by moviesM.libraries.collectAsStateWithLifecycle()
+    val sLibs by showsM.libraries.collectAsStateWithLifecycle()
+    val mRows by moviesM.menuRows.collectAsStateWithLifecycle()
+    val sRows by showsM.menuRows.collectAsStateWithLifecycle()
+    val musicOn by musicM.enabled.collectAsStateWithLifecycle()
+    val onOff = listOf(OnOff("On"), OnOff("Off"))
+    val chosen = s.liveShortcuts ?: io.github.petebutty.viewarr.ui.player.LiveShortcuts.defaults
+    val shortcutItems = io.github.petebutty.viewarr.ui.player.LiveShortcuts.candidates(mLibs.orEmpty(), sLibs.orEmpty(), mRows.rows, sRows.rows, musicOn).map { (id, name) ->
+        SettingItem(name, "", onOff, if (id in chosen) onOff[0] else onOff[1]) { c ->
+            vm.setLiveShortcuts(if ((c as OnOff).label == "On") (chosen - id) + id else chosen - id)
+        }
+    } + SettingItem("Reset shortcuts", "Back to Movies, Shows, Music, Recordings and Search.", listOf(ButtonStatus("")), ButtonStatus(""), action = { vm.resetLiveShortcuts() }, onSelect = {})
     fun act(screen: io.github.petebutty.viewarr.data.settings.BtnScreen, press: io.github.petebutty.viewarr.data.settings.BtnPress) = io.github.petebutty.viewarr.data.settings.ButtonMap.action(s, screen, press).label
     // The colour buttons' actions for the remote picture (only screens that have them).
     fun colours(screen: io.github.petebutty.viewarr.data.settings.BtnScreen) = listOf(io.github.petebutty.viewarr.data.settings.BtnPress.Red, io.github.petebutty.viewarr.data.settings.BtnPress.Green, io.github.petebutty.viewarr.data.settings.BtnPress.Yellow, io.github.petebutty.viewarr.data.settings.BtnPress.Blue)
@@ -209,6 +234,10 @@ fun RemoteSettingsScreen(onBack: () -> Unit, vm: RemoteViewModel = hiltViewModel
                     "Record" to act(io.github.petebutty.viewarr.data.settings.BtnScreen.Live, io.github.petebutty.viewarr.data.settings.BtnPress.Record), "Info" to act(io.github.petebutty.viewarr.data.settings.BtnScreen.Live, io.github.petebutty.viewarr.data.settings.BtnPress.Info)),
                 colours(io.github.petebutty.viewarr.data.settings.BtnScreen.Live),
             ) },
+        ),
+        SettingCategory(
+            "Live TV shortcuts", "On live TV, OK then Down: a row of shortcuts to what you pick here (in the order you turn them on). OK on one opens it.",
+            shortcutItems,
         ),
         SettingCategory(
             "Films & shows", "Buttons while a film or episode plays. OK, the arrows and Back work as shown; the colour buttons and Info are yours to set.",

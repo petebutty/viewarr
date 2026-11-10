@@ -86,6 +86,8 @@ fun PlayerOsd(
     onSettings: (() -> Unit)? = null,
     /** Channel list, guide and wallpaper transparency, adjusted over the picture. */
     onTransparency: (() -> Unit)? = null,
+    /** Down from the buttons: your shortcuts (libraries, rows, Music…; Settings → Remote & navigation → Live TV shortcuts). */
+    shortcuts: List<Pair<String, () -> Unit>> = emptyList(),
     /** Opened with the Menu button: start on the audio choices. */
     openAudio: Boolean = false,
     modifier: Modifier = Modifier,
@@ -241,7 +243,15 @@ fun PlayerOsd(
         }
 
         // The same icon buttons as the film / show player's controls (the focused one's name underneath).
-        Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.Top) {
+        var showShortcuts by remember { mutableStateOf(false) }
+        val shortcutFocus = remember { FocusRequester() }
+        Row(
+            Modifier.padding(top = 6.dp).onPreviewKeyEvent { e ->
+                // Down from the buttons: the shortcuts row.
+                if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionDown && shortcuts.isNotEmpty() && popup == null) { showShortcuts = true; true } else false
+            },
+            verticalAlignment = Alignment.Top,
+        ) {
             if (catchup != null || paused) {
                 if (catchup != null) Pill(io.github.petebutty.viewarr.ui.common.AppIcons.Replay, "Start over") { vm.restartProgramme() }
                 Pill(io.github.petebutty.viewarr.ui.common.AppIcons.SkipNext, "Go live", groupEnd = true) { vm.goLive() }
@@ -259,6 +269,31 @@ fun PlayerOsd(
             if (onTransparency != null) Pill(io.github.petebutty.viewarr.ui.common.AppIcons.Opacity, "Transparency") { onTransparency() }
             if (onSettings != null) Pill(io.github.petebutty.viewarr.ui.common.AppIcons.Settings, "Settings") { onSettings() }
             (note ?: sourceNote?.takeIf { popup == null })?.let { Text(it, fontSize = 12.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(start = 8.dp, top = 14.dp)) }
+        }
+        if (showShortcuts && shortcuts.isNotEmpty()) {
+            LaunchedEffect(Unit) { kotlinx.coroutines.android.awaitFrame(); runCatching { shortcutFocus.requestFocus() } }
+            androidx.compose.foundation.lazy.LazyRow(
+                Modifier.padding(top = 10.dp).onPreviewKeyEvent { e ->
+                    // Up: back to the buttons, the shortcuts folded away again.
+                    if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionUp) { showShortcuts = false; runCatching { firstFocus.requestFocus() }; true } else false
+                },
+                horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(10.dp),
+            ) {
+                items(shortcuts.size) { i ->
+                    val (label, go) = shortcuts[i]
+                    androidx.tv.material3.Surface(
+                        onClick = go,
+                        modifier = if (i == 0) Modifier.focusRequester(shortcutFocus) else Modifier,
+                        shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(RoundedCornerShape(20.dp)),
+                        colors = androidx.tv.material3.ClickableSurfaceDefaults.colors(
+                            containerColor = AppColors.Panel.copy(alpha = 0.85f), contentColor = AppColors.TextPrimary,
+                            focusedContainerColor = AppColors.Accent, focusedContentColor = AppColors.OnAccent,
+                        ),
+                    ) {
+                        Text(label, fontSize = 14.sp, maxLines = 1, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+                    }
+                }
+            }
         }
     }
 }
