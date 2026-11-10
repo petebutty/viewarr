@@ -87,7 +87,7 @@ fun PlayerOsd(
     /** Channel list, guide and wallpaper transparency, adjusted over the picture. */
     onTransparency: (() -> Unit)? = null,
     /** Down from the buttons: your shortcuts (libraries, rows, Music…; Settings → Remote & navigation → Live TV shortcuts). */
-    shortcuts: List<Pair<String, () -> Unit>> = emptyList(),
+    shortcuts: List<Pair<LiveShortcut, () -> Unit>> = emptyList(),
     /** Opened with the Menu button: start on the audio choices. */
     openAudio: Boolean = false,
     modifier: Modifier = Modifier,
@@ -279,19 +279,10 @@ fun PlayerOsd(
                 },
                 horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(10.dp),
             ) {
+                // Round icons like the buttons above, the highlighted one's name underneath.
                 items(shortcuts.size) { i ->
-                    val (label, go) = shortcuts[i]
-                    androidx.tv.material3.Surface(
-                        onClick = go,
-                        modifier = if (i == 0) Modifier.focusRequester(shortcutFocus) else Modifier,
-                        shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(RoundedCornerShape(20.dp)),
-                        colors = androidx.tv.material3.ClickableSurfaceDefaults.colors(
-                            containerColor = AppColors.Panel.copy(alpha = 0.85f), contentColor = AppColors.TextPrimary,
-                            focusedContainerColor = AppColors.Accent, focusedContentColor = AppColors.OnAccent,
-                        ),
-                    ) {
-                        Text(label, fontSize = 14.sp, maxLines = 1, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
-                    }
+                    val (sc, go) = shortcuts[i]
+                    Pill(sc.icon, sc.label, if (i == 0) Modifier.focusRequester(shortcutFocus) else Modifier) { go() }
                 }
             }
         }

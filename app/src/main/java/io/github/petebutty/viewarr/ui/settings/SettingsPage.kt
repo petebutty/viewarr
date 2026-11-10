@@ -67,6 +67,8 @@ class SettingItem(
     val action: (() -> Unit)? = null,
     /** A slider: Left / Right step through [choices] on the row itself (no list opens). */
     val slider: Boolean = false,
+    /** Reorderable (e.g. Live TV shortcuts): Right picks the row up, Up / Down move it (by -1 / +1), Right or OK puts it down. */
+    val reorder: ((Int) -> Unit)? = null,
     val onSelect: (RemoteChoice) -> Unit,
 ) {
     val isToggle get() = action == null && choices.size == 2 && choices.map { it.label }.toSet() == setOf("On", "Off")
@@ -105,6 +107,9 @@ fun SettingsPage(
     val pageScope = androidx.compose.runtime.rememberCoroutineScope()
     LaunchedEffect(category) { runCatching { listState.scrollToItem(0) } }
     var choosing by remember { mutableStateOf<SettingItem?>(null) }
+    // A reorderable row picked up with Right (its title), moved with Up / Down.
+    var moving by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(category) { moving = null }
     // One per category, remade when categories come and go (keyed by their names).
     val catFocus = remember(categories.map { it.name }) { categories.map { FocusRequester() } }
     // After a choice list closes, focus goes back to the setting it was opened from (it used to vanish).
@@ -170,9 +175,19 @@ fun SettingsPage(
                 Text(c.blurb, fontSize = 14.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(top = 26.dp, bottom = 14.dp, start = 4.dp))
                 LazyColumn(Modifier.stopAt(androidx.compose.ui.focus.FocusDirection.Down), state = listState, verticalArrangement = Arrangement.spacedBy(6.dp), contentPadding = PaddingValues(bottom = 40.dp)) {
                     c.header?.let { h -> item(key = c.name + "#header") { h() } }
-                    itemsIndexed(c.items, key = { _, it -> c.name + it.title }) { _, item ->
-                        SettingRow(item, enabled = choosing == null, focus = rowFocus.getOrPut(item.title) { FocusRequester() }) {
-                            if (item.slider) Unit
+                    itemsIndexed(c.items, key = { _, it -> c.name + it.title }) { index, item ->
+                        val rowFocusReq = rowFocus.getOrPut(item.title) { FocusRequester() }
+                        SettingRow(
+                            item, enabled = choosing == null, focus = rowFocusReq,
+                            moving = moving == item.title,
+                            onMove = { picked -> moving = if (picked) item.title else null },
+                            onMoved = {
+                                // Keep the moved row in view and focused after the list reorders.
+                                pageScope.launch { awaitFrame(); runCatching { listState.animateScrollToItem((index - 2).coerceAtLeast(0)) }; runCatching { rowFocusReq.requestFocus() } }
+                            },
+                        ) {
+                            if (moving == item.title) moving = null
+                            else if (item.slider) Unit
                             else if (item.action != null) item.action.invoke()
                             else if (item.isToggle) item.onSelect(item.choices.first { it != item.current })
                             else choosing = item
@@ -186,10 +201,26 @@ fun SettingsPage(
 }
 
 @Composable
-private fun SettingRow(item: SettingItem, enabled: Boolean, focus: FocusRequester, onClick: () -> Unit) {
+private fun SettingRow(
+    item: SettingItem, enabled: Boolean, focus: FocusRequester,
+    moving: Boolean = false, onMove: (Boolean) -> Unit = {}, onMoved: () -> Unit = {},
+    onClick: () -> Unit,
+) {
     Surface(
         onClick = onClick,
         modifier = Modifier.fillMaxWidth().focusRequester(focus).focusProperties { canFocus = enabled }
+            .then(if (item.reorder == null) Modifier else Modifier.onPreviewKeyEvent { e ->
+                // Right: pick up / put down. While picked up, Up / Down move the row (and nothing else moves focus).
+                if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent moving && e.key != Key.Back
+                when {
+                    e.key == Key.DirectionRight -> { onMove(!moving); true }
+                    moving && e.key == Key.DirectionUp -> { item.reorder.invoke(-1); onMoved(); true }
+                    moving && e.key == Key.DirectionDown -> { item.reorder.invoke(1); onMoved(); true }
+                    moving && e.key == Key.DirectionLeft -> true
+                    moving && e.key == Key.Back -> { onMove(false); true }
+                    else -> false
+                }
+            })
             .then(if (!item.slider) Modifier else Modifier.onPreviewKeyEvent { e ->
                 // Slider: Left / Right change the value; Left at the lowest goes back to the categories as usual.
                 if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
@@ -210,6 +241,7 @@ private fun SettingRow(item: SettingItem, enabled: Boolean, focus: FocusRequeste
         ),
     ) {
         Row(Modifier.padding(horizontal = 18.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (moving) Text("↕ ", fontSize = 18.sp)
             Column(Modifier.weight(1f)) {
                 Text(item.title, fontSize = 16.sp, fontWeight = FontWeight.Medium)
                 Text(item.description, fontSize = 12.sp, maxLines = 3, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp))

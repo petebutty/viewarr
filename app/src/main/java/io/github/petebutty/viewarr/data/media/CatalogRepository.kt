@@ -115,6 +115,9 @@ fun tidyCategory(name: String): String {
 }
 private fun enc(s: String) = URLEncoder.encode(s, "UTF-8")
 
+/** Stremio catalogue types played as single items (sports, live events, channels): shown with films. */
+private val ADDON_SINGLE_TYPES = setOf("tv", "channel", "channels", "events", "event", "sports", "sport", "other")
+
 /**
  * Builds the Movies / Shows rows from whatever sources are connected. Each row loads independently and
  * the flow emits the rows found so far, in a fixed order, so the screen fills in as sources answer.
@@ -440,7 +443,7 @@ class CatalogRepository @Inject constructor(
     private suspend fun stremioSearch(addon: AddonInfo, q: String): List<MediaRow> {
         val manifest = http.get("${addon.baseUrl}/manifest.json").takeIf { it.ok }?.body ?: return emptyList()
         val catalogs = manifest.array("catalogs").filter { c ->
-            (c.str("type") == "movie" || c.str("type") == "series") &&
+            (c.str("type") == "movie" || c.str("type") == "series" || c.str("type") == "anime" || c.str("type") in ADDON_SINGLE_TYPES) &&
                 (c.array("extra").any { it.str("name") == "search" } || c.array("extraSupported").any { (it as? JsonPrimitive)?.content == "search" })
         }.take(6)
         return coroutineScope {
@@ -448,9 +451,9 @@ class CatalogRepository @Inject constructor(
                 async {
                     val id = c.str("id") ?: return@async null
                     val st = c.str("type")!!
-                    val type = if (st == "movie") MediaType.Movie else MediaType.Show
+                    val type = if (st == "series" || st == "anime") MediaType.Show else MediaType.Movie // single-play kinds: like films
                     val r = runCatching { http.get("${addon.baseUrl}/catalog/$st/${enc(id)}/search=${enc(q)}.json") }.getOrNull()?.takeIf { it.ok } ?: return@async null
-                    val items = r.body.array("metas").take(30).mapNotNull { m -> stremioMeta(addon, m, type) }
+                    val items = r.body.array("metas").take(30).mapNotNull { m -> stremioMeta(addon, m, type, st) }
                     MediaRow("search-stremio-${addon.id}-$id-$st", "${addon.name}: ${c.str("name") ?: id}", items)
                 }
             }.awaitAll().filterNotNull()
@@ -1360,9 +1363,12 @@ class CatalogRepository @Inject constructor(
 
     private suspend fun stremioRows(addon: AddonInfo, type: MediaType): List<MediaRow> {
         val stremioType = if (type == MediaType.Movie) "movie" else "series"
+        // Shows also take "anime" catalogues (e.g. One Pace Premium); Movies take the single-play kinds sports and
+        // live-event addons use ("tv", "channel", "events"…): normal Stremio types, each asked for under its own name.
+        val wanted = if (type == MediaType.Movie) ADDON_SINGLE_TYPES + "movie" else setOf("series", "anime")
         val manifest = http.get("${addon.baseUrl}/manifest.json").takeIf { it.ok }?.body ?: return emptyList()
         val catalogs = manifest.array("catalogs").filter { c ->
-            c.str("type") == stremioType &&
+            c.str("type") in wanted &&
                 c.array("extra").none { e -> e.str("isRequired") == "true" } &&
                 c.array("extraRequired").isEmpty()
         }.take(8)
@@ -1370,18 +1376,20 @@ class CatalogRepository @Inject constructor(
             catalogs.map { c ->
                 async {
                     val id = c.str("id") ?: return@async null
-                    val r = runCatching { http.get("${addon.baseUrl}/catalog/$stremioType/${enc(id)}.json") }.getOrNull()?.takeIf { it.ok }
+                    val catType = c.str("type") ?: stremioType
+                    val r = runCatching { http.get("${addon.baseUrl}/catalog/$catType/${enc(id)}.json") }.getOrNull()?.takeIf { it.ok }
                         ?: return@async null
-                    val items = r.body.array("metas").take(40).mapNotNull { m -> stremioMeta(addon, m, type) }
-                    MediaRow("stremio-${addon.id}-$id-${type.name}", c.str("name") ?: addon.name, items)
+                    val items = r.body.array("metas").take(40).mapNotNull { m -> stremioMeta(addon, m, type, catType) }
+                    MediaRow("stremio-${addon.id}-$id-$catType-${type.name}", c.str("name") ?: addon.name, items)
                 }
             }.awaitAll().filterNotNull()
         }
     }
 
-    private fun stremioMeta(addon: AddonInfo, m: JsonElement, type: MediaType): MediaItem? {
+    private fun stremioMeta(addon: AddonInfo, m: JsonElement, type: MediaType, catType: String? = null): MediaItem? {
         val metaId = m.str("id") ?: return null
         return MediaItem(
+            addonType = catType?.takeIf { it != "movie" && it != "series" },
             key = "stremio:${addon.id}:$metaId",
             type = type,
             title = m.str("name") ?: return null,
@@ -2067,6 +2075,9 @@ class CatalogRepository @Inject constructor(
 
     /** Season → episodes from TMDB; falls back to the Plex copy's episodes when TMDB has nothing. */
     suspend fun seasonEpisodes(item: MediaItem, season: Int, plexShowKey: String?): List<EpisodeInfo> {
+        if (isAddonOwnTitle(item)) addonMeta(item)?.let { m ->
+            return m.videos.filter { it.season == season }.map { EpisodeInfo(season, it.episode, it.title, it.overview, it.thumb, it.released, null) }
+        }
         val key = store.current().tmdbKey
         val tmdbId = item.tmdbId
         if (key != null && tmdbId != null) {
@@ -2142,16 +2153,25 @@ class CatalogRepository @Inject constructor(
 
     /** Asks every connected Stremio addon for streams of a film, or of one episode. Only direct http(s) links can be played. */
     suspend fun addonStreams(item: MediaItem, season: Int? = null, episode: Int? = null): List<StreamOption> {
-        val baseImdb = item.imdbId ?: return emptyList()
         val type = if (item.type == MediaType.Movie) "movie" else "series"
+        // The addon's own title (One Pace…): only that addon knows it, by its own episode ids.
+        ownAddonTitle(item)?.let { (addon, id) ->
+            val type = item.addonType ?: type
+            val vid = if (season != null && episode != null) addonMeta(item)?.videos?.firstOrNull { it.season == season && it.episode == episode }?.id ?: return emptyList()
+            else addonMeta(item)?.videos?.singleOrNull()?.id ?: id
+            return streamsFrom(addon, type, vid)
+        }
+        val baseImdb = item.imdbId ?: return emptyList()
         val imdb = if (season != null && episode != null) "$baseImdb:$season:$episode" else baseImdb
         val addons = store.current().activeAddons
-        return coroutineScope {
-            addons.map { addon ->
-                async {
-                    val r = runCatching { withTimeoutOrNull(30_000) { http.get("${addon.baseUrl}/stream/$type/$imdb.json") } }.getOrNull()
-                    if (r?.ok != true) return@async emptyList()
-                    r.body.array("streams").mapNotNull { st ->
+        return coroutineScope { addons.map { addon -> async { streamsFrom(addon, type, imdb) } }.awaitAll().flatten() }
+    }
+
+    /** One addon's streams for one id (direct http(s) links only: what the players can open). */
+    private suspend fun streamsFrom(addon: AddonInfo, type: String, id: String): List<StreamOption> {
+                    val r = runCatching { withTimeoutOrNull(30_000) { http.get("${addon.baseUrl}/stream/$type/${enc(id)}.json") } }.getOrNull()
+                    if (r?.ok != true) return emptyList()
+                    return r.body.array("streams").mapNotNull { st ->
                         val url = st.str("url")?.takeIf { it.startsWith("http") } ?: return@mapNotNull null
                         val headers = st.child("behaviorHints").child("proxyHeaders").child("request").let { h ->
                             (h as? kotlinx.serialization.json.JsonObject)?.mapValues { (it.value as? JsonPrimitive)?.content.orEmpty() }.orEmpty()
@@ -2164,9 +2184,53 @@ class CatalogRepository @Inject constructor(
                             headers = headers,
                         )
                     }
-                }
-            }.awaitAll().flatten()
-        }
+    }
+
+    // ------------------------------------------------------------------ Addons with their own titles
+
+    /** An addon title's own episode (its id is what the addon's streams are asked for). */
+    private data class AddonVideo(val id: String, val season: Int, val episode: Int, val title: String, val overview: String?, val thumb: String?, val released: String?)
+    private data class AddonMeta(val description: String?, val background: String?, val genres: List<String>, val videos: List<AddonVideo>)
+    private val addonMetaCache = ConcurrentHashMap<String, AddonMeta>()
+
+    /** A title from an addon with no IMDb / TMDB id (One Pace and the like): Viewarr uses the addon's own details. */
+    fun isAddonOwnTitle(item: MediaItem) = item.key.startsWith("stremio:") &&
+        ((item.imdbId == null && item.tmdbId == null) || (item.addonType != null && item.addonType != "anime"))
+
+    private suspend fun ownAddonTitle(item: MediaItem): Pair<AddonInfo, String>? {
+        if (!isAddonOwnTitle(item)) return null
+        val rest = item.key.removePrefix("stremio:")
+        val addon = store.current().activeAddons.firstOrNull { rest.startsWith(it.id + ":") } ?: return null
+        return addon to rest.removePrefix(addon.id + ":")
+    }
+
+    /** The addon's meta for its own title: description, artwork, and every episode with its id (cached for this run). */
+    private suspend fun addonMeta(item: MediaItem): AddonMeta? {
+        addonMetaCache[item.key]?.let { return it }
+        val (addon, id) = ownAddonTitle(item) ?: return null
+        val type = item.addonType ?: if (item.type == MediaType.Movie) "movie" else "series"
+        val m = runCatching { http.get("${addon.baseUrl}/meta/$type/${enc(id)}.json") }.getOrNull()?.takeIf { it.ok }?.body.child("meta") ?: return null
+        var next = 0
+        val videos = m.array("videos").mapNotNull { v ->
+            val vid = v.str("id") ?: return@mapNotNull null
+            val season = v.int("season") ?: 1
+            val ep = v.int("episode") ?: v.int("number") ?: ++next
+            AddonVideo(vid, season, ep, v.str("title") ?: v.str("name") ?: "Episode $ep", v.str("overview")?.takeIf { it.isNotBlank() } ?: v.str("description"),
+                v.str("thumbnail"), v.str("released")?.take(10))
+        }.sortedWith(compareBy({ it.season }, { it.episode }))
+        return AddonMeta(m.str("description"), m.str("background"), m.array("genres").mapNotNull { (it as? JsonPrimitive)?.content }, videos)
+            .also { addonMetaCache[item.key] = it }
+    }
+
+    /** Details for an addon's own title: its description and its seasons (episodes from [seasonEpisodes]). */
+    private suspend fun addonDetail(item: MediaItem): MediaDetail? {
+        val m = addonMeta(item) ?: return null
+        val seasons = m.videos.groupBy { it.season }.map { (n, eps) -> SeasonInfo(n, if (n == 0) "Specials" else "Season $n", eps.size, eps.firstOrNull()?.released?.take(4)?.toIntOrNull()) }
+        return MediaDetail(
+            item.copy(overview = item.overview ?: m.description, backdrop = item.backdrop ?: m.background),
+            genres = m.genres,
+            seasons = seasons,
+        )
     }
 
     fun hasAddons(a: Accounts) = a.activeAddons.isNotEmpty()
@@ -2175,6 +2239,7 @@ class CatalogRepository @Inject constructor(
 
     /** Full TMDB details for the detail page; falls back to what the row already had. */
     suspend fun detail(item: MediaItem): MediaDetail {
+        if (isAddonOwnTitle(item)) addonDetail(item)?.let { return it }
         val key = store.current().tmdbKey ?: return MediaDetail(item)
         val tmdbId = item.tmdbId ?: item.imdbId?.let { findByImdb(key, it, item.type) } ?: return MediaDetail(item)
         val movie = item.type == MediaType.Movie

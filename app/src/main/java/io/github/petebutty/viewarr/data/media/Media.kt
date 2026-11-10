@@ -29,6 +29,9 @@ data class MediaItem(
     val owned: Boolean = false,
     /** Search: where you have it ("Plex", "Jellyfin", "IPTV"…), shown on the poster instead of a plain tick. */
     val ownedFrom: String? = null,
+    /** An addon's own catalogue type when it isn't a film or series ("tv", "channel", "events", "anime"…): what its
+     *  meta and streams are asked for under. */
+    val addonType: String? = null,
 )
 
 data class EpisodeInfo(

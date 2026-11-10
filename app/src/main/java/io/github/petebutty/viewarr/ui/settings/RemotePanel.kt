@@ -179,13 +179,26 @@ fun RemoteSettingsScreen(onBack: () -> Unit, vm: RemoteViewModel = hiltViewModel
     val mRows by moviesM.menuRows.collectAsStateWithLifecycle()
     val sRows by showsM.menuRows.collectAsStateWithLifecycle()
     val musicOn by musicM.enabled.collectAsStateWithLifecycle()
-    val onOff = listOf(OnOff("On"), OnOff("Off"))
-    val chosen = s.liveShortcuts ?: io.github.petebutty.viewarr.ui.player.LiveShortcuts.defaults
-    val shortcutItems = io.github.petebutty.viewarr.ui.player.LiveShortcuts.candidates(mLibs.orEmpty(), sLibs.orEmpty(), mRows.rows, sRows.rows, musicOn).map { (id, name) ->
-        SettingItem(name, "", onOff, if (id in chosen) onOff[0] else onOff[1]) { c ->
-            vm.setLiveShortcuts(if ((c as OnOff).label == "On") (chosen - id) + id else chosen - id)
+    val candidates = io.github.petebutty.viewarr.ui.player.LiveShortcuts.candidates(mLibs.orEmpty(), sLibs.orEmpty(), mRows.rows, sRows.rows, musicOn)
+    // Only ids that still exist (a library removed since drops out).
+    val chosen = (s.liveShortcuts ?: io.github.petebutty.viewarr.ui.player.LiveShortcuts.defaults).filter { id -> candidates.any { it.id == id } }
+    val onOffChoices = listOf(OnOff("On"), OnOff("Off"))
+    // Chosen ones first, in their order (Right picks one up, Up / Down move it); then the rest, off.
+    val shortcutItems = (chosen.mapNotNull { id -> candidates.firstOrNull { it.id == id } } + candidates.filter { it.id !in chosen }).map { sc ->
+        val on = sc.id in chosen
+        SettingItem(
+            sc.label,
+            if (on) "In the row: ${chosen.indexOf(sc.id) + 1} of ${chosen.size}  ·  Right to move it" else "Not in the row",
+            onOffChoices, if (on) onOffChoices[0] else onOffChoices[1],
+            reorder = if (!on) null else ({ delta ->
+                val i = chosen.indexOf(sc.id)
+                val j = (i + delta).coerceIn(0, chosen.lastIndex)
+                if (i != j) vm.setLiveShortcuts(chosen.toMutableList().apply { add(j, removeAt(i)) })
+            }),
+        ) { c ->
+            vm.setLiveShortcuts(if ((c as OnOff).label == "On") (chosen - sc.id) + sc.id else chosen - sc.id)
         }
-    } + SettingItem("Reset shortcuts", "Back to Movies, Shows, Music, Recordings and Search.", listOf(ButtonStatus("")), ButtonStatus(""), action = { vm.resetLiveShortcuts() }, onSelect = {})
+    } + SettingItem("Reset shortcuts", "Back to TV guide, Movies, Shows, Music, Recordings, Search and Settings.", listOf(ButtonStatus("")), ButtonStatus(""), action = { vm.resetLiveShortcuts() }, onSelect = {})
     fun act(screen: io.github.petebutty.viewarr.data.settings.BtnScreen, press: io.github.petebutty.viewarr.data.settings.BtnPress) = io.github.petebutty.viewarr.data.settings.ButtonMap.action(s, screen, press).label
     // The colour buttons' actions for the remote picture (only screens that have them).
     fun colours(screen: io.github.petebutty.viewarr.data.settings.BtnScreen) = listOf(io.github.petebutty.viewarr.data.settings.BtnPress.Red, io.github.petebutty.viewarr.data.settings.BtnPress.Green, io.github.petebutty.viewarr.data.settings.BtnPress.Yellow, io.github.petebutty.viewarr.data.settings.BtnPress.Blue)
@@ -203,7 +216,8 @@ fun RemoteSettingsScreen(onBack: () -> Unit, vm: RemoteViewModel = hiltViewModel
         SettingCategory(
             "Start", "What you see when Viewarr opens.",
             listOf(
-                item("App opens on", "The page Viewarr starts on. Last channel plays the channel you watched last, full screen.", k.START_PAGE, all<StartPage>(), s.startPage),
+                item("Style", "Classic menus: as Viewarr has always worked. Live TV hub: Viewarr opens on your last channel, Back from any page (Movies, Shows, Music, Recordings…) goes back to it, and the shortcuts under the live TV controls (OK, then Down) take you anywhere.", k.NAV_STYLE, all<io.github.petebutty.viewarr.data.settings.NavStyle>(), s.navStyle),
+                item("App opens on", "The page Viewarr starts on (the Live TV hub style always opens on your last channel). Last channel plays the channel you watched last, full screen.", k.START_PAGE, all<StartPage>(), s.startPage),
                 item("Search button", "Pops search up from any screen (live TV, the guide, films and shows); Back closes it and you're where you were.", k.SEARCH_BUTTON, all<io.github.petebutty.viewarr.data.settings.SearchButton>(), s.searchButton),
             ),
         ),
@@ -236,7 +250,7 @@ fun RemoteSettingsScreen(onBack: () -> Unit, vm: RemoteViewModel = hiltViewModel
             ) },
         ),
         SettingCategory(
-            "Live TV shortcuts", "On live TV, OK then Down: a row of shortcuts to what you pick here (in the order you turn them on). OK on one opens it.",
+            "Live TV shortcuts", "On live TV, OK then Down: a row of round icons to what you turn on here. To change the order, press Right on one, move it with Up / Down, then Right again.",
             shortcutItems,
         ),
         SettingCategory(

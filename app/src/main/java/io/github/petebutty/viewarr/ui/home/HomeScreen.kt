@@ -387,7 +387,9 @@ fun HomeScreen(
     LaunchedEffect(remote.loaded) {
         if (!remote.loaded || startApplied) return@LaunchedEffect
         startApplied = true
-        when (remote.startPage) {
+        // Live TV hub: always opens on the last channel, full screen.
+        val start = if (remote.navStyle == io.github.petebutty.viewarr.data.settings.NavStyle.LiveHub) StartPage.LastChannel else remote.startPage
+        when (start) {
             StartPage.Guide -> Unit
             StartPage.Movies -> page = Page.Movies
             StartPage.Shows -> page = Page.Shows
@@ -456,7 +458,28 @@ fun HomeScreen(
     // seconds exits. The menu handles its own Back (list → main menu → closed).
     val activity = LocalContext.current as? Activity
     var exitArmed by remember { mutableLongStateOf(0L) }
+    /** Live TV hub: back to the channel watched last, full screen. False when there's none to go back to. */
+    fun goLive(): Boolean {
+        val s = session ?: return false
+        val id = playing?.id ?: remote.lastChannelId ?: return false
+        menuOpen = false
+        quickSearch = false
+        fromStartScope.launch {
+            val ch = vm.channelById(id) ?: return@launch
+            vm.reveal(ch) {
+                page = Page.Tv
+                if (playing?.id != ch.id) playback.play(ch, s)
+                vm.selectChannel(ch.id)
+                fullscreen = true
+                showBanner()
+            }
+        }
+        return true
+    }
+
     fun backOnPage() {
+        // Live TV hub (Settings → Remote & navigation → Style): Back from a page goes back to the channel.
+        if (remote.navStyle == io.github.petebutty.viewarr.data.settings.NavStyle.LiveHub && page != Page.Tv && goLive()) return
         if (exitArmed != 0L) activity?.finish() else exitArmed = System.currentTimeMillis()
     }
     LaunchedEffect(exitArmed) {
@@ -538,13 +561,13 @@ fun HomeScreen(
     val showMenuRows by showsVm.menuRows.collectAsStateWithLifecycle()
     val musicOnNow by musicVm.enabled.collectAsStateWithLifecycle()
     LaunchedEffect(osdVisible) { if (osdVisible) { moviesVm.loadLibraries(MediaType.Movie); showsVm.loadLibraries(MediaType.Show) } }
-    val liveShortcuts: List<Pair<String, () -> Unit>> = run {
-        val names = io.github.petebutty.viewarr.ui.player.LiveShortcuts.candidates(
+    val liveShortcuts: List<Pair<io.github.petebutty.viewarr.ui.player.LiveShortcut, () -> Unit>> = run {
+        val all = io.github.petebutty.viewarr.ui.player.LiveShortcuts.candidates(
             movieLibs.orEmpty(), showLibs.orEmpty(), movieMenuRows.rows, showMenuRows.rows, musicOnNow,
-        ).toMap()
+        ).associateBy { it.id }
         (remote.liveShortcuts ?: io.github.petebutty.viewarr.ui.player.LiveShortcuts.defaults).mapNotNull { id ->
-            val name = names[id] ?: return@mapNotNull null
-            name to {
+            val sc = all[id] ?: return@mapNotNull null
+            sc to {
                 osdVisible = false
                 val parts = id.split(":", limit = 3)
                 val type = if (parts.getOrNull(1) == "Show") MediaType.Show else MediaType.Movie
@@ -555,8 +578,10 @@ fun HomeScreen(
                     "lib" -> { (if (type == MediaType.Show) showLibs else movieLibs).orEmpty().firstOrNull { it.key == parts[2] }?.let { mvm.openLibrary(it, type) }; openPage(target) }
                     "row" -> { mvm.openLibrary(null, type); mvm.jumpTo(parts[2]); openPage(target) }
                     "page" -> when (parts[1]) {
+                        "Guide" -> fullscreen = false
                         "Music" -> openPage(Page.Music)
                         "Recordings" -> openPage(Page.Recordings)
+                        "Settings" -> { menuOnSettings = true; menuOpen = true }
                         else -> { searchStart = null; quickSearch = true }
                     }
                 }
@@ -812,6 +837,7 @@ fun HomeScreen(
                 focusEnabled = !menuOpen && !showAccounts && !quickSearch,
                 onOpenMenu = { menuOpen = true },
                 onBack = {
+                    if (remote.navStyle == io.github.petebutty.viewarr.data.settings.NavStyle.LiveHub && goLive()) return@MediaScreen
                     when (remote.mediaBack) {
                         MediaBack.Exit -> backOnPage()
                         MediaBack.Menu -> menuOpen = true

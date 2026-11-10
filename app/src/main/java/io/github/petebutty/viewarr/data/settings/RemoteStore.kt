@@ -16,6 +16,12 @@ import javax.inject.Singleton
 /** A choice in Settings → Remote & navigation. The first entry of each enum is the default (how the app behaved before). */
 interface RemoteChoice { val label: String }
 
+/** How Viewarr is laid out: menus as before, or live TV as the hub (Back from any page returns to the channel). */
+enum class NavStyle(override val label: String) : RemoteChoice {
+    Classic("Classic menus"),
+    LiveHub("Live TV hub"),
+}
+
 enum class GuideLeft(override val label: String) : RemoteChoice {
     /** Since 0.23: holding Left scrolls fast (and stops at the start); only a fresh press there opens the menu. */
     EdgeMenu("Earlier programmes and catch-up; at the start, the menu · Hold: scroll fast"),
@@ -121,6 +127,7 @@ data class RemoteSettings(
     val menuBack: MenuBack = MenuBack.entries.first(),
     val startPage: StartPage = StartPage.entries.first(),
     val searchButton: SearchButton = SearchButton.entries.first(),
+    val navStyle: NavStyle = NavStyle.entries.first(),
     /** Search button → "A button you choose": the key code learned. */
     val searchKeyCode: Int? = null,
     /** The last live channel played (for "Last channel" start). */
@@ -159,6 +166,7 @@ class RemoteStore @Inject constructor(@ApplicationContext private val context: C
             menuBack = p.read(MENU_BACK),
             startPage = p.read(START_PAGE),
             searchButton = p.read(SEARCH_BUTTON),
+            navStyle = p.read(NAV_STYLE),
             searchKeyCode = p[intPreferencesKey(SEARCH_KEYCODE)],
             lastChannelId = p[intPreferencesKey(LAST_CHANNEL)],
             buttons = p[stringPreferencesKey(BUTTONS)].orEmpty().split(',').mapNotNull { part ->
@@ -271,5 +279,6 @@ class RemoteStore @Inject constructor(@ApplicationContext private val context: C
         const val BUTTONS = "buttons_v1"
         const val BUTTON_MAP = "bmap_v1"
         const val LIVE_SHORTCUTS = "live_shortcuts"
+        const val NAV_STYLE = "nav_style"
     }
 }

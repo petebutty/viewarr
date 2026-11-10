@@ -995,7 +995,7 @@ class MediaViewModel @Inject constructor(
                 val stream = kotlinx.coroutines.withTimeoutOrNull(20_000) { runCatching { t.get() }.getOrNull() }
                 if (stream != null) { _detail.update { it?.copy(message = null, episode = null) }; _playing.value = stream; return@launch }
             }
-            if (d.hasAddons && item.imdbId != null) {
+            if (d.hasAddons && (item.imdbId != null || repo.isAddonOwnTitle(item))) {
                 _detail.update { it?.copy(searching = true, message = "Looking in your addons for S$season · E$episode…") }
                 val found = kotlinx.coroutines.withTimeoutOrNull(30_000) { rank(runCatching { repo.addonStreams(item, season, episode) }.getOrDefault(emptyList())) }.orEmpty()
                 _detail.update { it?.copy(searching = false) }
@@ -1018,7 +1018,7 @@ class MediaViewModel @Inject constructor(
 
     fun searchEpisode(ep: io.github.petebutty.viewarr.data.media.EpisodeInfo, forceAuto: Boolean = false) {
         val d = _detail.value ?: return
-        if (d.detail.item.imdbId == null) {
+        if (d.detail.item.imdbId == null && !repo.isAddonOwnTitle(d.detail.item)) {
             _detail.update { it?.copy(message = "This show has no IMDb id, so the addons can't look it up.") }
             return
         }
@@ -1080,7 +1080,7 @@ class MediaViewModel @Inject constructor(
                 val stream = kotlinx.coroutines.withTimeoutOrNull(20_000) { runCatching { streamFor(c, item) }.getOrNull() }
                 if (stream != null) { _detail.update { it?.copy(message = null) }; _playing.value = stream; return@launch }
             }
-            if (d.hasAddons && item.imdbId != null) {
+            if (d.hasAddons && (item.imdbId != null || repo.isAddonOwnTitle(item))) {
                 _detail.update { it?.copy(searching = true, message = "Looking in your addons…") }
                 val found = kotlinx.coroutines.withTimeoutOrNull(30_000) { rank(runCatching { repo.addonStreams(item) }.getOrDefault(emptyList())) }.orEmpty()
                 _detail.update { it?.copy(searching = false) }
@@ -1122,7 +1122,7 @@ class MediaViewModel @Inject constructor(
     fun searchAddons() {
         val d = _detail.value ?: return
         if (d.detail.item.type == MediaType.Show) return openEpisodes()
-        if (d.detail.item.imdbId == null) {
+        if (d.detail.item.imdbId == null && !repo.isAddonOwnTitle(d.detail.item)) {
             _detail.update { it?.copy(message = "This title has no IMDb id, so the addons can't look it up.") }
             return
         }
