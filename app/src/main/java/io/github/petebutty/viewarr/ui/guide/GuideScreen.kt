@@ -125,6 +125,12 @@ fun GuideScreen(
             .focusRequester(focusRequester)
             .focusable(enabled = focusEnabled)
             .onPreviewKeyEvent { e ->
+                if (e.key == Key.DirectionLeft && remote.guideLeft == GuideLeft.EdgeMenu) {
+                    // Back through the programmes and into catch-up; holding Left scrolls fast and stops at the
+                    // start (a scroll can't overshoot into the menu). A fresh press at the start opens the menu.
+                    if (e.type == KeyEventType.KeyDown && !vm.moveLeft() && e.nativeKeyEvent.repeatCount == 0) onOpenMenu()
+                    return@onPreviewKeyEvent true
+                }
                 if (e.key == Key.DirectionLeft && remote.guideLeft == GuideLeft.NowMenu) {
                     // Tap: back one programme, or the menu when already on what's on now. Hold: back into catch-up.
                     when {

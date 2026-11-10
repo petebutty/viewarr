@@ -144,6 +144,8 @@ fun AppRoot(vm: AppViewModel = hiltViewModel()) {
                 val touring = !splashShown && (tourNow || io.github.petebutty.viewarr.ui.onboarding.Tour.requested)
                 // Composed straight away, under the splash, so rows and the guide load while it shows. Not while the
                 // tour is up: a channel playing underneath kept the remote (Left / Right there mean skip).
+                // (No offscreen layer for the page while a film glides: switching it on cost one very slow frame at the
+                // start of every glide, more than it saved; measured on a Formuler.)
                 if (!touring) HomeScreen(session = s.session, onSignOut = vm::signOut)
                 // Films, episodes and recordings: above every page, full screen or shrunk to a corner.
                 io.github.petebutty.viewarr.ui.media.VodHostLayer()

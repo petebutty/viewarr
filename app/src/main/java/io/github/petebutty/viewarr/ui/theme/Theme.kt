@@ -152,7 +152,9 @@ object TitleParts {
     const val COLLECTION = "collection"
     const val SIMILAR = "similar"
     const val DETAILS = "details"
+    const val BADGES = "badges"
     val sections = listOf(
+        BADGES to ("Badges" to "Age rating, picture (4K, HDR, Dolby Vision), sound (Dolby Atmos, 5.1…), subtitles, and the time a film would end."),
         LOGO to ("Title logo" to "The title's logo instead of its name in plain text."),
         UP_NEXT to ("Up next line" to "Shows: the episode you're up to, above the synopsis."),
         TRAILER to ("Trailer button" to "Off: the trailer isn't looked up either."),
@@ -176,6 +178,9 @@ object UiOpts {
     const val MINI_SIZE = "mini_size"
     const val MINI_CORNER = "mini_corner"
     const val PLAYER_BACK = "player_back"
+    const val AGE_RATING = "age_rating"
+    const val ANIM_FILM = "anim_film"
+    const val ANIM_LIVE = "anim_live"
     const val SEEK_PREVIEWS = "seek_previews"
     const val CONTROLS_TIME = "controls_time"
     const val CONTROLS_SIZE = "controls_size"
@@ -198,7 +203,10 @@ object UiOpts {
         CHANNEL_LOGOS to listOf("On", "Off"),
         MINI_SIZE to listOf("Medium", "Small", "Large"),
         MINI_CORNER to listOf("Bottom right", "Bottom left", "Top right", "Top left"),
-        PLAYER_BACK to listOf("Shrink to a corner", "Stop", "Stop · hold Back: corner (recommended)"),
+        ANIM_FILM to listOf("On", "Off"),
+        ANIM_LIVE to listOf("On", "Off"),
+        AGE_RATING to listOf("UK (BBFC: U, PG, 12A, 15, 18)", "US (MPA: G, PG, PG-13, R · TV-14, TV-MA)"),
+        PLAYER_BACK to listOf("Press Back", "Off (Back stops the film)", "Hold Back (recommended; Back stops the film)"),
         SEEK_PREVIEWS to listOf("Server's, else the box makes them", "Server's only", "Off"),
         CONTROLS_TIME to listOf("4 seconds", "3 seconds", "6 seconds", "10 seconds"),
         CONTROLS_SIZE to listOf("Medium", "Small", "Large"),

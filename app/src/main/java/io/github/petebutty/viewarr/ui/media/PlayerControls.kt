@@ -251,12 +251,14 @@ fun PlayerOsd(
         Row {
             Text(clockMs(positionMs), fontSize = t(14), color = Color.White)
             Spacer(Modifier.weight(1f))
+            // How to get to picture-in-picture, as Settings → Remote → Picture-in-picture has it (none for "Stop").
+            val pip = "" // Picture-in-picture for films is off for now.
             Text(
                 when {
                     scrubbing -> "◀ ▶ move  ·  OK: jump here  ·  Back: cancel"
-                    buttons != null && barFocused -> "◀ ▶ seek  ·  ▼ options  ·  ▲ pause + details"
-                    buttons != null -> "▲ seek bar  ·  ⏯ play / pause"
-                    else -> "OK: controls  ·  ◀ ▶ skip  ·  ⏯ play / pause"
+                    buttons != null && barFocused -> "◀ ▶ seek  ·  ▼ options  ·  ▲ pause + details$pip"
+                    buttons != null -> "▲ seek bar  ·  ⏯ play / pause$pip"
+                    else -> "OK: controls  ·  ◀ ▶ skip  ·  ⏯ play / pause$pip"
                 },
                 fontSize = t(13), color = Color.White.copy(alpha = 0.7f),
             )

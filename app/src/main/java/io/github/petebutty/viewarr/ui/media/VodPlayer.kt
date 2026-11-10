@@ -273,7 +273,8 @@ fun VodPlayer(
         }
     }
     // Back: closes audio & subtitles, then hides the controls, then stops (resume point saved). As Netflix / Plex.
-    BackHandler(enabled = !mini) {
+    // Back one step: closes what's open, then the last step (corner, or stop: Settings → Remote → Picture-in-picture).
+    fun backStep() {
         when {
             tracksOpen -> tracksOpen = false
             scrub.active -> { scrub.cancel(); showOsd() }
@@ -281,10 +282,12 @@ fun VodPlayer(
             menu.open -> { menu.open = false; osdUntil = 0L }
             System.currentTimeMillis() < osdUntil && player.isPlaying -> osdUntil = 0L
             // Back again: into the corner, still playing (hold Back to bring it back).
-            // (Settings → Playback → Back while watching: or stop.)
-            else -> if (io.github.petebutty.viewarr.ui.theme.AppColors.palette.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.PLAYER_BACK) >= 1) onClose() else VodHost.minimise().also { if (!VodHost.active) onClose() }
+            // (Settings → Remote → Picture-in-picture: or stop.)
+            // Back again: stops (resume point saved). Picture-in-picture for films is off for now (VodHost keeps it).
+            else -> onClose()
         }
     }
+    BackHandler(enabled = !mini) { backStep() }
     // The tracks in use, as ordinals of each kind (subtitles -1 = off): handed over when switching to mpv.
     fun picks(): Pair<Int?, Int?> {
         fun selected(type: Int): Int? {
@@ -321,9 +324,10 @@ fun VodPlayer(
         buttons = buttons, press = ::press, seekMs = seekMs, showOsd = ::showOsd,
         openTracks = { subs -> subs?.let { tracksSubs = it }; tracksOpen = true },
         toggleDetails = { detailsOn = !detailsOn }, showDetails = { detailsOn = true }, stop = onClose,
-        backMode = io.github.petebutty.viewarr.ui.theme.AppColors.palette.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.PLAYER_BACK),
+        backMode = 1, // Back stops: no hold-Back corner while picture-in-picture for films is off.
         atTop = { !tracksOpen && !scrub.active && !detailsOn && !menu.open && !(System.currentTimeMillis() < osdUntil && player.isPlaying) },
         minimise = { VodHost.minimise(); if (!VodHost.active) onClose() },
+        stepBack = ::backStep,
     )
     // The controls close after a while without a key (not while paused).
     LaunchedEffect(paused) {
@@ -358,7 +362,7 @@ fun VodPlayer(
             .background(Color.Black)
             .focusRequester(focus)
             .onFocusChanged { hasFocus = it.isFocused }
-            .focusable(enabled = !tracksOpen && !mini)
+            .focusable(enabled = !tracksOpen && !(mini && !VodHost.gliding))
             .onPreviewKeyEvent { e ->
                 if (VodHost.eatsBack(e)) return@onPreviewKeyEvent true
                 if (tracksOpen) return@onPreviewKeyEvent false
@@ -367,7 +371,10 @@ fun VodPlayer(
     ) {
         AndroidView(
             factory = { ctx ->
-                (android.view.LayoutInflater.from(ctx).inflate(io.github.petebutty.viewarr.R.layout.vod_player_view, null) as PlayerView).apply {
+                (android.view.LayoutInflater.from(ctx).inflate(
+                    // Settings → Playback → Video view: Standard (SurfaceView) or Compatible (TextureView).
+                    if (pb.videoView == io.github.petebutty.viewarr.data.settings.VideoView.Standard) io.github.petebutty.viewarr.R.layout.vod_player_view_surface
+                    else io.github.petebutty.viewarr.R.layout.vod_player_view, null) as PlayerView).apply {
                     this.player = player
                     view = this
                     // Picture and subtitles only: the controls are the app's own (PlayerOsd), keys come from the box above.

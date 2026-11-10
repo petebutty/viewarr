@@ -1591,14 +1591,28 @@ class CatalogRepository @Inject constructor(
         val a = store.current()
         copies.firstOrNull { it.source == "Plex" && it.ref != null }?.let { c ->
             val (p, rk) = plexResolve(a, c.ref!!) ?: return@let
-            val streams = plexGet(a, p, "/library/metadata/$rk")?.array("Metadata")?.firstOrNull()
-                ?.array("Media")?.firstOrNull()?.array("Part")?.firstOrNull()?.array("Stream").orEmpty()
+            val media = plexGet(a, p, "/library/metadata/$rk")?.array("Metadata")?.firstOrNull()?.array("Media")?.firstOrNull()
+            val streams = media?.array("Part")?.firstOrNull()?.array("Stream").orEmpty()
                 // The file's own tracks only (separate subtitle files aren't in what the player opens).
                 .filter { it.str("key") == null }
             fun pick(type: Int) = streams.filter { it.int("streamType") == type }.mapIndexed { i, st ->
-                TrackChoice(st.str("extendedDisplayTitle") ?: st.str("displayTitle") ?: st.str("language") ?: "Track ${i + 1}", i, st.str("selected").let { it == "1" || it == "true" })
+                val title = st.str("extendedDisplayTitle") ?: st.str("displayTitle")
+                TrackChoice(
+                    title ?: st.str("language") ?: "Track ${i + 1}", i, st.str("selected").let { it == "1" || it == "true" },
+                    format = if (type == 2) audioFormat(st.str("codec"), st.str("profile"), title) else null,
+                    channels = if (type == 2) channelLabel(st.int("channels")) else null,
+                )
             }
-            return TitleTracks("Plex", c.ref, pick(2), pick(3))
+            val video = streams.firstOrNull { it.int("streamType") == 1 }
+            val vTitle = video?.str("displayTitle").orEmpty() + " " + video?.str("extendedDisplayTitle").orEmpty()
+            val hdr = when {
+                video?.str("DOVIPresent").let { it == "1" || it == "true" } || vTitle.contains("DoVi", true) || vTitle.contains("Dolby Vision", true) -> "Dolby Vision"
+                vTitle.contains("HDR10+", true) -> "HDR10+"
+                video?.str("colorTrc") == "smpte2084" || vTitle.contains("HDR", true) -> "HDR10"
+                video?.str("colorTrc") == "arib-std-b67" -> "HLG"
+                else -> null
+            }
+            return TitleTracks("Plex", c.ref, pick(2), pick(3), resolutionLabel(media?.str("videoResolution"), video?.int("height")), hdr)
         }
         copies.firstOrNull { (it.source == "Jellyfin" || it.source == "Emby") && it.ref != null }?.let { c ->
             val (srv, emby) = serverFor(c.source) ?: return@let
@@ -1607,11 +1621,69 @@ class CatalogRepository @Inject constructor(
             val streams = info.array("MediaSources").firstOrNull()?.array("MediaStreams").orEmpty()
                 .filter { it.child("IsExternal")?.toString() != "true" }
             fun pick(type: String) = streams.filter { it.str("Type") == type }.mapIndexed { i, st ->
-                TrackChoice(st.str("DisplayTitle") ?: st.str("Language") ?: "Track ${i + 1}", i, st.child("IsDefault")?.toString() == "true")
+                val title = st.str("DisplayTitle")
+                TrackChoice(
+                    title ?: st.str("Language") ?: "Track ${i + 1}", i, st.child("IsDefault")?.toString() == "true",
+                    format = if (type == "Audio") audioFormat(st.str("Codec"), st.str("Profile"), title) else null,
+                    channels = if (type == "Audio") channelLabel(st.int("Channels")) else null,
+                )
             }
-            return TitleTracks(c.source, c.ref!!, pick("Audio"), pick("Subtitle"))
+            val video = streams.firstOrNull { it.str("Type") == "Video" }
+            val range = video?.str("VideoRangeType").orEmpty()
+            val hdr = when {
+                range.startsWith("DOVI", true) -> "Dolby Vision"
+                range.equals("HDR10Plus", true) -> "HDR10+"
+                range.equals("HDR10", true) || (range.isEmpty() && video?.str("VideoRange") == "HDR") -> "HDR10"
+                range.equals("HLG", true) -> "HLG"
+                else -> null
+            }
+            return TitleTracks(c.source, c.ref!!, pick("Audio"), pick("Subtitle"), resolutionLabel(null, video?.int("Height")), hdr)
         }
         return null
+    }
+
+    /** "4K", "1080p", "720p" or "SD", from Plex's videoResolution ("4k", "1080", "sd"…) or the picture's height. */
+    private fun resolutionLabel(plex: String?, height: Int?): String? {
+        val h = plex?.lowercase()?.let { r -> when (r) { "4k" -> 2160; "8k" -> 4320; "sd" -> 480; else -> r.toIntOrNull() } } ?: height ?: return null
+        return when {
+            h >= 4000 -> "8K"
+            h >= 1800 -> "4K"
+            h >= 1000 -> "1080p"
+            h >= 700 -> "720p"
+            else -> "SD"
+        }
+    }
+
+    /** A soundtrack's format for people: "Dolby Atmos", "DTS:X", "DTS-HD MA", "TrueHD", "Dolby Digital+", "AAC"… */
+    private fun audioFormat(codec: String?, profile: String?, title: String?): String? {
+        val c = codec?.lowercase() ?: return null
+        val all = (profile.orEmpty() + " " + title.orEmpty()).lowercase()
+        return when {
+            "atmos" in all -> "Dolby Atmos"
+            c.startsWith("dts") && ("dts:x" in all || "dts-x" in all || profile.equals("x", true)) -> "DTS:X"
+            c.startsWith("dts") && ("ma" == profile?.lowercase() || "dts-hd ma" in all || "master audio" in all) -> "DTS-HD MA"
+            c.startsWith("dts") -> "DTS"
+            c == "truehd" -> "TrueHD"
+            c == "eac3" -> "Dolby Digital+"
+            c == "ac3" -> "Dolby Digital"
+            c == "aac" -> "AAC"
+            c == "flac" -> "FLAC"
+            c.startsWith("pcm") -> "PCM"
+            c == "opus" -> "Opus"
+            c == "mp3" -> "MP3"
+            else -> c.uppercase()
+        }
+    }
+
+    private fun channelLabel(n: Int?): String? = when (n) {
+        null, 0 -> null
+        1 -> "Mono"
+        2 -> "Stereo"
+        3 -> "2.1"
+        6 -> "5.1"
+        7 -> "6.1"
+        8 -> "7.1"
+        else -> "${n}ch"
     }
 
     /** Whether you've watched this film: on any of your servers, or on Trakt. */
@@ -2122,18 +2194,21 @@ class CatalogRepository @Inject constructor(
             year = item.year ?: full?.year,
             rating = full?.rating ?: item.rating,
         )
-        val cert = if (movie) {
-            j.child("release_dates").array("results").firstOrNull { it.str("iso_3166_1") == "GB" }
+        fun certFor(country: String) = if (movie) {
+            j.child("release_dates").array("results").firstOrNull { it.str("iso_3166_1") == country }
                 ?.array("release_dates")?.mapNotNull { it.str("certification")?.takeIf(String::isNotBlank) }?.firstOrNull()
         } else {
-            j.child("content_ratings").array("results").firstOrNull { it.str("iso_3166_1") == "GB" }?.str("rating")?.takeIf { it.isNotBlank() }
+            j.child("content_ratings").array("results").firstOrNull { it.str("iso_3166_1") == country }?.str("rating")?.takeIf { it.isNotBlank() }
         }
+        val cert = certFor("GB")
+        val certUs = certFor("US")
         return MediaDetail(
             item = merged,
             tagline = j.str("tagline")?.takeIf { it.isNotBlank() },
             genres = j.array("genres").mapNotNull { it.str("name") },
             runtimeMin = j.int("runtime") ?: j.array("episode_run_time").firstOrNull()?.let { (it as? JsonPrimitive)?.content?.toIntOrNull() },
             certification = cert,
+            certificationUs = certUs,
             cast = j.child("credits").array("cast").take(20).mapNotNull { c ->
                 c.str("name")?.let { CastMember(it, c.str("character")?.takeIf { ch -> ch.isNotBlank() }, c.str("profile_path")?.let { p -> "https://image.tmdb.org/t/p/w185$p" }, c.int("id")) }
             },

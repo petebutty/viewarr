@@ -107,10 +107,18 @@ data class VodStream(
 
 /** An audio or subtitle track of a film on your own server, to pick before Play. [ordinal]: its place among the
  *  file's own tracks of that kind (as the players count them). */
-data class TrackChoice(val label: String, val ordinal: Int, val default: Boolean = false)
+data class TrackChoice(
+    val label: String, val ordinal: Int, val default: Boolean = false,
+    /** Audio: its format for the title page's badges ("Dolby Atmos", "DTS-HD MA", "AAC"…) and channels ("5.1"). */
+    val format: String? = null, val channels: String? = null,
+)
 
 /** A film's tracks on one of your servers ([ref]: that copy), for Audio & subtitles on its page. */
-data class TitleTracks(val source: String, val ref: String, val audio: List<TrackChoice>, val subtitles: List<TrackChoice>)
+data class TitleTracks(
+    val source: String, val ref: String, val audio: List<TrackChoice>, val subtitles: List<TrackChoice>,
+    /** The picture, for the title page's badges: "4K", "1080p"… and "Dolby Vision", "HDR10+", "HDR10", "HLG". */
+    val resolution: String? = null, val hdr: String? = null,
+)
 
 /** Pictures for the player: the title's backdrop (loading screen) and its logo (loading screen and controls). */
 data class PlayerArt(
@@ -174,7 +182,9 @@ data class MediaDetail(
     val tagline: String? = null,
     val genres: List<String> = emptyList(),
     val runtimeMin: Int? = null,
+    /** Age rating: UK (BBFC) and US (MPA films, TV Parental Guidelines shows); Settings → Appearance picks which shows. */
     val certification: String? = null,
+    val certificationUs: String? = null,
     val cast: List<CastMember> = emptyList(),
     val seasons: List<SeasonInfo> = emptyList(),
     val status: String? = null,

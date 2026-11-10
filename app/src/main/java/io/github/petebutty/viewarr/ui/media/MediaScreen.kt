@@ -44,6 +44,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -802,6 +803,46 @@ internal fun LibrarySearchBox(query: String, onQuery: (String) -> Unit, onFocus:
 /** Rows that already are your library (no need to look the title up). */
 private val LIBRARY_ORIGINS = setOf("Plex", "Jellyfin", "Emby", "IPTV")
 
+/** The age rating from the country chosen in Settings → Appearance (UK or US). */
+private fun ageRating(d: io.github.petebutty.viewarr.data.media.MediaDetail): String? =
+    if (AppColors.palette.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.AGE_RATING) == 1) d.certificationUs else d.certification
+
+/**
+ * Netflix-style outlined badges under a title's info line: age rating, picture (4K, Dolby Vision…), sound (the
+ * default soundtrack's format and channels), CC when the file has subtitles, then when a film would end if
+ * played now (the time left, for one part-watched). Drawn here, not logos: nothing to licence.
+ */
+@Composable
+private fun TitleBadges(item: MediaItem, d: io.github.petebutty.viewarr.data.media.MediaDetail, media: io.github.petebutty.viewarr.data.media.TitleTracks?) {
+    if (!AppColors.palette.shows(io.github.petebutty.viewarr.ui.theme.TitleParts.BADGES)) return
+    val audio = media?.audio?.let { a -> a.firstOrNull { it.default } ?: a.firstOrNull() }
+    val boxes = listOfNotNull(
+        ageRating(d),
+        media?.resolution,
+        media?.hdr,
+        audio?.format,
+        audio?.channels,
+        if (media?.subtitles?.isNotEmpty() == true) "CC" else null,
+    ).distinct()
+    // Recomposes about once a minute, so "Ends at" keeps up with the clock while the page is open.
+    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) { while (true) { kotlinx.coroutines.delay(30_000); now = System.currentTimeMillis() } }
+    val ends = d.runtimeMin?.takeIf { it > 0 && item.type == MediaType.Movie }?.let { mins ->
+        val left = (mins * 60_000L * (1f - (item.progress ?: 0f).coerceIn(0f, 1f))).toLong()
+        io.github.petebutty.viewarr.ui.theme.Dates.time(now + left)
+    }
+    if (boxes.isEmpty() && ends == null) return
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        boxes.forEach { b ->
+            Text(
+                b, fontSize = 12.sp, fontWeight = FontWeight.Medium, color = AppColors.TextPrimary, maxLines = 1,
+                modifier = Modifier.border(1.dp, AppColors.TextSecondary.copy(alpha = 0.8f), RoundedCornerShape(3.dp)).padding(horizontal = 6.dp, vertical = 1.dp),
+            )
+        }
+        ends?.let { Text("Ends at $it", fontSize = 12.sp, color = AppColors.TextSecondary, maxLines = 1) }
+    }
+}
+
 private fun metaLine(item: MediaItem) = listOfNotNull(
     item.year?.toString(),
     // Library titles carry their server's own score (Plex's is the audience score, already a badge): only TMDB's,
@@ -1006,12 +1047,14 @@ private fun DetailScreen(
                 TitleLogo(item, vm::logoFor, height = 54.dp, maxWidth = 320.dp, fontSize = 28)
                 val meta = listOfNotNull(
                     item.year?.toString(),
-                    d.certification,
+                    // The age rating is a badge below (Settings → Appearance → Title pages: Badges); in the line when they're off.
+                    if (AppColors.palette.shows(io.github.petebutty.viewarr.ui.theme.TitleParts.BADGES)) null else ageRating(d),
                     d.runtimeMin?.takeIf { it > 0 }?.let { if (it >= 60) "${it / 60}h ${it % 60}m" else "${it}m" },
                     d.seasons.takeIf { it.isNotEmpty() }?.let { s -> "${s.size} season${if (s.size == 1) "" else "s"} · ${s.sumOf { it.episodes }} episodes" },
                     d.genres.takeIf { it.isNotEmpty() }?.take(3)?.joinToString(", "),
                 ).joinToString("  ·  ")
                 if (meta.isNotEmpty()) Text(meta, fontSize = 13.sp, color = AppColors.TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                TitleBadges(item, d, ui.media)
                 RatingsLine(item.rating, d.voteCount, ui.ratings)
                 item.subtitle?.takeIf { parts.shows(io.github.petebutty.viewarr.ui.theme.TitleParts.UP_NEXT) }?.let { Text("Up next: $it", fontSize = 13.sp, color = AppColors.Accent, maxLines = 1) }
                 item.overview?.let { Text(it, fontSize = 14.sp, lineHeight = 20.sp, color = AppColors.TextPrimary, maxLines = if (show) 2 else 3, overflow = TextOverflow.Ellipsis) }

@@ -17,6 +17,8 @@ import javax.inject.Singleton
 interface RemoteChoice { val label: String }
 
 enum class GuideLeft(override val label: String) : RemoteChoice {
+    /** Since 0.23: holding Left scrolls fast (and stops at the start); only a fresh press there opens the menu. */
+    EdgeMenu("Earlier programmes and catch-up; at the start, the menu · Hold: scroll fast"),
     NowMenu("Earlier programmes; at \"now\" opens the menu · Hold: catch-up"),
     PastTapMenuHold("Tap: earlier programmes · Hold: menu"),
     MenuTapPastHold("Tap: menu · Hold: earlier programmes"),
@@ -24,6 +26,8 @@ enum class GuideLeft(override val label: String) : RemoteChoice {
 }
 
 enum class GuideBack(override val label: String) : RemoteChoice {
+    /** Since 0.23: the guide and full screen swap with Back (the channel keeps playing in the preview). */
+    FullScreen("Jump to now, then back to full screen"),
     NowThenExit("Jump to now, then ask to exit"),
     Menu("Open the menu"),
 }

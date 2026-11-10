@@ -129,19 +129,24 @@ class GuideViewModel @Inject constructor(
         _cursor.value = c.copy(focusTime = target, windowStart = ws)
     }
 
-    fun moveLeft() {
+    /** Back one programme. False at the start: the channel's catch-up limit, or its earliest programme without it. */
+    fun moveLeft(): Boolean {
         val c = _cursor.value
         val list = rowPrograms(c.row)
         val current = programAt(list, c.focusTime)
         val prev = if (current != null) list.lastOrNull { it.endTime <= current.startTime }
         else list.lastOrNull { it.endTime <= c.focusTime }
-        val earliest = _now.value - MAX_PAST_MS
+        val now = _now.value
+        val days = channels.value.getOrNull(c.row)?.catchupDays ?: 0
+        val earliest = if (days > 0) maxOf(now - days * 86_400_000L, now - MAX_PAST_MS)
+        else minOf(list.firstOrNull()?.startTime ?: now, now).coerceAtLeast(now - MAX_PAST_MS)
         val target = maxOf(prev?.startTime ?: (c.focusTime - STEP_MS), earliest)
-        if (target >= c.focusTime) return
+        if (target >= c.focusTime) return false
         var ws = c.windowStart
         while (target < ws) ws -= STEP_MS
         _cursor.value = c.copy(focusTime = target, windowStart = ws)
         ensurePast()
+        return true
     }
 
     fun isAtNow(): Boolean {

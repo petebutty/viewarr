@@ -192,7 +192,7 @@ fun AppearanceSettingsScreen(onBack: () -> Unit, vm: AppearanceViewModel = hiltV
             "Title pages", "What a film's or show's page shows. Anything off isn't fetched either, so pages open with less to do.",
             io.github.petebutty.viewarr.ui.theme.TitleParts.sections.filter { (id, _) -> !(low && id == io.github.petebutty.viewarr.ui.theme.TitleParts.LOGO) }.map { (id, text) ->
                 SettingItem(text.first, text.second, onOff, if (palette.shows(id)) onOff[0] else onOff[1]) { c -> vm.setTitlePart(id, (c as Choice).value == true) }
-            },
+            } + optItem(opts, "Age ratings", "Which country's age ratings title pages show.", io.github.petebutty.viewarr.ui.theme.UiOpts.AGE_RATING),
         ),
         // Low-memory mode fetches only TMDB's rating: nothing to choose.
         if (low) null else SettingCategory(

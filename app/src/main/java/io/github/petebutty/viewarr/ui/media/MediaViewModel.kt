@@ -63,6 +63,8 @@ data class DetailUi(
     val watched: Boolean? = null,
     /** Films on your own server: their audio / subtitle tracks, and what you picked for this Play (null = usual). */
     val tracks: io.github.petebutty.viewarr.data.media.TitleTracks? = null,
+    /** The film's file (picture, soundtracks, subtitles), for the title page's badges. */
+    val media: io.github.petebutty.viewarr.data.media.TitleTracks? = null,
     val pickedAudio: Int? = null,
     val pickedSubtitle: Int? = null,
 )
@@ -732,8 +734,10 @@ class MediaViewModel @Inject constructor(
                 _detail.update { if (it?.detail?.item?.key == full.item.key) it.copy(watched = w) else it }
             }
             if (full.item.type == MediaType.Movie) launch {
-                val t = runCatching { repo.titleTracks(copies) }.getOrNull()?.takeIf { it.audio.size > 1 || it.subtitles.isNotEmpty() }
-                _detail.update { if (it?.detail?.item?.key == full.item.key) it.copy(tracks = t) else it }
+                val all = runCatching { repo.titleTracks(copies) }.getOrNull()
+                // Audio & subtitles only when there's a choice; the badges whatever the file has.
+                val t = all?.takeIf { it.audio.size > 1 || it.subtitles.isNotEmpty() }
+                _detail.update { if (it?.detail?.item?.key == full.item.key) it.copy(tracks = t, media = all) else it }
             }
             val pal = runCatching { themeStore.palette.first() }.getOrNull()
             val hidden = pal?.titleHidden.orEmpty()

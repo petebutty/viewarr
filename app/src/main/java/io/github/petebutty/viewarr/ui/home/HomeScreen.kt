@@ -33,6 +33,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.composed
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -214,6 +216,13 @@ fun HomeScreen(
     var accountsFromMenu by remember { mutableStateOf(false) }
     var searchVoice by remember { mutableStateOf(false) }
     var menuOnSettings by remember { mutableStateOf(false) }
+    // A film brought back full screen (held Back, handled in MainActivity): the menu or search under it closes,
+    // or it would take the next Back presses.
+    LaunchedEffect(io.github.petebutty.viewarr.ui.media.VodHost.mini) {
+        if (!io.github.petebutty.viewarr.ui.media.VodHost.mini && io.github.petebutty.viewarr.ui.media.VodHost.active) { menuOpen = false; quickSearch = false }
+    }
+    // Held Back with nothing playing: the menu opens on its main list (not the page's own list).
+    var menuOnMain by remember { mutableStateOf(false) }
     val searchMedia: MediaViewModel = hiltViewModel(key = "media-search")
     val fromStartScope = androidx.compose.runtime.rememberCoroutineScope()
     // Leaving full screen (guide, another page) ends multi-view; it mustn't reappear next time.
@@ -309,9 +318,15 @@ fun HomeScreen(
             }
         }
     }
-    LaunchedEffect(menuOpen, fullscreen, osdVisible, showAccounts, page, recordTarget == null, seasonPick == null, io.github.petebutty.viewarr.ui.media.VodHost.covering, infoTarget == null, channelListOpen, quickSearch, io.github.petebutty.viewarr.playback.MusicPlayer.nowPlayingOpen) {
+    LaunchedEffect(menuOpen, fullscreen, osdVisible, showAccounts, page, recordTarget == null, seasonPick == null, io.github.petebutty.viewarr.ui.media.VodHost.covering, io.github.petebutty.viewarr.ui.media.VodHost.gliding, infoTarget == null, channelListOpen, quickSearch, io.github.petebutty.viewarr.playback.MusicPlayer.nowPlayingOpen) {
         if (channelListOpen || quickSearch || io.github.petebutty.viewarr.playback.MusicPlayer.nowPlayingOpen) return@LaunchedEffect
         if (recordTarget != null || seasonPick != null || io.github.petebutty.viewarr.ui.media.VodHost.covering || infoTarget != null) return@LaunchedEffect
+        // A film gliding into the corner: the page takes the remote once it's there (its highlight starting mid-glide
+        // made the glide stutter).
+        if (io.github.petebutty.viewarr.ui.media.VodHost.gliding) return@LaunchedEffect
+        // Just landed in the corner: a moment before the page takes the remote, so its highlight and the player
+        // letting go aren't drawn in the same frame (that frame was slow).
+        if (io.github.petebutty.viewarr.ui.media.VodHost.mini) delay(150)
         awaitFrame()
         runCatching {
             when {
@@ -365,6 +380,8 @@ fun HomeScreen(
     BackHandler(enabled = page == Page.Tv && !menuOpen && !fullscreen && !showAccounts && !quickSearch) {
         when {
             !vm.isAtNow() -> vm.goToNow()
+            // Back to the channel playing in the preview, full screen (Back there brings you here again).
+            remote.guideBack == GuideBack.FullScreen && playing != null -> { fullscreen = true; showBanner() }
             remote.guideBack == GuideBack.Menu -> menuOpen = true
             else -> backOnPage()
         }
@@ -458,6 +475,11 @@ fun HomeScreen(
                         return@onPreviewKeyEvent true
                     }
                 }
+                // The rest of a held Back that already sent the film to the corner: nothing else (VodKeys).
+                if (e.key == Key.Back && io.github.petebutty.viewarr.ui.media.VodHost.swallowBack) {
+                    if (e.type == KeyEventType.KeyUp) io.github.petebutty.viewarr.ui.media.VodHost.swallowBack = false
+                    return@onPreviewKeyEvent true
+                }
                 // Hold Back with a film in the corner: back to full screen (before the guide's own hold-Back).
                 if (e.key == Key.Back && (io.github.petebutty.viewarr.ui.media.VodHost.mini || pipBackHeld)) {
                     when {
@@ -535,8 +557,8 @@ fun HomeScreen(
                                 channelListOpen = false
                                 osdVisible = false
                                 io.github.petebutty.viewarr.playback.MusicPlayer.nowPlayingOpen = false
-                                // A film full screen goes to the corner and keeps playing, as with Back.
-                                if (io.github.petebutty.viewarr.ui.media.VodHost.covering) io.github.petebutty.viewarr.ui.media.VodHost.minimise()
+                                // A film full screen stops (picture-in-picture for films is off for now).
+                                if (io.github.petebutty.viewarr.ui.media.VodHost.covering) io.github.petebutty.viewarr.ui.media.VodHost.close()
                                 if (page == Page.Tv) { fullscreen = false; multiView = false } else openPage(Page.Tv)
                             }
                             return@onPreviewKeyEvent true
@@ -566,10 +588,21 @@ fun HomeScreen(
                     val canReturn = page == Page.Tv && !fullscreen && !menuOpen && !showAccounts && !quickSearch && playing != null &&
                         recordTarget == null && infoTarget == null
                     when {
+                        // The guide, a channel playing: holding Back opens the menu on the channel groups (Left again: the
+                        // main menu). A tap of Back goes full screen.
                         e.type == KeyEventType.KeyDown && e.nativeKeyEvent.repeatCount > 0 && canReturn && !backLongPress -> {
                             backLongPress = true
-                            fullscreen = true
-                            showBanner()
+                            menuOpen = true
+                            return@onPreviewKeyEvent true
+                        }
+                        // Nothing playing anywhere (no channel, film or music): holding Back opens the menu on its main list.
+                        e.type == KeyEventType.KeyDown && e.nativeKeyEvent.repeatCount > 0 && !backLongPress && !fullscreen && !menuOpen &&
+                            !showAccounts && !quickSearch && recordTarget == null && infoTarget == null && playing == null &&
+                            !io.github.petebutty.viewarr.ui.media.VodHost.active && !io.github.petebutty.viewarr.playback.MusicPlayer.active -> {
+                            backLongPress = true
+                            // On the guide: its channel groups, as with a channel playing. Elsewhere: the main list.
+                            menuOnMain = page != Page.Tv
+                            menuOpen = true
                             return@onPreviewKeyEvent true
                         }
                         e.type == KeyEventType.KeyDown && backLongPress -> return@onPreviewKeyEvent true
@@ -703,6 +736,15 @@ fun HomeScreen(
             )
         }
 
+        // Live TV into the guide's preview and back: a glide (the window's real place and size; the picture is a
+        // SurfaceView, scaled by the box's display hardware). Settings → Playback → Picture-in-picture → Live TV animation.
+        val liveShrink = androidx.compose.animation.core.animateFloatAsState(
+            if (fullscreen) 0f else 1f,
+            if (AppColors.palette.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.ANIM_LIVE) == 0)
+                androidx.compose.animation.core.tween(300, easing = androidx.compose.animation.core.FastOutSlowInEasing)
+            else androidx.compose.animation.core.snap(),
+            label = "live",
+        )
         val channel = playing.takeIf { page == Page.Tv }
         val list = channel?.let { programsOf(it) }.orEmpty()
         val current = catchup ?: GuideViewModel.programAt(list, now)
@@ -716,8 +758,18 @@ fun HomeScreen(
                 next = next,
                 now = now,
                 serverUrl = session?.serverUrl.orEmpty(),
-                modifier = if (fullscreen) Modifier.fillMaxSize()
-                else Modifier.padding(start = 12.dp, top = 20.dp).size(width = 320.dp, height = 180.dp).clip(RoundedCornerShape(8.dp)),
+                // Read in the layout and draw steps only, so the glide doesn't rebuild the screen every frame.
+                modifier = Modifier.fillMaxSize()
+                    .layout { measurable, constraints ->
+                        val p = liveShrink.value
+                        val fw = constraints.maxWidth
+                        val fh = constraints.maxHeight
+                        val cw = (fw + (320.dp.roundToPx() - fw) * p).toInt().coerceAtLeast(1)
+                        val ch = (fh + (180.dp.roundToPx() - fh) * p).toInt().coerceAtLeast(1)
+                        val placeable = measurable.measure(androidx.compose.ui.unit.Constraints.fixed(cw, ch))
+                        layout(fw, fh) { placeable.place((12.dp.roundToPx() * p).toInt(), (20.dp.roundToPx() * p).toInt()) }
+                    }
+                    .graphicsLayer { clip = liveShrink.value > 0.99f; shape = RoundedCornerShape(8.dp) },
             )
         }
 
@@ -870,9 +922,10 @@ fun HomeScreen(
                     accountsFromMenu = true
                 },
                 onSettings = menuOnSettings,
+                onMain = menuOnMain,
                 onSearchFor = { q -> searchStart = q; searchVoice = false; openPage(Page.Search) },
                 onVoiceSearch = { searchStart = null; searchVoice = true; openPage(Page.Search) },
-                onClose = { menuOpen = false; menuOnSettings = false },
+                onClose = { menuOpen = false; menuOnSettings = false; menuOnMain = false },
                 onSignOut = {
                     playback.stop()
                     onSignOut()
@@ -1063,6 +1116,8 @@ private fun MenuOverlay(
     onSignOut: () -> Unit,
     /** Reopened after Accounts & sources: straight back on Settings, on its first item. */
     onSettings: Boolean = false,
+    /** Open on the main list (Live TV, Movies…), whatever "Menu opens on" says. */
+    onMain: Boolean = false,
     /** Search panel: search for this (null: an empty search), or by voice. */
     onSearchFor: (String?) -> Unit = {},
     onVoiceSearch: () -> Unit = {},
@@ -1112,7 +1167,7 @@ private fun MenuOverlay(
     val recentCount = remember { androidx.compose.runtime.mutableStateMapOf<MediaType, Int>() }
     var recordingsCount by remember { mutableStateOf(0) }
     // From the guide the menu opens on the channel groups alone; Left again slides the main menu out beside them.
-    var showMain by remember { mutableStateOf(!(remote.menuOpensOn == MenuOpensOn.PageList && page == Page.Tv && session != null)) }
+    var showMain by remember { mutableStateOf(onMain || !(remote.menuOpensOn == MenuOpensOn.PageList && page == Page.Tv && session != null)) }
     // Back from Users & profiles / the PIN dialog (drawn over the menu): Settings stays the open list, so the row
     // they came from can take focus again (focus otherwise fell to the top of the menu).
     val profilePage = io.github.petebutty.viewarr.ui.profiles.ProfileUi.users || io.github.petebutty.viewarr.ui.profiles.ProfileUi.pin
@@ -1134,6 +1189,7 @@ private fun MenuOverlay(
         runCatching {
             when {
                 onSettings -> { showMain = true; awaitFrame(); settingsFirst.requestFocus() }
+                onMain -> navFocus.getValue(section).requestFocus()
                 remote.menuOpensOn != MenuOpensOn.PageList -> navFocus.getValue(section).requestFocus()
                 // From the guide: the channel groups (on the group being shown); Left again reaches the main list.
                 page == Page.Tv && session != null -> groupsFocus.requestFocus()

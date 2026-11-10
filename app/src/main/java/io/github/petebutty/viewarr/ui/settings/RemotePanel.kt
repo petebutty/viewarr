@@ -110,7 +110,7 @@ fun RemoteSettingsScreen(onBack: () -> Unit, vm: RemoteViewModel = hiltViewModel
             "TV guide", "Buttons while browsing the guide.",
             listOf(
                 item("Left", "What Left does on the guide's programmes. Holding Left (or ⏪) on what's on now goes back into catch-up.", k.GUIDE_LEFT, all<GuideLeft>(), s.guideLeft),
-                item("Back", "Back first jumps the guide to what's on now. On now, it asks to exit (press Back again), or opens the menu.", k.GUIDE_BACK, all<GuideBack>(), s.guideBack),
+                item("Back", "Back first jumps the guide to what's on now. On now: back to the channel full screen, ask to exit (press Back again), or open the menu. Holding Back always opens the menu on the channel groups.", k.GUIDE_BACK, all<GuideBack>(), s.guideBack),
                 item("Channel + / −", "Pages through the channels. Reverse it if your remote's buttons feel the wrong way round.", k.CHANNEL_KEYS, all<ChannelKeys>(), s.channelKeys),
             ),
         ),
@@ -120,7 +120,6 @@ fun RemoteSettingsScreen(onBack: () -> Unit, vm: RemoteViewModel = hiltViewModel
                 item("Up / Down on live TV", "Show the channel list to pick from, or change channel straight away.", k.ZAP, all<ZapDirection>(), s.zap),
                 item("Left / Right", "How far each press skips in films, shows, recordings and catch-up.", k.SEEK, all<SeekStep>(), s.seek),
                 item("OK on live TV", "Open the playback controls, or just show the banner with what's on.", k.PLAYER_OK, all<PlayerOk>(), s.playerOk),
-                optItem(opts, "Back while watching", "Once the controls are closed. Recommended: Back stops the film and holding Back shrinks it to a corner, where it keeps playing while you browse (hold Back again for full screen). Or Back always shrinks it, or always stops it.", io.github.petebutty.viewarr.ui.theme.UiOpts.PLAYER_BACK),
             ),
         ),
         SettingCategory(

@@ -31,11 +31,13 @@ class VodHooks(
     val toggleDetails: () -> Unit,
     val showDetails: () -> Unit,
     val stop: () -> Unit,
-    /** Settings → Back while watching: 0 corner, 1 stop, 2 stop (hold Back: corner). */
+    /** Settings → Remote → Picture-in-picture: 0 corner, 1 stop, 2 stop (hold Back: corner). */
     val backMode: Int = 0,
     /** Nothing open on the player (no controls, details, seek marker): Back's last step is next. */
     val atTop: () -> Boolean = { false },
     val minimise: () -> Unit = {},
+    /** Back's usual step (what the player's BackHandler does): close what's open, else the last step. */
+    val stepBack: () -> Unit = {},
 )
 
 /**
@@ -45,10 +47,8 @@ class VodHooks(
 class VodKeys(private val scrub: Scrubber, private val menu: PlayerMenu) {
     private val ok = TapHold()
     private val menuKey = TapHold()
-    // "Stop · hold Back: corner": decided when Back is let go, so the rest of a held press never reaches the page
-    // underneath (where holding Back brings a film back full screen).
+    // "Stop · hold Back: corner": a tap takes Back's usual step (on release); a hold shrinks to the corner at once.
     private var backDown = false
-    private var backHeld = false
 
     /** True when the event was used. */
     fun handle(e: KeyEvent, p: VodRemote, h: VodHooks): Boolean {
@@ -56,15 +56,22 @@ class VodKeys(private val scrub: Scrubber, private val menu: PlayerMenu) {
         val down = e.type == KeyEventType.KeyDown
         val repeat = e.nativeKeyEvent.repeatCount
         if (a == RemoteAction.Back && h.backMode == 2) {
+            // Every Back press is decided here: a hold goes to the corner whatever is open (the corner closes it);
+            // a tap takes Back's usual step (controls, details… then stop).
             when {
-                down && repeat == 0 && h.atTop() -> { backDown = true; backHeld = false; return true }
-                down && backDown -> { backHeld = true; return true }
-                !down && backDown -> {
+                down && repeat == 0 -> backDown = true
+                down && backDown -> {
                     backDown = false
-                    if (backHeld) h.minimise() else h.stop()
-                    return true
+                    // The rest of this press is swallowed at the root once the player has let go of the remote.
+                    VodHost.swallowBack = true
+                    h.minimise()
                 }
+                !down && backDown -> { backDown = false; h.stepBack() }
+                // The release of a hold that already sent the film to the corner can still land here (the player
+                // hadn't let go of the remote yet): that press is over, so the root mustn't swallow the next one.
+                !down -> VodHost.swallowBack = false
             }
+            return true
         }
         // On the seek bar: Left / Right move the marker, OK jumps there, Up leaves.
         if (scrub.active) {

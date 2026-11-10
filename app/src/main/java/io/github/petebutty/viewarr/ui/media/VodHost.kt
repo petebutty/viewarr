@@ -16,6 +16,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.layout
+import androidx.compose.foundation.layout.offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -70,6 +73,13 @@ object VodHost {
     private var shown: VodStream? = null
 
     fun minimise() { if (active) mini = true }
+    /**
+     * The rest of a held Back that already did its job (the film went to the corner while it was held): swallowed at
+     * the root until it's let go, so it doesn't also bring the film back full screen.
+     */
+    var swallowBack = false
+    /** Gliding into the corner or back: the page behind is held still and keeps its hands off the remote meanwhile. */
+    var gliding by mutableStateOf(false)
     /** Held Back brought it full screen: the player ignores the rest of that press (its release would shrink it again). */
     var eatBackRelease = false
     fun expand() { mini = false; eatBackRelease = true }
@@ -91,7 +101,8 @@ fun VodHostLayer() {
     val art by src.art.collectAsState()
     LaunchedEffect(stream == null) {
         VodHost.active = stream != null
-        if (stream == null) VodHost.mini = false
+        // Stopped or ended (even mid-glide): nothing is gliding any more, or the page would wait for it for ever.
+        if (stream == null) { VodHost.mini = false; VodHost.gliding = false }
     }
     val s = stream ?: return
     val mini = VodHost.mini
@@ -101,18 +112,77 @@ fun VodHostLayer() {
     val corner = when (p.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.MINI_CORNER)) { 1 -> Alignment.BottomStart; 2 -> Alignment.TopEnd; 3 -> Alignment.TopStart; else -> Alignment.BottomEnd }
     val top = corner == Alignment.TopEnd || corner == Alignment.TopStart
     val left = corner == Alignment.BottomStart || corner == Alignment.TopStart
-    Box(Modifier.fillMaxSize()) {
-        // The same player either way (only its frame changes), so it carries on without a pause.
+    // Into the corner and back as a short glide, not a jump. Standard video view (SurfaceView): the window's real
+    // place and size move and the display hardware scales the picture. Compatible (TextureView): the full-screen
+    // frame is scaled as it's drawn.
+    // Read only where it's drawn (graphicsLayer) and through derivedStateOf: read here, every frame of the glide
+    // rebuilt the player's whole screen, which is what made it stutter.
+    // Growing back starts a moment late: the player takes the remote back and rebuilds its screen first, which
+    // stuttered the first frames when it happened during the glide. (Shrinking starts at once: it looked fine.)
+    // Settings → Playback → Picture-in-picture → Film animation (Off: straight there).
+    val animate = p.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.ANIM_FILM) == 0
+    var target by androidx.compose.runtime.remember { mutableStateOf(if (mini) 1f else 0f) }
+    val shrinkAnim = androidx.compose.animation.core.animateFloatAsState(
+        target,
+        if (animate) androidx.compose.animation.core.tween(300, easing = androidx.compose.animation.core.FastOutSlowInEasing) else androidx.compose.animation.core.snap(),
+        label = "pip",
+        finishedListener = { VodHost.gliding = false },
+    )
+    LaunchedEffect(mini) {
+        val next = if (mini) 1f else 0f
+        if (next == target) {
+            // Changed back before the last change began (Back held twice quickly): already where it should be, so no
+            // glide will finish to clear the flag.
+            if (shrinkAnim.value == next) VodHost.gliding = false
+            return@LaunchedEffect
+        }
+        VodHost.gliding = true
+        if (!mini && animate) kotlinx.coroutines.delay(60)
+        target = next
+    }
+    // Standard video view (a SurfaceView): the display hardware scales the picture, so the window's real place and
+    // size are moved (only re-laid out each frame). A scaled graphics layer doesn't apply to a SurfaceView.
+    val surfaceView = io.github.petebutty.viewarr.data.settings.LocalPlayback.current.videoView == io.github.petebutty.viewarr.data.settings.VideoView.Standard
+    val settled by androidx.compose.runtime.remember { androidx.compose.runtime.derivedStateOf { VodHost.mini && shrinkAnim.value >= 0.999f } }
+    androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize()) {
+        val fullW = maxWidth
+        val fullH = maxHeight
+        val tx = if (left) 40.dp else fullW - 40.dp - w
+        val ty = if (top) 56.dp else fullH - 32.dp - h
+        // The same player either way, so it carries on without a pause. Compatible: the frame is only ever scaled,
+        // in the corner too (resizing a TextureView made the players resize their video surface, which jolted).
+        // No border: one less thing to draw while it moves.
+        val scale = w / fullW
+        val density = androidx.compose.ui.platform.LocalDensity.current
+        val txPx = with(density) { tx.roundToPx() }
+        val tyPx = with(density) { ty.roundToPx() }
+        val wPx = with(density) { w.roundToPx() }
+        val hPx = with(density) { h.roundToPx() }
         Box(
-            if (mini) Modifier
-                .align(corner)
-                .padding(start = if (left) 40.dp else 0.dp, end = if (left) 0.dp else 40.dp, top = if (top) 56.dp else 0.dp, bottom = if (top) 0.dp else 32.dp)
-                .size(w, h)
-                .border(2.dp, AppColors.Accent.copy(alpha = 0.8f), RoundedCornerShape(10.dp))
-                .padding(2.dp)
-                .clip(RoundedCornerShape(8.dp))
+            if (surfaceView) Modifier
+                .fillMaxSize()
+                .layout { measurable, constraints ->
+                    val p = shrinkAnim.value
+                    val fw = constraints.maxWidth
+                    val fh = constraints.maxHeight
+                    val cw = (fw + (wPx - fw) * p).toInt().coerceAtLeast(1)
+                    val ch = (fh + (hPx - fh) * p).toInt().coerceAtLeast(1)
+                    val placeable = measurable.measure(androidx.compose.ui.unit.Constraints.fixed(cw, ch))
+                    layout(fw, fh) { placeable.place((txPx * p).toInt(), (tyPx * p).toInt()) }
+                }
                 .background(Color.Black)
-            else Modifier.fillMaxSize(),
+            else Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    val shrink = shrinkAnim.value
+                    transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0f)
+                    val k = 1f + (scale - 1f) * shrink
+                    scaleX = k
+                    scaleY = k
+                    translationX = with(density) { tx.toPx() } * shrink
+                    translationY = with(density) { ty.toPx() } * shrink
+                }
+                .background(Color.Black),
         ) {
             // A new film or episode gets a fresh player and picture surface. Without this the old screen's
             // surface stayed attached to the old player: the picture froze and only the new one's sound played.
@@ -120,7 +190,7 @@ fun VodHostLayer() {
                 PlayerHost(stream = s, onClose = src.onClose, art = art, onProgress = src.onProgress)
             }
         }
-        if (mini) androidx.tv.material3.Text(
+        if (settled) androidx.tv.material3.Text(
             "Hold Back: full screen",
             fontSize = 12.sp, color = AppColors.TextPrimary,
             modifier = Modifier.align(corner).padding(

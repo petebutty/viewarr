@@ -292,7 +292,8 @@ fun MpvPlayer(
 
     fun showOsd() { osdUntil = System.currentTimeMillis() + io.github.petebutty.viewarr.ui.theme.AppColors.palette.controlsMs }
     // Back: closes audio & subtitles, then hides the controls, then stops (resume point saved). As Netflix / Plex.
-    BackHandler(enabled = !mini) {
+    // Back one step: closes what's open, then the last step (corner, or stop: Settings → Remote → Picture-in-picture).
+    fun backStep() {
         when {
             tracksOpen -> tracksOpen = false
             scrub.active -> { scrub.cancel(); showOsd() }
@@ -300,10 +301,12 @@ fun MpvPlayer(
             menu.open -> { menu.open = false; osdUntil = 0L }
             System.currentTimeMillis() < osdUntil && !paused -> osdUntil = 0L
             // Back again: into the corner, still playing (hold Back to bring it back).
-            // (Settings → Playback → Back while watching: or stop.)
-            else -> if (io.github.petebutty.viewarr.ui.theme.AppColors.palette.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.PLAYER_BACK) >= 1) onClose() else VodHost.minimise().also { if (!VodHost.active) onClose() }
+            // (Settings → Remote → Picture-in-picture: or stop.)
+            // Back again: stops (resume point saved). Picture-in-picture for films is off for now (VodHost keeps it).
+            else -> onClose()
         }
     }
+    BackHandler(enabled = !mini) { backStep() }
 
     fun seek(by: Double) {
         mpv.command(arrayOf("seek", by.toString(), "relative"))
@@ -345,9 +348,10 @@ fun MpvPlayer(
         buttons = buttons, press = ::press, seekMs = (seekSec * 1000).toLong(), showOsd = ::showOsd,
         openTracks = { subs -> subs?.let { tracksSubs = it }; tracksOpen = true },
         toggleDetails = { detailsOn = !detailsOn }, showDetails = { detailsOn = true }, stop = onClose,
-        backMode = io.github.petebutty.viewarr.ui.theme.AppColors.palette.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.PLAYER_BACK),
+        backMode = 1, // Back stops: no hold-Back corner while picture-in-picture for films is off.
         atTop = { !tracksOpen && !scrub.active && !detailsOn && !menu.open && !(System.currentTimeMillis() < osdUntil && !paused) },
         minimise = { VodHost.minimise(); if (!VodHost.active) onClose() },
+        stepBack = ::backStep,
     )
     // The controls close after a while without a key (not while paused).
     LaunchedEffect(paused) {
@@ -364,14 +368,42 @@ fun MpvPlayer(
             .background(Color.Black)
             .focusRequester(focus)
             .onFocusChanged { hasFocus = it.isFocused }
-            .focusable(enabled = !tracksOpen && !mini)
+            .focusable(enabled = !tracksOpen && !(mini && !VodHost.gliding))
             .onPreviewKeyEvent { e ->
                 if (VodHost.eatsBack(e)) return@onPreviewKeyEvent true
                 if (tracksOpen) return@onPreviewKeyEvent false
                 keys.handle(e, remote, hooks)
             },
     ) {
-        AndroidView(
+        // Settings → Playback → Video view: Standard draws into a SurfaceView with a buffer fixed at the screen's
+        // size, so moving or shrinking the view (the corner) never changes what mpv draws into (no reconfiguring).
+        if (settings.videoView == io.github.petebutty.viewarr.data.settings.VideoView.Standard) AndroidView(
+            factory = { ctx ->
+                android.view.SurfaceView(ctx).apply {
+                    val dm = ctx.resources.displayMetrics
+                    val bw = maxOf(dm.widthPixels, dm.heightPixels)
+                    val bh = minOf(dm.widthPixels, dm.heightPixels)
+                    holder.setFixedSize(bw, bh)
+                    holder.addCallback(object : android.view.SurfaceHolder.Callback {
+                        override fun surfaceCreated(h: android.view.SurfaceHolder) {
+                            mpv.attachSurface(h.surface)
+                            mpv.setOptionString("force-window", "yes")
+                            mpv.setPropertyString("android-surface-size", "${bw}x$bh")
+                            mpv.setOptionString("vo", if (direct) "mediacodec_embed" else "gpu")
+                        }
+                        override fun surfaceChanged(h: android.view.SurfaceHolder, format: Int, w: Int, hh: Int) {
+                            mpv.setPropertyString("android-surface-size", "${w}x$hh")
+                        }
+                        override fun surfaceDestroyed(h: android.view.SurfaceHolder) {
+                            mpv.setOptionString("vo", "null")
+                            mpv.setOptionString("force-window", "no")
+                            runCatching { mpv.detachSurface() }
+                        }
+                    })
+                }
+            },
+            modifier = Modifier.fillMaxSize(),
+        ) else AndroidView(
             factory = { ctx ->
                 TextureView(ctx).apply {
                     surfaceTextureListener = object : TextureView.SurfaceTextureListener {

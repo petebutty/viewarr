@@ -48,14 +48,13 @@ Viewarr doesn't provide any content. It plays only what your own servers and acc
 - **Actor pages** with their photo, dates and biography, then their films and shows. Films in a series get a **Collection** tab (e.g. the Dune films).
 - Watch progress is sent back to Plex, Jellyfin/Emby and Trakt, and your **Trakt watched history** comes back: episodes and films you've watched anywhere get their tick, and Play / Resume carries on from the furthest place any of them knows. **Sync with Trakt now** is in Accounts & sources → Trakt, with an optional **Copy watched to Plex**.
 - **Player controls:** OK brings up the seek bar (with preview pictures) and icon buttons: Play / Pause and Stop, then Details, Audio, Subtitles, Media info and switching player; the remote's Play/Pause button pauses. The remote's **Info** button (or Details) shows the poster, episode and synopsis, which also appear by themselves a moment after you pause.
-- **Picture-in-picture:** hold Back while a film or episode plays and it shrinks to a corner, carrying on while you browse; hold Back again to bring it back full screen. A short Back stops it, as before (Settings → Remote & navigation → Back while watching can make Back always shrink it, or always stop). Starting a Live TV channel ends it.
 - Two players: the **built-in player** (the default: light, with surround sound passed to your TV or receiver) and **mpv** (plays almost any file, codec or soundtrack). If the built-in player can't play a file, Viewarr switches to mpv by itself at the same moment. Swap between them mid-film from the hold-OK menu too, keeping your soundtrack and subtitles; or choose mpv for everything in Settings → Playback.
 - **Seek bar with preview pictures:** press Down while watching, scrub with Left/Right, OK to jump. Previews come from Plex / Emby / Jellyfin when the server made them, otherwise the box takes them from the film itself.
 - **Smooth playback on weak boxes:** mpv draws straight to the screen, the TV can switch to the film's frame rate, and surround passthrough only uses formats your TV or receiver really accepts.
 - **Playback settings:** audio and subtitle language, surround passthrough to a receiver, stereo downmix, night mode, subtitle size, resume, and Plex quality.
 - **Search** puts what you meant first (a person, a channel, or your own copy of a film) and pops up over any screen (hold Menu, or pick a button in Settings → Remote & navigation): your Plex, Jellyfin and Emby titles in one row, people with their films and shows, TV channels and what's on the guide (watch it, record it or get a reminder), quick picks as you type, filters and voice search (Viewarr asks for the microphone the first time; works on the Nvidia Shield too). The menu's Search panel keeps your recent searches.
 - **Watch Next:** your Continue watching appears in the Android TV home screen's Watch Next row.
-- **Make it yours:** Settings → Appearance sets the text size, an on-screen clock, channel logos and programme pictures in the guide, the labels on posters, and what title pages show (each rating, the logo, trailer, episodes row and each tab; anything off isn't fetched). Settings → Playback sets the picture-in-picture size and corner, how long the controls stay up and how big they are, seek-bar previews, the next-episode countdown, **Still watching?** for Live TV (stops a TV left on, freeing a provider connection) and a **low-memory mode** for 1–2 GB boxes (it turns off, and hides the settings for, wallpapers and title-page artwork, trailer previews, multi-view, programme pictures, title logos and the extra ratings).
+- **Make it yours:** Settings → Appearance sets the text size, an on-screen clock, channel logos and programme pictures in the guide, the labels on posters, and what title pages show (each rating, the logo, trailer, episodes row and each tab; anything off isn't fetched). Settings → Playback sets how long the controls stay up and how big they are, seek-bar previews, the next-episode countdown, **Still watching?** for Live TV (stops a TV left on, freeing a provider connection) and a **low-memory mode** for 1–2 GB boxes (it turns off, and hides the settings for, wallpapers and title-page artwork, trailer previews, multi-view, programme pictures, title logos and the extra ratings).
 - **Settings → About:** the version, this TV (model, memory, storage, screen), what Viewarr stores on it (each source's TV guide, artwork, updates) with buttons to clear artwork and old updates, and your Live TV sources.
 - **Music (optional):** turn it on in Accounts & sources → Music. Your music from **Navidrome** (or another Subsonic server) and the music libraries on your **Plex, Jellyfin or Emby**, joined into one library (an album on two servers shows once), with each source switchable on or off. A short Music home, Albums A–Z, Artists, Playlists, Genres, Favourites and Recently added from the menu, each with search and voice search, music in search, **Now Playing with a visualiser**, and a now-playing bar that keeps the music going while you browse (hold Back to bring Now Playing back). Plays count on the server they came from (Navidrome scrobbles, so ListenBrainz/Last.fm too). Navidrome is found on your network automatically, and Music can be set up from your phone.
 - **From the TV guide:** hold OK on a programme for **Start over** (the channel's catch-up if it has it, else your own servers or addons), **Go to show** (its episodes, at the one you're up to), recording, reminders and Seerr requests.
@@ -105,18 +104,20 @@ The full walkthrough, with what each step needs and troubleshooting tips, is in 
 |---|---|---|
 | TV guide | OK | Watch live, or replay a past programme. On a programme still to come: show its details. |
 | TV guide | Hold OK | Record options (this programme, or the series) |
-| TV guide | Left (tap / hold) | Earlier programmes / categories menu |
-| TV guide | Hold Back | Back to the channel that's playing, full screen |
+| TV guide | Left (tap / hold) | Earlier programmes and catch-up / scroll fast |
+| TV guide | Hold Back | The menu, on the channel groups (Left again: the main menu) |
+| TV guide | Back | Back to the channel that's playing, full screen (from earlier or later programmes, Back first jumps to now) |
 | TV guide | Number keys | Type a channel number |
+| Watching live TV | Back | The guide, the channel gliding into its preview |
 | Watching live TV | Up / Down | Channel list (Left from there: channel groups) |
 | Watching live TV | Channel + / − | Change channel |
 | Watching live TV | OK | Player controls (audio, subtitles, aspect, source, stream info, record) |
 | Films & shows | Left at the start of a row, or Back | Menu |
 | Film player | OK / hold OK | Pause / audio, subtitles and switch player |
 | Film player | Down, then Left / Right, OK | Seek bar with previews: move, then jump there |
-| Film player | Back | Hide the controls, then shrink to a corner (picture-in-picture) |
-| Film in the corner | Hold Back | Back to full screen |
+| Film player | Back | Close what's open (controls, details), then stop (your place is saved) |
 | Film player | Stop (or the Stop button) | Stop (your place is saved) |
+| Anywhere, nothing playing | Hold Back | The menu |
 
 Most of these can be changed in **Settings → Remote & navigation**.
 

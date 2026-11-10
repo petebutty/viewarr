@@ -20,6 +20,16 @@ enum class PlayerEngine(override val label: String) : RemoteChoice {
     Mpv("mpv (for unusual files)"),
 }
 
+/**
+ * How films are drawn. Standard: a SurfaceView, shown by the box's display hardware (lighter, HDR / Dolby Vision as
+ * the file has it, a smooth glide into the corner). Compatible: a TextureView drawn by the app, for a box where the
+ * Standard picture stays black.
+ */
+enum class VideoView(override val label: String) : RemoteChoice {
+    Standard("Standard (smoothest, HDR)"),
+    Compatible("Compatible (if the picture is missing)"),
+}
+
 enum class AudioLanguage(override val label: String, val code: String?) : RemoteChoice {
     English("English", "en"),
     Original("Original language", null),
@@ -165,6 +175,7 @@ enum class TrailerSound(override val label: String) : RemoteChoice {
 
 data class PlaybackSettings(
     val engine: PlayerEngine = PlayerEngine.entries.first(),
+    val videoView: VideoView = VideoView.entries.first(),
     val audioLanguage: AudioLanguage = AudioLanguage.entries.first(),
     val passthrough: Passthrough = Passthrough.entries.first(),
     val downmix: Downmix = Downmix.entries.first(),
@@ -206,6 +217,7 @@ class PlaybackStore @Inject constructor(@ApplicationContext private val context:
     val settings: Flow<PlaybackSettings> = context.playbackStore.data.map { p ->
         PlaybackSettings(
             engine = p.read(ENGINE),
+            videoView = p.read(VIDEO_VIEW),
             audioLanguage = p.read(AUDIO_LANG),
             passthrough = p.read(PASSTHROUGH),
             downmix = p.read(DOWNMIX),
@@ -249,6 +261,7 @@ class PlaybackStore @Inject constructor(@ApplicationContext private val context:
 
     companion object {
         const val ENGINE = "engine"
+        const val VIDEO_VIEW = "video_view"
         const val AUDIO_LANG = "audio_lang"
         const val PASSTHROUGH = "passthrough"
         const val DOWNMIX = "downmix"
