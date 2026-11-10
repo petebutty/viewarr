@@ -38,6 +38,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
+import androidx.tv.material3.LocalContentColor
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -51,6 +52,7 @@ import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import io.github.petebutty.viewarr.data.settings.RemoteChoice
 import io.github.petebutty.viewarr.ui.common.MenuItem
+import io.github.petebutty.viewarr.ui.common.stopAt
 import io.github.petebutty.viewarr.ui.common.trapFocus
 import io.github.petebutty.viewarr.ui.theme.AppColors
 import kotlinx.coroutines.android.awaitFrame
@@ -63,6 +65,8 @@ class SettingItem(
     val current: RemoteChoice,
     /** An action row (e.g. "Check now"): OK runs this, and [current]'s label shows its status. */
     val action: (() -> Unit)? = null,
+    /** A slider: Left / Right step through [choices] on the row itself (no list opens). */
+    val slider: Boolean = false,
     val onSelect: (RemoteChoice) -> Unit,
 ) {
     val isToggle get() = action == null && choices.size == 2 && choices.map { it.label }.toSet() == setOf("On", "Off")
@@ -90,13 +94,17 @@ fun SettingsPage(
     onBack: () -> Unit,
     onReset: (() -> Unit)? = null,
 ) {
-    var category by remember { mutableIntStateOf(0) }
+    // The open category, kept by name: a setting can add or hide categories (low-memory mode hides some), and an
+    // index alone then pointed past the end (crash) or at the wrong one.
+    var categoryName by remember { mutableStateOf<String?>(null) }
+    val category = categories.indexOfFirst { it.name == categoryName }.takeIf { it >= 0 } ?: 0
     // The settings list starts at the top for each category (it kept the last one's scroll).
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
     val pageScope = androidx.compose.runtime.rememberCoroutineScope()
     LaunchedEffect(category) { runCatching { listState.scrollToItem(0) } }
     var choosing by remember { mutableStateOf<SettingItem?>(null) }
-    val catFocus = remember { categories.map { FocusRequester() } }
+    // One per category, remade when categories come and go (keyed by their names).
+    val catFocus = remember(categories.map { it.name }) { categories.map { FocusRequester() } }
     // After a choice list closes, focus goes back to the setting it was opened from (it used to vanish).
     val rowFocus = remember { HashMap<String, FocusRequester>() }
     var returnTo by remember { mutableStateOf<String?>(null) }
@@ -115,7 +123,7 @@ fun SettingsPage(
         awaitFrame()
         runCatching { catFocus[0].requestFocus() }
     }
-    Box(Modifier.fillMaxSize().appBackground().trapFocus()) {
+    Box(Modifier.fillMaxSize().appBackground(readable = true).trapFocus()) {
         Row(Modifier.fillMaxSize().padding(horizontal = 56.dp, vertical = 40.dp)) {
             Column(Modifier.width(300.dp).fillMaxHeight()) {
                 Text("Settings", fontSize = 14.sp, color = AppColors.Accent)
@@ -124,11 +132,11 @@ fun SettingsPage(
                     MenuItem(
                         text = c.name,
                         selected = i == category,
-                        onClick = { category = i },
+                        onClick = { categoryName = categories[i].name },
                         modifier = Modifier
                             .focusRequester(catFocus[i])
                             .focusProperties { canFocus = choosing == null }
-                            .onFocusChanged { if (it.isFocused) category = i }
+                            .onFocusChanged { if (it.isFocused) categoryName = categories[i].name }
                             // Right: the category's first setting (not the one nearest on screen).
                             .onPreviewKeyEvent { e ->
                                 if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionRight) {
@@ -158,10 +166,11 @@ fun SettingsPage(
             val c = categories[category]
             Column(Modifier.weight(1f).fillMaxHeight().leftReturnsTo { catFocus[category] }) {
                 Text(c.blurb, fontSize = 14.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(top = 26.dp, bottom = 14.dp, start = 4.dp))
-                LazyColumn(state = listState, verticalArrangement = Arrangement.spacedBy(6.dp), contentPadding = PaddingValues(bottom = 40.dp)) {
+                LazyColumn(Modifier.stopAt(androidx.compose.ui.focus.FocusDirection.Down), state = listState, verticalArrangement = Arrangement.spacedBy(6.dp), contentPadding = PaddingValues(bottom = 40.dp)) {
                     itemsIndexed(c.items, key = { _, it -> c.name + it.title }) { _, item ->
                         SettingRow(item, enabled = choosing == null, focus = rowFocus.getOrPut(item.title) { FocusRequester() }) {
-                            if (item.action != null) item.action.invoke()
+                            if (item.slider) Unit
+                            else if (item.action != null) item.action.invoke()
                             else if (item.isToggle) item.onSelect(item.choices.first { it != item.current })
                             else choosing = item
                         }
@@ -177,7 +186,17 @@ fun SettingsPage(
 private fun SettingRow(item: SettingItem, enabled: Boolean, focus: FocusRequester, onClick: () -> Unit) {
     Surface(
         onClick = onClick,
-        modifier = Modifier.fillMaxWidth().focusRequester(focus).focusProperties { canFocus = enabled },
+        modifier = Modifier.fillMaxWidth().focusRequester(focus).focusProperties { canFocus = enabled }
+            .then(if (!item.slider) Modifier else Modifier.onPreviewKeyEvent { e ->
+                // Slider: Left / Right change the value; Left at the lowest goes back to the categories as usual.
+                if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                val i = item.choices.indexOf(item.current).coerceAtLeast(0)
+                when (e.key) {
+                    Key.DirectionLeft -> if (i > 0) { item.onSelect(item.choices[i - 1]); true } else false
+                    Key.DirectionRight -> { if (i < item.choices.lastIndex) item.onSelect(item.choices[i + 1]); true }
+                    else -> false
+                }
+            }),
         scale = ClickableSurfaceDefaults.scale(scale = 1f, focusedScale = 1f, pressedScale = 1f),
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
         colors = ClickableSurfaceDefaults.colors(
@@ -190,10 +209,22 @@ private fun SettingRow(item: SettingItem, enabled: Boolean, focus: FocusRequeste
         Row(Modifier.padding(horizontal = 18.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(item.title, fontSize = 16.sp, fontWeight = FontWeight.Medium)
-                Text(item.description, fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp))
+                Text(item.description, fontSize = 12.sp, maxLines = 3, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp))
             }
             Spacer(Modifier.width(20.dp))
-            if (item.isToggle) Toggle(item.current.label == "On")
+            if (item.slider) {
+                val i = item.choices.indexOf(item.current).coerceAtLeast(0)
+                val fraction = if (item.choices.size > 1) i / item.choices.lastIndex.toFloat() else 0f
+                Row(Modifier.width(260.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("‹", fontSize = 18.sp, modifier = Modifier.padding(end = 8.dp))
+                    Box(Modifier.weight(1f).height(6.dp).background(Color.White.copy(alpha = 0.25f), RoundedCornerShape(3.dp))) {
+                        Box(Modifier.fillMaxWidth(fraction).fillMaxHeight().background(LocalContentColor.current, RoundedCornerShape(3.dp)))
+                    }
+                    Text("›", fontSize = 18.sp, modifier = Modifier.padding(start = 8.dp))
+                    Text(item.current.label, fontSize = 14.sp, maxLines = 1, modifier = Modifier.width(64.dp).padding(start = 10.dp))
+                }
+            }
+            else if (item.isToggle) Toggle(item.current.label == "On")
             else Text(item.current.label, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.width(260.dp))
         }
     }

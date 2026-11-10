@@ -117,7 +117,7 @@ class PlayerMenu {
      * Keys while the controls are open and not scrubbing (the players handle scrubbing themselves). True when used.
      * [beginScrub]: start the marker at the current position and move it one step ([dir], [repeat] for speed).
      */
-    fun handle(e: androidx.compose.ui.input.key.KeyEvent, buttons: List<PlayerButton>, beginScrub: (dir: Int, repeat: Int) -> Unit, press: (PlayerButton) -> Unit): Boolean {
+    fun handle(e: androidx.compose.ui.input.key.KeyEvent, buttons: List<PlayerButton>, beginScrub: (dir: Int, repeat: Int) -> Unit, press: (PlayerButton) -> Unit, upFromBar: () -> Unit = {}): Boolean {
         val down = e.type == androidx.compose.ui.input.key.KeyEventType.KeyDown
         val k = e.key
         val center = k == androidx.compose.ui.input.key.Key.DirectionCenter || k == androidx.compose.ui.input.key.Key.Enter || k == androidx.compose.ui.input.key.Key.NumPadEnter
@@ -127,7 +127,8 @@ class PlayerMenu {
                 if (down) beginScrub(if (k == androidx.compose.ui.input.key.Key.DirectionLeft) -1 else 1, e.nativeKeyEvent.repeatCount)
             }
             onBar && k == androidx.compose.ui.input.key.Key.DirectionDown -> if (down && buttons.isNotEmpty()) onBar = false
-            onBar && k == androidx.compose.ui.input.key.Key.DirectionUp -> Unit
+            // Up from the seek bar: pause, with what's playing (its synopsis) on screen.
+            onBar && k == androidx.compose.ui.input.key.Key.DirectionUp -> if (down && e.nativeKeyEvent.repeatCount == 0) upFromBar()
             onBar && center -> Unit
             !onBar && k == androidx.compose.ui.input.key.Key.DirectionLeft -> if (down) button = (button - 1).coerceAtLeast(0)
             !onBar && k == androidx.compose.ui.input.key.Key.DirectionRight -> if (down) button = (button + 1).coerceAtMost(buttons.lastIndex)
@@ -252,7 +253,7 @@ fun PlayerOsd(
             Text(
                 when {
                     scrubbing -> "◀ ▶ move  ·  OK: jump here  ·  Back: cancel"
-                    buttons != null && barFocused -> "◀ ▶ seek  ·  ▼ options  ·  ⏯ play / pause"
+                    buttons != null && barFocused -> "◀ ▶ seek  ·  ▼ options  ·  ▲ pause + details"
                     buttons != null -> "▲ seek bar  ·  ⏯ play / pause"
                     else -> "OK: controls  ·  ◀ ▶ skip  ·  ⏯ play / pause"
                 },

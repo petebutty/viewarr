@@ -76,8 +76,8 @@ private const val PAGE = 7
 private val CellText = TextStyle(color = Color.White, fontSize = 13.sp)
 private val CellTextFocused = CellText.copy(fontWeight = FontWeight.SemiBold)
 
-private val timeFormat = DateTimeFormatter.ofPattern("HH:mm")
-private val dateFormat = DateTimeFormatter.ofPattern("EEE, d MMM, HH:mm")
+private val timeFormat get() = io.github.petebutty.viewarr.ui.theme.Dates.time
+private val dateFormat get() = io.github.petebutty.viewarr.ui.theme.Dates.dayTime
 private fun Long.local() = Instant.ofEpochMilli(this).atZone(ZoneId.systemDefault())
 
 @Composable
@@ -423,6 +423,7 @@ private fun GuideRow(
     serverUrl: String,
     textMeasurer: TextMeasurer,
 ) {
+    val guideAlpha = AppColors.palette.guideAlpha
     val windowEnd = windowStart + GuideViewModel.VISIBLE_MS
     Row(Modifier.fillMaxWidth().height(RowHeight).padding(vertical = 1.dp)) {
         Row(
@@ -430,7 +431,7 @@ private fun GuideRow(
                 .width(ChannelColumn)
                 .fillMaxHeight()
                 .padding(end = 4.dp)
-                .background(if (selected) AppColors.RowSelected else AppColors.CellFuture.copy(alpha = 0.55f), RoundedCornerShape(if (AppColors.palette.squareCorners) 0.dp else 6.dp))
+                .background(if (selected) AppColors.RowSelected else AppColors.CellFuture.copy(alpha = AppColors.palette.guideAlpha), RoundedCornerShape(if (AppColors.palette.squareCorners) 0.dp else 6.dp))
                 .padding(end = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Start,
@@ -488,7 +489,8 @@ private fun GuideRow(
                     p.startTime <= now && p.endTime > now -> AppColors.CellCurrent
                     else -> AppColors.CellFuture
                 }
-                drawRoundRect(color, topLeft = Offset(x0, 0f), size = Size(x1 - x0, size.height), cornerRadius = radius)
+                // Settings → Appearance → Transparency → Guide (the highlighted programme stays solid).
+                drawRoundRect(if (isFocused) color else color.copy(alpha = color.alpha * guideAlpha), topLeft = Offset(x0, 0f), size = Size(x1 - x0, size.height), cornerRadius = radius)
                 if (!isFocused) drawRoundRect(Color.White.copy(alpha = 0.08f), topLeft = Offset(x0, 0f), size = Size(x1 - x0, size.height), cornerRadius = radius, style = outline)
                 // On now: a bar along the bottom showing how far through it is (Settings → Appearance → Progress bars:
                 // every channel, only the one you're watching, or none).

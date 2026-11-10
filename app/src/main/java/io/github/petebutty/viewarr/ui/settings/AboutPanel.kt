@@ -87,8 +87,8 @@ class AboutViewModel @Inject constructor(
         val pkg = runCatching { context.packageManager.getPackageInfo(context.packageName, 0) }.getOrNull()
         val viewarr = listOfNotNull(
             AboutRow("Version", "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})"),
-            pkg?.let { AboutRow("Installed", df.format(Date(it.firstInstallTime))) },
-            pkg?.let { AboutRow("Last updated", df.format(Date(it.lastUpdateTime))) },
+            pkg?.let { AboutRow("Installed", io.github.petebutty.viewarr.ui.theme.Dates.stamp(it.firstInstallTime)) },
+            pkg?.let { AboutRow("Last updated", io.github.petebutty.viewarr.ui.theme.Dates.stamp(it.lastUpdateTime)) },
             AboutRow("Source code", "github.com/petebutty/viewarr"),
         )
 
@@ -148,7 +148,7 @@ class AboutViewModel @Inject constructor(
                 add(AboutRow(
                     s.label + if (s.id == active?.id) " (active)" else "",
                     if (counts != null) "%,d channels · %,d programmes".format(counts.first, counts.second) else "Guide not kept (loads when switched to)",
-                    if (cached && last > 0) "Guide updated ${df.format(Date(last))}" else "",
+                    if (cached && last > 0) "Guide updated ${io.github.petebutty.viewarr.ui.theme.Dates.stamp(last)}" else "",
                 ))
             }
         }
@@ -172,7 +172,9 @@ fun AboutSettingsScreen(onBack: () -> Unit, vm: AboutViewModel = hiltViewModel()
     val i = info ?: AboutInfo(emptyList(), emptyList(), emptyList(), emptyList())
     val loading = info == null
     val categories = listOf(
-        SettingCategory("Viewarr", if (loading) "Gathering details…" else "This version of Viewarr.", rows(i.viewarr)),
+        SettingCategory("Viewarr", if (loading) "Gathering details…" else "This version of Viewarr.", rows(i.viewarr) + listOf(
+            SettingItem("Show the tour", "The five-page tour of how Viewarr works, from the first run.", emptyList(), Value("OK to show"), action = { io.github.petebutty.viewarr.ui.onboarding.Tour.requested = true }, onSelect = {}),
+        )),
         SettingCategory("This TV", if (loading) "Gathering details…" else "The box Viewarr is running on.", rows(i.device)),
         SettingCategory(
             "Storage", if (loading) "Measuring…" else "What Viewarr keeps on this TV.",

@@ -31,6 +31,8 @@ data class DetailUi(
     val copies: List<LibraryCopy>? = null,
     val hasTrakt: Boolean = false,
     val watchlisted: Boolean = false,
+    /** The watchlist in use (Settings → Watchlist) can take this title: the button shows. */
+    val canWatchlist: Boolean = false,
     val message: String? = null,
     val hasAddons: Boolean = false,
     /** null = not searched yet. */
@@ -85,14 +87,17 @@ class MediaViewModel @Inject constructor(
 ) : ViewModel() {
     /** Seerr: where this title stands (null = Seerr not set up, or the title has no TMDB id). */
     suspend fun seerrStatus(item: MediaItem): io.github.petebutty.viewarr.data.remote.services.SeerrService.Status? {
+        // Locked by an admin for this person: no requests.
+        if (!io.github.petebutty.viewarr.data.profiles.Access.can(io.github.petebutty.viewarr.data.profiles.Lock.SEERR)) return null
         val a = store.current().seerr ?: return null
         val id = runCatching { repo.tmdbIdFor(item) }.getOrNull() ?: return null
-        // Already in one of your libraries: nothing to request.
-        if (runCatching { repo.copiesOf(item) }.getOrDefault(emptyList()).isNotEmpty()) return null
+        // Already on your own server (Plex, Jellyfin, Emby): shown as available. Only on your IPTV provider's VOD
+        // still offers the request (to keep it on your server).
+        fun own(c: List<io.github.petebutty.viewarr.data.media.LibraryCopy>) = c.any { it.source != io.github.petebutty.viewarr.data.media.PROVIDER }
+        if (own(runCatching { repo.copiesOf(item) }.getOrDefault(emptyList()))) return io.github.petebutty.viewarr.data.remote.services.SeerrService.Status.Available
         // Library check with the TMDB id known (addon titles only carry an IMDb id).
-        if (item.tmdbId == null && runCatching { repo.copiesOf(item.copy(tmdbId = id)) }.getOrDefault(emptyList()).isNotEmpty()) return null
-        val st = runCatching { seerr.status(a, item.type, id) }.getOrDefault(io.github.petebutty.viewarr.data.remote.services.SeerrService.Status.None)
-        return st.takeIf { it != io.github.petebutty.viewarr.data.remote.services.SeerrService.Status.Available }
+        if (item.tmdbId == null && own(runCatching { repo.copiesOf(item.copy(tmdbId = id)) }.getOrDefault(emptyList()))) return io.github.petebutty.viewarr.data.remote.services.SeerrService.Status.Available
+        return runCatching { seerr.status(a, item.type, id) }.getOrDefault(io.github.petebutty.viewarr.data.remote.services.SeerrService.Status.None)
     }
 
     /** Which of your servers have this title ("Plex · Jellyfin"), or null: for addon rows that pass on your library. */
@@ -291,7 +296,7 @@ class MediaViewModel @Inject constructor(
                 } else null
                 val facts = listOfNotNull(
                     item.year?.toString(),
-                    item.rating?.takeIf { it > 0 }?.let { "★ %.1f".format(it) },
+                    item.rating?.takeIf { it > 0 && item.origin !in setOf("Plex", "Jellyfin", "Emby", "IPTV") }?.let { "TMDB %.1f".format(it) },
                     genres.take(3).joinToString(", ").ifBlank { null },
                     (ep?.runtimeMin ?: d?.detail?.runtimeMin)?.takeIf { it > 0 }?.let { "${it / 60}h ${it % 60}m".removePrefix("0h ") },
                 ).joinToString("  ·  ").ifBlank { null }
@@ -662,23 +667,26 @@ class MediaViewModel @Inject constructor(
      * From the guide: a programme you've missed the start of. Finds its film (or the show's episode), opens its page
      * and plays it from the best source, as Play would. False when no match was found (search shows the title).
      */
-    suspend fun watchFromStart(title: String, season: Int?, episode: Int?, year: Int? = null): Boolean {
-        val item = runCatching { repo.findTitle(title, show = season != null || episode != null, year = year) }.getOrNull() ?: return false
+    /** From the guide's Go to show / film: its page; a show opens on its episodes, at the one you're up to (S1 E1 if none). */
+    suspend fun goToTitle(title: String, season: Int?, episode: Int?, year: Int? = null): Boolean = watchFromStart(title, season, episode, year, play = false)
+
+    suspend fun watchFromStart(title: String, season: Int?, episode: Int?, year: Int? = null, play: Boolean = true): Boolean {
+        val item = runCatching { repo.findTitle(title, show = season != null || episode != null, year = year, season = season) }.getOrNull() ?: return false
         open(item)
         val ready = kotlinx.coroutines.withTimeoutOrNull(25_000) {
             _detail.first { it == null || (it.detail.item.key == item.key && it.copies != null && !it.loading) }
         } ?: return true
         if (ready.detail.item.key != item.key) return true
-        if (item.type == MediaType.Movie) { playBest(); return true }
+        if (item.type == MediaType.Movie) { if (play) playBest(); return true }
+        // Watch from the start: that very episode, from your servers or addons.
+        if (play && season != null && episode != null) { playBestEpisode(season, episode); return true }
         // A show: where you're up to (Plex / Jellyfin / Emby / Trakt), once that's known.
         val up = kotlinx.coroutines.withTimeoutOrNull(10_000) { _detail.first { it == null || it.detail.item.key != item.key || it.nextUpChecked } }
             ?.takeIf { it.detail.item.key == item.key }?.nextUp
         val (ns, ne) = up?.let { it.first to it.second } ?: (1 to 1)
         // The guide's episode only if you're up to it (it's your next one, or you've watched past it); otherwise the
         // episodes, at the season you got up to, so you don't skip ahead.
-        val upToIt = season != null && episode != null && (season < ns || (season == ns && episode <= ne))
-        if (upToIt) playBestEpisode(season!!, episode!!)
-        else { openEpisodes(); selectSeason(ns) }
+        openEpisodes(); selectSeason(ns)
         return true
     }
 
@@ -709,8 +717,8 @@ class MediaViewModel @Inject constructor(
                     seasons = if (show && full.seasons.isNotEmpty()) full.seasons else it.seasons)
             }
             launch {
-                val on = runCatching { repo.inTraktWatchlist(full.item) }.getOrDefault(false)
-                _detail.update { if (it?.detail?.item?.key == full.item.key) it.copy(watchlisted = on) else it }
+                val on = runCatching { repo.inWatchlist(full.item) }.getOrNull()
+                _detail.update { if (it?.detail?.item?.key == full.item.key) it.copy(watchlisted = on == true, canWatchlist = on != null) else it }
             }
             // Home servers first (then away, then IPTV): the order they're listed in and tried by Play.
             val copies = (earlyCopies?.await() ?: runCatching { repo.copiesOf(full.item) }.getOrDefault(emptyList())).let { list ->
@@ -813,7 +821,7 @@ class MediaViewModel @Inject constructor(
 
     fun openEpisodes() {
         val d = _detail.value ?: return
-        val start = d.detail.item.nextSeason?.takeIf { n -> d.seasons.any { it.number == n } } ?: d.seasons.firstOrNull()?.number
+        val start = d.detail.item.nextSeason?.takeIf { n -> d.seasons.any { it.number == n } } ?: d.seasons.minOfOrNull { it.number }
         if (start == null) {
             _detail.update { it?.copy(message = if (d.loading || d.copies == null) "Still loading. Try again in a moment." else "No episode list was found for this show.") }
             return
@@ -854,7 +862,7 @@ class MediaViewModel @Inject constructor(
             val plexEps = d.plexEpisodes.ifEmpty { d.plexShowKey?.let { repo.plexEpisodes(it) }.orEmpty() }
             val ref = plexEps[season to episode]?.ratingKey
             if (ref == null) {
-                _detail.update { it?.copy(message = "S$season E$episode isn't in your Plex library.") }
+                _detail.update { it?.copy(message = "S$season · E$episode isn't in your Plex library.") }
                 return@launch
             }
             _detail.update { it?.copy(message = "Opening on Plex…") }
@@ -862,7 +870,7 @@ class MediaViewModel @Inject constructor(
             if (stream == null) _detail.update { it?.copy(message = "Couldn't open this on Plex.") }
             else {
                 _detail.update { it?.copy(message = null, episode = null) }
-                _playing.value = stream.copy(title = "${d.detail.item.title} · S$season E$episode")
+                _playing.value = stream.copy(title = "${d.detail.item.title} · S$season · E$episode")
             }
         }
     }
@@ -888,12 +896,12 @@ class MediaViewModel @Inject constructor(
         val d = _detail.value ?: return
         val source = serverCopy(d)?.source ?: return
         val id = d.serverEpisodes[season to episode]?.ratingKey ?: run {
-            _detail.update { it?.copy(message = "S$season E$episode isn't on $source.") }
+            _detail.update { it?.copy(message = "S$season · E$episode isn't on $source.") }
             return
         }
         viewModelScope.launch {
             val stream = runCatching {
-                repo.serverStream(source, id, "${d.detail.item.title} · S$season E$episode", watchTarget(d.detail.item, season, episode))
+                repo.serverStream(source, id, "${d.detail.item.title} · S$season · E$episode", watchTarget(d.detail.item, season, episode))
             }.getOrNull()
             if (stream == null) _detail.update { it?.copy(message = "Couldn't open this on $source.") }
             else { _detail.update { it?.copy(message = null, episode = null) }; _playing.value = stream }
@@ -917,12 +925,12 @@ class MediaViewModel @Inject constructor(
         val d = _detail.value ?: return
         val url = d.providerEpisodes[season to episode]
         if (url == null) {
-            _detail.update { it?.copy(message = "IPTV doesn't have S$season E$episode.") }
+            _detail.update { it?.copy(message = "IPTV doesn't have S$season · E$episode.") }
             return
         }
         _detail.update { it?.copy(message = null, episode = null) }
         _playing.value = io.github.petebutty.viewarr.data.media.VodStream(
-            url = url, title = "${d.detail.item.title} · S$season E$episode", watch = watchTarget(d.detail.item, season, episode),
+            url = url, title = "${d.detail.item.title} · S$season · E$episode", watch = watchTarget(d.detail.item, season, episode),
             boxPreviews = false,
         )
     }
@@ -944,7 +952,7 @@ class MediaViewModel @Inject constructor(
     fun playBestEpisode(season: Int, episode: Int) {
         val d = _detail.value ?: return
         val item = d.detail.item
-        val title = "${item.title} · S$season E$episode"
+        val title = "${item.title} · S$season · E$episode"
         val watch = watchTarget(item, season, episode)
         viewModelScope.launch {
             data class Try(val label: String, val home: Boolean, val get: suspend () -> io.github.petebutty.viewarr.data.media.VodStream?)
@@ -963,12 +971,12 @@ class MediaViewModel @Inject constructor(
                 }
             }
             for (t in tries.sortedByDescending { it.home }) {
-                _detail.update { it?.copy(message = "Opening S$season E$episode on ${t.label}…") }
+                _detail.update { it?.copy(message = "Opening S$season · E$episode on ${t.label}…") }
                 val stream = kotlinx.coroutines.withTimeoutOrNull(20_000) { runCatching { t.get() }.getOrNull() }
                 if (stream != null) { _detail.update { it?.copy(message = null, episode = null) }; _playing.value = stream; return@launch }
             }
             if (d.hasAddons && item.imdbId != null) {
-                _detail.update { it?.copy(searching = true, message = "Looking in your addons for S$season E$episode…") }
+                _detail.update { it?.copy(searching = true, message = "Looking in your addons for S$season · E$episode…") }
                 val found = kotlinx.coroutines.withTimeoutOrNull(30_000) { rank(runCatching { repo.addonStreams(item, season, episode) }.getOrDefault(emptyList())) }.orEmpty()
                 _detail.update { it?.copy(searching = false) }
                 if (found.isNotEmpty() && !autoPick()) {
@@ -984,7 +992,7 @@ class MediaViewModel @Inject constructor(
                 }
             }
             d.providerEpisodes[season to episode]?.let { return@launch playProviderEpisode(season, episode) }
-            _detail.update { it?.copy(message = "Couldn't play S$season E$episode from any of your sources. Hold OK on it to pick one.") }
+            _detail.update { it?.copy(message = "Couldn't play S$season · E$episode from any of your sources. Hold OK on it to pick one.") }
         }
     }
 
@@ -995,7 +1003,7 @@ class MediaViewModel @Inject constructor(
             return
         }
         viewModelScope.launch {
-            _detail.update { it?.copy(searching = true, streams = null, message = "Searching your addons for S${ep.season} E${ep.number}…") }
+            _detail.update { it?.copy(searching = true, streams = null, message = "Searching your addons for S${ep.season} · E${ep.number}…") }
             val found = rank(runCatching { repo.addonStreams(d.detail.item, ep.season, ep.number) }.getOrDefault(emptyList()))
             if (found.isNotEmpty() && (autoPick() || forceAuto)) {
                 _detail.update { it?.copy(searching = false, message = null) }
@@ -1114,7 +1122,7 @@ class MediaViewModel @Inject constructor(
 
     fun playStream(option: io.github.petebutty.viewarr.data.media.StreamOption) {
         val d = _detail.value
-        val title = listOfNotNull(d?.detail?.item?.title, d?.episode?.let { "S${it.season} E${it.number}" }).joinToString(" · ").ifEmpty { option.name }
+        val title = listOfNotNull(d?.detail?.item?.title, d?.episode?.let { "S${it.season} · E${it.number}" }).joinToString(" · ").ifEmpty { option.name }
         val ep = d?.episode
         _playing.value = io.github.petebutty.viewarr.data.media.VodStream(
             option.url, title, option.headers,
@@ -1192,15 +1200,16 @@ class MediaViewModel @Inject constructor(
     fun clearNotice() { _notice.value = null }
 
     /** Whether Trakt is connected and the title is on the watchlist (null = no Trakt, so no watchlist option). */
-    suspend fun watchlistState(item: MediaItem): Boolean? =
-        if (store.current().trakt == null || item.tmdbId == null) null else repo.inTraktWatchlist(item)
+    suspend fun watchlistState(item: MediaItem): Boolean? = runCatching { repo.inWatchlist(item) }.getOrNull()
 
     fun quickWatchlist(item: MediaItem, add: Boolean) {
         viewModelScope.launch {
-            _notice.value = when (repo.setTraktWatchlist(item, add)) {
-                null -> "Couldn't update your Trakt watchlist. Try again."
-                true -> "Added ${item.title} to your watchlist."
-                false -> "Removed ${item.title} from your watchlist."
+            val result = repo.setWatchlist(item, add)
+            val name = repo.watchlistName()
+            _notice.value = when (result) {
+                null -> "Couldn't update $name. Try again."
+                true -> "Added ${item.title} to $name."
+                false -> "Removed ${item.title} from $name."
             }
         }
     }
@@ -1227,12 +1236,13 @@ class MediaViewModel @Inject constructor(
     fun toggleWatchlist() {
         val d = _detail.value ?: return
         viewModelScope.launch {
-            val result = repo.setTraktWatchlist(d.detail.item, add = !d.watchlisted)
+            val result = repo.setWatchlist(d.detail.item, add = !d.watchlisted)
+            val name = repo.watchlistName()
             _detail.update {
                 when (result) {
-                    null -> it?.copy(message = "Couldn't update your Trakt watchlist. Try again.")
-                    true -> it?.copy(watchlisted = true, message = "Added to your Trakt watchlist.")
-                    false -> it?.copy(watchlisted = false, message = "Removed from your Trakt watchlist.")
+                    null -> it?.copy(message = "Couldn't update $name. Try again.")
+                    true -> it?.copy(watchlisted = true, message = "Added to $name.")
+                    false -> it?.copy(watchlisted = false, message = "Removed from $name.")
                 }
             }
         }

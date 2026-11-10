@@ -14,3 +14,11 @@ import androidx.compose.ui.focus.focusProperties
 fun Modifier.trapFocus(): Modifier = this
     .focusProperties { exit = { FocusRequester.Cancel } }
     .focusGroup()
+
+/** Moving past these edges of a list or row does nothing (instead of jumping to whatever is nearest outside it). */
+@OptIn(ExperimentalComposeUiApi::class)
+fun Modifier.stopAt(dir: androidx.compose.ui.focus.FocusDirection): Modifier = this
+    .focusProperties { exit = { if (it == dir) FocusRequester.Cancel else FocusRequester.Default } }
+    .focusGroup()
+
+fun Modifier.stopAtRight(): Modifier = stopAt(androidx.compose.ui.focus.FocusDirection.Right)

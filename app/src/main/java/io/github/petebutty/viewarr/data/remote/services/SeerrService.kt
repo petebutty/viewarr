@@ -70,12 +70,28 @@ class SeerrService @Inject constructor(private val http: HttpJson) {
         }
     }
 
-    /** Asks Seerr for the title (shows: every season). Returns a message to show. */
-    suspend fun request(a: SeerrAuth, type: MediaType, tmdbId: Int): Pair<Boolean, String> {
+    /** A show's seasons on Seerr: number, name, episodes, and whether each is already there or asked for. */
+    data class Season(val number: Int, val name: String, val episodes: Int, val status: Status)
+
+    suspend fun seasons(a: SeerrAuth, tmdbId: Int): List<Season> {
+        val r = runCatching { http.get("${a.url}/api/v1/tv/$tmdbId", h(a)) }.getOrNull()?.takeIf { it.code in 200..299 } ?: return emptyList()
+        val have = r.body.child("mediaInfo").array("seasons").associate { (it.int("seasonNumber") ?: -1) to (it.int("status") ?: 1) }
+        return r.body.array("seasons").mapNotNull { s ->
+            val n = s.int("seasonNumber")?.takeIf { it > 0 } ?: return@mapNotNull null
+            val st = when (have[n]) { 5 -> Status.Available; 4 -> Status.Partial; 3 -> Status.Processing; 2 -> Status.Pending; else -> Status.None }
+            Season(n, s.str("name") ?: "Season $n", s.int("episodeCount") ?: 0, st)
+        }
+    }
+
+    /** Asks Seerr for the title (shows: [seasons], or every season). Returns a message to show. */
+    suspend fun request(a: SeerrAuth, type: MediaType, tmdbId: Int, seasons: List<Int>? = null): Pair<Boolean, String> {
         val body = buildJsonObject {
             put("mediaType", if (type == MediaType.Movie) "movie" else "tv")
             put("mediaId", tmdbId)
-            if (type == MediaType.Show) put("seasons", JsonPrimitive("all"))
+            if (type == MediaType.Show) {
+                if (seasons.isNullOrEmpty()) put("seasons", JsonPrimitive("all"))
+                else put("seasons", kotlinx.serialization.json.buildJsonArray { seasons.forEach { add(JsonPrimitive(it)) } })
+            }
         }
         val r = runCatching { http.post("${a.url}/api/v1/request", body, h(a)) }.getOrNull()
             ?: return false to "Couldn't reach Seerr."

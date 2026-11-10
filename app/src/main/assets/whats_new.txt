@@ -1,5 +1,8 @@
 # Shown once, the first time a new version opens (not on a fresh install). Keep it to the few things worth knowing.
 # Lines starting with "- " are the points; the first line without "#" or "-" is the heading.
-Sorting and filtering
-- Libraries (films, shows, IPTV and music): Sort and Filter with the options your own server offers, removable filter chips, one continuous grid
-- A–Z strip down the right: jump straight to a letter (letters with nothing are faded); Back goes up to sort and filter
+Profiles, friends and a tidier app
+- Profiles: one per person, with an optional PIN; Dispatcharr admins manage users and what each can do in Settings → Users & profiles
+- Friends in another house sign in with your server's outside address and their API key; a new install asks "admin or invited?" and shows a short tour
+- Guide: hold OK for Start over (catch-up, else your servers or addons), Go to show, or Request on Seerr
+- New icon controls for live TV and title pages; Settings → Appearance → Colours & text sets the date and time format
+- Menu: recent searches and voice search under Search, clearer Recordings, search on every Music page, and Transparency sliders in Appearance

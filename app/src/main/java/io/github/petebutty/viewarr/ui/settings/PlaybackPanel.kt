@@ -40,12 +40,11 @@ fun PlaybackSettingsScreen(onBack: () -> Unit, vm: PlaybackSettingsViewModel = h
     fun item(title: String, description: String, key: String, all: List<RemoteChoice>, current: RemoteChoice) =
         SettingItem(title, description, all, current) { vm.set(key, it) }
     val k = PlaybackStore.Companion
-    val categories = listOf(
+    val categories = listOfNotNull(
         SettingCategory(
             "Player", "Which player plays films, shows and recordings, and how it behaves.",
             listOf(
                 item("Player", "mpv plays almost any file and soundtrack. The built-in player is lighter on weak boxes.", k.ENGINE, choices<io.github.petebutty.viewarr.data.settings.PlayerEngine>(), s.engine),
-                SettingItem("Skip with Left / Right", "How far each press jumps.", choices<io.github.petebutty.viewarr.data.settings.SeekStep>(), r.seek) { vm.setRemote(RemoteStore.SEEK, it) },
                 item("Resume", "Carry on where you stopped last time, or always start at the beginning.", k.RESUME, choices<io.github.petebutty.viewarr.data.settings.ResumeMode>(), s.resume),
                 optItem(opts, "Back while watching", "Back during a film or episode: shrink it to a corner and keep it playing while you browse (hold Back for full screen again), or stop.", io.github.petebutty.viewarr.ui.theme.UiOpts.PLAYER_BACK),
                 optItem(opts, "Controls stay up for", "How long the seek bar and buttons stay on screen after a button press.", io.github.petebutty.viewarr.ui.theme.UiOpts.CONTROLS_TIME),
@@ -65,7 +64,7 @@ fun PlaybackSettingsScreen(onBack: () -> Unit, vm: PlaybackSettingsViewModel = h
         SettingCategory(
             "Audio", "Language, surround sound and volume.",
             listOf(
-                item("Preferred language", "The soundtrack picked when a film has several.", k.AUDIO_LANG, choices<io.github.petebutty.viewarr.data.settings.AudioLanguage>(), s.audioLanguage),
+                item("Language", "The soundtrack picked when a film has several.", k.AUDIO_LANG, choices<io.github.petebutty.viewarr.data.settings.AudioLanguage>(), s.audioLanguage),
                 item("Surround passthrough", "Only turn on if you have an AV receiver or soundbar that decodes Dolby / DTS. Fixes stuttering sound on weak boxes.", k.PASSTHROUGH, choices<io.github.petebutty.viewarr.data.settings.Passthrough>(), s.passthrough),
                 item("Channels", "Stereo mixes surround down to two speakers, so speech isn't too quiet on TV speakers.", k.DOWNMIX, choices<io.github.petebutty.viewarr.data.settings.Downmix>(), s.downmix),
                 item("Night mode", "Evens out loud and quiet parts: quieter explosions, clearer speech (mpv).", k.NIGHT, choices<io.github.petebutty.viewarr.data.settings.NightMode>(), s.nightMode),
@@ -112,7 +111,8 @@ fun PlaybackSettingsScreen(onBack: () -> Unit, vm: PlaybackSettingsViewModel = h
                 optItem(opts, "Still watching?", "After this long without a button press, live TV asks whether you're still there and stops if nobody answers within a minute (frees a provider connection when the TV's left on).", io.github.petebutty.viewarr.ui.theme.UiOpts.STILL_WATCHING),
             ),
         ),
-        SettingCategory(
+        // Low-memory mode: no trailer previews (a second player while you browse), so no settings for them.
+        if (io.github.petebutty.viewarr.ui.theme.AppColors.palette.lowMemory) null else SettingCategory(
             "Trailers", "YouTube trailers for films and shows.",
             listOf(
                 item("Trailer previews", "When you rest on a poster in Movies or Shows, its trailer plays in a small window at the top.", k.TRAILER_PREVIEW, choices<io.github.petebutty.viewarr.data.settings.TrailerPreview>(), s.trailerPreview),
@@ -124,7 +124,7 @@ fun PlaybackSettingsScreen(onBack: () -> Unit, vm: PlaybackSettingsViewModel = h
             "Troubleshooting", "Tools for when something doesn't play right.",
             listOf(
                 item("Show playback info", "Shows the video and audio format, decoder and dropped frames while playing.", k.STATS, choices<io.github.petebutty.viewarr.data.settings.StatsOverlay>(), s.stats),
-                optItem(opts, "Low-memory mode", "For boxes with 1-2 GB: no seek-bar previews made by the box, no programme pictures in the guide, no title logos and only TMDB's rating. Turn on if Viewarr is slow or closes by itself.", io.github.petebutty.viewarr.ui.theme.UiOpts.LOW_MEMORY),
+                optItem(opts, "Low-memory mode", "For boxes with 1–2 GB. Turns off the heavy extras across the app (box-made seek previews, guide pictures, logos, wallpaper, artwork, trailers, multi-view, extra ratings) and hides their settings. Try it if Viewarr is slow or closes.", io.github.petebutty.viewarr.ui.theme.UiOpts.LOW_MEMORY),
             ),
         ),
     )

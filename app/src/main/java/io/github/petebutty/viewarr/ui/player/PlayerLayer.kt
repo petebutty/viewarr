@@ -54,7 +54,7 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
-private val timeFormat = DateTimeFormatter.ofPattern("HH:mm")
+private val timeFormat get() = io.github.petebutty.viewarr.ui.theme.Dates.time
 private fun Long.hhmm() = Instant.ofEpochMilli(this).atZone(ZoneId.systemDefault()).format(timeFormat)
 
 @OptIn(UnstableApi::class)

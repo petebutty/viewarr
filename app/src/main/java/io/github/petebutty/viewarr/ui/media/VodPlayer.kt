@@ -119,7 +119,7 @@ fun VodPlayer(
                     .setEnableDecoderFallback(true)
                     .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON),
             )
-            .setMediaSourceFactory(DefaultMediaSourceFactory(http))
+            .setMediaSourceFactory(DefaultMediaSourceFactory(io.github.petebutty.viewarr.data.net.reachOf(http)))
             // Settings → Playback → Buffer.
             .setLoadControl(
                 androidx.media3.exoplayer.DefaultLoadControl.Builder()
@@ -329,7 +329,7 @@ fun VodPlayer(
                     }
                 }
                 // The controls (opened with OK): seek bar and buttons.
-                if (menu.open && menu.handle(e, buttons, { dir, rep -> scrub.begin(player.currentPosition); scrub.step(dir, rep, player.duration.coerceAtLeast(0)); showOsd() }, ::press)) return@onPreviewKeyEvent true
+                if (menu.open && menu.handle(e, buttons, { dir, rep -> scrub.begin(player.currentPosition); scrub.step(dir, rep, player.duration.coerceAtLeast(0)); showOsd() }, ::press, upFromBar = { player.playWhenReady = false; detailsOn = true; menu.open = false })) return@onPreviewKeyEvent true
                 if (center) {
                     // Tap OK: pause/play. Hold OK: audio & subtitles.
                     when {

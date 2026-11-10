@@ -108,7 +108,7 @@ fun WallpaperLoader() {
         fade.animateTo(1f, tween(900)) { layer.fade = value }
     }
     LaunchedEffect(Unit) {
-        snapshotFlow { AppColors.palette.wallpaper to Wallpaper.selected }.collectLatest { (mode, selected) ->
+        snapshotFlow { AppColors.palette.wallpaperMode to Wallpaper.selected }.collectLatest { (mode, selected) ->
             when (mode) {
                 3 -> {
                     // Focus moves quickly through the guide: only settle on what you stop at.
@@ -120,7 +120,8 @@ fun WallpaperLoader() {
         }
     }
     LaunchedEffect(Unit) {
-        snapshotFlow { (Wallpaper.titlePages > 0) to Wallpaper.title }.collectLatest { (open, url) ->
+        // Low-memory mode: no full-screen artwork behind title pages.
+        snapshotFlow { (Wallpaper.titlePages > 0 && AppColors.palette.heavyExtras) to Wallpaper.title }.collectLatest { (open, url) ->
             if (!open) { Wallpaper.titleArt.clear(); return@collectLatest }
             delay(300)
             show(Wallpaper.titleArt, url)
@@ -133,8 +134,17 @@ fun WallpaperLoader() {
  * depends on the dimming setting). Use on full-screen pages instead of a plain background. [titleArt]: the Movies /
  * Shows pages, whose background is always the highlighted title's artwork.
  */
-fun Modifier.appBackground(titleArt: Boolean = false): Modifier = drawBehind {
+fun Modifier.appBackground(titleArt: Boolean = false, readable: Boolean = false): Modifier = drawBehind {
     val p = AppColors.palette
+    // Settings pages: a picture wallpaper (e.g. the highlighted programme's) darkened further, most behind the text.
+    if (readable && p.wallpaperMode == 3) {
+        if (Wallpaper.wall.image == null) { drawRect(p.main); return@drawBehind }
+        drawRect(Color.Black)
+        drawLayer(Wallpaper.wall)
+        drawRect(p.main.copy(alpha = maxOf(p.wallpaperDim, 0.7f)))
+        drawRect(Brush.horizontalGradient(0f to p.main.copy(alpha = 0.6f), 0.45f to p.main.copy(alpha = 0.35f), 1f to p.main.copy(alpha = 0.15f)))
+        return@drawBehind
+    }
     if (titleArt) {
         // The title's artwork, darker on the left behind the text and toward the rows below, clearer to the right.
         val layer = Wallpaper.titleArt
@@ -146,7 +156,7 @@ fun Modifier.appBackground(titleArt: Boolean = false): Modifier = drawBehind {
         }
         return@drawBehind
     }
-    when (p.wallpaper) {
+    when (p.wallpaperMode) {
         1 -> {
             WallpaperStyles.getOrElse(p.wallpaperStyle) { WallpaperStyles[0] }.draw(this, p.highlight)
             drawRect(p.main.copy(alpha = p.wallpaperDim))

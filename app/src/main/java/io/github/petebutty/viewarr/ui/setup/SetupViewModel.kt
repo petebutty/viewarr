@@ -49,7 +49,7 @@ enum class SetupItem(val id: String, val label: String, val description: String,
     Stremio("stremio", "Stremio addons", "Streams from addons such as AIOStreams", listOf(SetupStep.Stremio)),
     Jellyfin("jellyfin", "Jellyfin", "Play from a Jellyfin server", listOf(SetupStep.Jellyfin)),
     Emby("emby", "Emby", "Play from an Emby server", listOf(SetupStep.Emby)),
-    Vod("vod", "Provider VOD", "Films and series from your IPTV provider, through Dispatcharr (an IPTV login includes them already)", listOf(SetupStep.Vod)),
+    Vod("vod", "IPTV films & series", "Films and series from your IPTV provider, through Dispatcharr (an IPTV login includes them already)", listOf(SetupStep.Vod)),
     Seerr("seerr", "Seerr", "Request films and shows to keep (Overseerr / Jellyseerr)", listOf(SetupStep.Seerr)),
     Navidrome("music", "Music", "Add a Music section: your music from Plex, Jellyfin or Emby music libraries, and/or a Navidrome server", listOf(SetupStep.Music)),
     Mdblist("mdblist", "MDBList ratings", "IMDb, Rotten Tomatoes, Metacritic and Letterboxd ratings on every title (free key)", listOf(SetupStep.Mdblist)),
@@ -119,6 +119,7 @@ class SetupViewModel @Inject constructor(
     private val musicLib: io.github.petebutty.viewarr.data.music.MusicLibrary,
     private val httpJson: io.github.petebutty.viewarr.data.remote.services.HttpJson,
     private val rowLayouts: io.github.petebutty.viewarr.data.settings.RowLayoutStore,
+    private val invites: io.github.petebutty.viewarr.data.profiles.Invites,
 ) : ViewModel() {
     /** Several Plex servers: show their repeated rows as one (also in Settings → Home page & menu). */
     val mergeRows = rowLayouts.mergeRows.stateIn(viewModelScope, SharingStarted.Eagerly, true)
@@ -158,6 +159,17 @@ class SetupViewModel @Inject constructor(
     fun start() {
         viewModelScope.launch { store.setSetupComplete(false) }
         go(SetupStep.Choose)
+    }
+
+    /** Invited: the phone page asks only for the address and API key they were sent. */
+    fun openInvited() { startPhone() }
+    fun closeInvited() { stopPhone() }
+
+    /** Invited, on the TV itself (no phone): the address and key typed with the remote. */
+    fun invitedSignIn(address: String, key: String) = viewModelScope.launch {
+        _state.update { it.copy(busy = true, error = null) }
+        invites.signInWithDetails(address, key).onFailure { e -> _state.update { it.copy(error = e.message) } }
+        _state.update { it.copy(busy = false) }
     }
 
     /** The QR screen: the whole setup runs on the phone while this is open. */
@@ -703,6 +715,22 @@ class SetupViewModel @Inject constructor(
                     onFailure = { e -> activity("Playlist didn't load"); reply(false, e.message ?: "Couldn't load that playlist.") },
                 )
             }
+            // Invited: the server's address and the API key their admin sent (their setup then goes on by itself).
+            "invited" -> {
+                activity("Signing in…")
+                invites.signInWithDetails(v["server"].orEmpty(), v["apiKey"].orEmpty()).fold(
+                    onSuccess = { s -> activity("Signed in as ${s.username}"); reply(true, "Signed in as ${s.username}.") },
+                    onFailure = { e -> activity("Sign-in didn't work"); reply(false, e.message ?: "Sign-in didn't work.") },
+                )
+            }
+            // Someone else's server: the invite they were sent, and their password.
+            "livetv-invite" -> {
+                activity("Opening your invite…")
+                invites.redeem(v["invite"].orEmpty(), v["password"].orEmpty()).fold(
+                    onSuccess = { s -> activity("Live TV: signed in as ${s.username}"); reply(true, "Signed in as ${s.username}.") },
+                    onFailure = { e -> activity("The invite didn't work"); reply(false, e.message ?: "The invite didn't work.") },
+                )
+            }
             "livetv-xc" -> {
                 activity("Signing in to your IPTV provider…")
                 auth.signInXc(v["server"].orEmpty(), v["username"].orEmpty(), v["password"].orEmpty()).fold(
@@ -957,5 +985,5 @@ fun statusText(item: SetupItem, a: Accounts, session: io.github.petebutty.viewar
     SetupItem.Vod -> if (a.vodEnabled) "On" else null
     SetupItem.Mdblist -> a.mdblistKey?.let { "Connected" }
     SetupItem.Navidrome -> if (!a.musicOn) null else "On" + (a.navidrome?.let { " · Navidrome (${it.user})" } ?: "")
-    SetupItem.Seerr -> a.seerr?.let { s -> s.userName?.let { "Connected as $it" } ?: "Connected" }
+    SetupItem.Seerr -> a.seerr?.let { s -> s.userName?.let { "Signed in as $it" } ?: "Connected" }
 }

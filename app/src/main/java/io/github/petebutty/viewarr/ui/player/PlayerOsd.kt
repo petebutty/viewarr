@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
@@ -64,7 +65,7 @@ import java.time.format.DateTimeFormatter
 
 private enum class OsdPopup { Audio, Subtitles, Aspect, Source, Info }
 
-private val hhmm = DateTimeFormatter.ofPattern("HH:mm")
+private val hhmm get() = io.github.petebutty.viewarr.ui.theme.Dates.time
 private fun Long.clockTime() = Instant.ofEpochMilli(this).atZone(ZoneId.systemDefault()).format(hhmm)
 
 /** TiviMate-style player menu: compact info, catch-up seek bar, and a row of small option pills. */
@@ -235,22 +236,23 @@ fun PlayerOsd(
             } else LiveProgress(current, now)
         }
 
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        // The same icon buttons as the film / show player's controls (the focused one's name underneath).
+        Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.Top) {
             if (catchup != null || paused) {
-                if (catchup != null) Pill("Restart") { vm.restartProgramme() }
-                Pill("Go live") { vm.goLive() }
+                if (catchup != null) Pill(io.github.petebutty.viewarr.ui.common.AppIcons.Replay, "Start over") { vm.restartProgramme() }
+                Pill(io.github.petebutty.viewarr.ui.common.AppIcons.SkipNext, "Go live", groupEnd = true) { vm.goLive() }
             }
-            Pill("TV guide", if (catchup == null) Modifier.focusRequester(firstFocus) else Modifier, onClick = onGuide)
-            Pill("Audio") { popup = OsdPopup.Audio }
-            Pill("Subtitles") { popup = OsdPopup.Subtitles }
-            Pill("Aspect: ${aspect.label}") { popup = OsdPopup.Aspect }
+            Pill(io.github.petebutty.viewarr.ui.common.AppIcons.Guide, "TV guide", if (catchup == null) Modifier.focusRequester(firstFocus) else Modifier, onClick = onGuide)
+            Pill(io.github.petebutty.viewarr.ui.common.AppIcons.Audio, "Audio") { popup = OsdPopup.Audio }
+            Pill(io.github.petebutty.viewarr.ui.common.AppIcons.Subtitles, "Subtitles") { popup = OsdPopup.Subtitles }
+            Pill(io.github.petebutty.viewarr.ui.common.AppIcons.Aspect, "Aspect: ${aspect.label}") { popup = OsdPopup.Aspect }
             if (vm.dispatcharrLive) {
-                Pill("Source") { vm.loadSources(); popup = OsdPopup.Source }
-                Pill("Stream info") { popup = if (popup == OsdPopup.Info) null else OsdPopup.Info }
+                Pill(io.github.petebutty.viewarr.ui.common.AppIcons.Layers, "Source") { vm.loadSources(); popup = OsdPopup.Source }
+                Pill(io.github.petebutty.viewarr.ui.common.AppIcons.Stats, if (popup == OsdPopup.Info) "Hide stream info" else "Stream info") { popup = if (popup == OsdPopup.Info) null else OsdPopup.Info }
             }
-            if (onRecord != null) Pill("Record") { onRecord() }
-            if (onMultiView != null) Pill("Multi-view") { onMultiView() }
-            (note ?: sourceNote?.takeIf { popup == null })?.let { Text(it, fontSize = 12.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(start = 8.dp)) }
+            if (onRecord != null) Pill(io.github.petebutty.viewarr.ui.common.AppIcons.Record, "Record") { onRecord() }
+            if (onMultiView != null) Pill(io.github.petebutty.viewarr.ui.common.AppIcons.Grid, "Multi-view") { onMultiView() }
+            (note ?: sourceNote?.takeIf { popup == null })?.let { Text(it, fontSize = 12.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(start = 8.dp, top = 14.dp)) }
         }
     }
 }
@@ -267,25 +269,36 @@ private fun Badge(text: String) {
 }
 
 @Composable
-private fun Pill(text: String, modifier: Modifier = Modifier, dim: Boolean = false, onClick: () -> Unit) {
-    Surface(
-        onClick = onClick,
-        modifier = modifier.height(30.dp),
-        scale = ClickableSurfaceDefaults.scale(scale = 1f, focusedScale = 1f, pressedScale = 1f),
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(15.dp)),
-        colors = ClickableSurfaceDefaults.colors(
-            containerColor = Color(0x55000000),
-            contentColor = if (dim) AppColors.TextSecondary else Color.White,
-            focusedContainerColor = AppColors.Accent,
-            focusedContentColor = AppColors.OnAccent,
-            pressedContainerColor = AppColors.Accent,
-            pressedContentColor = AppColors.OnAccent,
-        ),
-    ) {
-        Box(Modifier.fillMaxHeight().padding(horizontal = 14.dp), contentAlignment = Alignment.Center) {
-            Text(text, fontSize = 13.sp, maxLines = 1)
+private fun Pill(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, modifier: Modifier = Modifier, groupEnd: Boolean = false, onClick: () -> Unit) {
+    // Sized like the film / show player's buttons (Settings → Playback → Player controls size).
+    val k = AppColors.palette.controlsScale
+    fun d(v: Int) = (v * k).dp
+    var on by remember { mutableStateOf(false) }
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(d(72))) {
+        Surface(
+            onClick = onClick,
+            modifier = modifier.size(d(48)).onFocusChanged { on = it.isFocused },
+            scale = ClickableSurfaceDefaults.scale(scale = 1f, focusedScale = 1f, pressedScale = 1f),
+            shape = ClickableSurfaceDefaults.shape(CircleShape),
+            colors = ClickableSurfaceDefaults.colors(
+                containerColor = Color.White.copy(alpha = 0.14f),
+                contentColor = Color.White,
+                focusedContainerColor = AppColors.Accent,
+                focusedContentColor = AppColors.OnAccent,
+                pressedContainerColor = AppColors.Accent,
+                pressedContentColor = AppColors.OnAccent,
+            ),
+        ) {
+            Box(Modifier.fillMaxHeight().fillMaxWidth(), contentAlignment = Alignment.Center) {
+                androidx.compose.material3.Icon(icon, contentDescription = label, tint = if (on) AppColors.OnAccent else Color.White, modifier = Modifier.size(d(26)))
+            }
         }
+        Text(
+            if (on) label else "", fontSize = (12 * (0.5f + k / 2)).sp, color = Color.White, maxLines = 1, softWrap = false,
+            modifier = Modifier.padding(top = d(4)).wrapContentWidth(unbounded = true),
+        )
     }
+    if (groupEnd) Box(Modifier.padding(horizontal = d(10), vertical = d(10)).width(1.dp).height(d(28)).background(Color.White.copy(alpha = 0.3f)))
 }
 
 @Composable

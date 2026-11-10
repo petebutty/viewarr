@@ -13,7 +13,7 @@ import androidx.compose.material3.MaterialTheme as M3Theme
 import androidx.compose.material3.darkColorScheme as m3DarkColorScheme
 
 /** Every shade is derived from two user-chosen colours so any combination stays coherent. */
-data class Palette(val main: Color, val highlight: Color, val transparency: Float = 0f, val showNumbers: Boolean = true, val squareCorners: Boolean = true, val hideMedia: Boolean = false, /** Guide progress bars: 0 every channel, 1 only the one you're watching, 2 none. */ val progressBars: Int = 0,
+data class Palette(val main: Color, val highlight: Color, val transparency: Float = 0f, /** Guide: how see-through the channel names and programmes are (0 solid … 1 clear). */ val guideTransparency: Float = 0f, val showNumbers: Boolean = true, val squareCorners: Boolean = true, val hideMedia: Boolean = false, /** Guide progress bars: 0 every channel, 1 only the one you're watching, 2 none. */ val progressBars: Int = 0,
     /** Picture behind pages: 0 none, 1 built-in, 2 from your library, 3 what's selected. */ val wallpaper: Int = 0,
     /** Which built-in wallpaper (WallpaperStyles). */ val wallpaperStyle: Int = 0,
     /** How much the background colour covers the wallpaper (0.3 light … 0.9 dark). */ val wallpaperDim: Float = 0.6f,
@@ -24,6 +24,10 @@ data class Palette(val main: Color, val highlight: Color, val transparency: Floa
     /** Low-memory mode: the heavy extras are off whatever their own settings say. */
     val lowMemory get() = opt(UiOpts.LOW_MEMORY) == 1
     val guideArt get() = opt(UiOpts.GUIDE_ART) == 0 && !lowMemory
+    /** The wallpaper in use: none in low-memory mode (plain Viewarr colours), whatever's chosen. */
+    val wallpaperMode get() = if (lowMemory) 0 else wallpaper
+    /** Trailer previews, multi-view, title-page artwork: not in low-memory mode. */
+    val heavyExtras get() = !lowMemory
     val channelLogos get() = opt(UiOpts.CHANNEL_LOGOS) == 0
     val sourceBadges get() = opt(UiOpts.BADGE_SOURCE) == 0
     val progressBadges get() = opt(UiOpts.BADGE_PROGRESS) == 0
@@ -37,6 +41,7 @@ data class Palette(val main: Color, val highlight: Color, val transparency: Floa
     /** Hours of no button presses on Live TV before "Still watching?" (0 = never). */
     val stillWatchingHours get() = intArrayOf(0, 2, 3, 4, 6)[opt(UiOpts.STILL_WATCHING).coerceIn(0, 4)]
     val menuAlpha = 1f - transparency
+    val guideAlpha = 1f - guideTransparency
     val panel = lerp(main, Color.White, 0.07f)
     val panelAlt = lerp(main, Color.White, 0.04f)
     val cellPast = lerp(main, Color.White, 0.025f)
@@ -86,7 +91,7 @@ object AppColors {
 
     val Background get() = palette.main
     /** The background colour as laid over a wallpaper: see-through when one is on, solid otherwise. */
-    val Scrim get() = if (palette.wallpaper != 0) palette.main.copy(alpha = palette.wallpaperDim) else palette.main
+    val Scrim get() = if (palette.wallpaperMode != 0) palette.main.copy(alpha = palette.wallpaperDim) else palette.main
     val Panel get() = palette.panel
     val PanelAlt get() = palette.panelAlt
     val Accent get() = palette.highlight
@@ -177,6 +182,8 @@ object UiOpts {
     const val UP_NEXT = "up_next"
     const val STILL_WATCHING = "still_watching"
     const val LOW_MEMORY = "low_memory"
+    const val DATE_ORDER = "date_order"
+    const val TIME_FORMAT = "time_format"
     val choices = mapOf(
         TEXT_SIZE to listOf("Normal", "Small", "Large", "Extra large"),
         CLOCK to listOf("Off", "On"),
@@ -193,5 +200,7 @@ object UiOpts {
         UP_NEXT to listOf("10 seconds", "5 seconds", "20 seconds"),
         STILL_WATCHING to listOf("Never", "After 2 hours", "After 3 hours", "After 4 hours", "After 6 hours"),
         LOW_MEMORY to listOf("Off", "On"),
+        DATE_ORDER to listOf("Day first (Tue 10 Nov)", "Month first (Tue, Nov 10)"),
+        TIME_FORMAT to listOf("24-hour (19:30)", "12-hour (7:30 pm)"),
     )
 }

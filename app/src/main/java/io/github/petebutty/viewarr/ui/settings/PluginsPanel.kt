@@ -129,7 +129,7 @@ fun PluginsSettingsScreen(onBack: () -> Unit, vm: PluginsViewModel = hiltViewMod
     }
     LaunchedEffect(ui.loading) { if (!ui.loading) { awaitFrame(); runCatching { firstFocus.requestFocus() } } }
     androidx.compose.runtime.CompositionLocalProvider(LocalFocusMemory provides memory) {
-    Box(Modifier.fillMaxSize().appBackground().trapFocus()) {
+    Box(Modifier.fillMaxSize().appBackground(readable = true).trapFocus()) {
         Row(Modifier.fillMaxSize().padding(horizontal = 56.dp, vertical = 40.dp)) {
             Column(Modifier.width(300.dp).fillMaxHeight()) {
                 Text("Settings", fontSize = 14.sp, color = AppColors.Accent)

@@ -31,11 +31,13 @@ fun MenuItem(
     dim: Boolean = false,
     leading: (@Composable () -> Unit)? = null,
     onLongClick: (() -> Unit)? = null,
+    /** Shorter rows, smaller text (pop-up menus such as the guide's record menu). */
+    compact: Boolean = false,
 ) {
     Surface(
         onClick = onClick,
         onLongClick = onLongClick,
-        modifier = modifier.fillMaxWidth().height(34.dp),
+        modifier = modifier.fillMaxWidth().height(if (compact) 28.dp else 34.dp),
         scale = ClickableSurfaceDefaults.scale(scale = 1f, focusedScale = 1f, pressedScale = 1f),
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(6.dp)),
         colors = ClickableSurfaceDefaults.colors(
@@ -52,7 +54,7 @@ fun MenuItem(
                 leading()
                 Spacer(Modifier.width(10.dp))
             }
-            Text(text, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            Text(text, fontSize = if (compact) 13.sp else 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
             trailing?.let { Text(it, fontSize = 12.sp) }
         }
     }

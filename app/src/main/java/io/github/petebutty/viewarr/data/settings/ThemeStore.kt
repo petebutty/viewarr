@@ -25,6 +25,7 @@ class ThemeStore @Inject constructor(@ApplicationContext private val context: Co
             main = prefs[MAIN]?.let { Color(it) } ?: ThemePresets[0].main,
             highlight = prefs[HIGHLIGHT]?.let { Color(it) } ?: ThemePresets[0].highlight,
             transparency = prefs[TRANSPARENCY] ?: 0f,
+            guideTransparency = prefs[GUIDE_TRANSPARENCY] ?: 0f,
             showNumbers = prefs[NUMBERS] ?: true,
             squareCorners = prefs[SQUARE] ?: true,
             hideMedia = prefs[HIDE_MEDIA] ?: false,
@@ -47,6 +48,10 @@ class ThemeStore @Inject constructor(@ApplicationContext private val context: Co
 
     suspend fun saveTransparency(value: Float) {
         context.appearanceStore.edit { it[TRANSPARENCY] = value }
+    }
+
+    suspend fun saveGuideTransparency(value: Float) {
+        context.appearanceStore.edit { it[GUIDE_TRANSPARENCY] = value }
     }
 
     suspend fun saveHideMedia(on: Boolean) {
@@ -98,6 +103,7 @@ class ThemeStore @Inject constructor(@ApplicationContext private val context: Co
         val MAIN = intPreferencesKey("main")
         val HIGHLIGHT = intPreferencesKey("highlight")
         val TRANSPARENCY = floatPreferencesKey("menu_transparency")
+        val GUIDE_TRANSPARENCY = floatPreferencesKey("guide_transparency")
         val PROGRESS = intPreferencesKey("guide_progress_bars")
         val WALLPAPER = intPreferencesKey("wallpaper")
         val WALLPAPER_STYLE = intPreferencesKey("wallpaper_style")

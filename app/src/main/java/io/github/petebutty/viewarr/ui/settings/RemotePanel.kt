@@ -70,7 +70,7 @@ fun RemoteSettingsScreen(onBack: () -> Unit, vm: RemoteViewModel = hiltViewModel
         SettingCategory(
             "TV guide", "Buttons while browsing the guide.",
             listOf(
-                item("Left", "Default: Left goes back to earlier programmes; on what's on now it opens the menu, and holding Left (or ⏪) goes back into catch-up.", k.GUIDE_LEFT, all<GuideLeft>(), s.guideLeft),
+                item("Left", "What Left does on the guide's programmes. Holding Left (or ⏪) on what's on now goes back into catch-up.", k.GUIDE_LEFT, all<GuideLeft>(), s.guideLeft),
                 item("Back", "Back first jumps the guide to what's on now. On now, it asks to exit (press Back again), or opens the menu.", k.GUIDE_BACK, all<GuideBack>(), s.guideBack),
                 item("Channel + / −", "Pages through the channels. Reverse it if your remote's buttons feel the wrong way round.", k.CHANNEL_KEYS, all<ChannelKeys>(), s.channelKeys),
             ),

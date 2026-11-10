@@ -287,7 +287,9 @@ private fun TileView(
         Box(Modifier.fillMaxSize()) {
             AndroidView(
                 factory = { ctx ->
-                    PlayerView(ctx).apply {
+                    // TextureView (as the film player): several SurfaceViews inside Compose showed sound but no
+                    // picture on some boxes (Fire TV Stick 4K Max).
+                    (android.view.LayoutInflater.from(ctx).inflate(io.github.petebutty.viewarr.R.layout.vod_player_view, null) as PlayerView).apply {
                         layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
                         useController = false
                         resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT

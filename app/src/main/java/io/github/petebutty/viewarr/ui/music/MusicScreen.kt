@@ -126,7 +126,12 @@ data class MusicBrowse(
     val version: Int = 0,
     /** A–Z: the position to go to. */
     val jump: Int? = null,
+    /** "Search this library": what's typed, and what matches (null: not searching, the whole list shows). */
+    val text: String = "",
+    val found: List<MusicCard>? = null,
 ) {
+    /** What the grid shows: the matches while searching, else the list. */
+    val shown get() = found ?: cards
     val key get() = "browse:${kind.name}:${genre.orEmpty()}:$version"
     val more get() = next.values.any { it >= 0 }
     /** The A–Z strip: albums sorted by title, A first. */
@@ -410,6 +415,31 @@ class MusicViewModel @Inject constructor(
 
     fun shuffleLibrary() = viewModelScope.launch { play(library.randomSongs(150), 0, false) }
 
+    /**
+     * Search this library (the box on each Music page): albums or artists through the server's search; on lists
+     * already loaded whole (Favourites, a genre, Playlists, Genres), a match on the name.
+     */
+    private var browseSearchJob: Job? = null
+    fun setBrowseText(t: String) {
+        val b = _browse.value ?: return
+        val q = t.trim()
+        _browse.value = b.copy(text = t, found = if (q.length < 2) null else b.found)
+        browseSearchJob?.cancel()
+        if (q.length < 2) return
+        browseSearchJob = viewModelScope.launch {
+            delay(350)
+            // The whole list already here (Favourites, Playlists, Genres, a small genre): match on it. Otherwise the server's search.
+            val local = !b.more || b.kind == MusicBrowseKind.Playlists || b.kind == MusicBrowseKind.Genres
+            val found = if (local) b.cards.filter { it.title.contains(q, true) || it.sub.contains(q, true) }
+            else {
+                val r = runCatching { library.search(q) }.getOrNull() ?: return@launch
+                if (b.kind == MusicBrowseKind.Artists) r.artists.map(::artistCard) else r.albums.map(::albumCard)
+            }
+            val now = _browse.value
+            if (now?.key == b.key && now.text.trim() == q) _browse.value = now.copy(found = found)
+        }
+    }
+
     private var searchJob: Job? = null
     fun search(query: String) {
         val q = query.trim()
@@ -574,10 +604,14 @@ private fun MusicBrowsePage(b: MusicBrowse, vm: MusicViewModel, page: String, me
                 Spacer(Modifier.width(14.dp))
                 val sortLabel = b.query?.let { q -> b.options?.sorts?.firstOrNull { it.id == q.sort }?.let { "${it.label} ${if (q.desc) "↓" else "↑"}" } }
                 Text(
-                    listOfNotNull(if (b.loading) "Loading…" else "${b.cards.size}${if (b.more) "+" else ""}", sortLabel).joinToString("  ·  "),
+                    listOfNotNull(if (b.found != null) "${b.found.size} found" else if (b.loading) "Loading…" else "${b.cards.size}${if (b.more) "+" else ""}", sortLabel.takeIf { b.found == null }).joinToString("  ·  "),
                     fontSize = 14.sp, color = AppColors.TextSecondary,
                 )
                 Spacer(Modifier.weight(1f))
+                // As on the Movies and Shows libraries: the mic, then a box to search this page.
+                io.github.petebutty.viewarr.ui.media.LibrarySearchBox(b.text, vm::setBrowseText, onFocus = {}, onDone = {
+                    b.shown.firstOrNull()?.let { c -> runCatching { mem.of("$page|${c.key}").requestFocus() } }
+                })
                 if (albums) {
                     io.github.petebutty.viewarr.ui.library.ToolButton(
                         "Sort" + (b.query?.let { q -> b.options?.sorts?.firstOrNull { it.id == q.sort }?.let { ": ${it.label}" } } ?: ""),
@@ -598,8 +632,8 @@ private fun MusicBrowsePage(b: MusicBrowse, vm: MusicViewModel, page: String, me
                 q.filters.forEach { (g, vs) -> items(vs.size) { k -> io.github.petebutty.viewarr.ui.library.FilterChip(vs[k].label) { vm.toggleAlbumValue(g, vs[k]) } } }
                 item { io.github.petebutty.viewarr.ui.library.FilterChip("Clear all", clear = true) { vm.clearAlbumFilters() } }
             }
-            if (!b.loading && b.cards.isEmpty()) Text(
-                if (q?.active ?: 0 > 0) "No albums match these filters." else "Nothing here yet.", fontSize = 15.sp, color = AppColors.TextSecondary,
+            if (!b.loading && b.shown.isEmpty()) Text(
+                if (b.found != null) "Nothing matches \"${b.text.trim()}\"." else if (q?.active ?: 0 > 0) "No albums match these filters." else "Nothing here yet.", fontSize = 15.sp, color = AppColors.TextSecondary,
                 modifier = Modifier.padding(horizontal = 48.dp, vertical = 16.dp).focusRequester(focusRequester),
             )
             Row(Modifier.fillMaxWidth().weight(1f)) {
@@ -609,9 +643,10 @@ private fun MusicBrowsePage(b: MusicBrowse, vm: MusicViewModel, page: String, me
                     contentPadding = PaddingValues(start = 48.dp, end = if (b.canLetters) 12.dp else 48.dp, top = 16.dp, bottom = 110.dp),
                     horizontalArrangement = Arrangement.spacedBy(14.dp), verticalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
-                    items(b.cards.size, key = { b.cards[it].key }) { i ->
-                        val c = b.cards[i]
-                        if (i >= b.cards.size - cols * 3) LaunchedEffect(b.cards.size) { vm.loadMore() }
+                    val cards = b.shown
+                    items(cards.size, key = { cards[it].key }) { i ->
+                        val c = cards[i]
+                        if (b.found == null && i >= cards.size - cols * 3) LaunchedEffect(cards.size) { vm.loadMore() }
                         val m = Modifier.remembered(mem, page, "$page|${c.key}")
                             .then(if (i == 0) Modifier.focusRequester(focusRequester) else Modifier)
                             .onPreviewKeyEvent { e ->
@@ -623,14 +658,14 @@ private fun MusicBrowsePage(b: MusicBrowse, vm: MusicViewModel, page: String, me
                                 if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                                 when {
                                     e.key == Key.DirectionLeft && i % cols == 0 -> { onOpenMenu(); true }
-                                    e.key == Key.DirectionRight && b.canLetters && (i % cols == cols - 1 || i == b.cards.lastIndex) -> { runCatching { railFocus.requestFocus() }; true }
+                                    e.key == Key.DirectionRight && b.canLetters && b.found == null && (i % cols == cols - 1 || i == cards.lastIndex) -> { runCatching { railFocus.requestFocus() }; true }
                                     else -> false
                                 }
                             }
                         if (genres) GenreTile(c, m) { vm.open(c) } else MusicCardView(c, null, m) { vm.open(c) }
                     }
                 }
-                if (b.canLetters) io.github.petebutty.viewarr.ui.library.AlphabetRail(
+                if (b.canLetters && b.found == null) io.github.petebutty.viewarr.ui.library.AlphabetRail(
                     letters = null, shown = shownLetter, focusRequester = railFocus,
                     onFocus = { railOn = it },
                     onMove = { railLetter = it },

@@ -37,6 +37,9 @@ class HttpJson @Inject constructor(private val client: OkHttpClient, val json: J
     suspend fun put(url: String, body: JsonElement, headers: Map<String, String> = emptyMap()): JsonResponse =
         call(Request.Builder().url(url).put(body.toString().toRequestBody(JSON_TYPE)), headers)
 
+    suspend fun patch(url: String, body: JsonElement, headers: Map<String, String> = emptyMap()): JsonResponse =
+        call(Request.Builder().url(url).patch(body.toString().toRequestBody(JSON_TYPE)), headers)
+
     suspend fun delete(url: String, headers: Map<String, String> = emptyMap()): JsonResponse =
         call(Request.Builder().url(url).delete(), headers)
 

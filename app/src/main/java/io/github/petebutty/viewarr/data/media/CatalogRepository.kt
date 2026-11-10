@@ -33,6 +33,8 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
@@ -49,6 +51,8 @@ private const val TAG = "Catalog"
 private const val TMDB_IMG = "https://image.tmdb.org/t/p/"
 /** Library copies from the IPTV provider (Xtream Codes) are labelled with this source. */
 const val PROVIDER = "IPTV"
+/** plex.tv's own service for watchlists (not your server). */
+private const val PLEX_DISCOVER = "https://discover.provider.plex.tv"
 
 /**
  * A home-network address: 192.168.x / 10.x / 172.16–31.x, a .local or single-word name, or Plex's
@@ -152,7 +156,13 @@ class CatalogRepository @Inject constructor(
             a.jellyfin?.let { j -> add { listOfNotNull(serverResume(a, j, emby = false, type)) } }
             a.emby?.let { e -> add { listOfNotNull(serverResume(a, e, emby = true, type)) } }
             if (type == MediaType.Show) add { listOfNotNull(upcomingRow(a, traktAuth)) }
-            traktAuth?.let { t -> add { listOfNotNull(traktWatchlistRow(a, t, type)) } }
+            // Your watchlist: from the one chosen in Settings → Watchlist.
+            when (watchlistSource(a)) {
+                "trakt" -> traktAuth?.let { t -> add { listOfNotNull(traktWatchlistRow(a, t, type)) } }
+                "plex" -> add { listOfNotNull(plexWatchlistRow(a, type)) }
+                "jellyfin" -> a.jellyfin?.let { j -> add { listOfNotNull(serverFavouritesRow(a, j, emby = false, type)) } }
+                "emby" -> a.emby?.let { e -> add { listOfNotNull(serverFavouritesRow(a, e, emby = true, type)) } }
+            }
             plexServers(a).forEach { p -> add { plexRecent(a, p, type) } }
             a.jellyfin?.let { j -> add { listOfNotNull(serverLatest(a, j, emby = false, type)) } }
             a.emby?.let { e -> add { listOfNotNull(serverLatest(a, e, emby = true, type)) } }
@@ -316,7 +326,7 @@ class CatalogRepository @Inject constructor(
         suspend fun get(lang: String) = runCatching { http.get(tmdb.url("/person/$personId", key, mapOf("language" to lang)), tmdb.headers(key)) }.getOrNull()?.takeIf { it.ok }?.body
         val j = get("en-GB") ?: return null
         val bio = j.str("biography")?.takeIf { it.isNotBlank() } ?: get("en-US")?.str("biography")?.takeIf { it.isNotBlank() }
-        fun date(k: String) = j.str(k)?.let { d -> runCatching { java.time.LocalDate.parse(d).format(java.time.format.DateTimeFormatter.ofPattern("d MMMM yyyy")) }.getOrNull() }
+        fun date(k: String) = j.str(k)?.let { d -> runCatching { java.time.LocalDate.parse(d).format(io.github.petebutty.viewarr.ui.theme.Dates.long) }.getOrNull() }
         return PersonInfo(
             name = j.str("name") ?: name,
             photo = j.str("profile_path")?.let { "https://image.tmdb.org/t/p/w300$it" },
@@ -367,7 +377,7 @@ class CatalogRepository @Inject constructor(
      * A guide programme's film or show on TMDB, by title (exact match only, so a wrong one isn't played). [show]:
      * it has a season / episode, so it's a show; otherwise a film is preferred.
      */
-    suspend fun findTitle(title: String, show: Boolean, year: Int? = null): MediaItem? {
+    suspend fun findTitle(title: String, show: Boolean, year: Int? = null, season: Int? = null): MediaItem? {
         val key = store.current().tmdbKey ?: return null
         val clean = title.removePrefix("New: ").trim()
         // Guides abbreviate ("Pt1" for "Part 1") and punctuate differently: compare letters and numbers only.
@@ -383,7 +393,18 @@ class CatalogRepository @Inject constructor(
             val exact = types.flatMap { t -> runCatching { tmdbSearch(key, t, q.replace(Regex("\\bPt\\s*(\\d)"), "Part $1")) }.getOrNull()?.items.orEmpty() }
                 .filter { norm(it.title) == w }
             val narrowed = if (year != null) exact.filter { it.year == year }.ifEmpty { exact.filter { it.year == null } } else exact
-            return narrowed.singleOrNull()
+            narrowed.singleOrNull()?.let { return it }
+            if (narrowed.size < 2) return null
+            // Several with this name ("S.W.A.T." 1975 and 2017): the ones that have the guide's series…
+            var left = narrowed
+            if (season != null) {
+                val withSeason = left.filter { c -> c.type != MediaType.Show || (c.tmdbId?.let { tvSeasonCount(key, it) } ?: 0) >= season }
+                if (withSeason.isNotEmpty()) left = withSeason
+                left.singleOrNull()?.let { return it }
+            }
+            // …then the one on your own servers.
+            val owned = left.filter { c -> runCatching { copiesOf(c) }.getOrDefault(emptyList()).any { it.source != PROVIDER } }
+            return owned.singleOrNull()
         }
         sure(clean)?.let { return it }
         // Guides add an episode or special's name to the title ("Only Fools and Horses To Hull and Back"): drop words
@@ -392,6 +413,11 @@ class CatalogRepository @Inject constructor(
         for (n in words.size - 1 downTo 2) sure(words.take(n).joinToString(" "))?.let { return it }
         return null
     }
+
+    /** How many seasons a show has on TMDB (0 if unknown). */
+    private suspend fun tvSeasonCount(key: String, id: Int): Int = runCatching {
+        http.get(tmdb.url("/tv/$id", key, emptyMap()), tmdb.headers(key)).takeIf { it.ok }?.body.int("number_of_seasons") ?: 0
+    }.getOrDefault(0)
 
     private suspend fun tmdbSearch(key: String, type: MediaType, q: String): MediaRow? {
         val path = if (type == MediaType.Movie) "/search/movie" else "/search/tv"
@@ -541,9 +567,9 @@ class CatalogRepository @Inject constructor(
                 u.date == today -> "Today"
                 u.date == today.plusDays(1) -> "Tomorrow"
                 u.date.isBefore(today.plusDays(7)) -> u.date.format(java.time.format.DateTimeFormatter.ofPattern("EEEE"))
-                else -> u.date.format(java.time.format.DateTimeFormatter.ofPattern("EEE d MMM"))
+                else -> u.date.format(io.github.petebutty.viewarr.ui.theme.Dates.day)
             }
-            val clock = u.time?.format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"))
+            val clock = u.time?.format(io.github.petebutty.viewarr.ui.theme.Dates.time)
             val ep = if (u.s != null && u.e != null) "S${u.s} · E${u.e}" else null
             item.copy(
                 key = item.key + ":upcoming",
@@ -629,6 +655,127 @@ class CatalogRepository @Inject constructor(
         if (!ok) return null
         if (add) traktWatchlist.add("${item.type.name}:$id") else traktWatchlist.remove("${item.type.name}:$id")
         return add
+    }
+
+    // ------------------------------------------------------------------ watchlist (Trakt, Plex, Jellyfin or Emby)
+
+    /** The watchlists that can be used (connected), in the order offered. */
+    fun watchlistChoices(a: Accounts): List<String> = listOfNotNull(
+        "trakt".takeIf { a.trakt != null }, "plex".takeIf { a.plex != null },
+        "jellyfin".takeIf { a.jellyfin != null }, "emby".takeIf { a.emby != null },
+    )
+
+    /** The watchlist in use: the one chosen, if still connected, else the first that is. */
+    fun watchlistSource(a: Accounts): String? = a.watchlist?.takeIf { it in watchlistChoices(a) } ?: watchlistChoices(a).firstOrNull()
+
+    /** Whether [item] is on the watchlist in use (null: no watchlist, or this title can't go on it). */
+    suspend fun inWatchlist(item: MediaItem): Boolean? {
+        val a = store.current()
+        return when (watchlistSource(a)) {
+            "trakt" -> if (item.tmdbId == null) null else inTraktWatchlist(item)
+            "plex" -> plexDiscoverKey(a, item)?.let { plexOnWatchlist(a, it) }
+            "jellyfin" -> a.jellyfin?.let { serverFavourite(a, it, false, item) }
+            "emby" -> a.emby?.let { serverFavourite(a, it, true, item) }
+            else -> null
+        }
+    }
+
+    /** Adds to or removes from the watchlist in use. The new state, or null if it failed. */
+    suspend fun setWatchlist(item: MediaItem, add: Boolean): Boolean? {
+        val a = store.current()
+        return when (watchlistSource(a)) {
+            "trakt" -> setTraktWatchlist(item, add)
+            "plex" -> {
+                val rk = plexDiscoverKey(a, item) ?: return null
+                val ok = runCatching {
+                    http.put("$PLEX_DISCOVER/actions/${if (add) "addToWatchlist" else "removeFromWatchlist"}?ratingKey=$rk", JsonObject(emptyMap()), plex.headers(a.deviceId, a.plex?.token)).ok
+                }.getOrDefault(false)
+                if (ok) add else null
+            }
+            "jellyfin" -> a.jellyfin?.let { setServerFavourite(a, it, false, item, add) }
+            "emby" -> a.emby?.let { setServerFavourite(a, it, true, item, add) }
+            else -> null
+        }
+    }
+
+    /** The watchlist's name for messages ("your Plex watchlist", "your Jellyfin favourites"). */
+    suspend fun watchlistName(): String = when (watchlistSource(store.current())) {
+        "trakt" -> "your Trakt watchlist"; "plex" -> "your Plex watchlist"
+        "jellyfin" -> "your Jellyfin favourites"; "emby" -> "your Emby favourites"; else -> "your watchlist"
+    }
+
+    /** The title's id on plex.tv (watchlists live there, not on your server), found from its TMDB / IMDb id. */
+    private val plexKeys = ConcurrentHashMap<String, String>()
+    private suspend fun plexDiscoverKey(a: Accounts, item: MediaItem): String? {
+        val token = a.plex?.token ?: return null
+        plexKeys[item.key]?.let { return it }
+        val type = if (item.type == MediaType.Movie) 1 else 2
+        val guids = listOfNotNull(item.tmdbId?.let { "tmdb://$it" }, item.imdbId?.let { "imdb://$it" })
+        for (g in guids) {
+            val r = runCatching { http.get("https://metadata.provider.plex.tv/library/metadata/matches?type=$type&guid=${enc(g)}", plex.headers(a.deviceId, token)) }.getOrNull()
+            val rk = r?.takeIf { it.ok }?.body.child("MediaContainer").array("Metadata").firstOrNull().str("ratingKey")
+            if (rk != null) { plexKeys[item.key] = rk; return rk }
+        }
+        return null
+    }
+
+    private suspend fun plexOnWatchlist(a: Accounts, rk: String): Boolean? {
+        val r = runCatching { http.get("$PLEX_DISCOVER/library/metadata/$rk/userState", plex.headers(a.deviceId, a.plex?.token)) }.getOrNull() ?: return null
+        if (!r.ok) return null
+        val mc = r.body.child("MediaContainer")
+        val st = mc.child("UserState").let { it as? JsonObject ?: mc.array("UserState").firstOrNull() }
+        return st.long("watchlistedAt") != null || st.str("watchlistedAt") != null
+    }
+
+    private suspend fun plexWatchlistRow(a: Accounts, type: MediaType): MediaRow? {
+        val token = a.plex?.token ?: return null
+        val r = http.get("$PLEX_DISCOVER/library/sections/watchlist/all?type=${if (type == MediaType.Movie) 1 else 2}&includeGuids=1&sort=watchlistedAt:desc", plex.headers(a.deviceId, token))
+        if (!r.ok) return null
+        val items = r.body.child("MediaContainer").array("Metadata").mapNotNull { j ->
+            val ids = j.array("Guid").mapNotNull { it.str("id") }
+            val tmdb = ids.firstOrNull { it.startsWith("tmdb://") }?.removePrefix("tmdb://")?.toIntOrNull()
+            val imdb = ids.firstOrNull { it.startsWith("imdb://") }?.removePrefix("imdb://")
+            val title = j.str("title") ?: return@mapNotNull null
+            j.str("ratingKey")?.let { rk -> plexKeys[tmdb?.let { "tmdb:${type.name}:$it" } ?: "plexwl:$rk"] = rk }
+            MediaItem(
+                key = tmdb?.let { "tmdb:${type.name}:$it" } ?: "plexwl:${j.str("ratingKey")}",
+                type = type, title = title, year = j.int("year"), tmdbId = tmdb, imdbId = imdb,
+                poster = j.str("thumb")?.takeIf { it.startsWith("http") }, origin = "Plex watchlist",
+            )
+        }
+        if (items.isEmpty()) return null
+        return MediaRow("plex-watchlist-${type.name}", "Your watchlist", enrich(a, items.take(40)))
+    }
+
+    /** Jellyfin / Emby have no watchlist: their Favourites stand in (only for titles on that server). */
+    private suspend fun serverFavId(a: Accounts, s: MediaServerAuth, emby: Boolean, item: MediaItem): String? =
+        runCatching { serverCopies(a, s, emby, item) }.getOrNull()?.firstOrNull()?.ref
+
+    private suspend fun serverFavourite(a: Accounts, s: MediaServerAuth, emby: Boolean, item: MediaItem): Boolean? {
+        val id = serverFavId(a, s, emby, item) ?: return null
+        val r = runCatching { http.get("${s.serverUrl}/Users/${s.userId}/Items/$id", mediaServers.headers(emby, a.deviceId, s.token)) }.getOrNull() ?: return null
+        return if (r.ok) (r.body.child("UserData").child("IsFavorite") as? JsonPrimitive)?.booleanOrNull ?: false else null
+    }
+
+    private suspend fun setServerFavourite(a: Accounts, s: MediaServerAuth, emby: Boolean, item: MediaItem, add: Boolean): Boolean? {
+        val id = serverFavId(a, s, emby, item) ?: return null
+        val url = "${s.serverUrl}/Users/${s.userId}/FavoriteItems/$id"
+        val h = mediaServers.headers(emby, a.deviceId, s.token)
+        val ok = runCatching { if (add) http.post(url, null, h).ok else http.delete(url, h).ok }.getOrDefault(false)
+        return if (ok) add else null
+    }
+
+    private suspend fun serverFavouritesRow(a: Accounts, s: MediaServerAuth, emby: Boolean, type: MediaType): MediaRow? {
+        val name = if (emby) "Emby" else "Jellyfin"
+        val kind = if (type == MediaType.Movie) "Movie" else "Series"
+        val r = http.get(
+            "${s.serverUrl}/Users/${s.userId}/Items?IncludeItemTypes=$kind&Filters=IsFavorite&Recursive=true&SortBy=DateCreated&SortOrder=Descending&Limit=40&Fields=ProviderIds,Overview,ProductionYear",
+            mediaServers.headers(emby, a.deviceId, s.token),
+        )
+        if (!r.ok) return null
+        val items = r.body.array("Items").mapNotNull { serverItem(s, it, type, name) }
+        if (items.isEmpty()) return null
+        return MediaRow("$name-favourites-${type.name}", "Your watchlist", items)
     }
 
     // ------------------------------------------------------------------ Plex
@@ -1870,14 +2017,40 @@ class CatalogRepository @Inject constructor(
             }
     }
 
+    /** A show's series on your own servers (Plex, Jellyfin, Emby): series number → episodes there. */
+    suspend fun ownSeasons(item: MediaItem): Map<Int, Int> {
+        val a = store.current()
+        val out = HashMap<Int, Int>()
+        runCatching { copiesOf(item) }.getOrDefault(emptyList()).filter { it.source != PROVIDER }.forEach { c ->
+            val ref = c.ref ?: return@forEach
+            when (c.source) {
+                "Plex" -> runCatching { plexSeasons(ref) }.getOrDefault(emptyList()).forEach { s -> out[s.number] = maxOf(out[s.number] ?: 0, s.episodes) }
+                "Jellyfin", "Emby" -> {
+                    val emby = c.source == "Emby"
+                    val s = (if (emby) a.emby else a.jellyfin) ?: return@forEach
+                    runCatching {
+                        http.get("${s.serverUrl}/Shows/$ref/Seasons?userId=${s.userId}&Fields=ChildCount", mediaServers.headers(emby, a.deviceId, s.token))
+                    }.getOrNull()?.takeIf { it.ok }?.body.array("Items").forEach { j ->
+                        val n = j.int("IndexNumber")?.takeIf { it > 0 } ?: return@forEach
+                        out[n] = maxOf(out[n] ?: 0, j.int("ChildCount") ?: 1)
+                    }
+                }
+            }
+        }
+        return out
+    }
+
+    /** On one of your own servers (not just your IPTV provider's VOD). */
+    suspend fun onOwnServer(item: MediaItem) = runCatching { copiesOf(item) }.getOrDefault(emptyList()).any { it.source != PROVIDER }
+
     /** Seasons from Plex when TMDB has none (no key, or an unmatched show). */
     suspend fun plexSeasons(showRef: String): List<SeasonInfo> {
         val a = store.current()
         val (p, showKey) = plexResolve(a, showRef) ?: return emptyList()
         return plexGet(a, p, "/library/metadata/$showKey/children")?.array("Metadata").orEmpty().mapNotNull { s ->
             val n = s.int("index") ?: return@mapNotNull null
-            if (n == 0) null else SeasonInfo(n, s.str("title") ?: "Season $n", s.int("leafCount") ?: 0, s.int("year"))
-        }
+            if (n == 0) null else SeasonInfo(n, "Season $n", s.int("leafCount") ?: 0, s.int("year"))
+        }.sortedBy { it.number }
     }
 
     /** Every episode of a show in Plex, by (season, episode). Cached per show for this run. */
@@ -1967,15 +2140,15 @@ class CatalogRepository @Inject constructor(
             seasons = j.array("seasons").mapNotNull { s ->
                 val n = s.int("season_number") ?: return@mapNotNull null
                 if (n == 0) return@mapNotNull null
-                SeasonInfo(n, s.str("name") ?: "Season $n", s.int("episode_count") ?: 0, s.str("air_date")?.take(4)?.toIntOrNull())
-            },
+                SeasonInfo(n, "Season $n", s.int("episode_count") ?: 0, s.str("air_date")?.take(4)?.toIntOrNull())
+            }.sortedBy { it.number },
             status = j.str("status"),
             directors = if (movie) j.child("credits").array("crew").filter { it.str("job") == "Director" }.mapNotNull { it.str("name") }.distinct()
                 else j.array("created_by").mapNotNull { it.str("name") },
             writers = j.child("credits").array("crew").filter { it.str("department") == "Writing" }.mapNotNull { it.str("name") }.distinct().take(4),
             studio = (if (movie) j.array("production_companies") else j.array("networks")).firstOrNull()?.str("name"),
             released = (j.str("release_date") ?: j.str("first_air_date"))?.takeIf { it.isNotBlank() }?.let { d ->
-                runCatching { java.time.LocalDate.parse(d).format(java.time.format.DateTimeFormatter.ofPattern("d MMMM yyyy")) }.getOrDefault(d)
+                runCatching { java.time.LocalDate.parse(d).format(io.github.petebutty.viewarr.ui.theme.Dates.long) }.getOrDefault(d)
             },
             language = j.array("spoken_languages").firstOrNull()?.let { it.str("english_name") ?: it.str("name") },
             budget = j.long("budget")?.takeIf { it > 0 },
@@ -1987,7 +2160,7 @@ class CatalogRepository @Inject constructor(
                     author = r.str("author") ?: "Someone",
                     rating = (r.child("author_details").child("rating") as? JsonPrimitive)?.doubleOrNull,
                     text = text,
-                    date = r.str("created_at")?.take(10)?.let { d -> runCatching { java.time.LocalDate.parse(d).format(java.time.format.DateTimeFormatter.ofPattern("d MMM yyyy")) }.getOrNull() },
+                    date = r.str("created_at")?.take(10)?.let { d -> runCatching { java.time.LocalDate.parse(d).format(io.github.petebutty.viewarr.ui.theme.Dates.medium) }.getOrNull() },
                 )
             },
             similar = j.child("recommendations").array("results").mapNotNull { tmdbItem(it, item.type) }.filter { it.poster != null }.take(20),
@@ -2091,7 +2264,7 @@ class CatalogRepository @Inject constructor(
                 author = c.child("user").str("username") ?: "Trakt user",
                 rating = (c.child("user_rating") as? JsonPrimitive)?.doubleOrNull,
                 text = text,
-                date = c.str("created_at")?.take(10)?.let { d -> runCatching { java.time.LocalDate.parse(d).format(java.time.format.DateTimeFormatter.ofPattern("d MMM yyyy")) }.getOrNull() },
+                date = c.str("created_at")?.take(10)?.let { d -> runCatching { java.time.LocalDate.parse(d).format(io.github.petebutty.viewarr.ui.theme.Dates.medium) }.getOrNull() },
                 source = "Trakt",
                 spoiler = c.str("spoiler") == "true",
                 likes = c.int("likes") ?: 0,
@@ -2340,6 +2513,30 @@ class CatalogRepository @Inject constructor(
     }
 
     /** A title's TMDB id: its own, or looked up from its IMDb id (Stremio addons such as AIOStreams use IMDb ids). */
+    /**
+     * The film or show a guide programme is, on TMDB: by title (without "New: " / "Live"), a series number meaning
+     * a show, a year (films) meaning a film first. Only a close title match counts: a wrong guess is worse than none.
+     */
+    suspend fun guideMatch(title: String, season: Int?, year: Int?): MediaItem? {
+        val key = store.current().tmdbKey ?: return null
+        val q = title.removePrefix("New: ").replace(Regex("^Live:?\\s+", RegexOption.IGNORE_CASE), "").substringBefore(" - ").trim()
+        if (q.isEmpty()) return null
+        fun norm(s: String) = s.lowercase().replace("&", "and").replace(Regex("[^a-z0-9]"), "")
+        val types = when { season != null -> listOf(MediaType.Show); year != null -> listOf(MediaType.Movie, MediaType.Show); else -> listOf(MediaType.Show, MediaType.Movie) }
+        for (type in types) {
+            val path = if (type == MediaType.Movie) "/search/movie" else "/search/tv"
+            val params = buildMap { put("language", "en-GB"); put("query", q); put("include_adult", "false"); if (type == MediaType.Movie && year != null) put("year", year.toString()) }
+            val r = runCatching { http.get(tmdb.url(path, key, params), tmdb.headers(key)) }.getOrNull()?.takeIf { it.ok } ?: continue
+            // With a year known, it has to agree (a film: that year; a show: started within a year of it), so a
+            // 2024 film called "Trap" isn't taken for the 2022 series of the same name.
+            val hit = r.body.array("results").mapNotNull { tmdbItem(it, type) }.firstOrNull { c ->
+                norm(c.title) == norm(q) && (year == null || season != null || c.year == null || kotlin.math.abs(c.year - year) <= 1)
+            }
+            if (hit != null) { tmdbCache[hit.key] = hit; return hit }
+        }
+        return null
+    }
+
     suspend fun tmdbIdFor(item: MediaItem): Int? {
         item.tmdbId?.let { return it }
         val imdb = item.imdbId ?: item.key.substringAfterLast(':').takeIf { it.startsWith("tt") } ?: return null

@@ -4,6 +4,7 @@ import io.github.petebutty.viewarr.ui.theme.appBackground
 
 import io.github.petebutty.viewarr.ui.common.ignoreHeldOk
 import io.github.petebutty.viewarr.ui.common.trapFocus
+import io.github.petebutty.viewarr.ui.common.stopAtRight
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
@@ -720,7 +721,7 @@ private fun FilterPill(text: String, active: Boolean, modifier: Modifier = Modif
  * Done or Down returns to the titles.
  */
 @Composable
-private fun LibrarySearchBox(query: String, onQuery: (String) -> Unit, onFocus: (Boolean) -> Unit, onDone: () -> Unit) {
+internal fun LibrarySearchBox(query: String, onQuery: (String) -> Unit, onFocus: (Boolean) -> Unit, onDone: () -> Unit) {
     var text by remember { mutableStateOf(query) }
     var editing by remember { mutableStateOf(false) }
     var focusedBox by remember { mutableStateOf(false) }
@@ -803,7 +804,9 @@ private val LIBRARY_ORIGINS = setOf("Plex", "Jellyfin", "Emby", "IPTV")
 
 private fun metaLine(item: MediaItem) = listOfNotNull(
     item.year?.toString(),
-    item.rating?.let { "★ %.1f".format(it) },
+    // Library titles carry their server's own score (Plex's is the audience score, already a badge): only TMDB's,
+    // labelled, so it isn't mistaken for the others.
+    item.rating?.takeIf { item.origin !in LIBRARY_ORIGINS }?.let { "TMDB %.1f".format(it) },
     item.origin,
 ).joinToString("  ·  ")
 
@@ -875,12 +878,13 @@ private fun PosterRow(
 
 @Composable
 private fun PosterCard(item: MediaItem, modifier: Modifier, onClick: () -> Unit, onLongClick: () -> Unit = {}, fill: Boolean = false) {
+    var focused by remember { mutableStateOf(false) }
     Surface(
         onClick = onClick,
         onLongClick = onLongClick,
         // In a grid ([fill]): as wide as its column, always 2:3 (a fixed size was squeezed to the column's width
         // but kept its height, so posters came out too wide).
-        modifier = modifier.free().then(if (fill) Modifier.fillMaxWidth().aspectRatio(2f / 3f) else Modifier.size(width = 100.dp, height = 150.dp)),
+        modifier = modifier.free().then(if (fill) Modifier.fillMaxWidth().aspectRatio(2f / 3f) else Modifier.size(width = 100.dp, height = 150.dp)).onFocusChanged { focused = it.isFocused },
         scale = ClickableSurfaceDefaults.scale(scale = 1f, focusedScale = 1f, pressedScale = 1f),
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
         border = ClickableSurfaceDefaults.border(focusedBorder = Border(BorderStroke(3.dp, AppColors.Accent), shape = RoundedCornerShape(8.dp))),
@@ -904,8 +908,13 @@ private fun PosterCard(item: MediaItem, modifier: Modifier, onClick: () -> Unit,
                 modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(Color.Black.copy(alpha = 0.7f)).padding(horizontal = 4.dp, vertical = 3.dp),
             )
             item.progress?.takeIf { AppColors.palette.progressBadges }?.let { p ->
-                Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(4.dp).background(Color.Black.copy(alpha = 0.6f))) {
-                    Box(Modifier.fillMaxHeight().fillMaxWidth(p.coerceIn(0f, 1f)).background(AppColors.Accent))
+                // Inside the artwork, clear of the edge (on the edge it ran into the highlight border); white while
+                // highlighted, so it stands out against the highlight colour.
+                Box(
+                    Modifier.align(Alignment.BottomCenter).padding(start = 8.dp, end = 8.dp, bottom = 8.dp).fillMaxWidth().height(5.dp)
+                        .background(Color.Black.copy(alpha = 0.65f), RoundedCornerShape(3.dp)),
+                ) {
+                    Box(Modifier.fillMaxHeight().fillMaxWidth(p.coerceIn(0.03f, 1f)).background(if (focused) Color.White else AppColors.Accent, RoundedCornerShape(3.dp)))
                 }
             }
         }
@@ -1024,7 +1033,7 @@ private fun DetailScreen(
                 androidx.compose.runtime.CompositionLocalProvider(LocalButtonsFree provides buttonsFree) {
                 // The buttons may run past the text column into the free space on the right, rather than squash.
                 // Down from any of them goes to the selected tab below (not just the nearest one).
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.wrapContentWidth(Alignment.Start, unbounded = true).onFocusChanged { buttonsFocused = it.hasFocus }.onPreviewKeyEvent { e ->
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.Top, modifier = Modifier.wrapContentWidth(Alignment.Start, unbounded = true).onFocusChanged { buttonsFocused = it.hasFocus }.onPreviewKeyEvent { e ->
                     if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionDown && buttonsFree) runCatching { (if (inlineEpisodes && ui.episodes != null) episodesEntry else tabFocus).requestFocus() }.isSuccess else false
                 }) {
                     if (show) {
@@ -1040,9 +1049,9 @@ private fun DetailScreen(
                             }
                             // Holding OK: pick the episode (and its source) yourself.
                             // The seasons and episodes are on the page itself now (below); holding OK still opens the full list.
-                            Button(onClick = vm::playNextUp, onLongClick = vm::openEpisodes, modifier = (Modifier.focusRequester(playFocus)).free()) { Text(if (ui.searching) "Looking…" else label) }
+                            Button(onClick = vm::playNextUp, onLongClick = vm::openEpisodes, modifier = (Modifier.focusRequester(playFocus)).free()) { androidx.compose.material3.Icon(io.github.petebutty.viewarr.ui.common.AppIcons.Play, null, modifier = Modifier.padding(end = 6.dp).size(20.dp), tint = androidx.tv.material3.LocalContentColor.current); Text(if (ui.searching) "Looking…" else label) }
                             // Part-way through that episode: or start it again.
-                            if (next?.third == true) OutlinedButton(onClick = vm::playFromStart, modifier = Modifier.free()) { Text("From the start") }
+                            if (next?.third == true) IconAction(io.github.petebutty.viewarr.ui.common.AppIcons.Replay, "Start over", vm::playFromStart, Modifier.free())
                         } else {
                             Button(onClick = vm::openEpisodes, modifier = (Modifier.focusRequester(playFocus)).free()) { Text("Episodes") }
                         }
@@ -1050,38 +1059,37 @@ private fun DetailScreen(
                         // One Play: home servers, then away, then addons, then IPTV (MediaViewModel.playBest).
                         // OK plays from the best source; holding OK lists every source to pick from.
                         Button(onClick = vm::playBest, onLongClick = { sourcesOpen = true }, modifier = (Modifier.focusRequester(playFocus)).free()) {
+                            androidx.compose.material3.Icon(io.github.petebutty.viewarr.ui.common.AppIcons.Play, null, modifier = Modifier.padding(end = 6.dp).size(20.dp), tint = androidx.tv.material3.LocalContentColor.current)
                             Text(if (ui.searching) "Looking…" else if (item.progress != null) "Resume" else "Play")
                         }
                         // Part-way through: or watch it again from the beginning.
-                        if (item.progress != null) OutlinedButton(onClick = vm::playFromStart, modifier = Modifier.free()) { Text("From the start") }
+                        if (item.progress != null) IconAction(io.github.petebutty.viewarr.ui.common.AppIcons.Replay, "Start over", vm::playFromStart, Modifier.free())
                     }
                     // Films on your own server: pick the soundtrack and subtitles before Play (this play only).
                     if (!show && ui.tracks != null) {
                         val picked = ui.pickedAudio != null || ui.pickedSubtitle != null
-                        OutlinedButton(onClick = { tracksOpen = true }, modifier = Modifier.free()) { Text(if (picked) "Audio & subtitles ✓" else "Audio & subtitles") }
+                        IconAction(io.github.petebutty.viewarr.ui.common.AppIcons.Subtitles, if (picked) "Audio & subtitles (chosen)" else "Audio & subtitles", { tracksOpen = true }, Modifier.free(), on = picked)
                     }
                     // Films: watched / not, on your servers and Trakt.
                     if (!show && ui.watched != null && (!ui.copies.isNullOrEmpty() || ui.hasTrakt)) {
-                        OutlinedButton(onClick = vm::toggleWatched, modifier = Modifier.free()) { Text(if (ui.watched) "Watched ✓" else "Mark watched") }
+                        IconAction(if (ui.watched) io.github.petebutty.viewarr.ui.common.AppIcons.CheckCircle else io.github.petebutty.viewarr.ui.common.AppIcons.Check, if (ui.watched) "Watched (OK to undo)" else "Mark watched", vm::toggleWatched, Modifier.free(), on = ui.watched)
                     }
                     if (!show && !onPlex && !onProvider && !onServer && !ui.hasAddons && ui.copies != null) {
-                        OutlinedButton(onClick = onClose, modifier = (Modifier.focusRequester(playFocus)).free()) { Text("Back") }
+                        IconAction(io.github.petebutty.viewarr.ui.common.AppIcons.Back, "Back", onClose, Modifier.focusRequester(playFocus).free())
                     }
                     if (trailerId != null) {
-                        OutlinedButton(onClick = { trailerOpen = true }, modifier = Modifier.focusRequester(trailerFocus).free()) { Text("Trailer") }
+                        IconAction(io.github.petebutty.viewarr.ui.common.AppIcons.Movie, "Trailer", { trailerOpen = true }, Modifier.focusRequester(trailerFocus).free())
                     }
-                    if (ui.hasTrakt) {
-                        OutlinedButton(onClick = onWatchlist, modifier = Modifier.free()) { Text(if (ui.watchlisted) "Remove from watchlist" else "Add to watchlist") }
+                    if (ui.canWatchlist) {
+                        IconAction(if (ui.watchlisted) io.github.petebutty.viewarr.ui.common.AppIcons.BookmarkFilled else io.github.petebutty.viewarr.ui.common.AppIcons.Bookmark, if (ui.watchlisted) "Remove from watchlist" else "Add to watchlist", onWatchlist, Modifier.free(), on = ui.watchlisted)
                     }
                     // Seerr: ask for it to be kept (Radarr / Sonarr fetch it), or show it's already on the way.
                     val seerrState by produceState<io.github.petebutty.viewarr.data.remote.services.SeerrService.Status?>(null, ui.detail.item.key, ui.message) { value = vm.seerrStatus(ui.detail.item) }
-                    // Not for something you already have.
-                    if (ui.copies.isNullOrEmpty()) seerrState?.takeIf { it != io.github.petebutty.viewarr.data.remote.services.SeerrService.Status.Available }?.let { st ->
+                    // Not for something already on your own server (only on IPTV can still be requested).
+                    if (ui.copies.orEmpty().none { it.source != io.github.petebutty.viewarr.data.media.PROVIDER }) seerrState?.takeIf { it != io.github.petebutty.viewarr.data.remote.services.SeerrService.Status.Available }?.let { st ->
                         val canAsk = st == io.github.petebutty.viewarr.data.remote.services.SeerrService.Status.None ||
                             st == io.github.petebutty.viewarr.data.remote.services.SeerrService.Status.Partial
-                        OutlinedButton(onClick = { if (canAsk) vm.requestOnSeerr(ui.detail.item) }, modifier = Modifier.free()) {
-                            Text(if (canAsk) "Request" else if (st == io.github.petebutty.viewarr.data.remote.services.SeerrService.Status.Available) "On Seerr: available" else "Requested")
-                        }
+                        IconAction(if (canAsk) io.github.petebutty.viewarr.ui.common.AppIcons.Add else io.github.petebutty.viewarr.ui.common.AppIcons.Clock, if (canAsk) "Request on Seerr" else "Requested on Seerr", { if (canAsk) vm.requestOnSeerr(ui.detail.item) }, Modifier.free(), on = !canAsk)
                     }
                 }
                 }
@@ -1320,7 +1328,7 @@ private fun EpisodeActionsFor(ui: DetailUi, vm: MediaViewModel) {
     val ep = ui.episode ?: return
     val plex = ui.plexEpisodes[ep.season to ep.number]
     EpisodeActions(
-        title = "S${ep.season} E${ep.number} · ${ep.name}",
+        title = "S${ep.season} · E${ep.number}  ${ep.name}",
         plexLabel = plex?.let { if (it.viewOffsetMs > 0 && !it.watched) "Resume on Plex" else "Play on Plex" },
         onProvider = if ((ep.season to ep.number) in ui.providerEpisodes) ({ vm.playProviderEpisode(ep.season, ep.number) }) else null,
         serverLabel = ui.serverEpisodes[ep.season to ep.number]?.let { se ->
@@ -1346,11 +1354,13 @@ private fun InlineEpisodes(ui: DetailUi, vm: MediaViewModel, free: Boolean, entr
     val item = ui.detail.item
     fun watched(s: Int, e: Int) = ui.plexEpisodes[s to e]?.watched == true || ui.serverEpisodes[s to e]?.watched == true || (s to e) in ui.traktEpisodes
     // Opens on the season you're up to (once that's known; a few seconds at most), else the first.
+    val latest by androidx.compose.runtime.rememberUpdatedState(ui)
     LaunchedEffect(ui.seasons.size, ui.nextUpChecked) {
         if (ui.seasons.isEmpty() || ui.season != null) return@LaunchedEffect
-        if (!ui.nextUpChecked && item.nextSeason == null) { kotlinx.coroutines.delay(4_000); if (ui.season != null) return@LaunchedEffect }
+        // After the wait, the current state (not the one this started with): a season chosen meanwhile stays.
+        if (!ui.nextUpChecked && item.nextSeason == null) { kotlinx.coroutines.delay(4_000); if (latest.season != null) return@LaunchedEffect }
         val want = item.nextSeason ?: ui.nextUp?.first
-        vm.selectSeason(want?.takeIf { n -> ui.seasons.any { it.number == n } } ?: ui.seasons.first().number)
+        vm.selectSeason(want?.takeIf { n -> ui.seasons.any { it.number == n } } ?: ui.seasons.minOf { it.number })
     }
     val seasonFocus = remember { FocusRequester() }
     val seasonRow = androidx.compose.foundation.lazy.rememberLazyListState()
@@ -1584,11 +1594,13 @@ private fun QuickOptions(item: MediaItem, vm: MediaViewModel, onTrailer: () -> U
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             Text(item.title, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            listOfNotNull(item.year?.toString(), item.origin).joinToString("  ·  ").takeIf { it.isNotEmpty() }?.let {
+            val seerrAsk = seerrStatus == io.github.petebutty.viewarr.data.remote.services.SeerrService.Status.None ||
+                seerrStatus == io.github.petebutty.viewarr.data.remote.services.SeerrService.Status.Partial
+            listOfNotNull(item.year?.toString(), item.origin, seerrStatus?.takeIf { !seerrAsk }?.label).joinToString("  ·  ").takeIf { it.isNotEmpty() }?.let {
                 Text(it, fontSize = 12.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(bottom = 8.dp))
             }
             io.github.petebutty.viewarr.ui.common.MenuItem(
-                text = if (show) "Episodes" else "Play",
+                text = if (show) "Episodes" else if (item.progress != null) "Resume" else "Play",
                 selected = false,
                 modifier = Modifier.focusRequester(first),
                 onClick = { onClose(); if (show) vm.quickEpisodes(item) else vm.quickPlay(item) },
@@ -1602,7 +1614,7 @@ private fun QuickOptions(item: MediaItem, vm: MediaViewModel, onTrailer: () -> U
                     onClick = { onClose(); vm.quickWatchlist(item, add = !on) },
                 )
             }
-            seerrStatus?.let { st ->
+            seerrStatus?.takeIf { seerrAsk }?.let { st ->
                 val canAsk = st == io.github.petebutty.viewarr.data.remote.services.SeerrService.Status.None ||
                     st == io.github.petebutty.viewarr.data.remote.services.SeerrService.Status.Partial
                 io.github.petebutty.viewarr.ui.common.MenuItem(
@@ -1725,7 +1737,8 @@ private fun DetailTabs(
     if (tabs.isEmpty()) return
     var tab by remember(d.item.key) { mutableStateOf(tabs.first()) }
     if (tab !in tabs) tab = tabs.first()
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    // Right past the last tab stays put (it used to jump up to the Play button).
+    Row(Modifier.stopAtRight(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         tabs.forEach { t ->
             Surface(
                 onClick = { tab = t },
@@ -1905,5 +1918,38 @@ private fun PersonHeader(p: io.github.petebutty.viewarr.data.media.PersonInfo) {
                 modifier = Modifier.padding(top = 6.dp),
             ) }
         }
+    }
+}
+
+
+/**
+ * A title page action as an icon in a circle (like the player's controls), its name underneath while it's
+ * highlighted. [on]: a state that's set (watched, on your watchlist, tracks chosen) shows filled in.
+ */
+@Composable
+private fun IconAction(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit, modifier: Modifier = Modifier, on: Boolean = false) {
+    var focused by remember { mutableStateOf(false) }
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(48.dp)) {
+        Surface(
+            onClick = onClick,
+            modifier = modifier.size(44.dp).onFocusChanged { focused = it.isFocused },
+            scale = ClickableSurfaceDefaults.scale(scale = 1f, focusedScale = 1.08f, pressedScale = 1f),
+            shape = ClickableSurfaceDefaults.shape(CircleShape),
+            border = ClickableSurfaceDefaults.border(border = Border(androidx.compose.foundation.BorderStroke(1.5.dp, Color.White.copy(alpha = 0.45f)))),
+            colors = ClickableSurfaceDefaults.colors(
+                containerColor = if (on) Color.White.copy(alpha = 0.22f) else Color.Black.copy(alpha = 0.25f),
+                contentColor = Color.White,
+                focusedContainerColor = Color.White,
+                focusedContentColor = Color.Black,
+            ),
+        ) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                androidx.compose.material3.Icon(icon, contentDescription = label, tint = if (focused) Color.Black else Color.White, modifier = Modifier.size(22.dp))
+            }
+        }
+        Text(
+            if (focused) label else "", fontSize = 12.sp, color = Color.White, maxLines = 1, softWrap = false,
+            modifier = Modifier.padding(top = 4.dp).wrapContentWidth(unbounded = true),
+        )
     }
 }

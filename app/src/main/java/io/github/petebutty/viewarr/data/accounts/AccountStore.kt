@@ -64,6 +64,13 @@ data class Accounts(
     val musicOff: Set<String> = emptySet(),
     /** Music turned on in setup (Settings → Accounts & sources → Music). Off: no Music in the menu or search. */
     val musicEnabled: Boolean? = null,
+    /**
+     * Away addresses: a home address (scheme://host:port, e.g. http://192.168.1.50:9191) → the address that reaches
+     * it from outside (https://tv.example.com). Away from home, requests to the home address go there instead.
+     */
+    val away: Map<String, String> = emptyMap(),
+    /** Which watchlist Add / Remove and the "Your watchlist" row use: trakt, plex, jellyfin or emby (null: the first connected). */
+    val watchlist: String? = null,
 ) {
     /** Music on: only once you choose it in setup (off by default). */
     val musicOn: Boolean get() = musicEnabled == true

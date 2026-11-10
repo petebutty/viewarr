@@ -26,6 +26,25 @@ private fun enc(s: String) = URLEncoder.encode(s, "UTF-8")
 class SubsonicClient @Inject constructor(val http: HttpJson) {
 
     /** Checks the address and login; returns what to keep (no password). */
+    /**
+     * A new Navidrome user (not an admin), made with an admin's login through Navidrome's own API. The admin's
+     * password is used for this alone and not kept.
+     */
+    suspend fun createUser(server: String, adminUser: String, adminPassword: String, userName: String, password: String): Result<Unit> = runCatching {
+        val base = server.trimEnd('/')
+        val login = http.post("$base/auth/login", kotlinx.serialization.json.buildJsonObject {
+            put("username", kotlinx.serialization.json.JsonPrimitive(adminUser)); put("password", kotlinx.serialization.json.JsonPrimitive(adminPassword))
+        })
+        check(login.ok) { "Navidrome didn't accept your password." }
+        check((login.body.child("isAdmin") as? kotlinx.serialization.json.JsonPrimitive)?.content == "true") { "Your Navidrome user isn't an admin, so it can't make users." }
+        val token = login.body.str("token") ?: error("Navidrome didn't sign you in.")
+        val made = http.post("$base/api/user", kotlinx.serialization.json.buildJsonObject {
+            put("userName", kotlinx.serialization.json.JsonPrimitive(userName)); put("name", kotlinx.serialization.json.JsonPrimitive(userName))
+            put("password", kotlinx.serialization.json.JsonPrimitive(password)); put("isAdmin", kotlinx.serialization.json.JsonPrimitive(false))
+        }, mapOf("x-nd-authorization" to "Bearer $token"))
+        check(made.ok) { if (made.code == 400 || made.code == 409) "Navidrome already has a user called $userName: use Their existing login instead." else "Navidrome wouldn't make the user (error ${made.code})." }
+    }
+
     suspend fun connect(address: String, user: String, password: String): Result<NavidromeAuth> {
         val a = address.trim().trimEnd('/')
         if (a.isEmpty()) return Result.failure(Exception("Enter your Navidrome address."))

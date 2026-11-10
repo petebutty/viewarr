@@ -5,6 +5,8 @@ import io.github.petebutty.viewarr.ui.theme.appBackground
 import io.github.petebutty.viewarr.ui.common.ignoreHeldOk
 import io.github.petebutty.viewarr.ui.common.trapFocus
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.type
@@ -129,8 +131,8 @@ class DvrViewModel @Inject constructor(
 
 private val dayTime = SimpleDateFormat("EEE d MMM, HH:mm", Locale.UK)
 private val time = SimpleDateFormat("HH:mm", Locale.UK)
-private fun span(start: Long, end: Long) = "${dayTime.format(Date(start))}–${time.format(Date(end))}"
-private fun episodeTag(season: Int?, episode: Int?) = if (season != null && episode != null) " · S$season E$episode" else ""
+private fun span(start: Long, end: Long) = "${io.github.petebutty.viewarr.ui.theme.Dates.dayTime(start)}–${io.github.petebutty.viewarr.ui.theme.Dates.time(end)}"
+private fun episodeTag(season: Int?, episode: Int?) = if (season != null && episode != null) " · S$season · E$episode" else ""
 
 /** Small centred panel of choices, used for the record options and the recording options. */
 @Composable
@@ -150,19 +152,23 @@ internal fun ChoicePanel(
     }
     Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.55f)), contentAlignment = Alignment.Center) {
         Column(
-            Modifier.width(520.dp).background(AppColors.Panel, RoundedCornerShape(14.dp)).padding(24.dp).trapFocus()
+            Modifier.width(400.dp)
+                // Long lists (a show with many series) scroll with the focus rather than running off the screen.
+                .heightIn(max = (androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp * 0.92f).dp)
+                .background(AppColors.Panel, RoundedCornerShape(14.dp)).verticalScroll(androidx.compose.foundation.rememberScrollState())
+                .padding(horizontal = 18.dp, vertical = 16.dp).trapFocus()
                 .then(Modifier.ignoreHeldOk()),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
-            Text(title, fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Text(subtitle, fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(bottom = 12.dp))
+            Text(title, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(subtitle, fontSize = 12.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(bottom = 8.dp))
             description?.takeIf { it.isNotBlank() }?.let {
                 Text(it, fontSize = 14.sp, lineHeight = 20.sp, color = AppColors.TextPrimary, maxLines = 7, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(bottom = 14.dp))
             }
             choices.forEachIndexed { i, (label, action) ->
-                MenuItem(text = label, selected = false, onClick = action, modifier = if (i == 0) Modifier.focusRequester(first) else Modifier)
+                MenuItem(text = label, selected = false, onClick = action, compact = true, modifier = if (i == 0) Modifier.focusRequester(first) else Modifier)
             }
-            message?.let { Text(it, fontSize = 14.sp, color = AppColors.Accent, modifier = Modifier.padding(top = 10.dp)) }
+            message?.let { Text(it, fontSize = 13.sp, color = AppColors.Accent, modifier = Modifier.padding(top = 8.dp)) }
         }
     }
 }
@@ -194,11 +200,17 @@ fun ProgramInfoDialog(channel: ChannelListItem, program: GuideProgram, vm: DvrVi
 @Composable
 fun RecordDialog(
     channel: ChannelListItem, program: GuideProgram, vm: DvrViewModel, onDetails: (() -> Unit)? = null,
-    /** Started already: find it on your servers / addons and play it from the beginning. */
+    /** Started already: from the beginning (catch-up, else your servers / addons). */
     onWatchFromStart: (() -> Unit)? = null,
+    /** The film's / show's page (a show: its episodes, where you're up to). */
+    onGoTo: (() -> Unit)? = null,
+    /** Seerr set up: request the film / show from here; this opens the choose-series picker. */
+    onChooseSeasons: ((GuideMatch) -> Unit)? = null,
     onClose: () -> Unit,
 ) {
-    val message by vm.message.collectAsStateWithLifecycle()
+    val dvrMessage by vm.message.collectAsStateWithLifecycle()
+    val (seerrChoices, seerrMessage) = if (onChooseSeasons != null) guideRequestChoices(program, onChooseSeasons) else (emptyList<Pair<String, () -> Unit>>() to null)
+    val message = dvrMessage ?: seerrMessage
     vm.recordings.collectAsStateWithLifecycle().value // recompose when the list changes
     vm.rules.collectAsStateWithLifecycle().value
     var done by remember { mutableStateOf(false) }
@@ -217,20 +229,30 @@ fun RecordDialog(
     val rule = vm.ruleFor(channel, program)
     val reminders by vm.reminders.collectAsStateWithLifecycle()
     val reminder = reminders.firstOrNull { it.channelId == channel.id && it.start == program.startTime }
-    val canRecord = vm.allowed.collectAsStateWithLifecycle().value != false && !vm.xc.collectAsStateWithLifecycle().value
+    // Dispatcharr's dvr_access: Standard users can only watch recordings unless an admin lets them record.
+    val canRecord = vm.allowed.collectAsStateWithLifecycle().value != false && !vm.xc.collectAsStateWithLifecycle().value && io.github.petebutty.viewarr.data.profiles.Access.record
     val future = program.startTime > System.currentTimeMillis()
+    // A film (TMDB says so, or the guide lists it like one: no series / episode, "Action · 2017 —"): no series recording.
+    val guideVm: GuideRequestViewModel = androidx.hilt.navigation.compose.hiltViewModel()
+    val matched by guideVm.match.collectAsStateWithLifecycle()
+    val isFilm = matched?.item?.type == io.github.petebutty.viewarr.data.media.MediaType.Movie ||
+        (program.season == null && program.episode == null &&
+            Regex("^[A-Za-z][A-Za-z &/'-]{1,30} · (19|20)\\d{2}\\b").containsMatchIn(program.description.orEmpty()))
     val choices = if (canRecord && rec != null) buildList<Pair<String, () -> Unit>> {
         // Already set to record: just the way to undo it (and keep it), not the record / remind options again.
         if (rec.state == DvrState.Recording) add("Stop recording" to { run { vm.stop(rec) } })
         else add("Cancel this recording" to { run { vm.cancel(rec) } })
         if (rule != null) add("Stop series recording" to { run { vm.removeRule(rule) } })
         add((if (rec.state == DvrState.Recording) "Keep recording" else "Keep this recording") to onClose)
-        onWatchFromStart?.let { add("Watch it now (your library / addons)" to it) }
+        if (!future) onWatchFromStart?.let { add("Start over" to it) }
+        onGoTo?.let { add((if (isFilm) "Go to film" else "Go to show") to it) }
+        seerrChoices.forEach { (l, f) -> add(l to { if (l == SEERR_MORE) f() else run(f) }) }
         onDetails?.let { add("Details" to it) }
     } else buildList<Pair<String, () -> Unit>> {
         // The film or episode from your servers (Plex, Jellyfin, Emby) or addons: from the start if it's on or has
         // aired, or now if it's still to come.
-        if (onWatchFromStart != null) add((if (future) "Watch it now (your library / addons)" else "Watch from the start (your library / addons)") to onWatchFromStart)
+        if (onWatchFromStart != null && !future) add("Start over" to onWatchFromStart)
+        onGoTo?.let { add((if (isFilm) "Go to film" else "Go to show") to it) }
         if (!canRecord) {
             // No recordings here (IPTV provider login, or a Dispatcharr user without DVR access): reminders still work.
         } else when {
@@ -240,7 +262,7 @@ fun RecordDialog(
             program.endTime <= System.currentTimeMillis() -> Unit
             else -> add((if (program.startTime <= System.currentTimeMillis()) "Record from now" else "Record this programme") to { run { vm.record(channel, program) } })
         }
-        if (canRecord) {
+        if (canRecord && (!isFilm || rule != null)) {
             if (rule != null) add("Stop series recording" to { run { vm.removeRule(rule) } })
             else {
                 add("Record series: every episode" to { run { vm.recordSeries(channel, program, newOnly = false) } })
@@ -251,6 +273,8 @@ fun RecordDialog(
             if (reminder != null) add("Cancel reminder" to { vm.forget(reminder.id); onClose() })
             else add("Remind me when it starts" to { run { vm.remind(channel, program) } })
         }
+        // Seerr: one line (the film; a show opens its own panel: whole show, this season, chosen seasons).
+        seerrChoices.forEach { (l, f) -> add(l to { if (l == SEERR_MORE) f() else run(f) }) }
         onDetails?.let { add("Details" to it) }
         add("Close" to onClose)
     }

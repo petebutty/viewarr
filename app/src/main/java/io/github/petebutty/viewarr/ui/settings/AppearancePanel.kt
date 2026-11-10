@@ -85,6 +85,10 @@ class AppearanceViewModel @Inject constructor(private val store: ThemeStore) : V
     fun setTransparency(value: Float) {
         viewModelScope.launch { store.saveTransparency(value) }
     }
+
+    fun setGuideTransparency(value: Float) {
+        viewModelScope.launch { store.saveGuideTransparency(value) }
+    }
 }
 
 private class Choice(override val label: String, val value: Any) : io.github.petebutty.viewarr.data.settings.RemoteChoice {
@@ -105,14 +109,17 @@ fun AppearanceSettingsScreen(onBack: () -> Unit, vm: AppearanceViewModel = hiltV
     val highs = HighlightChoices.mapIndexed { i, c -> Choice(HighlightNames.getOrElse(i) { "Colour ${i + 1}" }, c) }
     val onOff = listOf(Choice("On", true), Choice("Off", false))
     val corners = listOf(Choice("Rounded", false), Choice("Square", true))
-    val transparencies = (0..70 step 10).map { Choice(if (it == 0) "Solid" else "$it%", it) }
-    val currentT = ((palette.transparency * 100).roundToInt() / 10 * 10).coerceIn(0, 70)
+    val transparencies = (0..100 step 10).map { Choice(if (it == 0) "Solid" else "$it%", it) }
+    val currentT = ((palette.transparency * 100).roundToInt() / 10 * 10).coerceIn(0, 100)
+    val currentG = ((palette.guideTransparency * 100).roundToInt() / 10 * 10).coerceIn(0, 100)
     val wallModes = io.github.petebutty.viewarr.ui.theme.WallpaperModes.map { (v, n) -> Choice(n, v) }
     val wallStyles = io.github.petebutty.viewarr.ui.theme.WallpaperStyles.mapIndexed { i, w -> Choice(w.name, i) }
-    val dims = (30..90 step 10).map { Choice(if (it <= 40) "$it% (light)" else if (it >= 80) "$it% (dark)" else "$it%", it) }
-    val categories = listOf(
+    val dims = (30..90 step 10).map { Choice("$it%", it) }
+    // Low-memory mode: settings for what it turns off are hidden.
+    val low = palette.lowMemory
+    val categories = listOfNotNull(
         SettingCategory(
-            "Colours", "How Viewarr looks. Changes show straight away.",
+            "Colours & text", "Colours, text size, the clock and how dates and times show. Changes show straight away.",
             listOf(
                 SettingItem("Theme", "A ready-made pair of background and highlight colours.", presets,
                     presets.firstOrNull { it.value == currentPreset?.name } ?: Choice("Custom", "custom")) { c ->
@@ -120,7 +127,7 @@ fun AppearanceSettingsScreen(onBack: () -> Unit, vm: AppearanceViewModel = hiltV
                 },
                 // With a wallpaper on, the background colour is only its tint (Dimming sets that): hidden to avoid
                 // two settings that seem to do the same thing.
-                *(if (palette.wallpaper != 0) emptyArray() else arrayOf(
+                *(if (palette.wallpaperMode != 0) emptyArray() else arrayOf(
                 SettingItem("Background colour", "The main colour behind menus and pages.", mains,
                     mains.firstOrNull { it.value == palette.main } ?: Choice("Custom", palette.main)) { c ->
                     vm.apply((c as Choice).value as androidx.compose.ui.graphics.Color, palette.highlight)
@@ -131,19 +138,30 @@ fun AppearanceSettingsScreen(onBack: () -> Unit, vm: AppearanceViewModel = hiltV
                 },
                 optItem(opts, "Text size", "How big text and everything else on screen is. Larger is easier to read from the sofa.", io.github.petebutty.viewarr.ui.theme.UiOpts.TEXT_SIZE),
                 optItem(opts, "Clock", "The time in the top corner.", io.github.petebutty.viewarr.ui.theme.UiOpts.CLOCK),
-                SettingItem("Menu transparency", "How much of the picture shows through the side menu while you watch full screen. Over the guide and other pages the menu is always solid.", transparencies,
-                    transparencies.first { it.value == currentT }) { c -> vm.setTransparency(((c as Choice).value as Int) / 100f) }
+                optItem(opts, "Date format", "How dates show across Viewarr: the guide, recordings, episodes and reviews.", io.github.petebutty.viewarr.ui.theme.UiOpts.DATE_ORDER),
+                optItem(opts, "Time format", "24-hour or 12-hour times: the guide, the clock, programme times and recordings.", io.github.petebutty.viewarr.ui.theme.UiOpts.TIME_FORMAT),
             ),
         ),
-        SettingCategory(
+        // Low-memory mode: no wallpaper at all (plain Viewarr colours), so no settings for it.
+        if (low) null else SettingCategory(
             "Wallpaper", "A picture behind the guide, menus and settings, darkened so text stays easy to read.",
             buildList {
                 add(SettingItem("Wallpaper", "None, a built-in design, or the artwork of the programme you've highlighted. (Movies and Shows always show the highlighted title's artwork.)", wallModes,
                     wallModes.firstOrNull { it.value == palette.wallpaper } ?: wallModes[0]) { c -> vm.setWallpaper(((c as Choice).value as Int), palette.wallpaperStyle, palette.wallpaperDim) })
                 if (palette.wallpaper == 1) add(SettingItem("Design", "Which built-in wallpaper.", wallStyles,
                     wallStyles[palette.wallpaperStyle.coerceIn(0, wallStyles.lastIndex)]) { c -> vm.setWallpaper(1, (c as Choice).value as Int, palette.wallpaperDim) })
-                if (palette.wallpaper != 0) add(SettingItem("Dimming", "How dark the wallpaper is under the menus and text.", dims,
-                    dims.firstOrNull { it.value == (palette.wallpaperDim * 100).roundToInt() / 10 * 10 } ?: dims[3]) { c ->
+            },
+        ),
+        // Every transparency in one place, as sliders (Left / Right).
+        SettingCategory(
+            "Transparency", "Left / Right on each: how much shows through. Solid hides what's behind completely.",
+            buildList {
+                add(SettingItem("Channel list", "The channel list and its programmes over full-screen live TV.", transparencies,
+                    transparencies.first { it.value == currentT }, slider = true) { c -> vm.setTransparency(((c as Choice).value as Int) / 100f) })
+                add(SettingItem("Guide", "The guide's channel names and programmes (the one you're on stays solid). Shows more of the wallpaper behind.", transparencies,
+                    transparencies.first { it.value == currentG }, slider = true) { c -> vm.setGuideTransparency(((c as Choice).value as Int) / 100f) })
+                if (palette.wallpaperMode != 0) add(SettingItem("Wallpaper dimming", "How dark the wallpaper is under the menus and text.", dims,
+                    dims.firstOrNull { it.value == (palette.wallpaperDim * 100).roundToInt() / 10 * 10 } ?: dims[3], slider = true) { c ->
                     vm.setWallpaper(palette.wallpaper, palette.wallpaperStyle, ((c as Choice).value as Int) / 100f)
                 })
             },
@@ -158,7 +176,9 @@ fun AppearanceSettingsScreen(onBack: () -> Unit, vm: AppearanceViewModel = hiltV
                 SettingItem("Corners", "Rounded or square corners on the guide's programmes and channel names.", corners,
                     if (palette.squareCorners) corners[1] else corners[0]) { c -> vm.setSquareCorners((c as Choice).value == true) },
                 optItem(opts, "Channel logos", "Logos beside the channel names.", io.github.petebutty.viewarr.ui.theme.UiOpts.CHANNEL_LOGOS),
-                optItem(opts, "Programme pictures", "The highlighted programme's picture at the top of the guide. Off: no pictures are looked up (the channel's logo shows instead).", io.github.petebutty.viewarr.ui.theme.UiOpts.GUIDE_ART),
+            ) + listOfNotNull(
+                // Low-memory mode: no programme pictures at all, so no setting for them.
+                if (low) null else optItem(opts, "Programme pictures", "The highlighted programme's picture at the top of the guide. Off: no pictures are looked up (the channel's logo shows instead).", io.github.petebutty.viewarr.ui.theme.UiOpts.GUIDE_ART),
             ),
         ),
         SettingCategory(
@@ -170,11 +190,12 @@ fun AppearanceSettingsScreen(onBack: () -> Unit, vm: AppearanceViewModel = hiltV
         ),
         SettingCategory(
             "Title pages", "What a film's or show's page shows. Anything off isn't fetched either, so pages open with less to do.",
-            io.github.petebutty.viewarr.ui.theme.TitleParts.sections.map { (id, text) ->
+            io.github.petebutty.viewarr.ui.theme.TitleParts.sections.filter { (id, _) -> !(low && id == io.github.petebutty.viewarr.ui.theme.TitleParts.LOGO) }.map { (id, text) ->
                 SettingItem(text.first, text.second, onOff, if (palette.shows(id)) onOff[0] else onOff[1]) { c -> vm.setTitlePart(id, (c as Choice).value == true) }
             },
         ),
-        SettingCategory(
+        // Low-memory mode fetches only TMDB's rating: nothing to choose.
+        if (low) null else SettingCategory(
             "Ratings", "Which ratings show on title pages and the Movies / Shows header. With all but TMDB off, the other ratings aren't fetched.",
             io.github.petebutty.viewarr.ui.theme.TitleParts.ratings.map { (src, name) ->
                 val id = io.github.petebutty.viewarr.ui.theme.TitleParts.rating(src)
@@ -190,7 +211,7 @@ fun AppearanceSettingsScreen(onBack: () -> Unit, vm: AppearanceViewModel = hiltV
         ),
     )
     SettingsPage(title = "Appearance", categories = categories, onBack = onBack, onReset = {
-        vm.apply(ThemePresets[0].main, ThemePresets[0].highlight); vm.setTransparency(0f)
+        vm.apply(ThemePresets[0].main, ThemePresets[0].highlight); vm.setTransparency(0f); vm.setGuideTransparency(0f)
         vm.setShowNumbers(true); vm.setSquareCorners(true); vm.setHideMedia(false); vm.setWallpaper(0, 0, 0.6f); vm.resetTitleParts()
         opts.reset(listOf(io.github.petebutty.viewarr.ui.theme.UiOpts.TEXT_SIZE, io.github.petebutty.viewarr.ui.theme.UiOpts.CLOCK, io.github.petebutty.viewarr.ui.theme.UiOpts.CHANNEL_LOGOS, io.github.petebutty.viewarr.ui.theme.UiOpts.GUIDE_ART, io.github.petebutty.viewarr.ui.theme.UiOpts.BADGE_SOURCE, io.github.petebutty.viewarr.ui.theme.UiOpts.BADGE_PROGRESS))
     })

@@ -326,6 +326,7 @@ class PlaybackViewModel @Inject constructor(
             .setReadTimeoutMs(20_000)
             // Optional for Dispatcharr's proxy, but attributes the stream to this user (limits, "who's watching").
             .setDefaultRequestProperties(if (session.isDirect) emptyMap() else mapOf("X-API-Key" to session.apiKey))
+        val httpSource = io.github.petebutty.viewarr.data.net.reachOf(http)
         val extractors = DefaultExtractorsFactory().setTsExtractorFlags(
             DefaultTsPayloadReaderFactory.FLAG_ALLOW_NON_IDR_KEYFRAMES or
                 DefaultTsPayloadReaderFactory.FLAG_DETECT_ACCESS_UNITS
@@ -341,7 +342,7 @@ class PlaybackViewModel @Inject constructor(
                     .setEnableDecoderFallback(true)
                     .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON),
             )
-            .setMediaSourceFactory(DefaultMediaSourceFactory(http, extractors))
+            .setMediaSourceFactory(DefaultMediaSourceFactory(httpSource, extractors))
             .setLoadControl(loadControl)
             .build()
     }

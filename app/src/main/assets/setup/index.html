@@ -151,7 +151,10 @@ a.link.alt{background:transparent;border:1px solid var(--line);color:var(--text)
   }
 
   // ---------- screens ----------
+  // Opened from the TV's "Someone gave me sign-in details" screen: just the address and the key.
+  const invitedMode = new URLSearchParams(location.search).get('mode') === 'invited';
   function show() {
+    if (invitedMode) return invitedScreen();
     if (pos < 0) return chooseScreen();
     if (pos >= chosen.length) return doneScreen();
     ({ livetv: liveTv, tmdb: tmdb, trakt: () => linkScreen('trakt'), plex: () => linkScreen('plex'),
@@ -161,6 +164,7 @@ a.link.alt{background:transparent;border:1px solid var(--line);color:var(--text)
   function chooseScreen() {
     const pre = chosen.length ? chosen : items.filter((i) => !i.status && (i.id === 'livetv' || i.id === 'tmdb')).map((i) => i.id);
     render(`<h1>What do you want to set up?</h1>
+      <div class="note">Sent an invite by someone who shares their Viewarr? <a href="#" id="hasinvite"><b>I have an invite</b></a>: that's all you need.</div>
       <p>Tick everything you use, then tap Continue. Things already connected are marked; tick them only to change them.</p>
       <div id="list">${items.map((i) => `
         <label class="choice ${pre.includes(i.id) ? 'on' : ''}"><input type="checkbox" value="${i.id}" ${pre.includes(i.id) ? 'checked' : ''}>
@@ -175,6 +179,7 @@ a.link.alt{background:transparent;border:1px solid var(--line);color:var(--text)
         if (t && !t.checked) { t.checked = true; t.closest('.choice').classList.add('on'); }
       }
     }));
+    view.querySelector('#hasinvite').addEventListener('click', (ev) => { ev.preventDefault(); inviteScreen(); });
     view.querySelector('#go').addEventListener('click', () => {
       const picked = [...view.querySelectorAll('.choice input:checked')].map((c) => c.value);
       chosen = items.map((i) => i.id).filter((id) => picked.includes(id));
@@ -182,9 +187,56 @@ a.link.alt{background:transparent;border:1px solid var(--line);color:var(--text)
     });
   }
 
+  // Someone shared their Viewarr: the invite and your password are all it takes (setup is then done on the TV).
+  function inviteScreen() {
+    render(`<h1>Sign in with your invite</h1>
+      <p>Paste the whole invite message you were sent (it has <b>VIEWARR1.</b> in it), then the password you were given.</p>
+      <form id="invonly" autocomplete="off" novalidate>
+        <label class="f" for="icode2">Invite</label><textarea id="icode2" rows="4" autocapitalize="off" autocorrect="off" spellcheck="false"></textarea>
+        <label class="f" for="ipass2">Your password</label><input type="password" id="ipass2" autocomplete="current-password"><label class="show"><input type="checkbox" onchange="document.getElementById('ipass2').type=this.checked?'text':'password'"> Show password</label>
+        <div class="btns"><button class="primary" type="submit">Sign in</button><button class="ghost" type="button" id="invback">Back</button></div><div class="msg"></div>
+      </form>`);
+    view.querySelector('#invback').addEventListener('click', () => { pos = -1; show(); });
+    view.querySelector('#invonly').addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const btn = view.querySelector('#invonly button[type=submit]');
+      const values = { invite: view.querySelector('#icode2').value, password: view.querySelector('#ipass2').value };
+      if (!values.invite.trim() || !values.password) return msg('Paste the invite and enter your password.', 'err');
+      busy(btn, true, 'Signing in…'); msg('');
+      try {
+        const r = await api('livetv-invite', values);
+        if (!r.ok) { msg(r.message || "That didn't work.", 'err'); return; }
+        render(`<h1>You're in</h1><p>${esc(r.message || 'Signed in.')}</p><p>Your TV is ready: everything you were given is set up. You can close this page.</p>`);
+      } catch (err) { msg(err.message, 'err'); } finally { busy(btn, false); }
+    });
+  }
+
+  function invitedScreen() {
+    render(`<h1>Sign in to Viewarr</h1>
+      <p>Enter the details you were sent by whoever shares their Viewarr with you.</p>
+      <form id="invd" autocomplete="off" novalidate>
+        <label class="f" for="iaddr">Server address</label><input type="text" id="iaddr" inputmode="url" placeholder="tv.example.com" autocapitalize="none" autocorrect="off" spellcheck="false">
+        <label class="f" for="ikey">API key</label><input type="text" id="ikey" autocapitalize="none" autocorrect="off" spellcheck="false">
+        <div class="note">Long-press the message you were sent, copy the key, and paste it here.</div>
+        <div class="btns"><button class="primary" type="submit">Sign in</button></div><div class="msg"></div>
+      </form>`);
+    view.querySelector('#invd').addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const btn = view.querySelector('#invd button[type=submit]');
+      const values = { server: val('iaddr'), apiKey: val('ikey') };
+      if (!values.server || !values.apiKey) return msg('Enter the server address and the API key.', 'err');
+      busy(btn, true, 'Signing in…'); msg('');
+      try {
+        const r = await api('invited', values);
+        if (!r.ok) { msg(r.message || "That didn't work.", 'err'); return; }
+        render(`<h1>You're in</h1><p>${esc(r.message || 'Signed in.')}</p><p>Your TV is getting ready: look at the TV for a short tour. You can close this page.</p>`);
+      } catch (err) { msg(err.message, 'err'); } finally { busy(btn, false); }
+    });
+  }
+
   function liveTv() {
     render(`<h1>Live TV</h1>
-      <div class="tabs"><button type="button" data-s="d" class="on">Dispatcharr</button><button type="button" data-s="x">IPTV login</button><button type="button" data-s="m">M3U playlist</button></div>
+      <div class="tabs"><button type="button" data-s="d" class="on">Dispatcharr</button><button type="button" data-s="x">IPTV login</button><button type="button" data-s="m">M3U playlist</button><button type="button" data-s="i">Invite</button></div>
       <form id="dform" autocomplete="off" novalidate>
         <div id="found"></div>
         <label class="f" for="server">Dispatcharr address</label><input type="text" id="server" inputmode="url" placeholder="192.168.1.50:9191" autocapitalize="off" spellcheck="false">
@@ -210,6 +262,14 @@ a.link.alt{background:transparent;border:1px solid var(--line);color:var(--text)
           ${nav('<button class="primary" type="submit">Connect</button>')}
         </form>
       </div>
+      <div id="invform" hidden>
+        <form id="inv" autocomplete="off" novalidate>
+          <div class="note">Someone shared their Viewarr with you? Paste the whole invite message they sent (it has <b>VIEWARR1.</b> in it), then your password.</div>
+          <label class="f" for="icode">Invite</label><textarea id="icode" rows="4" autocapitalize="off" autocorrect="off" spellcheck="false"></textarea>
+          <label class="f" for="ipass">Your password</label><input type="password" id="ipass" autocomplete="current-password"><label class="show"><input type="checkbox" onchange="document.getElementById('ipass').type=this.checked?'text':'password'"> Show password</label>
+          ${nav('<button class="primary" type="submit">Sign in</button>')}
+        </form>
+      </div>
       <div id="m3uform" hidden>
         <form id="m3u" autocomplete="off" novalidate>
           <div class="note">The playlist link from your provider (it usually ends in <b>.m3u</b> or <b>.m3u8</b>, or has <b>get.php</b> in it). Live channels only; a get.php link with your username and password signs in as an IPTV login instead, which also gives catch-up and films &amp; series.</div>
@@ -225,7 +285,16 @@ a.link.alt{background:transparent;border:1px solid var(--line);color:var(--text)
       view.querySelector('#xcform').hidden = b.dataset.s !== 'x';
       view.querySelector('#m3uform').hidden = b.dataset.s !== 'm';
       view.querySelector('#dform').hidden = b.dataset.s !== 'd';
+      view.querySelector('#invform').hidden = b.dataset.s !== 'i';
     }));
+    view.querySelector('#inv').addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const btn = ev.submitter || view.querySelector('#inv button[type=submit]');
+      const values = { invite: view.querySelector('#icode').value, password: view.querySelector('#ipass').value };
+      if (!values.invite.trim() || !values.password) return msg('Paste the invite and enter your password.', 'err');
+      busy(btn, true, 'Signing in…'); msg('');
+      try { await saved(await api('livetv-invite', values)); } catch (err) { msg(err.message, 'err'); } finally { busy(btn, false); }
+    });
     view.querySelector('#xc').addEventListener('submit', async (ev) => {
       ev.preventDefault();
       const btn = ev.submitter || view.querySelector('#xc button[type=submit]');
@@ -267,6 +336,7 @@ a.link.alt{background:transparent;border:1px solid var(--line);color:var(--text)
     }));
     if (pwParam === '1') view.querySelector('[data-t="pw"]').click();
     if (pwParam === 'xc') view.querySelector('[data-s="x"]').click();
+    if (pwParam === 'invite') view.querySelector('[data-s="i"]').click();
     form(async (btn) => {
       busy(btn, true, 'Connecting…');
       const values = mode === 'key'

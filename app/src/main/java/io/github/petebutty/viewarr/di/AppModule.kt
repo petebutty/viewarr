@@ -28,6 +28,8 @@ object AppModule {
     fun okHttp(): OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(60, TimeUnit.SECONDS)
+        // Home or away: a server's away address when its home one can't be reached.
+        .addInterceptor(io.github.petebutty.viewarr.data.net.Reach.Interceptor)
         .build()
 
     // The guide's databases (one per Live TV source): see GuideDatabases.

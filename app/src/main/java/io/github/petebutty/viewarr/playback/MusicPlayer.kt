@@ -77,7 +77,7 @@ object MusicPlayer {
                 override fun buildAudioSink(ctx: Context, floatOutput: Boolean, audioTrackPlaybackParams: Boolean) =
                     DefaultAudioSink.Builder(ctx).setAudioProcessors(arrayOf(tee)).setEnableFloatOutput(false).build()
             }.setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON))
-            .setMediaSourceFactory(DefaultMediaSourceFactory(http))
+            .setMediaSourceFactory(DefaultMediaSourceFactory(io.github.petebutty.viewarr.data.net.reachOf(http)))
             .setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(), true)
             .build().also { p ->
                 p.addListener(object : Player.Listener {

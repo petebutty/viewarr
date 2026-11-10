@@ -180,7 +180,7 @@ fun MpvPlayer(
         // Audio & subtitles picked on the film's page (mpv numbers each kind's tracks from 1).
         stream.audioTrack?.let { mpv.setOptionString("aid", "${it + 1}") }
         stream.subtitleTrack?.let { mpv.setOptionString("sid", if (it < 0) "no" else "${it + 1}") }
-        mpv.command(arrayOf("loadfile", stream.url))
+        mpv.command(arrayOf("loadfile", io.github.petebutty.viewarr.data.net.Reach.map(stream.url)))
         onDispose {
             if (!ended && position > 0) onProgress("stopped", (position * 1000).toLong(), (duration * 1000).toLong())
             mpv.removeObserver(observer)
@@ -343,7 +343,7 @@ fun MpvPlayer(
                     }
                 }
                 // The controls (opened with OK): seek bar and buttons.
-                if (menu.open && menu.handle(e, buttons, { dir, rep -> scrub.begin((position * 1000).toLong()); scrub.step(dir, rep, (duration * 1000).toLong()); showOsd() }, ::press)) return@onPreviewKeyEvent true
+                if (menu.open && menu.handle(e, buttons, { dir, rep -> scrub.begin((position * 1000).toLong()); scrub.step(dir, rep, (duration * 1000).toLong()); showOsd() }, ::press, upFromBar = { mpv.setPropertyBoolean("pause", true); detailsOn = true; menu.open = false })) return@onPreviewKeyEvent true
                 if (center) {
                     when {
                         e.type == KeyEventType.KeyDown && e.nativeKeyEvent.repeatCount == 0 -> okDown = true

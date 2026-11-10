@@ -185,6 +185,67 @@ class SettingsSync @Inject constructor(
         pending = null
     }
 
+    // ---------------------------------------------------------------- profiles
+
+    /** This TV's setup as it is now (settings and sign-ins), for keeping a profile's copy on the TV. */
+    suspend fun snapshot(): JsonObject = buildJsonObject {
+        put("prefs", exportPrefs())
+        put("accounts", accountsJson())
+        put("setupComplete", accounts.setupComplete.first() ?: true)
+    }
+
+    /** Puts a profile's setup back (from [snapshot]). Sign-ins keep this TV's own device id. */
+    suspend fun restore(snap: JsonObject) = lock.withLock {
+        (snap["prefs"] as? JsonObject)?.let { importPrefs(it) }
+        snap.str("accounts")?.let { a ->
+            runCatching { json.decodeFromString(Accounts.serializer(), a) }.getOrNull()?.let { incoming ->
+                val me = accounts.current().deviceId
+                // Away addresses stay if the copy has none (it was saved before they were set).
+                accounts.update { cur -> incoming.copy(deviceId = me, away = incoming.away.ifEmpty { cur.away }) }
+            }
+        }
+        accounts.setSetupComplete((snap["setupComplete"] as? JsonPrimitive)?.booleanOrNull ?: true)
+        // The restored setup is this profile's; saving starts from here.
+        context.syncStore.edit { it.remove(LAST_HASH); it[MODE] = SyncMode.On.name }
+        _offer.value = null
+        pending = null
+    }
+
+    /** The saved copy on Dispatcharr for [s]'s user, or null. */
+    suspend fun savedCopy(s: Session): JsonObject? = runCatching { fetch(s) }.getOrNull()
+
+    /** A saved copy as a snapshot (sign-ins decrypted with that user's key); null if there's nothing usable. */
+    fun snapshotOf(copy: JsonObject, s: Session): JsonObject? {
+        val prefs = copy["prefs"] as? JsonObject ?: return null
+        val acct = copy.str("signIns")?.let { runCatching { decrypt(it, s) }.getOrNull() }
+        // No readable sign-ins: start with none (never the previous person's).
+        return buildJsonObject { put("prefs", prefs); put("accounts", acct ?: "{}"); put("setupComplete", true) }
+    }
+
+    /** Saves this TV's setup to the signed-in user's copy now (before switching profile). */
+    suspend fun saveNow() { runCatching { pushIfChanged(force = true) } }
+
+    /**
+     * An admin preparing another user's Viewarr: [prefs] and [signIns] (Accounts JSON) written into [user]'s copy
+     * on Dispatcharr, the sign-ins encrypted with that user's own key, so their TV restores them when they sign in.
+     */
+    suspend fun writeFor(admin: Session, userId: Int, user: Session, prefs: JsonObject, signIns: String?): Boolean {
+        val body = buildJsonObject {
+            put("v", 1)
+            put("savedAt", System.currentTimeMillis())
+            put("device", "Set up by ${admin.username}")
+            put("deviceId", "admin-" + admin.username)
+            put("prefs", prefs)
+            signIns?.let { put("signIns", encrypt(it, user)) }
+        }
+        val r = http.put(admin.serverUrl.trimEnd('/') + "/api/accounts/users/$userId/app-data/$APP_KEY/", body, headers(admin))
+        return r.code in 200..299
+    }
+
+    /** This TV's settings and sign-ins as they'd be saved (for an admin to hand a copy to someone else). */
+    suspend fun currentPrefs(): JsonObject = exportPrefs()
+    suspend fun currentAccounts(): Accounts = accounts.current()
+
     // ---------------------------------------------------------------- signing in
 
     private suspend fun onSignedIn(s: Session) {
@@ -195,6 +256,13 @@ class SettingsSync @Inject constructor(
         when (mode) {
             SyncMode.Unset -> when {
                 copy == null || copy.str("deviceId") == me -> setMode(SyncMode.On)
+                // A setup an admin prepared for this person, on a TV not set up yet: on it goes, no question.
+                copy.str("deviceId")?.startsWith("admin-") == true && accounts.setupComplete.first() != true -> {
+                    val restored = lock.withLock { apply(copy, s) }
+                    // Sign-ins that couldn't be read: don't start saving (it would overwrite the prepared copy).
+                    if (restored) { setMode(SyncMode.On); accounts.setSetupComplete(true) }
+                    _message.value = if (restored) "Your setup from ${copy.str("device")?.removePrefix("Set up by ") ?: "your admin"} is ready." else null
+                }
                 else -> { pending = copy; _offer.value = offerOf(copy) }
             }
             SyncMode.On -> {
@@ -269,7 +337,8 @@ class SettingsSync @Inject constructor(
                 val incoming = runCatching { json.decodeFromString(Accounts.serializer(), plain) }.getOrNull()
                 if (incoming != null) {
                     val me = accounts.current().deviceId
-                    accounts.update { incoming.copy(deviceId = me) }
+                    // Away addresses stay if the copy has none (it was saved before they were set).
+                accounts.update { cur -> incoming.copy(deviceId = me, away = incoming.away.ifEmpty { cur.away }) }
                     restored = true
                 }
             }

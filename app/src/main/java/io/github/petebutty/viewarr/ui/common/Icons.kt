@@ -48,6 +48,45 @@ object AppIcons {
     /** CC box (subtitles). */
     val Subtitles: ImageVector by lazy { icon("cc", "M19,4H5c-1.11,0 -2,0.9 -2,2v12c0,1.1 0.89,2 2,2h14c1.1,0 2,-0.9 2,-2V6c0,-1.1 -0.9,-2 -2,-2zM11,11H9.5v-0.5h-2v3h2V13H11v1c0,0.55 -0.45,1 -1,1H7c-0.55,0 -1,-0.45 -1,-1v-4c0,-0.55 0.45,-1 1,-1h3c0.55,0 1,0.45 1,1v1zM18,11h-1.5v-0.5h-2v3h2V13H18v1c0,0.55 -0.45,1 -1,1h-3c-0.55,0 -1,-0.45 -1,-1v-4c0,-0.55 0.45,-1 1,-1h3c0.55,0 1,0.45 1,1v1z") }
 
+    /** Lines (the TV guide). */
+    val Guide: ImageVector by lazy { icon("guide", "M3,13h2v-2H3v2zM3,17h2v-2H3v2zM3,9h2V7H3v2zM7,13h14v-2H7v2zM7,17h14v-2H7v2zM7,7v2h14V7H7z") }
+
+    /** Frame with corners (picture shape). */
+    val Aspect: ImageVector by lazy { icon("aspect", "M19,12h-2v3h-3v2h5v-5zM7,9h3V7H5v5h2V9zM21,3H3c-1.1,0 -2,0.9 -2,2v14c0,1.1 0.9,2 2,2h18c1.1,0 2,-0.9 2,-2V5c0,-1.1 -0.9,-2 -2,-2zM21,19.01H3V4.99h18v14.02z") }
+
+    /** Stacked layers (another stream / source). */
+    val Layers: ImageVector by lazy { icon("layers", "M11.99,18.54l-7.37,-5.73L3,14.07l9,7 9,-7 -1.63,-1.27 -7.38,5.74zM12,16l7.36,-5.73L21,9l-9,-7 -9,7 1.63,1.27L12,16z") }
+
+    /** Filled circle (record). */
+    val Record: ImageVector by lazy { icon("record", "M12,6a6,6 0 1,0 0,12a6,6 0 1,0 0,-12z") }
+
+    /** Four squares (multi-view). */
+    val Grid: ImageVector by lazy { icon("grid", "M3,3h8v8H3zM13,3h8v8h-8zM3,13h8v8H3zM13,13h8v8h-8z") }
+
+    /** Circular arrow (restart from the beginning). */
+    val Replay: ImageVector by lazy { icon("replay", "M12,5V1L7,6l5,5V7c3.31,0 6,2.69 6,6s-2.69,6 -6,6 -6,-2.69 -6,-6H4c0,4.42 3.58,8 8,8s8,-3.58 8,-8 -3.58,-8 -8,-8z") }
+
+    /** Clapperboard (trailer). */
+    val Movie: ImageVector by lazy { icon("movie", "M18,4l2,4h-3l-2,-4h-2l2,4h-3l-2,-4H8l2,4H7L5,4H4c-1.1,0 -1.99,0.9 -1.99,2L2,18c0,1.1 0.9,2 2,2h16c1.1,0 2,-0.9 2,-2V4h-4z") }
+
+    /** Bookmark outline (add to watchlist). */
+    val Bookmark: ImageVector by lazy { icon("bookmark", "M17,3H7c-1.1,0 -1.99,0.9 -1.99,2L5,21l7,-3 7,3V5c0,-1.1 -0.9,-2 -2,-2zM17,18l-5,-2.18L7,18V5h10v13z") }
+
+    /** Bookmark filled (on your watchlist). */
+    val BookmarkFilled: ImageVector by lazy { icon("bookmark_on", "M17,3H7c-1.1,0 -1.99,0.9 -1.99,2L5,21l7,-3 7,3V5c0,-1.1 -0.9,-2 -2,-2z") }
+
+    /** Plus (request). */
+    val Add: ImageVector by lazy { icon("add", "M19,13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z") }
+
+    /** Clock (requested, on its way). */
+    val Clock: ImageVector by lazy { icon("clock", "M11.99,2C6.47,2 2,6.48 2,12s4.47,10 9.99,10C17.52,22 22,17.52 22,12S17.52,2 11.99,2zM12,20c-4.42,0 -8,-3.58 -8,-8s3.58,-8 8,-8 8,3.58 8,8 -3.58,8 -8,8zM12.5,7H11v6l5.25,3.15 0.75,-1.23 -4.5,-2.67z") }
+
+    /** Filled circle with a tick (watched). */
+    val CheckCircle: ImageVector by lazy { icon("check_circle", "M12,2C6.48,2 2,6.48 2,12s4.48,10 10,10 10,-4.48 10,-10S17.52,2 12,2zM10,17l-5,-5 1.41,-1.41L10,14.17l7.59,-7.59L19,8l-9,9z") }
+
+    /** Arrow left (back). */
+    val Back: ImageVector by lazy { icon("back", "M20,11H7.83l5.59,-5.59L12,4l-8,8 8,8 1.41,-1.41L7.83,13H20v-2z") }
+
     /** Bars (media info / stats). */
     val Stats: ImageVector by lazy { icon("stats", "M10,20h4V4h-4v16zM4,20h4v-8H4v8zM16,9v11h4V9h-4z") }
 

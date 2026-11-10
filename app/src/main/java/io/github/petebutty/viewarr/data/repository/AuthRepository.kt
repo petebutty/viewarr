@@ -220,6 +220,10 @@ class AuthRepository @Inject constructor(
     private fun candidateUrls(input: String): List<String> {
         val raw = input.trim().trimEnd('/')
         if (raw.isEmpty()) return emptyList()
+        // A web address typed without http(s) (e.g. tv.example.com, someone's server from outside): https first.
+        val host = raw.substringBefore('/').substringBefore(':')
+        val public = !raw.contains("://") && host.contains('.') && !host.endsWith(".local") && !Regex("^\\d+(\\.\\d+){3}$").matches(host)
+        if (public) return listOf("https://$raw", "http://$raw", insertPort("http://$raw", 9191))
         val withScheme = if (raw.contains("://")) raw else "http://$raw"
         val hasPort = Regex("^[a-zA-Z]+://[^/]+:\\d+").containsMatchIn(withScheme)
         return if (hasPort) listOf(withScheme) else listOf(withScheme, insertPort(withScheme, 9191))

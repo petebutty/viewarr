@@ -61,9 +61,9 @@ private fun ago(ms: Long): String {
     val day = when (d.toLocalDate()) {
         today -> "today"
         today.minusDays(1) -> "yesterday"
-        else -> d.format(java.time.format.DateTimeFormatter.ofPattern("EEE d MMM"))
+        else -> d.format(io.github.petebutty.viewarr.ui.theme.Dates.day)
     }
-    return "$day at " + d.format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"))
+    return "$day at " + d.format(io.github.petebutty.viewarr.ui.theme.Dates.time)
 }
 
 /**

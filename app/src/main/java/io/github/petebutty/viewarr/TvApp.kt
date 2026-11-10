@@ -14,5 +14,7 @@ class TvApp : Application(), ImageLoaderFactory {
         .crossfade(false)
         .memoryCache { MemoryCache.Builder(this).maxSizePercent(0.18).build() }
         .respectCacheHeaders(false)
+        // Posters and logos from a home server: its away address when away.
+        .okHttpClient { okhttp3.OkHttpClient.Builder().addInterceptor(io.github.petebutty.viewarr.data.net.Reach.Interceptor).build() }
         .build()
 }

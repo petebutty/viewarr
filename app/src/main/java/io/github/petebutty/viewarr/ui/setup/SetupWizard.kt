@@ -336,7 +336,7 @@ private fun ColumnScope.ChooseStep(
             MenuItem(
                 text = item.label,
                 selected = false,
-                trailing = status ?: "Set up",
+                trailing = status ?: "Not set up",
                 onClick = { if (status != null) options = item else vm.open(item) },
                 modifier = Modifier.focusRequester(itemFocus.getOrPut(item) { FocusRequester() })
                     .then(if (i == 0) Modifier.focusProperties { up = firstFocus } else Modifier),
@@ -607,7 +607,7 @@ private fun titleFor(step: SetupStep, mode: SetupMode) = when (step) {
     SetupStep.Stremio -> "Add Stremio addons"
     SetupStep.Jellyfin -> "Connect Jellyfin"
     SetupStep.Emby -> "Connect Emby"
-    SetupStep.Vod -> "Provider VOD"
+    SetupStep.Vod -> "IPTV films & series"
     SetupStep.Seerr -> "Connect Seerr"
     SetupStep.Music -> "Add music?"
     SetupStep.Navidrome -> "Connect Navidrome"

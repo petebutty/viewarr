@@ -18,11 +18,12 @@ import com.google.zxing.qrcode.QRCodeWriter
 import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel
 
 @Composable
-fun QrImage(text: String, modifier: Modifier = Modifier) {
-    val bitmap = remember(text) {
+/** [dense]: long text (an invite): lower error correction, so the squares are bigger and easier to scan off a TV. */
+fun QrImage(text: String, modifier: Modifier = Modifier, dense: Boolean = false) {
+    val bitmap = remember(text, dense) {
         val matrix = QRCodeWriter().encode(
             text, BarcodeFormat.QR_CODE, 0, 0,
-            mapOf(EncodeHintType.MARGIN to 0, EncodeHintType.ERROR_CORRECTION to ErrorCorrectionLevel.M),
+            mapOf(EncodeHintType.MARGIN to 0, EncodeHintType.ERROR_CORRECTION to (if (dense) ErrorCorrectionLevel.L else ErrorCorrectionLevel.M)),
         )
         val size = matrix.width
         val pixels = IntArray(size * size) { i -> if (matrix[i % size, i / size]) 0xFF000000.toInt() else 0xFFFFFFFF.toInt() }

@@ -52,8 +52,18 @@ class AppViewModel @Inject constructor(
     remoteStore: io.github.petebutty.viewarr.data.settings.RemoteStore,
     playbackStore: io.github.petebutty.viewarr.data.settings.PlaybackStore,
     private val settingsSync: io.github.petebutty.viewarr.data.sync.SettingsSync,
+    accessLoader: io.github.petebutty.viewarr.data.profiles.AccessLoader,
 ) : ViewModel() {
-    init { settingsSync.start() }
+    /** Setup was shown in this run of the app (so the tour follows it). */
+    var sawSetup by androidx.compose.runtime.mutableStateOf(false)
+
+    init {
+        settingsSync.start()
+        // What the signed-in person may do (an admin's locks on their Dispatcharr user).
+        accessLoader.start(viewModelScope)
+        // Away addresses from the setup (empty: everything stays on its home address).
+        viewModelScope.launch { accounts.accounts.collect { io.github.petebutty.viewarr.data.net.Reach.setPairs(it.away) } }
+    }
     val playback = playbackStore.settings.stateIn(viewModelScope, SharingStarted.Eagerly, io.github.petebutty.viewarr.data.settings.PlaybackSettings())
     val remote = remoteStore.settings.stateIn(viewModelScope, SharingStarted.Eagerly, io.github.petebutty.viewarr.data.settings.RemoteSettings())
 
@@ -114,13 +124,25 @@ fun AppRoot(vm: AppViewModel = hiltViewModel()) {
         when (val s = state) {
             StartState.Loading -> Unit
             StartState.NeedsSetup -> if (!splashShown) {
-                SetupWizard()
+                // A new install: running your own server, or invited by someone who does.
+                var role by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf<String?>(null) }
+                androidx.compose.runtime.LaunchedEffect(Unit) { vm.sawSetup = true }
+                when (role) {
+                    null -> io.github.petebutty.viewarr.ui.onboarding.RoleScreen(onAdmin = { role = "admin" }, onInvited = { role = "invited" })
+                    "invited" -> io.github.petebutty.viewarr.ui.onboarding.InvitedSetup(onBack = { role = null })
+                    else -> SetupWizard()
+                }
                 // Signed in to a Dispatcharr user another TV saved its setup to: offer it.
                 io.github.petebutty.viewarr.ui.sync.SyncOfferHost()
             }
             is StartState.Ready -> {
-                // Composed straight away, under the splash, so rows and the guide load while it shows.
-                HomeScreen(session = s.session, onSignOut = vm::signOut)
+                val ctx = androidx.compose.ui.platform.LocalContext.current
+                var tourNow by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+                androidx.compose.runtime.LaunchedEffect(vm.sawSetup) { if (vm.sawSetup && !io.github.petebutty.viewarr.ui.onboarding.Tour.done(ctx)) tourNow = true }
+                val touring = !splashShown && (tourNow || io.github.petebutty.viewarr.ui.onboarding.Tour.requested)
+                // Composed straight away, under the splash, so rows and the guide load while it shows. Not while the
+                // tour is up: a channel playing underneath kept the remote (Left / Right there mean skip).
+                if (!touring) HomeScreen(session = s.session, onSignOut = vm::signOut)
                 // Films, episodes and recordings: above every page, full screen or shrunk to a corner.
                 io.github.petebutty.viewarr.ui.media.VodHostLayer()
                 // Music: the Now Playing screen, or the small now-playing bar while you browse.
@@ -132,6 +154,12 @@ fun AppRoot(vm: AppViewModel = hiltViewModel()) {
                 // Once after an update: a few lines on what's new.
                 if (!splashShown) io.github.petebutty.viewarr.ui.update.WhatsNewHost()
                 if (!splashShown) io.github.petebutty.viewarr.ui.sync.SyncOfferHost()
+                // Who's watching? (on start and from Settings), and the admin Users page.
+                if (!splashShown) io.github.petebutty.viewarr.ui.profiles.ProfileHost()
+                // The tour: once, straight after setting up on this TV (and from Settings → About).
+                if (touring) io.github.petebutty.viewarr.ui.onboarding.TourScreen(onDone = {
+                    io.github.petebutty.viewarr.ui.onboarding.Tour.markDone(ctx); tourNow = false; io.github.petebutty.viewarr.ui.onboarding.Tour.requested = false
+                })
             }
         }
         if (splashAlpha > 0f) Box(Modifier.fillMaxSize().graphicsLayer { alpha = splashAlpha }) {
@@ -144,10 +172,9 @@ fun AppRoot(vm: AppViewModel = hiltViewModel()) {
 /** The time, small, in the top corner (Settings → Appearance → Clock). */
 @Composable
 private fun Clock(modifier: Modifier) {
-    val format = remember { java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT) }
-    var now by remember { androidx.compose.runtime.mutableStateOf(format.format(java.util.Date())) }
-    androidx.compose.runtime.LaunchedEffect(Unit) {
-        while (true) { now = format.format(java.util.Date()); kotlinx.coroutines.delay(5_000) }
+    var now by remember { androidx.compose.runtime.mutableStateOf(io.github.petebutty.viewarr.ui.theme.Dates.time(System.currentTimeMillis())) }
+    androidx.compose.runtime.LaunchedEffect(io.github.petebutty.viewarr.ui.theme.AppColors.palette) {
+        while (true) { now = io.github.petebutty.viewarr.ui.theme.Dates.time(System.currentTimeMillis()); kotlinx.coroutines.delay(5_000) }
     }
     androidx.tv.material3.Text(
         now, fontSize = 15.sp, color = Color.White,
