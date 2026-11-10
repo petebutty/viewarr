@@ -141,7 +141,8 @@ fun Modifier.appBackground(titleArt: Boolean = false, readable: Boolean = false)
         if (Wallpaper.wall.image == null) { drawRect(p.main); return@drawBehind }
         drawRect(Color.Black)
         drawLayer(Wallpaper.wall)
-        drawRect(p.main.copy(alpha = maxOf(p.wallpaperDim, 0.7f)))
+        // Darker than the pages for the text, but in step with Dimming (a 70% floor made 30–70% all look alike).
+        drawRect(p.main.copy(alpha = 0.55f + 0.45f * p.wallpaperDim))
         drawRect(Brush.horizontalGradient(0f to p.main.copy(alpha = 0.6f), 0.45f to p.main.copy(alpha = 0.35f), 1f to p.main.copy(alpha = 0.15f)))
         return@drawBehind
     }

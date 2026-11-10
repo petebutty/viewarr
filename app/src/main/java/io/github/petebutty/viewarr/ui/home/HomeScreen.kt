@@ -197,6 +197,8 @@ fun HomeScreen(
     var channelListOpen by remember { mutableStateOf(false) }
     // Long-press Back on the guide returns to the channel that's playing, full screen.
     var backLongPress by remember { mutableStateOf(false) }
+    // The timer that turns a Back press into a hold (see the root key handler).
+    var backHoldJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     var pipBackHeld by remember { mutableStateOf(false) }
     // Start page from Settings, applied once when the app opens.
     var startApplied by rememberSaveable { mutableStateOf(false) }
@@ -216,6 +218,8 @@ fun HomeScreen(
     var accountsFromMenu by remember { mutableStateOf(false) }
     var searchVoice by remember { mutableStateOf(false) }
     var menuOnSettings by remember { mutableStateOf(false) }
+    // Live TV controls → Transparency: the three sliders over the picture.
+    var transparencyOpen by remember { mutableStateOf(false) }
     // A film brought back full screen (held Back, handled in MainActivity): the menu or search under it closes,
     // or it would take the next Back presses.
     LaunchedEffect(io.github.petebutty.viewarr.ui.media.VodHost.mini) {
@@ -234,6 +238,10 @@ fun HomeScreen(
     val playing by playback.channel.collectAsStateWithLifecycle()
     val playState by playback.state.collectAsStateWithLifecycle()
     val catchup by playback.catchup.collectAsStateWithLifecycle()
+    // Back from full screen: the guide opens on the channel playing, at now (not wherever it was last scrolled to).
+    LaunchedEffect(fullscreen) {
+        if (!fullscreen && page == Page.Tv) playing?.let { vm.selectChannel(it.id) }
+    }
     val programs by vm.programs.collectAsStateWithLifecycle()
     // The guide only keeps programmes for the channels near where it's scrolled to. The channel you're watching
     // (and multi-view's) are looked up on their own, or the banner said "No guide information" once you'd scrolled
@@ -274,6 +282,76 @@ fun HomeScreen(
         bannerVisible = false
         osdVisible = true
         osdToken = System.nanoTime()
+    }
+
+    /** A press from the button table (Settings → Remote → Buttons) on the guide, live TV or a page. */
+    fun doButton(screen: io.github.petebutty.viewarr.data.settings.BtnScreen, act: io.github.petebutty.viewarr.data.settings.BtnAction) {
+        val ch = playing
+        when (act) {
+            io.github.petebutty.viewarr.data.settings.BtnAction.Nothing -> Unit
+            io.github.petebutty.viewarr.data.settings.BtnAction.GroupsMenu -> { fullscreen = false; channelListOpen = false; menuOnMain = false; menuOpen = true }
+            io.github.petebutty.viewarr.data.settings.BtnAction.MainMenu -> { fullscreen = false; channelListOpen = false; menuOnMain = true; menuOpen = true }
+            io.github.petebutty.viewarr.data.settings.BtnAction.FullScreen -> if (ch != null) { fullscreen = true; showBanner() }
+            io.github.petebutty.viewarr.data.settings.BtnAction.Guide -> { fullscreen = false; channelListOpen = false }
+            io.github.petebutty.viewarr.data.settings.BtnAction.Now -> vm.goToNow()
+            io.github.petebutty.viewarr.data.settings.BtnAction.DayBack -> vm.jumpBy(-86_400_000L)
+            io.github.petebutty.viewarr.data.settings.BtnAction.DayForward -> vm.jumpBy(86_400_000L)
+            io.github.petebutty.viewarr.data.settings.BtnAction.RecordOptions, io.github.petebutty.viewarr.data.settings.BtnAction.RecordNow -> {
+                // Live TV: what's on now; the guide: the highlighted programme (as holding OK there).
+                val target = if (screen == io.github.petebutty.viewarr.data.settings.BtnScreen.Live) ch?.let { c -> GuideViewModel.programAt(programsOf(c), now)?.let { c to it } }
+                else {
+                    val cur = vm.cursor.value
+                    vm.channels.value.getOrNull(cur.row)?.let { c -> GuideViewModel.programAt(programsOf(c), cur.focusTime)?.let { c to it } }
+                }
+                if (target != null && catchup == null) {
+                    val (tc, tp) = target
+                    val straight = act == io.github.petebutty.viewarr.data.settings.BtnAction.RecordNow && tp.endTime > now && dvr.recordingFor(tc.id, tp) == null
+                    when {
+                        // One press: scheduled, with a short note. (Already set: the options, so it can be cancelled.)
+                        straight && io.github.petebutty.viewarr.data.profiles.Access.record -> {
+                            dvr.record(tc, tp)
+                            digitsMessage = (if (tp.startTime <= now) "⏺ Recording from now: " else "⏺ Recording set: ") + tp.title
+                            digitsToken = System.nanoTime()
+                        }
+                        straight -> { digitsMessage = "Recording isn't allowed for this profile"; digitsToken = System.nanoTime() }
+                        else -> { osdVisible = false; channelListOpen = false; recordTarget = target }
+                    }
+                }
+            }
+            io.github.petebutty.viewarr.data.settings.BtnAction.ChannelList -> if (fullscreen) channelListOpen = true
+            io.github.petebutty.viewarr.data.settings.BtnAction.StartOver -> if (ch != null && ch.catchupDays > 0) {
+                GuideViewModel.programAt(programsOf(ch), now)?.takeIf { it.startTime < now }?.let { prog ->
+                    playback.playCatchup(ch, prog, session)
+                    vm.selectChannel(ch.id)
+                    showBanner()
+                }
+            }
+            io.github.petebutty.viewarr.data.settings.BtnAction.Banner -> showBanner()
+            io.github.petebutty.viewarr.data.settings.BtnAction.AudioSubs -> showOsd(audio = true)
+            io.github.petebutty.viewarr.data.settings.BtnAction.Search -> { channelListOpen = false; searchStart = null; quickSearch = true }
+            // Films only (VodKeys).
+            io.github.petebutty.viewarr.data.settings.BtnAction.Details, io.github.petebutty.viewarr.data.settings.BtnAction.PlayPause, io.github.petebutty.viewarr.data.settings.BtnAction.Stop -> Unit
+        }
+    }
+
+    /**
+     * Back held (timed in the root key handler): the guide's menu on its channel groups, or with nothing playing the
+     * menu. False when a hold means nothing here (it's then left to whoever else uses one: music, a film).
+     */
+    fun holdBack(): Boolean {
+        if (menuOpen || showAccounts || quickSearch || recordTarget != null || infoTarget != null) return false
+        if (io.github.petebutty.viewarr.ui.media.VodHost.active) return false
+        val music = io.github.petebutty.viewarr.playback.MusicPlayer
+        if (music.active && !music.nowPlayingOpen) return false
+        val screen = when {
+            page == Page.Tv && fullscreen -> if (osdVisible || channelListOpen || multiView || transparencyOpen) return false else io.github.petebutty.viewarr.data.settings.BtnScreen.Live
+            page == Page.Tv -> io.github.petebutty.viewarr.data.settings.BtnScreen.Guide
+            playing == null -> io.github.petebutty.viewarr.data.settings.BtnScreen.Pages
+            else -> return false
+        }
+        // Settings → Remote → Buttons: "Nothing" still takes the hold (it isn't also a tap of Back).
+        doButton(screen, io.github.petebutty.viewarr.data.settings.ButtonMap.action(remote, screen, io.github.petebutty.viewarr.data.settings.BtnPress.BackHold))
+        return true
     }
 
     fun zap(delta: Int) {
@@ -318,8 +396,8 @@ fun HomeScreen(
             }
         }
     }
-    LaunchedEffect(menuOpen, fullscreen, osdVisible, showAccounts, page, recordTarget == null, seasonPick == null, io.github.petebutty.viewarr.ui.media.VodHost.covering, io.github.petebutty.viewarr.ui.media.VodHost.gliding, infoTarget == null, channelListOpen, quickSearch, io.github.petebutty.viewarr.playback.MusicPlayer.nowPlayingOpen) {
-        if (channelListOpen || quickSearch || io.github.petebutty.viewarr.playback.MusicPlayer.nowPlayingOpen) return@LaunchedEffect
+    LaunchedEffect(menuOpen, fullscreen, osdVisible, transparencyOpen, showAccounts, page, recordTarget == null, seasonPick == null, io.github.petebutty.viewarr.ui.media.VodHost.covering, io.github.petebutty.viewarr.ui.media.VodHost.gliding, infoTarget == null, channelListOpen, quickSearch, io.github.petebutty.viewarr.playback.MusicPlayer.nowPlayingOpen) {
+        if (channelListOpen || quickSearch || transparencyOpen || io.github.petebutty.viewarr.playback.MusicPlayer.nowPlayingOpen) return@LaunchedEffect
         if (recordTarget != null || seasonPick != null || io.github.petebutty.viewarr.ui.media.VodHost.covering || infoTarget != null) return@LaunchedEffect
         // A film gliding into the corner: the page takes the remote once it's there (its highlight starting mid-glide
         // made the glide stutter).
@@ -410,7 +488,7 @@ fun HomeScreen(
 
     LaunchedEffect(digitsToken) {
         if (digits.isEmpty() && digitsMessage == null) return@LaunchedEffect
-        delay(if (digitsMessage != null) 2_000 else 1_800)
+        delay(if (digitsMessage != null) 3_000 else 1_800)
         if (digitsMessage != null) digitsMessage = null else tuneTyped()
     }
 
@@ -503,7 +581,7 @@ fun HomeScreen(
                     if (e.type == KeyEventType.KeyUp) music.eatBackRelease = false
                     return@onPreviewKeyEvent true
                 }
-                if (music.active && !music.nowPlayingOpen && !io.github.petebutty.viewarr.ui.media.VodHost.active) {
+                if (music.active && !music.nowPlayingOpen && !io.github.petebutty.viewarr.ui.media.VodHost.active && !backLongPress) {
                     if (e.key == Key.Back && e.type == KeyEventType.KeyDown && e.nativeKeyEvent.repeatCount > 0) {
                         if (e.nativeKeyEvent.repeatCount == 1) { music.eatBackRelease = true; music.nowPlayingOpen = true }
                         return@onPreviewKeyEvent true
@@ -547,6 +625,18 @@ fun HomeScreen(
                         return@onPreviewKeyEvent true
                     }
                 }
+                // Settings → Remote → Buttons: colour buttons, Record and Info on the guide and full-screen live TV.
+                if (e.type == KeyEventType.KeyDown && e.nativeKeyEvent.repeatCount == 0 && page == Page.Tv && !menuOpen && !showAccounts &&
+                    !quickSearch && recordTarget == null && infoTarget == null && !io.github.petebutty.viewarr.ui.media.VodHost.covering &&
+                    !channelListOpen && !osdVisible && !transparencyOpen && !(fullscreen && multiView)
+                ) {
+                    val press = io.github.petebutty.viewarr.data.settings.ButtonMap.pressOf(e)
+                    val screen = if (fullscreen) io.github.petebutty.viewarr.data.settings.BtnScreen.Live else io.github.petebutty.viewarr.data.settings.BtnScreen.Guide
+                    if (press != null && press in io.github.petebutty.viewarr.data.settings.ButtonMap.presses[screen].orEmpty()) {
+                        doButton(screen, io.github.petebutty.viewarr.data.settings.ButtonMap.action(remote, screen, press))
+                        return@onPreviewKeyEvent true
+                    }
+                }
                 // Remotes with Guide / Record buttons (e.g. Formuler): the TV guide from anywhere, and recording what's on.
                 if (!showAccounts && recordTarget == null && infoTarget == null && e.type == KeyEventType.KeyDown) {
                     when (io.github.petebutty.viewarr.ui.common.RemoteKeys.action(e)) {
@@ -585,26 +675,19 @@ fun HomeScreen(
                 }
                 if (quickSearch) return@onPreviewKeyEvent false
                 if (e.key == Key.Back) {
-                    val canReturn = page == Page.Tv && !fullscreen && !menuOpen && !showAccounts && !quickSearch && playing != null &&
-                        recordTarget == null && infoTarget == null
+                    // A hold is timed here (0.25 s) rather than waiting for the remote's repeats, which can take 0.6 s
+                    // to arrive (Projectivy holds Back back first). Safe for taps: a tap's press and release arrive
+                    // together (Projectivy passes it on once it's let go). The repeats below are the fallback.
+                    if (e.type == KeyEventType.KeyDown && e.nativeKeyEvent.repeatCount == 0 && backHoldJob == null && !backLongPress) {
+                        backHoldJob = fromStartScope.launch {
+                            delay(250)
+                            backHoldJob = null
+                            if (holdBack()) backLongPress = true
+                        }
+                    }
+                    if (e.type == KeyEventType.KeyUp) { backHoldJob?.cancel(); backHoldJob = null }
                     when {
-                        // The guide, a channel playing: holding Back opens the menu on the channel groups (Left again: the
-                        // main menu). A tap of Back goes full screen.
-                        e.type == KeyEventType.KeyDown && e.nativeKeyEvent.repeatCount > 0 && canReturn && !backLongPress -> {
-                            backLongPress = true
-                            menuOpen = true
-                            return@onPreviewKeyEvent true
-                        }
-                        // Nothing playing anywhere (no channel, film or music): holding Back opens the menu on its main list.
-                        e.type == KeyEventType.KeyDown && e.nativeKeyEvent.repeatCount > 0 && !backLongPress && !fullscreen && !menuOpen &&
-                            !showAccounts && !quickSearch && recordTarget == null && infoTarget == null && playing == null &&
-                            !io.github.petebutty.viewarr.ui.media.VodHost.active && !io.github.petebutty.viewarr.playback.MusicPlayer.active -> {
-                            backLongPress = true
-                            // On the guide: its channel groups, as with a channel playing. Elsewhere: the main list.
-                            menuOnMain = page != Page.Tv
-                            menuOpen = true
-                            return@onPreviewKeyEvent true
-                        }
+                        // (Holds are decided by the timer above, through the button table: holdBack().)
                         e.type == KeyEventType.KeyDown && backLongPress -> return@onPreviewKeyEvent true
                         // Swallow the release too, or it would also count as a normal Back.
                         e.type == KeyEventType.KeyUp && backLongPress -> { backLongPress = false; return@onPreviewKeyEvent true }
@@ -806,7 +889,7 @@ fun HomeScreen(
                 Modifier
                     .fillMaxSize()
                     .focusRequester(playerFocus)
-                    .focusable(enabled = !osdVisible && !channelListOpen)
+                    .focusable(enabled = !osdVisible && !channelListOpen && !transparencyOpen)
                     .onPreviewKeyEvent { e ->
                         if (osdVisible || channelListOpen) return@onPreviewKeyEvent false
                         // Menu: a tap opens audio & subtitles when it's let go. Holding it is search (handled above),
@@ -889,6 +972,9 @@ fun HomeScreen(
                     onClose = { osdVisible = false },
                     onActivity = { osdToken = System.nanoTime() },
                     // Low-memory mode: no multi-view (up to four players at once).
+                    // Settings over live TV: the menu opens on Settings; Back closes it, back to the channel.
+                    onSettings = { osdVisible = false; menuOnSettings = true; menuOpen = true },
+                    onTransparency = { osdVisible = false; transparencyOpen = true },
                     onMultiView = if (!AppColors.palette.heavyExtras) null else ({
                         osdVisible = false
                         if (catchup != null) playback.goLive()
@@ -907,6 +993,24 @@ fun HomeScreen(
             }
         }
 
+        // What the buttons do here (Settings → Appearance → Button hints), following the button settings.
+        if (!menuOpen && !quickSearch && !showAccounts && recordTarget == null && infoTarget == null && !io.github.petebutty.viewarr.ui.media.VodHost.active) {
+            val holdBackGuide = io.github.petebutty.viewarr.data.settings.ButtonMap.action(remote, io.github.petebutty.viewarr.data.settings.BtnScreen.Guide, io.github.petebutty.viewarr.data.settings.BtnPress.BackHold).label.lowercase()
+            when {
+                page == Page.Tv && fullscreen && !osdVisible && !channelListOpen && !multiView -> io.github.petebutty.viewarr.ui.common.ButtonHint(
+                    "live", "OK: controls  ·  ▲ ▼ channels  ·  Back: guide  ·  hold Back: " + io.github.petebutty.viewarr.data.settings.ButtonMap.action(remote, io.github.petebutty.viewarr.data.settings.BtnScreen.Live, io.github.petebutty.viewarr.data.settings.BtnPress.BackHold).label.lowercase())
+                page == Page.Tv && !fullscreen && session != null -> io.github.petebutty.viewarr.ui.common.ButtonHint(
+                    "guide", "OK: watch  ·  ◀ ▶ earlier / later  ·  Back: full screen  ·  hold Back: $holdBackGuide")
+                page == Page.Movies || page == Page.Shows -> io.github.petebutty.viewarr.ui.common.ButtonHint(
+                    "media", "OK: open  ·  hold OK: options  ·  ◀ menu  ·  hold Back: " + io.github.petebutty.viewarr.data.settings.ButtonMap.action(remote, io.github.petebutty.viewarr.data.settings.BtnScreen.Pages, io.github.petebutty.viewarr.data.settings.BtnPress.BackHold).label.lowercase())
+                else -> Unit
+            }
+        }
+        // Guide and wallpaper dimming only show on the guide: the panel switches the view as you move to them.
+        if (transparencyOpen && page == Page.Tv) io.github.petebutty.viewarr.ui.player.TransparencyPanel(
+            onClose = { transparencyOpen = false; if (playing != null) fullscreen = true },
+            onRow = { r -> if (playing != null) fullscreen = r == 0 },
+        )
         if (menuOpen) Box(Modifier.fillMaxSize().slideInFromLeft()) {
             MenuOverlay(
                 onPlayRecording = { menuOpen = false; recordingPlayback = it },
@@ -1202,7 +1306,8 @@ private fun MenuOverlay(
     }
     fun enter(s: Section) {
         when (s) {
-            Section.Tv -> runCatching { groupsFocus.requestFocus() }
+            // Into the channel groups: on the guide the main list slides back out (Left brings it again).
+            Section.Tv -> { runCatching { groupsFocus.requestFocus() }; if (page == Page.Tv) showMain = false }
             Section.Settings -> runCatching { settingsFirst.requestFocus() }
             Section.Movies -> onOpenPage(Page.Movies)
             Section.Shows -> onOpenPage(Page.Shows)
@@ -1222,7 +1327,7 @@ private fun MenuOverlay(
     Box(Modifier.fillMaxSize()) {
     Row(Modifier.fillMaxSize()) {
         // Left again: the main list grows out beside the groups, easing them across rather than jumping.
-        if (showMain) io.github.petebutty.viewarr.ui.common.GrowFromLeft(180.dp) { Column(
+        io.github.petebutty.viewarr.ui.common.GrowFromLeftToggle(showMain, 180.dp) { Column(
             Modifier
                 .width(180.dp)
                 .fillMaxHeight()

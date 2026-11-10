@@ -38,6 +38,8 @@ class VodHooks(
     val minimise: () -> Unit = {},
     /** Back's usual step (what the player's BackHandler does): close what's open, else the last step. */
     val stepBack: () -> Unit = {},
+    /** Settings → Remote → Buttons for films: what a colour button / Info press does (null: not one of those). */
+    val tableAction: (KeyEvent) -> io.github.petebutty.viewarr.data.settings.BtnAction? = { null },
 )
 
 /**
@@ -70,6 +72,17 @@ class VodKeys(private val scrub: Scrubber, private val menu: PlayerMenu) {
                 // The release of a hold that already sent the film to the corner can still land here (the player
                 // hadn't let go of the remote yet): that press is over, so the root mustn't swallow the next one.
                 !down -> VodHost.swallowBack = false
+            }
+            return true
+        }
+        // The button table: colour buttons and Info (Settings → Remote → Buttons).
+        h.tableAction(e)?.let { act ->
+            if (down && repeat == 0) when (act) {
+                io.github.petebutty.viewarr.data.settings.BtnAction.AudioSubs -> h.openTracks(null)
+                io.github.petebutty.viewarr.data.settings.BtnAction.Details -> h.toggleDetails()
+                io.github.petebutty.viewarr.data.settings.BtnAction.PlayPause -> { p.togglePause(); h.showOsd() }
+                io.github.petebutty.viewarr.data.settings.BtnAction.Stop -> h.stop()
+                else -> Unit
             }
             return true
         }

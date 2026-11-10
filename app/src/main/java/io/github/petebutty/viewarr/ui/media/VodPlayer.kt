@@ -310,6 +310,7 @@ fun VodPlayer(
         }
         showOsd()
     }
+    val remoteSettings = io.github.petebutty.viewarr.data.settings.LocalRemote.current
     // The remote: shared with the mpv player (VodKeys).
     val keys = remember { VodKeys(scrub, menu) }
     val remote = object : VodRemote {
@@ -328,6 +329,8 @@ fun VodPlayer(
         atTop = { !tracksOpen && !scrub.active && !detailsOn && !menu.open && !(System.currentTimeMillis() < osdUntil && player.isPlaying) },
         minimise = { VodHost.minimise(); if (!VodHost.active) onClose() },
         stepBack = ::backStep,
+        tableAction = { e -> io.github.petebutty.viewarr.data.settings.ButtonMap.pressOf(e)?.takeIf { it in io.github.petebutty.viewarr.data.settings.ButtonMap.presses[io.github.petebutty.viewarr.data.settings.BtnScreen.Film].orEmpty() }
+            ?.let { io.github.petebutty.viewarr.data.settings.ButtonMap.action(remoteSettings, io.github.petebutty.viewarr.data.settings.BtnScreen.Film, it) } },
     )
     // The controls close after a while without a key (not while paused).
     LaunchedEffect(paused) {

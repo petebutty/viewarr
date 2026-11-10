@@ -40,8 +40,11 @@ data class Palette(val main: Color, val highlight: Color, val transparency: Floa
     val textScale get() = floatArrayOf(1f, 0.9f, 1.12f, 1.25f)[opt(UiOpts.TEXT_SIZE).coerceIn(0, 3)]
     /** Hours of no button presses on Live TV before "Still watching?" (0 = never). */
     val stillWatchingHours get() = intArrayOf(0, 2, 3, 4, 6)[opt(UiOpts.STILL_WATCHING).coerceIn(0, 4)]
-    val menuAlpha = 1f - transparency
-    val guideAlpha = 1f - guideTransparency
+    // The sliders' percentages as they look over a TV picture: a straight 1 - t left a dark panel looking all but
+    // clear from about 50% (and invisible at 100%, the text on the bare picture). A curve keeps the middle of the
+    // slider useful and leaves a trace of the panel at 100% so text stays readable.
+    val menuAlpha = 1f - 0.9f * transparency * transparency
+    val guideAlpha = 1f - 0.9f * guideTransparency * guideTransparency
     val panel = lerp(main, Color.White, 0.07f)
     val panelAlt = lerp(main, Color.White, 0.04f)
     val cellPast = lerp(main, Color.White, 0.025f)
@@ -179,6 +182,7 @@ object UiOpts {
     const val MINI_CORNER = "mini_corner"
     const val PLAYER_BACK = "player_back"
     const val AGE_RATING = "age_rating"
+    const val BUTTON_HINTS = "button_hints"
     const val ANIM_FILM = "anim_film"
     const val ANIM_LIVE = "anim_live"
     const val SEEK_PREVIEWS = "seek_previews"
@@ -205,6 +209,7 @@ object UiOpts {
         MINI_CORNER to listOf("Bottom right", "Bottom left", "Top right", "Top left"),
         ANIM_FILM to listOf("On", "Off"),
         ANIM_LIVE to listOf("On", "Off"),
+        BUTTON_HINTS to listOf("First few times", "Always", "Off"),
         AGE_RATING to listOf("UK (BBFC: U, PG, 12A, 15, 18)", "US (MPA: G, PG, PG-13, R · TV-14, TV-MA)"),
         PLAYER_BACK to listOf("Press Back", "Off (Back stops the film)", "Hold Back (recommended; Back stops the film)"),
         SEEK_PREVIEWS to listOf("Server's, else the box makes them", "Server's only", "Off"),

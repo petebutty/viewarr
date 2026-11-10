@@ -149,6 +149,16 @@ class GuideViewModel @Inject constructor(
         return true
     }
 
+    /** Jumps the guide [deltaMs] (a day: the colour buttons), keeping the channel; stops at the guide's limits. */
+    fun jumpBy(deltaMs: Long) {
+        val c = _cursor.value
+        val now = _now.value
+        val t = (c.focusTime + deltaMs).coerceIn(now - MAX_PAST_MS, now + MAX_FORWARD_MS)
+        if (t == c.focusTime) return
+        _cursor.value = c.copy(focusTime = t, windowStart = floorToStep(t))
+        ensurePast()
+    }
+
     fun isAtNow(): Boolean {
         val c = _cursor.value
         return c.focusTime in _now.value - 60_000.._now.value + 60_000 || programAt(rowPrograms(c.row), c.focusTime)?.let {

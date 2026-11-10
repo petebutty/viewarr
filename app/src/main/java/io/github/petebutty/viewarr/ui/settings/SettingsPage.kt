@@ -72,7 +72,8 @@ class SettingItem(
     val isToggle get() = action == null && choices.size == 2 && choices.map { it.label }.toSet() == setOf("On", "Off")
 }
 
-class SettingCategory(val name: String, val blurb: String, val items: List<SettingItem>)
+/** [header]: drawn above the items (e.g. Remote & navigation's remote picture); not focusable. */
+class SettingCategory(val name: String, val blurb: String, val items: List<SettingItem>, val header: (@Composable () -> Unit)? = null)
 
 /**
  * Settings pages: Left from the right-hand side goes back to the entry selected on the left (it went to whichever was
@@ -93,6 +94,7 @@ fun SettingsPage(
     categories: List<SettingCategory>,
     onBack: () -> Unit,
     onReset: (() -> Unit)? = null,
+    resetLabel: String = "Reset to defaults",
 ) {
     // The open category, kept by name: a setting can add or hide categories (low-memory mode hides some), and an
     // index alone then pointed past the end (crash) or at the wrong one.
@@ -155,7 +157,7 @@ fun SettingsPage(
                 onReset?.let {
                     var confirm by remember { mutableStateOf(false) }
                     MenuItem(
-                        text = if (confirm) "Press OK again to reset" else "Reset to defaults",
+                        text = if (confirm) "Press OK again to reset" else resetLabel,
                         selected = false,
                         modifier = Modifier.focusProperties { canFocus = choosing == null }.onFocusChanged { if (!it.isFocused) confirm = false },
                         onClick = { if (confirm) { it(); confirm = false } else confirm = true },
@@ -167,6 +169,7 @@ fun SettingsPage(
             Column(Modifier.weight(1f).fillMaxHeight().leftReturnsTo { catFocus[category] }) {
                 Text(c.blurb, fontSize = 14.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(top = 26.dp, bottom = 14.dp, start = 4.dp))
                 LazyColumn(Modifier.stopAt(androidx.compose.ui.focus.FocusDirection.Down), state = listState, verticalArrangement = Arrangement.spacedBy(6.dp), contentPadding = PaddingValues(bottom = 40.dp)) {
+                    c.header?.let { h -> item(key = c.name + "#header") { h() } }
                     itemsIndexed(c.items, key = { _, it -> c.name + it.title }) { _, item ->
                         SettingRow(item, enabled = choosing == null, focus = rowFocus.getOrPut(item.title) { FocusRequester() }) {
                             if (item.slider) Unit

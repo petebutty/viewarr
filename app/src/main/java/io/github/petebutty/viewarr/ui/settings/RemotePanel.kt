@@ -7,6 +7,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.height
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
@@ -45,6 +46,68 @@ class RemoteViewModel @Inject constructor(private val store: RemoteStore) : View
     fun reset() = viewModelScope.launch { store.reset() }
     fun setSearchKey(code: Int) = viewModelScope.launch { store.setSearchKeyCode(code) }
     fun setButton(action: String, code: Int?) = viewModelScope.launch { store.setButton(action, code) }
+    fun setMapping(screen: io.github.petebutty.viewarr.data.settings.BtnScreen, press: io.github.petebutty.viewarr.data.settings.BtnPress, action: io.github.petebutty.viewarr.data.settings.BtnAction) = viewModelScope.launch {
+        // The default is saved as "no change", so a later change of default reaches it.
+        store.setMapping(io.github.petebutty.viewarr.data.settings.ButtonMap.key(screen, press), action.name.takeIf { action != io.github.petebutty.viewarr.data.settings.ButtonMap.default(screen, press) })
+    }
+    fun resetScreen(screen: io.github.petebutty.viewarr.data.settings.BtnScreen, keys: List<String>) = viewModelScope.launch {
+        store.resetMappings(screen.name + ".")
+        store.clear(keys)
+    }
+    fun resetButtons() = viewModelScope.launch { store.resetButtons() }
+}
+
+/** A choice in the button table (the action's label). */
+private data class ActionChoice(val action: io.github.petebutty.viewarr.data.settings.BtnAction) : RemoteChoice { override val label get() = action.label }
+
+/**
+ * A generic remote (our own drawing, no brand's), with what the main buttons do on one screen beside it. Shown at
+ * the top of each screen's section in Settings → Remote & navigation; it follows the rows below as they change.
+ */
+@Composable
+private fun RemotePicture(lines: List<Pair<String, String>>, colours: List<String>) {
+    val ink = io.github.petebutty.viewarr.ui.theme.AppColors.TextSecondary
+    val body = io.github.petebutty.viewarr.ui.theme.AppColors.Panel
+    val accent = io.github.petebutty.viewarr.ui.theme.AppColors.Accent
+    androidx.compose.foundation.layout.Row(
+        androidx.compose.ui.Modifier.padding(bottom = 10.dp).background(io.github.petebutty.viewarr.ui.theme.AppColors.PanelAlt.copy(alpha = 0.6f), androidx.compose.foundation.shape.RoundedCornerShape(12.dp)).padding(16.dp),
+        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+    ) {
+        androidx.compose.foundation.Canvas(androidx.compose.ui.Modifier.width(84.dp).height(230.dp)) {
+            val w = size.width
+            val h = size.height
+            drawRoundRect(body, size = size, cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * 0.45f))
+            drawRoundRect(ink, size = size, cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * 0.45f), style = androidx.compose.ui.graphics.drawscope.Stroke(2f))
+            // Power, then the arrows round OK, Back / Home / Menu, play/pause, the colour buttons, the numbers.
+            drawCircle(ink, w * 0.06f, androidx.compose.ui.geometry.Offset(w * 0.5f, h * 0.06f))
+            val c = androidx.compose.ui.geometry.Offset(w * 0.5f, h * 0.24f)
+            drawCircle(ink, w * 0.34f, c, style = androidx.compose.ui.graphics.drawscope.Stroke(3f))
+            drawCircle(accent, w * 0.15f, c)
+            listOf(0.25f, 0.5f, 0.75f).forEach { x -> drawCircle(ink, w * 0.07f, androidx.compose.ui.geometry.Offset(w * x, h * 0.42f)) }
+            drawCircle(ink, w * 0.07f, androidx.compose.ui.geometry.Offset(w * 0.5f, h * 0.51f))
+            val dots = listOf(androidx.compose.ui.graphics.Color(0xFFE53935), androidx.compose.ui.graphics.Color(0xFF43A047), androidx.compose.ui.graphics.Color(0xFFFDD835), androidx.compose.ui.graphics.Color(0xFF1E88E5))
+            dots.forEachIndexed { i, col -> drawRoundRect(col, topLeft = androidx.compose.ui.geometry.Offset(w * (0.14f + i * 0.19f), h * 0.59f), size = androidx.compose.ui.geometry.Size(w * 0.14f, h * 0.025f), cornerRadius = androidx.compose.ui.geometry.CornerRadius(3f)) }
+            for (r in 0..3) for (col in 0..2) drawCircle(ink.copy(alpha = 0.6f), w * 0.05f, androidx.compose.ui.geometry.Offset(w * (0.28f + col * 0.22f), h * (0.68f + r * 0.07f)))
+        }
+        androidx.compose.foundation.layout.Spacer(androidx.compose.ui.Modifier.width(20.dp))
+        androidx.compose.foundation.layout.Column(verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(4.dp)) {
+            lines.forEach { (k, v) ->
+                androidx.compose.foundation.layout.Row {
+                    androidx.tv.material3.Text(k, fontSize = 13.sp, color = io.github.petebutty.viewarr.ui.theme.AppColors.TextPrimary, modifier = androidx.compose.ui.Modifier.width(150.dp))
+                    androidx.tv.material3.Text(v, fontSize = 13.sp, color = io.github.petebutty.viewarr.ui.theme.AppColors.TextSecondary)
+                }
+            }
+            if (colours.isNotEmpty()) androidx.compose.foundation.layout.Row(androidx.compose.ui.Modifier.padding(top = 4.dp), horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(10.dp)) {
+                val cs = listOf(0xFFE53935, 0xFF43A047, 0xFFFDD835, 0xFF1E88E5)
+                colours.forEachIndexed { i, label ->
+                    androidx.compose.foundation.layout.Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                        androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.width(14.dp).height(6.dp).background(androidx.compose.ui.graphics.Color(cs[i]), androidx.compose.foundation.shape.RoundedCornerShape(2.dp)))
+                        androidx.tv.material3.Text(" " + label, fontSize = 12.sp, color = io.github.petebutty.viewarr.ui.theme.AppColors.TextSecondary)
+                    }
+                }
+            }
+        }
+    }
 }
 
 /** A status row's text (Buttons while watching). */
@@ -98,6 +161,19 @@ fun RemoteSettingsScreen(onBack: () -> Unit, vm: RemoteViewModel = hiltViewModel
             if (it == io.github.petebutty.viewarr.data.settings.SearchButton.Chosen) learning = true else vm.set(key, it)
         }
     val k = RemoteStore.Companion
+    fun act(screen: io.github.petebutty.viewarr.data.settings.BtnScreen, press: io.github.petebutty.viewarr.data.settings.BtnPress) = io.github.petebutty.viewarr.data.settings.ButtonMap.action(s, screen, press).label
+    // The colour buttons' actions for the remote picture (only screens that have them).
+    fun colours(screen: io.github.petebutty.viewarr.data.settings.BtnScreen) = listOf(io.github.petebutty.viewarr.data.settings.BtnPress.Red, io.github.petebutty.viewarr.data.settings.BtnPress.Green, io.github.petebutty.viewarr.data.settings.BtnPress.Yellow, io.github.petebutty.viewarr.data.settings.BtnPress.Blue)
+        .filter { it in io.github.petebutty.viewarr.data.settings.ButtonMap.presses[screen].orEmpty() }.map { act(screen, it) }
+    fun tableRows(screen: io.github.petebutty.viewarr.data.settings.BtnScreen): List<SettingItem> = io.github.petebutty.viewarr.data.settings.ButtonMap.presses[screen].orEmpty().map { press ->
+        val choices = io.github.petebutty.viewarr.data.settings.ButtonMap.actions[screen].orEmpty().map { ActionChoice(it) }
+        SettingItem(press.label, press.group + (if (io.github.petebutty.viewarr.data.settings.ButtonMap.action(s, screen, press) == io.github.petebutty.viewarr.data.settings.ButtonMap.default(screen, press)) " · as standard" else " · changed"),
+            choices, ActionChoice(io.github.petebutty.viewarr.data.settings.ButtonMap.action(s, screen, press))) { c -> vm.setMapping(screen, press, (c as ActionChoice).action) }
+    }
+    fun resetRow(screen: io.github.petebutty.viewarr.data.settings.BtnScreen, keys: List<String>) = SettingItem(
+        "Reset these buttons", "Back to how Viewarr comes, for this screen only.",
+        listOf(ButtonStatus("")), ButtonStatus(""), action = { vm.resetScreen(screen, keys) }, onSelect = {},
+    )
     val categories = listOf(
         SettingCategory(
             "Start", "What you see when Viewarr opens.",
@@ -107,20 +183,41 @@ fun RemoteSettingsScreen(onBack: () -> Unit, vm: RemoteViewModel = hiltViewModel
             ),
         ),
         SettingCategory(
-            "TV guide", "Buttons while browsing the guide.",
+            "TV guide", "Buttons while browsing the guide: the main buttons first, then Record, the colour buttons and Info.",
             listOf(
-                item("Left", "What Left does on the guide's programmes. Holding Left (or ⏪) on what's on now goes back into catch-up.", k.GUIDE_LEFT, all<GuideLeft>(), s.guideLeft),
-                item("Back", "Back first jumps the guide to what's on now. On now: back to the channel full screen, ask to exit (press Back again), or open the menu. Holding Back always opens the menu on the channel groups.", k.GUIDE_BACK, all<GuideBack>(), s.guideBack),
+                item("Left", "What Left does on the guide's programmes.", k.GUIDE_LEFT, all<GuideLeft>(), s.guideLeft),
+                item("Back", "Back first jumps the guide to what's on now. On now: back to the channel full screen, ask to exit (press Back again), or open the menu.", k.GUIDE_BACK, all<GuideBack>(), s.guideBack),
                 item("Channel + / −", "Pages through the channels. Reverse it if your remote's buttons feel the wrong way round.", k.CHANNEL_KEYS, all<ChannelKeys>(), s.channelKeys),
-            ),
+            ) + tableRows(io.github.petebutty.viewarr.data.settings.BtnScreen.Guide) + resetRow(io.github.petebutty.viewarr.data.settings.BtnScreen.Guide, listOf(k.GUIDE_LEFT, k.GUIDE_BACK, k.CHANNEL_KEYS)),
+            header = { RemotePicture(
+                listOf("OK" to "Watch, or details for later", "▲ ▼" to "Channels", "◀ ▶" to s.guideLeft.label, "Back" to s.guideBack.label,
+                    "Hold Back" to act(io.github.petebutty.viewarr.data.settings.BtnScreen.Guide, io.github.petebutty.viewarr.data.settings.BtnPress.BackHold), "Ch + / −" to s.channelKeys.label,
+                    "Record" to act(io.github.petebutty.viewarr.data.settings.BtnScreen.Guide, io.github.petebutty.viewarr.data.settings.BtnPress.Record)),
+                colours(io.github.petebutty.viewarr.data.settings.BtnScreen.Guide),
+            ) },
         ),
         SettingCategory(
-            "Watching", "Buttons while live TV or a film is playing.",
+            "Live TV", "Buttons while a channel plays full screen: the main buttons first, then Record, the colour buttons and Info.",
             listOf(
-                item("Up / Down on live TV", "Show the channel list to pick from, or change channel straight away.", k.ZAP, all<ZapDirection>(), s.zap),
-                item("Left / Right", "How far each press skips in films, shows, recordings and catch-up.", k.SEEK, all<SeekStep>(), s.seek),
-                item("OK on live TV", "Open the playback controls, or just show the banner with what's on.", k.PLAYER_OK, all<PlayerOk>(), s.playerOk),
-            ),
+                item("Up / Down", "Show the channel list to pick from, or change channel straight away.", k.ZAP, all<ZapDirection>(), s.zap),
+                item("OK", "Open the playback controls, or just show the banner with what's on.", k.PLAYER_OK, all<PlayerOk>(), s.playerOk),
+                item("Left / Right", "How far each press skips (catch-up, paused live TV; films and recordings too).", k.SEEK, all<SeekStep>(), s.seek),
+            ) + tableRows(io.github.petebutty.viewarr.data.settings.BtnScreen.Live) + resetRow(io.github.petebutty.viewarr.data.settings.BtnScreen.Live, listOf(k.ZAP, k.PLAYER_OK, k.SEEK)),
+            header = { RemotePicture(
+                listOf("OK" to s.playerOk.label, "▲ ▼" to s.zap.label, "◀ ▶" to s.seek.label, "Back" to "The guide, the channel in its preview",
+                    "Hold Back" to act(io.github.petebutty.viewarr.data.settings.BtnScreen.Live, io.github.petebutty.viewarr.data.settings.BtnPress.BackHold), "Ch + / −" to "Change channel",
+                    "Record" to act(io.github.petebutty.viewarr.data.settings.BtnScreen.Live, io.github.petebutty.viewarr.data.settings.BtnPress.Record), "Info" to act(io.github.petebutty.viewarr.data.settings.BtnScreen.Live, io.github.petebutty.viewarr.data.settings.BtnPress.Info)),
+                colours(io.github.petebutty.viewarr.data.settings.BtnScreen.Live),
+            ) },
+        ),
+        SettingCategory(
+            "Films & shows", "Buttons while a film or episode plays. OK, the arrows and Back work as shown; the colour buttons and Info are yours to set.",
+            tableRows(io.github.petebutty.viewarr.data.settings.BtnScreen.Film) + resetRow(io.github.petebutty.viewarr.data.settings.BtnScreen.Film, emptyList()),
+            header = { RemotePicture(
+                listOf("OK" to "Controls · hold: audio & subtitles", "◀ ▶" to s.seek.label, "▼" to "Seek bar with previews", "▲" to "Time and title",
+                    "Back" to "Close what's open, then stop", "Play / Pause" to "Pause", "Info" to act(io.github.petebutty.viewarr.data.settings.BtnScreen.Film, io.github.petebutty.viewarr.data.settings.BtnPress.Info)),
+                colours(io.github.petebutty.viewarr.data.settings.BtnScreen.Film),
+            ) },
         ),
         SettingCategory(
             "Buttons while watching", "Give an action an extra button: a colour button, or one your remote has spare. It works on live TV, films and in the guide. OK, Back, the arrows and the numbers stay as they are.",
@@ -133,16 +230,19 @@ fun RemoteSettingsScreen(onBack: () -> Unit, vm: RemoteViewModel = hiltViewModel
                 item("Poster position", "Keep the highlighted poster at the left edge of the row, or scroll only when it would go off screen.", k.ROW_ALIGN, all<RowAlign>(), s.rowAlign),
                 item("Left on the first poster", "Open the catalogue list (Left again for the main menu), or do nothing.", k.ROW_LEFT, all<RowLeft>(), s.rowLeft),
                 item("Back", "Back on Movies or Shows asks to exit (press Back again), opens the catalogue list, or goes to the TV guide.", k.MEDIA_BACK, all<MediaBack>(), s.mediaBack),
-            ),
+            ) + tableRows(io.github.petebutty.viewarr.data.settings.BtnScreen.Pages) + resetRow(io.github.petebutty.viewarr.data.settings.BtnScreen.Pages, listOf(k.ROW_LEFT, k.MEDIA_BACK)),
+            header = { RemotePicture(listOf("OK" to "Open", "Hold OK" to "Quick menu (play, trailer, watchlist)", "◀ on the first poster" to s.rowLeft.label, "Back" to s.mediaBack.label, "Hold Back" to act(io.github.petebutty.viewarr.data.settings.BtnScreen.Pages, io.github.petebutty.viewarr.data.settings.BtnPress.BackHold)), emptyList()) },
         ),
         SettingCategory(
             "Menu", "The side menu. Back steps out one level: from a list to the main menu, then closes the menu.",
             listOf(
                 item("Menu opens on", "Open on the current page's own list (channel groups, catalogues), or on the main list.", k.MENU_OPENS_ON, all<MenuOpensOn>(), s.menuOpensOn),
+                optItem(opts, "Button hints", "A small pill at the bottom of the screen saying what the buttons do there: the first few times on each screen, always, or off.", io.github.petebutty.viewarr.ui.theme.UiOpts.BUTTON_HINTS),
             ),
         ),
     )
-    SettingsPage(title = "Remote & navigation", categories = categories, onBack = onBack, onReset = { vm.reset(); opts.reset(listOf(io.github.petebutty.viewarr.ui.theme.UiOpts.PLAYER_BACK)) })
+    // Reset: the buttons only (not where the app opens, the menu or the poster rows).
+    SettingsPage(title = "Remote & navigation", categories = categories, onBack = onBack, onReset = { vm.resetButtons() }, resetLabel = "Reset buttons")
     if (learning) LearnButtonDialog(onKey = { code -> vm.setSearchKey(code); learning = false }, onCancel = { learning = false })
     teaching?.let { (a, name) ->
         TeachButtonDialog(

@@ -48,3 +48,21 @@ fun GrowFromLeft(width: Dp, millis: Int = 200, content: @androidx.compose.runtim
         ) { content() }
     }
 }
+
+/** [GrowFromLeft] that also slides away again: grows in when [visible], shrinks out of frame when it's not. */
+@androidx.compose.runtime.Composable
+fun GrowFromLeftToggle(visible: Boolean, width: Dp, millis: Int = 200, content: @androidx.compose.runtime.Composable () -> Unit) {
+    val p = remember { Animatable(0f) }
+    LaunchedEffect(visible) { p.animateTo(if (visible) 1f else 0f, tween(millis, easing = FastOutSlowInEasing)) }
+    if (!visible && p.value == 0f) return
+    androidx.compose.foundation.layout.Box(
+        Modifier
+            .fillMaxHeight()
+            .then(Modifier.width(width * p.value))
+            .then(Modifier.clipToBounds()),
+    ) {
+        androidx.compose.foundation.layout.Box(
+            Modifier.fillMaxHeight().wrapContentWidth(androidx.compose.ui.Alignment.End, unbounded = true).width(width),
+        ) { content() }
+    }
+}

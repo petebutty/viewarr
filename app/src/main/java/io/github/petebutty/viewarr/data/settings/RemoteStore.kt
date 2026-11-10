@@ -127,6 +127,8 @@ data class RemoteSettings(
     val lastChannelId: Int? = null,
     /** Settings → Remote → Buttons while watching: an extra button per action (RemoteAction name → key code). */
     val buttons: Map<String, Int> = emptyMap(),
+    /** Settings → Remote → the button table: changes from ButtonMap's defaults ("Screen.Press" → action name). */
+    val buttonMap: Map<String, String> = emptyMap(),
     /** False until the stored settings have been read. */
     val loaded: Boolean = false,
 )
@@ -161,6 +163,10 @@ class RemoteStore @Inject constructor(@ApplicationContext private val context: C
                 val (name, code) = part.split('=').takeIf { it.size == 2 } ?: return@mapNotNull null
                 code.toIntOrNull()?.let { name to it }
             }.toMap(),
+            buttonMap = p[stringPreferencesKey(BUTTON_MAP)].orEmpty().split(',').mapNotNull { part ->
+                val (k, v) = part.split('=').takeIf { it.size == 2 } ?: return@mapNotNull null
+                k to v
+            }.toMap(),
             loaded = true,
         )
     }
@@ -181,8 +187,42 @@ class RemoteStore @Inject constructor(@ApplicationContext private val context: C
         }
     }
 
+    /** One row of the button table ([action] null: back to the default). */
+    suspend fun setMapping(key: String, action: String?) {
+        context.remoteStore.edit { prefs ->
+            val now = prefs[stringPreferencesKey(BUTTON_MAP)].orEmpty().split(',').mapNotNull { part ->
+                val (k, v) = part.split('=').takeIf { it.size == 2 } ?: return@mapNotNull null
+                k to v
+            }.toMap()
+            val next = if (action == null) now - key else now + (key to action)
+            prefs[stringPreferencesKey(BUTTON_MAP)] = next.entries.joinToString(",") { "${it.key}=${it.value}" }
+        }
+    }
+
+    /** One screen of the button table back to its defaults (rows whose key starts "Screen."). */
+    suspend fun resetMappings(screenPrefix: String) {
+        context.remoteStore.edit { prefs ->
+            val kept = prefs[stringPreferencesKey(BUTTON_MAP)].orEmpty().split(',').filter { it.isNotBlank() && !it.startsWith(screenPrefix) }
+            prefs[stringPreferencesKey(BUTTON_MAP)] = kept.joinToString(",")
+        }
+    }
+
     suspend fun set(key: String, value: Enum<*>) {
         context.remoteStore.edit { it[stringPreferencesKey(key)] = value.name }
+    }
+
+    /** Only the button settings back to their defaults (not where the app opens, the menu or the poster rows). */
+    suspend fun resetButtons() {
+        context.remoteStore.edit { prefs ->
+            listOf(GUIDE_LEFT, GUIDE_BACK, CHANNEL_KEYS, ZAP, SEEK, PLAYER_OK, ROW_LEFT, MEDIA_BACK, MENU_BACK, SEARCH_BUTTON, BUTTONS, BUTTON_MAP)
+                .forEach { prefs.remove(stringPreferencesKey(it)) }
+            prefs.remove(intPreferencesKey(SEARCH_KEYCODE))
+        }
+    }
+
+    /** Some choice settings back to their defaults (a section's "Reset these buttons"). */
+    suspend fun clear(keys: List<String>) {
+        context.remoteStore.edit { prefs -> keys.forEach { prefs.remove(stringPreferencesKey(it)) } }
     }
 
     suspend fun reset() {
@@ -222,5 +262,6 @@ class RemoteStore @Inject constructor(@ApplicationContext private val context: C
         const val SEARCH_KEYCODE = "search_keycode"
         const val LAST_CHANNEL = "last_channel"
         const val BUTTONS = "buttons_v1"
+        const val BUTTON_MAP = "bmap_v1"
     }
 }

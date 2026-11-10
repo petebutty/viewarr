@@ -205,6 +205,7 @@ fun AppearanceSettingsScreen(onBack: () -> Unit, vm: AppearanceViewModel = hiltV
         SettingCategory(
             "Menu", "What the side menu offers.",
             listOf(
+                optItem(opts, "Button hints", "A small pill at the bottom of the screen saying what the buttons do there, for a few seconds when you arrive: the first few times on each screen, always, or never.", io.github.petebutty.viewarr.ui.theme.UiOpts.BUTTON_HINTS),
                 SettingItem("Movies & Shows", "Turn off to use Viewarr for live TV only: Movies and Shows leave the menu.", onOff,
                     if (palette.hideMedia) onOff[1] else onOff[0]) { c -> vm.setHideMedia((c as Choice).value != true) },
             ),

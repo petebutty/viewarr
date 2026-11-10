@@ -82,6 +82,10 @@ fun PlayerOsd(
     onRecord: (() -> Unit)? = null,
     /** Several channels at once. */
     onMultiView: (() -> Unit)? = null,
+    /** The settings, over live TV (Back returns here). */
+    onSettings: (() -> Unit)? = null,
+    /** Channel list, guide and wallpaper transparency, adjusted over the picture. */
+    onTransparency: (() -> Unit)? = null,
     /** Opened with the Menu button: start on the audio choices. */
     openAudio: Boolean = false,
     modifier: Modifier = Modifier,
@@ -252,6 +256,8 @@ fun PlayerOsd(
             }
             if (onRecord != null) Pill(io.github.petebutty.viewarr.ui.common.AppIcons.Record, "Record") { onRecord() }
             if (onMultiView != null) Pill(io.github.petebutty.viewarr.ui.common.AppIcons.Grid, "Multi-view") { onMultiView() }
+            if (onTransparency != null) Pill(io.github.petebutty.viewarr.ui.common.AppIcons.Opacity, "Transparency") { onTransparency() }
+            if (onSettings != null) Pill(io.github.petebutty.viewarr.ui.common.AppIcons.Settings, "Settings") { onSettings() }
             (note ?: sourceNote?.takeIf { popup == null })?.let { Text(it, fontSize = 12.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(start = 8.dp, top = 14.dp)) }
         }
     }
