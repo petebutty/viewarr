@@ -278,7 +278,7 @@ private fun TileView(
         onClick = onClick,
         onLongClick = onOptions,
         modifier = modifier
-            .onPreviewKeyEvent { e -> if (e.key == Key.Menu && e.type == KeyEventType.KeyDown) { onOptions(); true } else false }
+            .onPreviewKeyEvent { e -> if (io.github.petebutty.viewarr.ui.common.RemoteKeys.action(e) == io.github.petebutty.viewarr.ui.common.RemoteAction.Menu && e.type == KeyEventType.KeyDown) { onOptions(); true } else false }
             .border(3.dp, if (selected) AppColors.Accent else Color(0x33FFFFFF), RoundedCornerShape(8.dp)),
         scale = ClickableSurfaceDefaults.scale(scale = 1f, focusedScale = 1f, pressedScale = 1f),
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),

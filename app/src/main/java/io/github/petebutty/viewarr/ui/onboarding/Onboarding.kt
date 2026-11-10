@@ -345,7 +345,7 @@ private fun tourPages(): List<TourPage> = listOf(
     },
     TourPage(
         "Films and shows",
-        "Rows of what you're watching, what's new and what's popular. OK opens a title; hold OK for a quick menu (play, trailer, watchlist). While a film plays, OK shows the controls and Back shrinks it to a corner so you can keep browsing (hold Back to bring it back).",
+        "Rows of what you're watching, what's new and what's popular. OK opens a title; hold OK for a quick menu (play, trailer, watchlist). While a film plays, OK shows the controls, Back stops it, and holding Back shrinks it to a corner so you can keep browsing (hold Back again to bring it back).",
     ) { pulse, _ ->
         Shot(io.github.petebutty.viewarr.R.drawable.tour_movies, listOf(
             Spot(0.092f, 0.55f, "OK: open · Hold OK: quick menu"),

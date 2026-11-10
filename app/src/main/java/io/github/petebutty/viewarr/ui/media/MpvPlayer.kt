@@ -301,7 +301,7 @@ fun MpvPlayer(
             System.currentTimeMillis() < osdUntil && !paused -> osdUntil = 0L
             // Back again: into the corner, still playing (hold Back to bring it back).
             // (Settings → Playback → Back while watching: or stop.)
-            else -> if (io.github.petebutty.viewarr.ui.theme.AppColors.palette.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.PLAYER_BACK) == 1) onClose() else VodHost.minimise().also { if (!VodHost.active) onClose() }
+            else -> if (io.github.petebutty.viewarr.ui.theme.AppColors.palette.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.PLAYER_BACK) >= 1) onClose() else VodHost.minimise().also { if (!VodHost.active) onClose() }
         }
     }
 
@@ -345,6 +345,9 @@ fun MpvPlayer(
         buttons = buttons, press = ::press, seekMs = (seekSec * 1000).toLong(), showOsd = ::showOsd,
         openTracks = { subs -> subs?.let { tracksSubs = it }; tracksOpen = true },
         toggleDetails = { detailsOn = !detailsOn }, showDetails = { detailsOn = true }, stop = onClose,
+        backMode = io.github.petebutty.viewarr.ui.theme.AppColors.palette.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.PLAYER_BACK),
+        atTop = { !tracksOpen && !scrub.active && !detailsOn && !menu.open && !(System.currentTimeMillis() < osdUntil && !paused) },
+        minimise = { VodHost.minimise(); if (!VodHost.active) onClose() },
     )
     // The controls close after a while without a key (not while paused).
     LaunchedEffect(paused) {

@@ -46,7 +46,6 @@ fun PlaybackSettingsScreen(onBack: () -> Unit, vm: PlaybackSettingsViewModel = h
             listOf(
                 item("Player", "The built-in player is lighter and handles surround sound best. If it can't play a file, Viewarr switches to mpv by itself. Choose mpv to use it for everything.", k.ENGINE, choices<io.github.petebutty.viewarr.data.settings.PlayerEngine>(), s.engine),
                 item("Resume", "Carry on where you stopped last time, or always start at the beginning.", k.RESUME, choices<io.github.petebutty.viewarr.data.settings.ResumeMode>(), s.resume),
-                optItem(opts, "Back while watching", "Back during a film or episode: shrink it to a corner and keep it playing while you browse (hold Back for full screen again), or stop.", io.github.petebutty.viewarr.ui.theme.UiOpts.PLAYER_BACK),
                 optItem(opts, "Controls stay up for", "How long the seek bar and buttons stay on screen after a button press.", io.github.petebutty.viewarr.ui.theme.UiOpts.CONTROLS_TIME),
                 optItem(opts, "Player controls size", "How big the seek bar, title and buttons are while a film or episode plays. Smaller sizes cover less of the picture.", io.github.petebutty.viewarr.ui.theme.UiOpts.CONTROLS_SIZE),
                 optItem(opts, "Seek-bar previews", "Pictures above the seek bar. Without the server's own, the box reads the film a second time to make them: \"Server's only\" or Off saves bandwidth and memory.", io.github.petebutty.viewarr.ui.theme.UiOpts.SEEK_PREVIEWS),
@@ -99,7 +98,7 @@ fun PlaybackSettingsScreen(onBack: () -> Unit, vm: PlaybackSettingsViewModel = h
             ),
         ),
         SettingCategory(
-            "Picture-in-picture", "A film or episode shrunk to a corner (Back while watching).",
+            "Picture-in-picture", "A film or episode shrunk to a corner (hold Back while watching).",
             listOf(
                 optItem(opts, "Size", "How big the window is.", io.github.petebutty.viewarr.ui.theme.UiOpts.MINI_SIZE),
                 optItem(opts, "Corner", "Where it sits.", io.github.petebutty.viewarr.ui.theme.UiOpts.MINI_CORNER),
@@ -130,6 +129,6 @@ fun PlaybackSettingsScreen(onBack: () -> Unit, vm: PlaybackSettingsViewModel = h
     )
     SettingsPage(title = "Playback", categories = categories, onBack = onBack, onReset = {
         vm.reset()
-        opts.reset(listOf(io.github.petebutty.viewarr.ui.theme.UiOpts.PLAYER_BACK, io.github.petebutty.viewarr.ui.theme.UiOpts.CONTROLS_TIME, io.github.petebutty.viewarr.ui.theme.UiOpts.CONTROLS_SIZE, io.github.petebutty.viewarr.ui.theme.UiOpts.SEEK_PREVIEWS, io.github.petebutty.viewarr.ui.theme.UiOpts.UP_NEXT, io.github.petebutty.viewarr.ui.theme.UiOpts.MINI_SIZE, io.github.petebutty.viewarr.ui.theme.UiOpts.MINI_CORNER, io.github.petebutty.viewarr.ui.theme.UiOpts.STILL_WATCHING, io.github.petebutty.viewarr.ui.theme.UiOpts.LOW_MEMORY))
+        opts.reset(listOf(io.github.petebutty.viewarr.ui.theme.UiOpts.CONTROLS_TIME, io.github.petebutty.viewarr.ui.theme.UiOpts.CONTROLS_SIZE, io.github.petebutty.viewarr.ui.theme.UiOpts.SEEK_PREVIEWS, io.github.petebutty.viewarr.ui.theme.UiOpts.UP_NEXT, io.github.petebutty.viewarr.ui.theme.UiOpts.MINI_SIZE, io.github.petebutty.viewarr.ui.theme.UiOpts.MINI_CORNER, io.github.petebutty.viewarr.ui.theme.UiOpts.STILL_WATCHING, io.github.petebutty.viewarr.ui.theme.UiOpts.LOW_MEMORY))
     })
 }

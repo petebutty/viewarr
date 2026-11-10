@@ -190,15 +190,19 @@ fun GuideScreen(
                     return@onPreviewKeyEvent true
                 }
                 if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                when (e.key) {
-                    Key.DirectionUp -> vm.moveVertical(-1)
-                    Key.DirectionDown -> vm.moveVertical(1)
-                    Key.ChannelUp, Key.PageUp -> vm.moveVertical(if (remote.channelKeys == ChannelKeys.Reversed) PAGE else -PAGE)
-                    Key.ChannelDown, Key.PageDown -> vm.moveVertical(if (remote.channelKeys == ChannelKeys.Reversed) -PAGE else PAGE)
-                    Key.DirectionRight, Key.MediaFastForward -> vm.moveRight()
-                    Key.MediaRewind -> vm.moveLeft()
+                // Buttons through RemoteKeys, so ones taught in Settings → Remote work here too.
+                val action = io.github.petebutty.viewarr.ui.common.RemoteKeys.action(e)
+                when {
+                    e.key == Key.DirectionUp -> vm.moveVertical(-1)
+                    e.key == Key.DirectionDown -> vm.moveVertical(1)
+                    action == io.github.petebutty.viewarr.ui.common.RemoteAction.ChannelUp || e.key == Key.PageUp ->
+                        vm.moveVertical(if (remote.channelKeys == ChannelKeys.Reversed) PAGE else -PAGE)
+                    action == io.github.petebutty.viewarr.ui.common.RemoteAction.ChannelDown || e.key == Key.PageDown ->
+                        vm.moveVertical(if (remote.channelKeys == ChannelKeys.Reversed) -PAGE else PAGE)
+                    e.key == Key.DirectionRight || action == io.github.petebutty.viewarr.ui.common.RemoteAction.FastForward -> vm.moveRight()
+                    action == io.github.petebutty.viewarr.ui.common.RemoteAction.Rewind -> vm.moveLeft()
                     // Record (remotes that have it): the highlighted programme's options, as holding OK.
-                    Key.MediaRecord -> selectedChannel?.let { ch -> focused?.let { onLongSelect(ch, it) } }
+                    action == io.github.petebutty.viewarr.ui.common.RemoteAction.Record -> selectedChannel?.let { ch -> focused?.let { onLongSelect(ch, it) } }
                     else -> return@onPreviewKeyEvent false
                 }
                 true

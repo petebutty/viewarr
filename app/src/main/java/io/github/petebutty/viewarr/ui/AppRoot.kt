@@ -108,6 +108,8 @@ fun AppRoot(vm: AppViewModel = hiltViewModel()) {
     // Settings → Appearance → Text size: everything scaled together (layout and text).
     val baseDensity = androidx.compose.ui.platform.LocalDensity.current
     val scale = io.github.petebutty.viewarr.ui.theme.AppColors.palette.textScale
+    // Buttons taught in Settings → Remote: read wherever a press is turned into an action.
+    androidx.compose.runtime.SideEffect { io.github.petebutty.viewarr.ui.common.RemoteKeys.setTaught(remote.buttons) }
     androidx.compose.runtime.CompositionLocalProvider(
         io.github.petebutty.viewarr.data.settings.LocalRemote provides remote,
         io.github.petebutty.viewarr.data.settings.LocalPlayback provides playbackSettings,

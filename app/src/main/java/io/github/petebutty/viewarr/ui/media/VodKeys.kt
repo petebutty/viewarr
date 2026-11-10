@@ -31,6 +31,11 @@ class VodHooks(
     val toggleDetails: () -> Unit,
     val showDetails: () -> Unit,
     val stop: () -> Unit,
+    /** Settings → Back while watching: 0 corner, 1 stop, 2 stop (hold Back: corner). */
+    val backMode: Int = 0,
+    /** Nothing open on the player (no controls, details, seek marker): Back's last step is next. */
+    val atTop: () -> Boolean = { false },
+    val minimise: () -> Unit = {},
 )
 
 /**
@@ -40,12 +45,27 @@ class VodHooks(
 class VodKeys(private val scrub: Scrubber, private val menu: PlayerMenu) {
     private val ok = TapHold()
     private val menuKey = TapHold()
+    // "Stop · hold Back: corner": decided when Back is let go, so the rest of a held press never reaches the page
+    // underneath (where holding Back brings a film back full screen).
+    private var backDown = false
+    private var backHeld = false
 
     /** True when the event was used. */
     fun handle(e: KeyEvent, p: VodRemote, h: VodHooks): Boolean {
         val a = RemoteKeys.action(e)
         val down = e.type == KeyEventType.KeyDown
         val repeat = e.nativeKeyEvent.repeatCount
+        if (a == RemoteAction.Back && h.backMode == 2) {
+            when {
+                down && repeat == 0 && h.atTop() -> { backDown = true; backHeld = false; return true }
+                down && backDown -> { backHeld = true; return true }
+                !down && backDown -> {
+                    backDown = false
+                    if (backHeld) h.minimise() else h.stop()
+                    return true
+                }
+            }
+        }
         // On the seek bar: Left / Right move the marker, OK jumps there, Up leaves.
         if (scrub.active) {
             when (a) {

@@ -486,11 +486,16 @@ fun HomeScreen(
                         if (e.nativeKeyEvent.repeatCount == 1) { music.eatBackRelease = true; music.nowPlayingOpen = true }
                         return@onPreviewKeyEvent true
                     }
-                    if (e.type == KeyEventType.KeyDown) when (e.nativeKeyEvent.keyCode) {
-                        android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, android.view.KeyEvent.KEYCODE_MEDIA_PLAY, android.view.KeyEvent.KEYCODE_MEDIA_PAUSE -> { music.toggle(); return@onPreviewKeyEvent true }
-                        android.view.KeyEvent.KEYCODE_MEDIA_NEXT -> { music.next(); return@onPreviewKeyEvent true }
-                        android.view.KeyEvent.KEYCODE_MEDIA_PREVIOUS -> { music.previous(); return@onPreviewKeyEvent true }
-                        android.view.KeyEvent.KEYCODE_MEDIA_STOP -> { music.stop(); return@onPreviewKeyEvent true }
+                    if (e.type == KeyEventType.KeyDown) {
+                        when (io.github.petebutty.viewarr.ui.common.RemoteKeys.action(e)) {
+                            io.github.petebutty.viewarr.ui.common.RemoteAction.PlayPause -> { music.toggle(); return@onPreviewKeyEvent true }
+                            io.github.petebutty.viewarr.ui.common.RemoteAction.Stop -> { music.stop(); return@onPreviewKeyEvent true }
+                            else -> Unit
+                        }
+                        when (e.nativeKeyEvent.keyCode) {
+                            android.view.KeyEvent.KEYCODE_MEDIA_NEXT -> { music.next(); return@onPreviewKeyEvent true }
+                            android.view.KeyEvent.KEYCODE_MEDIA_PREVIOUS -> { music.previous(); return@onPreviewKeyEvent true }
+                        }
                     }
                 }
                 // The search button (Settings → Remote): pops search up over whatever's on screen.

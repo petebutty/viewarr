@@ -121,6 +121,8 @@ data class RemoteSettings(
     val searchKeyCode: Int? = null,
     /** The last live channel played (for "Last channel" start). */
     val lastChannelId: Int? = null,
+    /** Settings → Remote → Buttons while watching: an extra button per action (RemoteAction name → key code). */
+    val buttons: Map<String, Int> = emptyMap(),
     /** False until the stored settings have been read. */
     val loaded: Boolean = false,
 )
@@ -151,12 +153,28 @@ class RemoteStore @Inject constructor(@ApplicationContext private val context: C
             searchButton = p.read(SEARCH_BUTTON),
             searchKeyCode = p[intPreferencesKey(SEARCH_KEYCODE)],
             lastChannelId = p[intPreferencesKey(LAST_CHANNEL)],
+            buttons = p[stringPreferencesKey(BUTTONS)].orEmpty().split(',').mapNotNull { part ->
+                val (name, code) = part.split('=').takeIf { it.size == 2 } ?: return@mapNotNull null
+                code.toIntOrNull()?.let { name to it }
+            }.toMap(),
             loaded = true,
         )
     }
 
     suspend fun setSearchKeyCode(code: Int) {
         context.remoteStore.edit { it[intPreferencesKey(SEARCH_KEYCODE)] = code; it[stringPreferencesKey(SEARCH_BUTTON)] = SearchButton.Chosen.name }
+    }
+
+    /** Gives [action] the extra button [code] (taken from any other action that had it), or none (null). */
+    suspend fun setButton(action: String, code: Int?) {
+        context.remoteStore.edit { prefs ->
+            val now = prefs[stringPreferencesKey(BUTTONS)].orEmpty().split(',').mapNotNull { part ->
+                val (name, c) = part.split('=').takeIf { it.size == 2 } ?: return@mapNotNull null
+                c.toIntOrNull()?.let { name to it }
+            }.toMap().filter { (name, c) -> name != action && c != code }
+            val next = if (code == null) now else now + (action to code)
+            prefs[stringPreferencesKey(BUTTONS)] = next.entries.joinToString(",") { "${it.key}=${it.value}" }
+        }
     }
 
     suspend fun set(key: String, value: Enum<*>) {
@@ -199,5 +217,6 @@ class RemoteStore @Inject constructor(@ApplicationContext private val context: C
         const val SEARCH_BUTTON = "search_button"
         const val SEARCH_KEYCODE = "search_keycode"
         const val LAST_CHANNEL = "last_channel"
+        const val BUTTONS = "buttons_v1"
     }
 }

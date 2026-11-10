@@ -20,7 +20,7 @@ data class Palette(val main: Color, val highlight: Color, val transparency: Floa
     /** Title pages: the parts switched off in Settings → Appearance (TitleParts ids). */ val titleHidden: Set<String> = emptySet(),
     /** Small display / behaviour options (UiOpts names → chosen index; 0 = the default). */ val opts: Map<String, Int> = emptyMap()) {
     fun shows(part: String) = part !in titleHidden
-    fun opt(name: String) = opts[name] ?: 0
+    fun opt(name: String) = opts[name] ?: UiOpts.defaults[name] ?: 0
     /** Low-memory mode: the heavy extras are off whatever their own settings say. */
     val lowMemory get() = opt(UiOpts.LOW_MEMORY) == 1
     val guideArt get() = opt(UiOpts.GUIDE_ART) == 0 && !lowMemory
@@ -184,6 +184,11 @@ object UiOpts {
     const val LOW_MEMORY = "low_memory"
     const val DATE_ORDER = "date_order"
     const val TIME_FORMAT = "time_format"
+    /** Defaults other than the first choice (anyone who never chose). Stored choices are kept as they are. */
+    val defaults = mapOf(
+        // Back closes the film, holding Back puts it in the corner (since 0.23; was: Back = corner).
+        PLAYER_BACK to 2,
+    )
     val choices = mapOf(
         TEXT_SIZE to listOf("Normal", "Small", "Large", "Extra large"),
         CLOCK to listOf("Off", "On"),
@@ -193,7 +198,7 @@ object UiOpts {
         CHANNEL_LOGOS to listOf("On", "Off"),
         MINI_SIZE to listOf("Medium", "Small", "Large"),
         MINI_CORNER to listOf("Bottom right", "Bottom left", "Top right", "Top left"),
-        PLAYER_BACK to listOf("Shrink to a corner", "Stop"),
+        PLAYER_BACK to listOf("Shrink to a corner", "Stop", "Stop · hold Back: corner (recommended)"),
         SEEK_PREVIEWS to listOf("Server's, else the box makes them", "Server's only", "Off"),
         CONTROLS_TIME to listOf("4 seconds", "3 seconds", "6 seconds", "10 seconds"),
         CONTROLS_SIZE to listOf("Medium", "Small", "Large"),
