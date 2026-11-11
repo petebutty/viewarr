@@ -171,6 +171,17 @@ class PlaybackViewModel @Inject constructor(
     // ---------------------------------------------------------------- Dispatcharr: live stream info
 
     /** What Dispatcharr knows about the stream feeding this channel right now, as label → value lines. */
+    /**
+     * The channel's frame rate as Dispatcharr's own probe of the stream found it (its source_fps), for the info bar.
+     * Null for non-admin users (Dispatcharr only tells admins), IPTV logins and playlists, or before it's probed.
+     */
+    suspend fun sourceFps(): Float? {
+        val s = session?.takeIf { !it.isDirect } ?: return null
+        val ch = _channel.value ?: return null
+        val r = runCatching { http.get(api(s, "proxy/ts/status/${ch.uuid}"), apiHeaders(s)) }.getOrNull()?.takeIf { it.code in 200..299 } ?: return null
+        return (r.body.child("source_fps") as? kotlinx.serialization.json.JsonPrimitive)?.content?.toFloatOrNull()?.takeIf { it > 0 }
+    }
+
     suspend fun streamInfo(): List<Pair<String, String>> {
         val s = session ?: return emptyList()
         val ch = _channel.value ?: return emptyList()
@@ -393,12 +404,45 @@ class PlaybackViewModel @Inject constructor(
                 })
     }
 
+    // Zapping: the channel (its name, guide info) changes at once, but its stream is asked for only once you stop on
+    // one. Each request starts the channel on Dispatcharr and takes a provider connection, held a few seconds after
+    // you leave: zapping past several used them all up, and the one you stopped on waited, loading, until it gave up.
+    private var lastPlayAt = 0L
+    private var zapJob: Job? = null
+    // A channel still loading with no picture after a while is asked for again, once (the connections it was waiting
+    // for have been let go by then).
+    private var stallJob: Job? = null
+
     fun play(channel: ChannelListItem, session: Session? = this.session) {
         val s = session ?: return
         livePausedAt = null
         // A note about the last channel's sources ("Switched to …") doesn't belong to this one.
         if (_channel.value?.id != channel.id) { _sourceNote.value = null; _sources.value = null }
+        val now = System.currentTimeMillis()
+        // Settings → Remote buttons → Live TV → Channel change delay (0: straight away, as before).
+        val wait = io.github.petebutty.viewarr.ui.theme.AppColors.palette.zapDelayMs
+        val zapping = wait > 0 && now - lastPlayAt < wait + 700 && _channel.value?.id != channel.id
+        lastPlayAt = now
+        zapJob?.cancel()
+        if (zapping) {
+            // Show it now, start it when the presses stop.
+            retryJob?.cancel(); stallJob?.cancel()
+            _channel.value = channel
+            _catchup.value = null
+            _state.value = PlaybackState.Buffering
+            player?.stop()
+            zapJob = viewModelScope.launch { delay(wait); lastPlayAt = 0L; play(channel, s) }
+            return
+        }
         start(channel, null, s, liveUrl(s, channel))
+        stallJob?.cancel()
+        stallJob = viewModelScope.launch {
+            delay(8_000)
+            if (_channel.value?.id == channel.id && _catchup.value == null && _state.value == PlaybackState.Buffering) {
+                android.util.Log.i("Playback", "channel ${channel.id} still loading after 8 s: asking again")
+                start(channel, null, s, liveUrl(s, channel))
+            }
+        }
         viewModelScope.launch { runCatching { remoteStore.setLastChannel(channel.id) } }
         // Also per source, so switching back to a saved source carries on with its channel.
         runCatching { guide.rememberChannel(channel.id) }

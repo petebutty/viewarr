@@ -169,7 +169,7 @@ fun AppearanceSettingsScreen(onBack: () -> Unit, vm: AppearanceViewModel = hiltV
             },
         ),
         SettingCategory(
-            "TV guide", "How channels are shown in the guide and the channel list.",
+            "Live TV", "The TV guide, the channel list, and the info bar over live TV (when you change channel or press OK / Info).",
             listOf(
                 SettingItem("Channel numbers", "Show each channel's number next to its name.", onOff,
                     if (palette.showNumbers) onOff[0] else onOff[1]) { c -> vm.setShowNumbers((c as Choice).value == true) },
@@ -182,6 +182,14 @@ fun AppearanceSettingsScreen(onBack: () -> Unit, vm: AppearanceViewModel = hiltV
             ) + listOfNotNull(
                 // Low-memory mode: no programme pictures at all, so no setting for them.
                 optItem(opts, "Programme pictures", "The highlighted programme's picture at the top of the guide. Off: no pictures are looked up (the channel's logo shows instead).", io.github.petebutty.viewarr.ui.theme.UiOpts.GUIDE_ART).locked(lowLock),
+            ) + listOf(
+                // The info bar over live TV.
+                optItem(opts, "Info bar: style", "The bar over live TV: a fade across the bottom of the picture, or a panel (glass, with or without a border, or solid) with everything inside it.", io.github.petebutty.viewarr.ui.theme.UiOpts.BANNER_STYLE),
+                optItem(opts, "Info bar: corners", "Rounded or square corners on the info bar's panel styles.", io.github.petebutty.viewarr.ui.theme.UiOpts.BANNER_CORNERS),
+                optItem(opts, "Info bar: channel number", "The channel's number at the left of the info bar.", io.github.petebutty.viewarr.ui.theme.UiOpts.BANNER_NUMBER),
+                optItem(opts, "Info bar: episode numbers", "Series and episode numbers after programme names (\"S2026E180\") in the info bar.", io.github.petebutty.viewarr.ui.theme.UiOpts.BANNER_EPISODE),
+                optItem(opts, "Info bar: picture quality", "Badges for the channel's picture (HD, FHD, 4K, or 720p, 1080p, 2160p) and 5.1 sound, from the stream itself.", io.github.petebutty.viewarr.ui.theme.UiOpts.BANNER_BADGES),
+                optItem(opts, "Info bar: frame rate", "A badge with the stream's frames per second (25, 50…).", io.github.petebutty.viewarr.ui.theme.UiOpts.BANNER_FPS),
             ),
         ),
         SettingCategory(

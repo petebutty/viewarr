@@ -36,7 +36,10 @@ data class Palette(val main: Color, val highlight: Color, val transparency: Floa
     /** Player controls (seek bar area and buttons) scale: Medium, Small, Large (the original size). */
     val controlsScale get() = floatArrayOf(0.8f, 0.65f, 1f)[opt(UiOpts.CONTROLS_SIZE).coerceIn(0, 2)]
     val controlsMs get() = longArrayOf(4_000, 3_000, 6_000, 10_000)[opt(UiOpts.CONTROLS_TIME).coerceIn(0, 3)]
-    val upNextSeconds get() = intArrayOf(10, 5, 20)[opt(UiOpts.UP_NEXT).coerceIn(0, 2)]
+    /** Settings → Playback → Next episode countdown: 0–180 s in 5 s steps (the older four-choice setting carries over). */
+    /** Settings → Remote buttons → Live TV → Channel change delay, in milliseconds. */
+    val zapDelayMs get() = opt(UiOpts.ZAP_DELAY).coerceIn(0, 20) * 100L
+        val upNextSeconds get() = (opts[UiOpts.UP_NEXT_S] ?: opts[UiOpts.UP_NEXT]?.let { intArrayOf(20, 10, 30, 60)[it.coerceIn(0, 3)] / 5 } ?: 4).coerceIn(0, 36) * 5
     val textScale get() = floatArrayOf(1f, 0.9f, 1.12f, 1.25f)[opt(UiOpts.TEXT_SIZE).coerceIn(0, 3)]
     /** Hours of no button presses on Live TV before "Still watching?" (0 = never). */
     val stillWatchingHours get() = intArrayOf(0, 2, 3, 4, 6)[opt(UiOpts.STILL_WATCHING).coerceIn(0, 4)]
@@ -199,18 +202,30 @@ object UiOpts {
     const val OSD_POSTERS = "osd_posters"
     /** Guide: the catch-up (replay) icon on programmes and channel names. */
     const val CATCHUP_ICONS = "catchup_icons"
+    /** Live TV's info bar (the banner over the picture): channel number, S·E, its look, quality badges. */
+    const val BANNER_NUMBER = "banner_number"
+    const val BANNER_EPISODE = "banner_episode"
+    const val BANNER_STYLE = "banner_style"
+    const val BANNER_CORNERS = "banner_corners"
+    const val BANNER_BADGES = "banner_badges"
+    const val BANNER_FPS = "banner_fps"
     /** Live TV keeps playing in a corner while you browse from a shortcut (or any page, Live TV hub style). */
     const val LIVE_CORNER = "live_corner"
     const val SEEK_PREVIEWS = "seek_previews"
     const val CONTROLS_TIME = "controls_time"
     const val CONTROLS_SIZE = "controls_size"
     const val UP_NEXT = "up_next"
+    const val UP_NEXT_S = "up_next_s"
+    /** Live TV: how long a channel must stay chosen while zapping before its stream is asked for (tenths of a second). */
+    const val ZAP_DELAY = "zap_delay"
     const val STILL_WATCHING = "still_watching"
     const val LOW_MEMORY = "low_memory"
     const val DATE_ORDER = "date_order"
     const val TIME_FORMAT = "time_format"
     /** Defaults other than the first choice (anyone who never chose). Stored choices are kept as they are. */
     val defaults = mapOf(
+        UP_NEXT_S to 4,
+        ZAP_DELAY to 5,
         // Back closes the film, holding Back puts it in the corner (since 0.23; was: Back = corner).
         PLAYER_BACK to 2,
     )
@@ -232,6 +247,12 @@ object UiOpts {
         SET_ROWS_HOME to listOf("Only through their shortcuts", "On the home page too"),
         OSD_POSTERS to listOf("On", "Off"),
         CATCHUP_ICONS to listOf("Programmes and channels", "Channel names only", "Off"),
+        BANNER_NUMBER to listOf("On", "Off"),
+        BANNER_EPISODE to listOf("On", "Off"),
+        BANNER_STYLE to listOf("Fade across the bottom", "Glass panel with a border", "Glass panel, no border", "Solid panel"),
+        BANNER_CORNERS to listOf("Rounded", "Square"),
+        BANNER_BADGES to listOf("HD · FHD · 4K", "720p · 1080p · 2160p", "Off"),
+        BANNER_FPS to listOf("On", "Off"),
         LIVE_CORNER to listOf("On", "Off (browsing stops the channel)"),
         BUTTON_HINTS to listOf("First few times", "Always", "Off"),
         AGE_RATING to listOf("UK (BBFC: U, PG, 12A, 15, 18)", "US (MPA: G, PG, PG-13, R · TV-14, TV-MA)"),
@@ -239,7 +260,9 @@ object UiOpts {
         SEEK_PREVIEWS to listOf("Server's, else the box makes them", "Server's only", "Off"),
         CONTROLS_TIME to listOf("4 seconds", "3 seconds", "6 seconds", "10 seconds"),
         CONTROLS_SIZE to listOf("Medium", "Small", "Large"),
-        UP_NEXT to listOf("10 seconds", "5 seconds", "20 seconds"),
+        UP_NEXT to listOf("20 seconds", "10 seconds", "30 seconds", "60 seconds"),
+        UP_NEXT_S to (0..36).map { if (it == 0) "No wait" else "${it * 5} seconds" },
+        ZAP_DELAY to (0..20).map { if (it == 0) "No wait" else "%.1f seconds".format(it / 10f) },
         STILL_WATCHING to listOf("Never", "After 2 hours", "After 3 hours", "After 4 hours", "After 6 hours"),
         LOW_MEMORY to listOf("Off", "On"),
         DATE_ORDER to listOf("Day first (Tue 10 Nov)", "Month first (Tue, Nov 10)"),

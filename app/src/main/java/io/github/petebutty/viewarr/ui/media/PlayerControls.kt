@@ -79,7 +79,8 @@ class Scrubber {
 }
 
 /** The buttons under the seek bar. */
-enum class PlayerButton { PlayPause, Stop, Details, Audio, Subtitles, Info, SwitchPlayer, Settings }
+/** [Guide]: Live TV hub only, first (the film goes to the corner, the TV guide opens). */
+enum class PlayerButton { Guide, PlayPause, Stop, Details, Audio, Subtitles, Info, SwitchPlayer, Settings }
 
 /** A control under the seek bar: an icon, with its name shown under it when focused. */
 class OsdButton(val icon: androidx.compose.ui.graphics.vector.ImageVector, val label: String, val groupEnd: Boolean = false)
@@ -93,11 +94,12 @@ fun PlayerButton.osd(paused: Boolean, infoOn: Boolean, otherPlayer: String) = Os
         PlayerButton.Subtitles -> io.github.petebutty.viewarr.ui.common.AppIcons.Subtitles
         PlayerButton.Info -> io.github.petebutty.viewarr.ui.common.AppIcons.Stats
         PlayerButton.Settings -> io.github.petebutty.viewarr.ui.common.AppIcons.Settings
+        PlayerButton.Guide -> io.github.petebutty.viewarr.ui.common.AppIcons.Guide
         PlayerButton.SwitchPlayer -> io.github.petebutty.viewarr.ui.common.AppIcons.Swap
     },
     label(paused, infoOn, otherPlayer),
-    // Play/pause and Stop are one group; the rest after a gap.
-    groupEnd = this == PlayerButton.Stop,
+    // The TV guide on its own; play/pause and Stop are one group; the rest after a gap.
+    groupEnd = this == PlayerButton.Stop || this == PlayerButton.Guide,
 )
 
 /**
@@ -113,13 +115,23 @@ class PlayerMenu {
     /** Down from the buttons: the live TV shortcuts, [shortcut] highlighted. */
     var onShortcuts by mutableStateOf(false)
     var shortcut by androidx.compose.runtime.mutableIntStateOf(0)
+    /** Holding OK on a shortcut: its Move / Refresh / Hide menu (the same as live TV's), for the one at this index. */
+    var scOptions by mutableStateOf<Int?>(null)
+    /** Move (from that menu): the highlighted shortcut is picked up; Left / Right slide it, OK or Back put it down. */
+    var scMoving by mutableStateOf(false)
+    /** The one being moved, by id: it's followed along the row (by index, a quick second press moved its neighbour). */
+    var scMovingId: String? = null
+    // An OK pressed on a shortcut, not yet let go: a tap opens it on release, a hold opens its menu.
+    private var scOkDown = false
     /** Down from the shortcuts: the highlighted one's rows, [row] / [card] highlighted. */
     var onRows by mutableStateOf(false)
     var row by androidx.compose.runtime.mutableIntStateOf(0)
     var card by androidx.compose.runtime.mutableIntStateOf(0)
     var lastKey by androidx.compose.runtime.mutableLongStateOf(0L)
+    /** Where Play / Pause is among the buttons (after the TV guide button, when it's there). */
+    var home = 0
     /** Opens on the seek bar, with Play / Pause highlighted below it (not the button used last time). */
-    fun show() { open = true; onBar = true; button = 0; onShortcuts = false; onRows = false; touch() }
+    fun show() { open = true; onBar = true; button = home; onShortcuts = false; onRows = false; scMoving = false; scOptions = null; touch() }
     fun touch() { lastKey = System.currentTimeMillis() }
 
     /**
@@ -131,6 +143,8 @@ class PlayerMenu {
         shortcutCount: Int = 0, pickShortcut: (Int) -> Unit = {},
         /** The number of cards in each of a shortcut's rows, and opening one (row, card). */
         rowSizes: (Int) -> List<Int> = { emptyList() }, pickCard: (Int, Int) -> Unit = { _, _ -> },
+        /** Move the shortcut being moved one place (-1 / 1); whether one can be held for its menu (not Refresh). */
+        moveShortcut: (Int, Int) -> Unit = { _, _ -> }, canHold: (Int) -> Boolean = { true },
     ): Boolean {
         val down = e.type == androidx.compose.ui.input.key.KeyEventType.KeyDown
         val a = io.github.petebutty.viewarr.ui.common.RemoteKeys.action(e)
@@ -150,12 +164,28 @@ class PlayerMenu {
             }
             return true
         }
+        if (onShortcuts && scMoving) {
+            // Moving one (as on live TV): Left / Right slide it along (the highlight goes with it); OK or Back put it
+            // down when let go, so the release doesn't also open it or close the controls.
+            when (a) {
+                io.github.petebutty.viewarr.ui.common.RemoteAction.Left -> if (down) moveShortcut(shortcut, -1)
+                io.github.petebutty.viewarr.ui.common.RemoteAction.Right -> if (down) moveShortcut(shortcut, 1)
+                io.github.petebutty.viewarr.ui.common.RemoteAction.Ok, io.github.petebutty.viewarr.ui.common.RemoteAction.Back -> if (!down) scMoving = false
+                else -> Unit
+            }
+            return true
+        }
         if (onShortcuts) {
             when (a) {
                 io.github.petebutty.viewarr.ui.common.RemoteAction.Left -> if (down) shortcut = (shortcut - 1).coerceAtLeast(0)
                 io.github.petebutty.viewarr.ui.common.RemoteAction.Right -> if (down) shortcut = (shortcut + 1).coerceAtMost((shortcutCount - 1).coerceAtLeast(0))
                 io.github.petebutty.viewarr.ui.common.RemoteAction.Up -> if (down) onShortcuts = false
-                io.github.petebutty.viewarr.ui.common.RemoteAction.Ok -> if (down && repeat == 0) pickShortcut(shortcut)
+                // Tap: open it (on release). Hold: its menu (Move / Refresh / Hide), as on live TV.
+                io.github.petebutty.viewarr.ui.common.RemoteAction.Ok -> when {
+                    down && repeat == 0 -> scOkDown = true
+                    down && scOkDown -> { scOkDown = false; if (canHold(shortcut)) scOptions = shortcut }
+                    !down && scOkDown -> { scOkDown = false; pickShortcut(shortcut) }
+                }
                 io.github.petebutty.viewarr.ui.common.RemoteAction.Down -> if (down && rowSizes(shortcut).isNotEmpty()) { onRows = true; row = 0; card = 0 }
                 else -> return false
             }
@@ -190,6 +220,7 @@ fun PlayerButton.label(paused: Boolean, infoOn: Boolean, otherPlayer: String) = 
     PlayerButton.SwitchPlayer -> "Switch to $otherPlayer"
     PlayerButton.Stop -> "Stop"
     PlayerButton.Settings -> "Settings"
+    PlayerButton.Guide -> "TV guide"
 }
 
 /** The controls over a playing film or episode: title, seek bar (with preview while scrubbing) and times. */
@@ -216,6 +247,8 @@ fun PlayerOsd(
     rows: List<io.github.petebutty.viewarr.ui.player.OsdRow>? = null,
     rowFocus: Int = 0,
     cardFocus: Int = 0,
+    /** The highlighted shortcut is being moved (hold OK → Move): its name shows with arrows, as on live TV. */
+    shortcutMoving: Boolean = false,
     /** Whether the shortcuts are there (Live TV hub), for the hint line. */
     shortcutsHint: Boolean = false,
 ) {
@@ -340,48 +373,34 @@ fun PlayerOsd(
             val size = floatArrayOf(1f, 1.25f, 1.5f)[AppColors.palette.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.SHORTCUT_SIZE).coerceIn(0, 2)]
             val rowState = androidx.compose.foundation.lazy.rememberLazyListState()
             androidx.compose.runtime.LaunchedEffect(shortcutFocus) { if (shortcutFocus >= 0) runCatching { rowState.animateScrollToItem((shortcutFocus - 2).coerceAtLeast(0)) } }
-            androidx.compose.foundation.lazy.LazyRow(state = rowState, modifier = Modifier.padding(top = d(12)), horizontalArrangement = Arrangement.spacedBy(d(10)), userScrollEnabled = false) {
+            // (Spaced as live TV's shortcut row.)
+            androidx.compose.foundation.lazy.LazyRow(state = rowState, modifier = Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), userScrollEnabled = false) {
                 items(shortcuts.size) { i ->
                     val sc = shortcuts[i]
                     androidx.compose.foundation.layout.Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(io.github.petebutty.viewarr.ui.player.shortcutBox(d((64 * size).toInt())).first + d((24 * size).toInt()))) {
                         io.github.petebutty.viewarr.ui.player.ShortcutDisc(sc, highlighted = i == shortcutFocus, size = d((64 * size).toInt()))
                         Text(
-                            if (i == shortcutFocus) sc.label else "", fontSize = t(12), color = Color.White, maxLines = 1, softWrap = false,
+                            if (i != shortcutFocus) "" else if (shortcutMoving) "◀  ${sc.label}  ▶" else sc.label, fontSize = t(12), color = Color.White, maxLines = 1, softWrap = false,
                             modifier = Modifier.padding(top = d(4)).then(Modifier.wrapContentWidth(unbounded = true)),
                         )
                     }
                 }
             }
         }
-        // The rows under the highlighted shortcut, one at a time (as on live TV).
+        // The rows under the highlighted shortcut, one at a time: drawn with live TV's own pieces (same cards, sizes
+        // and heading), so the two players always look alike.
         val shownRow = rows?.getOrNull(rowFocus)
-        if (shownRow != null) {
-            Row(Modifier.padding(top = d(10)), verticalAlignment = Alignment.CenterVertically) {
-                Text(shownRow.title, fontSize = t(15), color = Color.White)
-                rows.getOrNull(rowFocus + 1)?.let { Text("   ·   Down: ${it.title}", fontSize = t(12), color = Color.White.copy(alpha = 0.6f)) }
-            }
+        if (shownRow != null) androidx.compose.foundation.layout.Column(Modifier.padding(top = 6.dp)) {
+            io.github.petebutty.viewarr.ui.player.OsdRowHeading(shownRow.title, rows.getOrNull(rowFocus + 1)?.title)
             val cardState = androidx.compose.foundation.lazy.rememberLazyListState()
             androidx.compose.runtime.LaunchedEffect(rowFocus, cardFocus) { runCatching { cardState.animateScrollToItem((cardFocus - 1).coerceAtLeast(0)) } }
-            androidx.compose.foundation.lazy.LazyRow(state = cardState, modifier = Modifier.padding(top = d(6)), horizontalArrangement = Arrangement.spacedBy(d(12)), userScrollEnabled = false) {
-                items(shownRow.items.size) { i ->
-                    val p = shownRow.items[i]
-                    val on = i == cardFocus
-                    androidx.compose.foundation.layout.Column(Modifier.width(d(176))) {
-                        Box(
-                            Modifier.size(d(176), d(99)).clip(RoundedCornerShape(8.dp))
-                                .background(Color.White.copy(alpha = 0.1f))
-                                .then(if (on) Modifier.border(2.dp, AppColors.Accent, RoundedCornerShape(8.dp)) else Modifier),
-                        ) {
-                            if (p.image != null) coil.compose.AsyncImage(
-                                p.image, null,
-                                contentScale = if (p.logo) androidx.compose.ui.layout.ContentScale.Fit else androidx.compose.ui.layout.ContentScale.Crop,
-                                modifier = if (p.logo) Modifier.fillMaxSize().padding(horizontal = d(28), vertical = d(18)) else Modifier.fillMaxSize(),
-                            )
-                        }
-                        Text(p.title, fontSize = t(12), color = if (on) Color.White else Color.White.copy(alpha = 0.7f), maxLines = 1, modifier = Modifier.padding(top = d(5)))
-                        p.subtitle?.let { Text(it, fontSize = t(11), color = Color.White.copy(alpha = 0.6f), maxLines = 1) }
-                    }
-                }
+            androidx.compose.foundation.lazy.LazyRow(
+                state = cardState,
+                modifier = Modifier.padding(top = 2.dp).offset(x = (-12).dp),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp), userScrollEnabled = false,
+            ) {
+                items(shownRow.items.size) { i -> io.github.petebutty.viewarr.ui.player.OsdCardStatic(shownRow.items[i], highlighted = i == cardFocus) }
             }
         }
     }

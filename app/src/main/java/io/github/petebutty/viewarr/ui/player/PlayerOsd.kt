@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -316,36 +317,22 @@ fun PlayerOsd(
         }
         val scope = androidx.compose.runtime.rememberCoroutineScope()
         askHide?.let { (at, sc) ->
-            androidx.compose.ui.window.Dialog(onDismissRequest = { askHide = null }) {
-                val cancel = remember { FocusRequester() }
-                LaunchedEffect(Unit) { awaitFrame(); runCatching { cancel.requestFocus() } }
-                Column(
-                    // (Pressing here counts as using the controls, so they don't close behind the question.)
-                    // (The held OK that opened it, still down and then let go, mustn't press Cancel: it closed at once.)
-                    Modifier.width(420.dp).background(AppColors.Panel, RoundedCornerShape(14.dp)).onPreviewKeyEvent { onActivity(); false }.ignoreHeldOk().padding(24.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Text(sc.label, fontSize = 18.sp, color = AppColors.TextPrimary)
-                    Text("Move it along your row, fetch its rows again, or hide it (add it back in Settings → Navigation → Live TV shortcuts).", fontSize = 13.sp, color = AppColors.TextSecondary)
-                    io.github.petebutty.viewarr.ui.common.MenuItem(text = "Move", selected = false, onClick = {
-                        askHide = null; movingSc = sc.id
-                        scope.launch { awaitFrame(); runCatching { scFocus[sc.id]?.requestFocus() } }
-                    })
-                    // Shortcuts with rows of their own (networks, rows, Movies / Shows, libraries): fetch just those again.
-                    if (onRefreshShortcut != null && listOf("set:", "row:", "home:", "lib:").any { sc.id.startsWith(it) })
-                        io.github.petebutty.viewarr.ui.common.MenuItem(text = "Refresh", selected = false, onClick = {
-                            askHide = null; onRefreshShortcut(sc)
-                            scope.launch { awaitFrame(); runCatching { scFocus[sc.id]?.requestFocus() } }
-                        })
-                    io.github.petebutty.viewarr.ui.common.MenuItem(text = "Hide", selected = false, onClick = {
-                        askHide = null; hiddenAt = at; onHideShortcut(sc)
-                    })
-                    io.github.petebutty.viewarr.ui.common.MenuItem(text = "Cancel", selected = false, modifier = Modifier.focusRequester(cancel), onClick = {
-                        askHide = null
-                        scope.launch { awaitFrame(); runCatching { scFocus[sc.id]?.requestFocus() } }
-                    })
-                }
-            }
+            ShortcutOptions(
+                sc, onActivity = onActivity,
+                onMove = {
+                    askHide = null; movingSc = sc.id
+                    scope.launch { awaitFrame(); runCatching { scFocus[sc.id]?.requestFocus() } }
+                },
+                onRefresh = onRefreshShortcut?.let { f -> {
+                    askHide = null; f(sc)
+                    scope.launch { awaitFrame(); runCatching { scFocus[sc.id]?.requestFocus() } }
+                } },
+                onHide = { askHide = null; hiddenAt = at; onHideShortcut(sc) },
+                onCancel = {
+                    askHide = null
+                    scope.launch { awaitFrame(); runCatching { scFocus[sc.id]?.requestFocus() } }
+                },
+            )
         }
         LaunchedEffect(shortcuts.size) {
             val at = hiddenAt.takeIf { it >= 0 } ?: return@LaunchedEffect
@@ -445,12 +432,7 @@ private fun PosterRows(rows: List<OsdRow>, current: Int, more: Boolean = false, 
                 }
             },
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(row.title, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
-            val next = rows.getOrNull(r + 1)
-            if (next != null) Text("   ·   Down: ${next.title}", fontSize = 12.sp, color = AppColors.TextSecondary)
-            else if (more) Text("   ·   More rows: open the shortcut", fontSize = 12.sp, color = AppColors.TextSecondary)
-        }
+        OsdRowHeading(row.title, rows.getOrNull(r + 1)?.title, more)
         androidx.compose.runtime.key(r) {
             // Room round the cards for the highlighted one's slight growth (it was cut off at the row's left edge),
             // pulled back by the same amount so the first card still lines up with the row's name.
@@ -467,14 +449,100 @@ private fun PosterRows(rows: List<OsdRow>, current: Int, more: Boolean = false, 
     }
 }
 
+/**
+ * Holding OK on a shortcut (live TV and the film player show this same one): Move along the row, Refresh just its
+ * rows (shortcuts that have rows), Hide, or Cancel (highlighted, so a stray press does nothing).
+ */
+@Composable
+fun ShortcutOptions(sc: LiveShortcut, onMove: () -> Unit, onRefresh: (() -> Unit)?, onHide: () -> Unit, onCancel: () -> Unit, onActivity: () -> Unit = {}) {
+    androidx.compose.ui.window.Dialog(onDismissRequest = onCancel) {
+        val cancel = remember { FocusRequester() }
+        LaunchedEffect(Unit) { awaitFrame(); runCatching { cancel.requestFocus() } }
+        Column(
+            // (Pressing here counts as using the controls, so they don't close behind it. The held OK that opened it,
+            // still down and then let go, mustn't press Cancel: it closed at once.)
+            Modifier.width(420.dp).background(AppColors.Panel, RoundedCornerShape(14.dp)).onPreviewKeyEvent { onActivity(); false }.ignoreHeldOk().padding(24.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(sc.label, fontSize = 18.sp, color = AppColors.TextPrimary)
+            Text("Move it along your row, fetch its rows again, or hide it (add it back in Settings → Navigation → Live TV shortcuts).", fontSize = 13.sp, color = AppColors.TextSecondary)
+            io.github.petebutty.viewarr.ui.common.MenuItem(text = "Move", selected = false, onClick = onMove)
+            // Shortcuts with rows of their own (networks, rows, Movies / Shows, libraries): fetch just those again.
+            if (onRefresh != null && listOf("set:", "row:", "home:", "lib:").any { sc.id.startsWith(it) })
+                io.github.petebutty.viewarr.ui.common.MenuItem(text = "Refresh", selected = false, onClick = onRefresh)
+            io.github.petebutty.viewarr.ui.common.MenuItem(text = "Hide", selected = false, onClick = onHide)
+            io.github.petebutty.viewarr.ui.common.MenuItem(text = "Cancel", selected = false, modifier = Modifier.focusRequester(cancel), onClick = onCancel)
+        }
+    }
+}
+
+/** The picture inside a row card (live TV and the film player draw the same): artwork or logo, else the title; progress. */
+@Composable
+fun OsdCardContent(p: OsdPoster) {
+    Box(Modifier.fillMaxSize()) {
+        // No picture, with a look of its own (Live now's sport): its colours and icon (the name is under the card).
+        if (p.image == null && p.emoji != null) {
+            Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Brush.linearGradient((p.tint ?: listOf(0xFF455A64, 0xFF263238)).map { Color(it) })))
+            Text(p.emoji, fontSize = 44.sp, modifier = Modifier.align(Alignment.Center))
+        } else if (p.image != null) AsyncImage(
+            p.image, null,
+            contentScale = if (p.logo) ContentScale.Fit else ContentScale.Crop,
+            modifier = if (p.logo) Modifier.fillMaxSize().padding(horizontal = 28.dp, vertical = 18.dp) else Modifier.fillMaxSize(),
+        ) else Text(p.title, fontSize = 13.sp, color = Color.White, maxLines = 2, modifier = Modifier.align(Alignment.Center).padding(8.dp))
+        p.progress?.takeIf { it > 0f }?.let { f ->
+            Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(3.dp).background(Color.White.copy(alpha = 0.25f)))
+            Box(Modifier.align(Alignment.BottomStart).fillMaxWidth(f.coerceIn(0f, 1f)).height(3.dp).background(AppColors.Accent))
+        }
+    }
+}
+
+/** A row card's name and subtitle under it (the same on live TV and in the film player). */
+@Composable
+fun OsdCardCaption(p: OsdPoster, highlighted: Boolean) {
+    Text(p.title, fontSize = 12.sp, color = if (highlighted) Color.White else AppColors.TextSecondary, maxLines = 1,
+        overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 5.dp))
+    p.subtitle?.let { Text(it, fontSize = 11.sp, color = AppColors.TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+}
+
+/** A row's heading: its name, then the next row's (or that there are more on the shortcut's own page). */
+@Composable
+fun OsdRowHeading(title: String, next: String?, more: Boolean = false) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(title, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
+        if (next != null) Text("   ·   Down: $next", fontSize = 12.sp, color = AppColors.TextSecondary)
+        else if (more) Text("   ·   More rows: open the shortcut", fontSize = 12.sp, color = AppColors.TextSecondary)
+    }
+}
+
+/** Card size and look, shared by live TV's cards and the film player's. */
+const val OSD_CARD_W = 176
+const val OSD_CARD_H = 99
+
+/** The film player's card: drawn exactly as live TV's, highlighted by the player (it has no focus of its own). */
+@Composable
+fun OsdCardStatic(p: OsdPoster, highlighted: Boolean) {
+    // The same gentle grow as live TV's focused card (the TV Surface's own animation), not a jump.
+    val grow by androidx.compose.animation.core.animateFloatAsState(if (highlighted) 1.05f else 1f, label = "card")
+    Column(Modifier.width(OSD_CARD_W.dp)) {
+        Box(
+            Modifier.size(OSD_CARD_W.dp, OSD_CARD_H.dp)
+                .graphicsLayer { scaleX = grow; scaleY = grow }
+                .clip(RoundedCornerShape(8.dp))
+                .background(Color.White.copy(alpha = if (highlighted) 0.18f else 0.10f))
+                .then(if (highlighted) Modifier.border(2.dp, AppColors.Accent, RoundedCornerShape(8.dp)) else Modifier),
+        ) { OsdCardContent(p) }
+        OsdCardCaption(p, highlighted)
+    }
+}
+
 @Composable
 private fun PosterCard(p: OsdPoster, enabled: Boolean, modifier: Modifier = Modifier) {
     var on by remember { mutableStateOf(false) }
-    Column(Modifier.width(176.dp)) {
+    Column(Modifier.width(OSD_CARD_W.dp)) {
         Surface(
             onClick = p.onClick,
             enabled = enabled,
-            modifier = modifier.size(176.dp, 99.dp).onFocusChanged { on = it.isFocused },
+            modifier = modifier.size(OSD_CARD_W.dp, OSD_CARD_H.dp).onFocusChanged { on = it.isFocused },
             scale = ClickableSurfaceDefaults.scale(scale = 1f, focusedScale = 1.05f, pressedScale = 1f),
             shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
             border = ClickableSurfaceDefaults.border(
@@ -484,22 +552,8 @@ private fun PosterCard(p: OsdPoster, enabled: Boolean, modifier: Modifier = Modi
                 containerColor = Color.White.copy(alpha = 0.10f),
                 focusedContainerColor = Color.White.copy(alpha = 0.18f),
             ),
-        ) {
-            Box(Modifier.fillMaxSize()) {
-                if (p.image != null) AsyncImage(
-                    p.image, null,
-                    contentScale = if (p.logo) ContentScale.Fit else ContentScale.Crop,
-                    modifier = if (p.logo) Modifier.fillMaxSize().padding(horizontal = 28.dp, vertical = 18.dp) else Modifier.fillMaxSize(),
-                ) else Text(p.title, fontSize = 13.sp, color = Color.White, maxLines = 2, modifier = Modifier.align(Alignment.Center).padding(8.dp))
-                p.progress?.takeIf { it > 0f }?.let { f ->
-                    Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(3.dp).background(Color.White.copy(alpha = 0.25f)))
-                    Box(Modifier.align(Alignment.BottomStart).fillMaxWidth(f.coerceIn(0f, 1f)).height(3.dp).background(AppColors.Accent))
-                }
-            }
-        }
-        Text(p.title, fontSize = 12.sp, color = if (on) Color.White else AppColors.TextSecondary, maxLines = 1,
-            overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 5.dp))
-        p.subtitle?.let { Text(it, fontSize = 11.sp, color = AppColors.TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+        ) { OsdCardContent(p) }
+        OsdCardCaption(p, on)
     }
 }
 

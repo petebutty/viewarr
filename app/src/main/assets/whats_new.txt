@@ -1,8 +1,8 @@
 # Shown once, the first time a new version opens (not on a fresh install). Keep it to the few things worth knowing.
 # Lines starting with "- " are the points; the first line without "#" or "-" is the heading.
-The Live TV hub, presets and a smarter menu
-- New, optional Live TV hub (Settings → Navigation → Start → Style): opens on your last channel, and OK then Down on live TV shows shortcuts (Netflix, BBC One, your Plex…) that open with the channel carrying on in the corner
-- Settings → Remote buttons → Presets: TiviMate-style or Viewarr in one go, then change any button; a new Stop button on live TV
-- The menu: Right on a library lists its categories or genres to jump into, the list slides out of the way, and hold OK on a library edits the list
-- Settings is clearer: Remote buttons and Navigation are separate, and a line says what each entry covers
-- Back on the guide asks to exit again (Classic), Back twice quickly always exits, and several focus fixes
+Skip intros, next episode, and Live now
+- Skip intro and Next episode buttons (Plex, Jellyfin, Emby, or TheIntroDB / IntroDB for addons and IPTV); the next episode always plays when one ends, with a countdown you set (0–180 s)
+- Live TV hub: a Live now shortcut with what's on the sport and event channels, and Move / Refresh / Hide on any shortcut (films too)
+- The live TV info bar: glass or solid panels, channel and episode numbers on or off, HD / 4K, 5.1 and frame-rate badges (Appearance → Live TV)
+- Zapping no longer gets stuck loading (Channel change delay in Remote buttons → Live TV); IPTV title pages now fill in from TMDB
+- Fixes: shows open on the one-page title view, film and live TV shortcut rows match, guide marks only the programme being recorded

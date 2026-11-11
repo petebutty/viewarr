@@ -109,7 +109,22 @@ data class VodStream(
      *  kind; subtitles -1 = off). Null = the usual choice (Settings → Playback). */
     val audioTrack: Int? = null,
     val subtitleTrack: Int? = null,
+    /** Where the intro and credits are (Plex markers, Jellyfin media segments, Emby chapter markers), for skipping. */
+    val markers: List<SkipMarker> = emptyList(),
 )
+
+/** An intro or the credits in a film or episode ([startMs] up to [endMs]; [endMs] 0: to the end of the file). */
+data class SkipMarker(val kind: Kind, val startMs: Long, val endMs: Long) {
+    enum class Kind { Intro, Credits }
+}
+
+/**
+ * Markers found after a stream started (the community intro databases, for sources whose server has none), by the
+ * stream's address. The players read this alongside VodStream.markers, so the film doesn't restart when they arrive.
+ */
+object FoundMarkers {
+    val byUrl = androidx.compose.runtime.mutableStateMapOf<String, List<SkipMarker>>()
+}
 
 /** An audio or subtitle track of a film on your own server, to pick before Play. [ordinal]: its place among the
  *  file's own tracks of that kind (as the players count them). */

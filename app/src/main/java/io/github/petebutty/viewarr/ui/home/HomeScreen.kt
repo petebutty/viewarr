@@ -645,6 +645,22 @@ fun HomeScreen(
     // The music service in use (its logo on the music shortcuts).
     val musicSources by musicVm.sources.collectAsStateWithLifecycle()
     val musicSourceName = musicSources.firstOrNull { it.on }?.name
+    // Live now (the hub's shortcut): the event channels' programmes, looked at while the live TV controls are up.
+    var liveEvents by remember { mutableStateOf<GuideViewModel.LiveEvents?>(null) }
+    LaunchedEffect(osdVisible, remote.navStyle) {
+        if (!osdVisible || remote.navStyle != io.github.petebutty.viewarr.data.settings.NavStyle.LiveHub) return@LaunchedEffect
+        while (true) {
+            liveEvents = runCatching { vm.liveEvents() }.getOrNull() ?: liveEvents
+            delay(60_000)
+        }
+    }
+    /** OK on Live now: the TV guide, on the events group most of what's on now is in. */
+    fun openLiveEvents() {
+        osdVisible = false
+        liveEvents?.mainGroup?.let { name -> vm.groups.value.firstOrNull { it.name == name }?.let { g -> vm.selectGroup(g.id) } }
+        fullscreen = false
+    }
+
     /**
      * The Refresh shortcut: every row again from your addons (AIOMetadata, AIOStreams…), Plex, Jellyfin and Emby, with
      * the libraries and Continue watching, so the shortcuts and their previews show what's there now.
@@ -701,6 +717,7 @@ fun HomeScreen(
                     }
                     "page" -> when (parts[1]) {
                         "Guide" -> fullscreen = false
+                        "Live" -> openLiveEvents()
                         "Music" -> openPage(Page.Music, keepLive = true)
                         "Recordings" -> openPage(Page.Recordings, keepLive = true)
                         "Settings" -> { menuOnSettings = true; menuOpen = true }
@@ -731,6 +748,7 @@ fun HomeScreen(
     androidx.compose.runtime.SideEffect {
         io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.items = liveShortcuts
         io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.openSettings = { settingsFromFilm = true; menuOnSettings = true; menuOpen = true }
+        io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.openGuide = { menuOpen = false; quickSearch = false; if (page != Page.Tv) openPage(Page.Tv) else fullscreen = false }
     }
     // Settings opened from a film: closing it brings the film back full screen.
     LaunchedEffect(menuOpen) {
@@ -794,6 +812,12 @@ fun HomeScreen(
         val unseen = (remote.liveShortcuts ?: shown).filter { id -> io.github.petebutty.viewarr.ui.player.LiveShortcuts.resolve(id, all, rows)?.id !in shown }
         remoteVm.setLiveShortcuts(shown.toMutableList().apply { add(j, removeAt(i)) } + unseen)
     }
+    // The film player's shortcuts use these same three (hold OK on one): one row, changed from either player.
+    androidx.compose.runtime.SideEffect {
+        io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.hide = { sc -> hideShortcut(sc) }
+        io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.move = { sc, d -> moveShortcut(sc, d) }
+        io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.refresh = { sc -> refreshOne(sc) }
+    }
     // Live TV controls → Down → Down: Continue watching, Recent channels, Recently added (Live TV hub, step 3).
     val continueMovies by moviesVm.continueItems.collectAsStateWithLifecycle()
     val continueShows by showsVm.continueItems.collectAsStateWithLifecycle()
@@ -816,8 +840,40 @@ fun HomeScreen(
     // Music and Recordings preview their own: your music's home rows, your recordings.
     val musicHome by musicVm.home.collectAsStateWithLifecycle()
     LaunchedEffect(osdVisible, musicOnNow) { if (osdVisible && musicOnNow && musicHome.rows.isEmpty()) musicVm.load() }
+    // Live now's rows: On now (the event, its channel, until when, how far through) and Starting soon.
+    fun liveEventRows(): List<io.github.petebutty.viewarr.ui.player.OsdRow> {
+        val ev = liveEvents ?: return emptyList()
+        val t = System.currentTimeMillis()
+        val dayFmt = java.time.format.DateTimeFormatter.ofPattern("EEE ", java.util.Locale.UK)
+        fun at(ms: Long): String {
+            val z = java.time.Instant.ofEpochMilli(ms).atZone(java.time.ZoneId.systemDefault())
+            val today = java.time.LocalDate.now()
+            return (if (z.toLocalDate() == today) "" else z.format(dayFmt)) + z.format(io.github.petebutty.viewarr.ui.theme.Dates.time)
+        }
+        // The event's own picture (the match's, or the guide's), else its sport's icon on its colours; the channel and
+        // time under it. (The channel's logo said nothing: every Sky Sports+ feed has the same one.)
+        fun card(e: GuideViewModel.LiveEvent, now: Boolean) = io.github.petebutty.viewarr.ui.player.OsdPoster(
+            key = "ev-${e.channel.id}-${e.program.startTime}", title = e.title,
+            subtitle = (if (now) "Until " + at(e.program.endTime) else at(e.program.startTime)) + "  ·  " + e.channel.name,
+            image = e.picture ?: if (e.sport == null) io.github.petebutty.viewarr.ui.guide.channelLogo(session?.serverUrl.orEmpty(), e.channel) else null,
+            logo = e.picture == null || e.picture.contains("/badge/"),
+            progress = if (now) ((t - e.program.startTime).toFloat() / (e.program.endTime - e.program.startTime).coerceAtLeast(1)).coerceIn(0f, 1f) else null,
+            emoji = e.sport?.emoji, tint = e.sport?.colors,
+        ) {
+            val ch = e.channel
+            osdVisible = false
+            playback.play(ch, session)
+            vm.selectChannel(ch.id)
+            fullscreen = true
+            showBanner()
+        }
+        return listOf(
+            io.github.petebutty.viewarr.ui.player.OsdRow("On now", ev.onNow.map { card(it, true) }),
+            io.github.petebutty.viewarr.ui.player.OsdRow("Starting soon", ev.soon.map { card(it, false) }),
+        ).filter { it.items.isNotEmpty() }
+    }
     val previewFor: (String) -> List<io.github.petebutty.viewarr.ui.player.OsdRow>? = { id ->
-        if (!postersOn) null else if (id == "page:Music" || id.startsWith("music:")) musicHome.rows.take(4).map { r ->
+        if (id == "page:Live") liveEventRows() else if (!postersOn) null else if (id == "page:Music" || id.startsWith("music:")) musicHome.rows.take(4).map { r ->
             io.github.petebutty.viewarr.ui.player.OsdRow(r.title, r.cards.take(20).map { card ->
                 io.github.petebutty.viewarr.ui.player.OsdPoster(key = "m:" + card.id, title = card.title, subtitle = card.sub, image = card.art?.small) {
                     osdVisible = false

@@ -667,6 +667,15 @@ class CatalogRepository @Inject constructor(
         return add
     }
 
+    /** Drop show / bring it back on Trakt too (its "dropped" list: off progress and Upcoming). Null: no Trakt or no id. */
+    suspend fun setTraktDropped(item: MediaItem, dropped: Boolean): Boolean? {
+        val id = item.tmdbId ?: return null
+        val auth = store.current().trakt?.let { freshTrakt(it) } ?: return null
+        val body = buildJsonObject { putJsonArray("shows") { add(buildJsonObject { putJsonObject("ids") { put("tmdb", id) } }) } }
+        val url = "https://api.trakt.tv/users/hidden/dropped" + if (dropped) "" else "/remove"
+        return runCatching { http.post(url, body, trakt.headers(auth.accessToken)).ok }.getOrDefault(false)
+    }
+
     // ------------------------------------------------------------------ watchlist (Trakt, Plex, Jellyfin or Emby)
 
     /** The watchlists that can be used (connected), in the order offered. */
@@ -1593,7 +1602,14 @@ class CatalogRepository @Inject constructor(
         val a = store.current()
         val (p, ratingKey) = plexResolve(a, ref) ?: return null
         // checkFiles: Plex says whether the file is really there (a library entry can outlive its file).
-        val m = plexGet(a, p, "/library/metadata/$ratingKey?checkFiles=1")?.array("Metadata")?.firstOrNull() ?: return null
+        // includeMarkers: where the intro and credits are (Plex detects them), for Skip intro / credits.
+        val m = plexGet(a, p, "/library/metadata/$ratingKey?checkFiles=1&includeMarkers=1")?.array("Metadata")?.firstOrNull() ?: return null
+        val markers = m.array("Marker").mapNotNull { mk ->
+            val kind = when (mk.str("type")) { "intro" -> SkipMarker.Kind.Intro; "credits" -> SkipMarker.Kind.Credits; else -> return@mapNotNull null }
+            val st = mk.long("startTimeOffset") ?: return@mapNotNull null
+            val en = mk.long("endTimeOffset") ?: return@mapNotNull null
+            SkipMarker(kind, st, en).takeIf { en > st }
+        }
         val media = m.array("Media").firstOrNull()
         val partObj = media?.array("Part")?.firstOrNull()
         val part = partObj?.str("key") ?: return null
@@ -1610,10 +1626,10 @@ class CatalogRepository @Inject constructor(
         val resume = m.long("viewOffset") ?: 0
         val target = (watch ?: WatchTarget(MediaType.Movie)).copy(plexRatingKey = ref)
         val quality = playbackStore.current().plexQuality
-        val transcode = VodStream(plexTranscodeUrl(a, p, ratingKey, quality.maxKbps ?: 20_000), "$title (converted by Plex)", headers, resume, watch = target, thumbs = thumbs)
+        val transcode = VodStream(plexTranscodeUrl(a, p, ratingKey, quality.maxKbps ?: 20_000), "$title (converted by Plex)", headers, resume, watch = target, thumbs = thumbs, markers = markers)
         // Settings → Playback → Plex quality: anything but Original always converts at that bitrate.
         if (quality.maxKbps != null) return transcode
-        val direct = VodStream("${p.serverUrl}$part?X-Plex-Token=${enc(p.token)}", title, headers, resume, fallback = transcode, watch = target, thumbs = thumbs)
+        val direct = VodStream("${p.serverUrl}$part?X-Plex-Token=${enc(p.token)}", title, headers, resume, fallback = transcode, watch = target, thumbs = thumbs, markers = markers)
         val playable = DeviceCodecs.canPlay(media.str("videoCodec"), media.str("container"))
         Log.i(TAG, "plex $ratingKey video=${media.str("videoCodec")} container=${media.str("container")} direct=$playable")
         return if (playable) direct else transcode
@@ -1829,11 +1845,76 @@ class CatalogRepository @Inject constructor(
             .getOrNull()?.takeIf { it.ok }?.body
         val resumeMs = (info.child("UserData").long("PlaybackPositionTicks") ?: 0L) / 10_000
         return VodStream(
+            markers = serverMarkers(s, emby, itemId, info),
             thumbs = serverThumbs(s, emby, itemId, info),
             url = "${s.serverUrl}/Videos/$itemId/stream?static=true&api_key=${enc(s.token)}",
             title = title,
             resumeMs = resumeMs,
             watch = (watch ?: WatchTarget(MediaType.Movie)).copy(serverSource = source, serverItemId = itemId),
+        )
+    }
+
+    private val introDbCache = ConcurrentHashMap<String, List<SkipMarker>>()
+
+    /**
+     * Intro and credits from the community databases, for a film or episode whose own server has no markers (addon
+     * streams, IPTV, a Plex without intro detection): TheIntroDB first (by IMDb id, else TMDB), then IntroDB (IMDb).
+     * Only the title's id and episode number are sent. Empty when neither knows it.
+     */
+    suspend fun communityMarkers(w: WatchTarget): List<SkipMarker> {
+        val episode = w.type == MediaType.Show
+        if (episode && (w.season == null || w.episode == null)) return emptyList()
+        val key = listOf(w.imdbId, w.tmdbId, w.type, w.season, w.episode).joinToString("|")
+        introDbCache[key]?.let { return it }
+        val ep = if (episode) "&season=${w.season}&episode=${w.episode}" else ""
+        fun ms(j: JsonElement?, k: String) = (j.child(k) as? JsonPrimitive)?.content?.toDoubleOrNull()?.toLong()
+        // TheIntroDB: "intro" and "credits" lists; a missing start is the beginning, a missing end the end of the file.
+        val id = w.imdbId?.let { "imdb_id=$it" } ?: w.tmdbId?.let { "tmdb_id=$it&type=${if (episode) "tv" else "movie"}" }
+        val tidb = id?.let { q ->
+            withTimeoutOrNull(8_000) { runCatching { http.get("https://api.theintrodb.org/v4/media?$q$ep") }.getOrNull() }?.takeIf { it.ok }?.body
+        }
+        fun list(arr: List<JsonElement>, kind: SkipMarker.Kind) = arr.mapNotNull { j ->
+            val st = ms(j, "start_ms") ?: 0L
+            val en = ms(j, "end_ms") ?: 0L
+            SkipMarker(kind, st, en).takeIf { en == 0L || en > st }
+        }
+        var found = if (tidb == null) emptyList() else list(tidb.array("intro"), SkipMarker.Kind.Intro) + list(tidb.array("credits"), SkipMarker.Kind.Credits)
+        // IntroDB: one "intro" and one "outro" each, by IMDb id.
+        if (found.isEmpty() && w.imdbId != null) {
+            val q = "imdb_id=${w.imdbId}" + if (episode) ep else "&is_movie=true"
+            val idb = withTimeoutOrNull(8_000) { runCatching { http.get("https://api.introdb.app/segments?$q") }.getOrNull() }?.takeIf { it.ok }?.body
+            found = listOfNotNull(
+                idb.child("intro")?.takeIf { it !is kotlinx.serialization.json.JsonNull }?.let { j -> ms(j, "end_ms")?.let { SkipMarker(SkipMarker.Kind.Intro, ms(j, "start_ms") ?: 0L, it) } },
+                idb.child("outro")?.takeIf { it !is kotlinx.serialization.json.JsonNull }?.let { j -> ms(j, "start_ms")?.let { SkipMarker(SkipMarker.Kind.Credits, it, ms(j, "end_ms") ?: 0L) } },
+            )
+        }
+        introDbCache[key] = found
+        return found
+    }
+
+    /**
+     * Where the intro and credits are. Jellyfin (10.10+): its media segments (the Intro Skipper plugin or its own
+     * detection fill them). Emby (4.8+): chapter markers IntroStart / IntroEnd / CreditsStart. None: no skipping.
+     */
+    private suspend fun serverMarkers(s: MediaServerAuth, emby: Boolean, itemId: String, info: kotlinx.serialization.json.JsonElement?): List<SkipMarker> {
+        val ticks = 10_000L
+        if (!emby) {
+            val a = store.current()
+            val segs = runCatching { http.get("${s.serverUrl}/MediaSegments/$itemId", mediaServers.headers(false, a.deviceId, s.token)) }
+                .getOrNull()?.takeIf { it.ok }?.body.array("Items")
+            return segs.mapNotNull { g ->
+                val kind = when (g.str("Type")) { "Intro" -> SkipMarker.Kind.Intro; "Outro" -> SkipMarker.Kind.Credits; else -> return@mapNotNull null }
+                val st = (g.long("StartTicks") ?: return@mapNotNull null) / ticks
+                val en = (g.long("EndTicks") ?: return@mapNotNull null) / ticks
+                SkipMarker(kind, st, en).takeIf { en > st }
+            }
+        }
+        val chapters = info.array("Chapters")
+        fun at(type: String) = chapters.firstOrNull { it.str("MarkerType") == type }?.long("StartPositionTicks")?.div(ticks)
+        val runtime = (info.long("RunTimeTicks") ?: 0L) / ticks
+        return listOfNotNull(
+            at("IntroStart")?.let { st -> at("IntroEnd")?.takeIf { it > st }?.let { SkipMarker(SkipMarker.Kind.Intro, st, it) } },
+            at("CreditsStart")?.let { st -> SkipMarker(SkipMarker.Kind.Credits, st, if (runtime > st) runtime else st + 600_000) },
         )
     }
 
@@ -2284,7 +2365,8 @@ class CatalogRepository @Inject constructor(
     suspend fun detail(item: MediaItem): MediaDetail {
         if (isAddonOwnTitle(item)) addonDetail(item)?.let { return it }
         val key = store.current().tmdbKey ?: return MediaDetail(item)
-        val tmdbId = item.tmdbId ?: item.imdbId?.let { findByImdb(key, it, item.type) } ?: return MediaDetail(item)
+        // No id (many IPTV providers send none): found on TMDB by its name and year, so the page isn't bare.
+        val tmdbId = item.tmdbId ?: item.imdbId?.let { findByImdb(key, it, item.type) } ?: titleMatch(key, item) ?: return MediaDetail(item)
         val movie = item.type == MediaType.Movie
         val path = if (movie) "/movie/$tmdbId" else "/tv/$tmdbId"
         val append = if (movie) "credits,release_dates,external_ids,reviews,recommendations" else "credits,content_ratings,external_ids,reviews,recommendations"
@@ -2718,6 +2800,31 @@ class CatalogRepository @Inject constructor(
             if (hit != null) { tmdbCache[hit.key] = hit; return hit }
         }
         return null
+    }
+
+    /**
+     * A title with no TMDB / IMDb id (IPTV films and series), found by name: the same close match as the guide's
+     * (its name, and its year within one when known), its type only. Null rather than a wrong guess.
+     */
+    private val titleMatchCache = ConcurrentHashMap<String, Int>()
+    private suspend fun titleMatch(key: String, item: MediaItem): Int? {
+        val q = item.title.trim().takeIf { it.isNotEmpty() } ?: return null
+        val cacheKey = "${item.type}|$q|${item.year}"
+        titleMatchCache[cacheKey]?.let { return it.takeIf { id -> id > 0 } }
+        fun norm(s: String) = s.lowercase().replace("&", "and").replace(Regex("[^a-z0-9]"), "")
+        val movie = item.type == MediaType.Movie
+        val params = buildMap {
+            put("language", "en-GB"); put("query", q); put("include_adult", "false")
+            if (item.year != null) put(if (movie) "year" else "first_air_date_year", item.year.toString())
+        }
+        suspend fun search(p: Map<String, String>) = runCatching { http.get(tmdb.url(if (movie) "/search/movie" else "/search/tv", key, p), tmdb.headers(key)) }
+            .getOrNull()?.takeIf { it.ok }?.body.array("results").mapNotNull { tmdbItem(it, item.type) }
+        // With its year first; a provider's year can be off by one (UK vs US release), so then without it.
+        val found = (search(params).ifEmpty { if (item.year != null) search(params - "year" - "first_air_date_year") else emptyList() })
+            .firstOrNull { c -> norm(c.title) == norm(q) && (item.year == null || c.year == null || kotlin.math.abs(c.year - item.year) <= 1) }
+        val id = found?.tmdbId
+        titleMatchCache[cacheKey] = id ?: 0
+        return id
     }
 
     suspend fun tmdbIdFor(item: MediaItem): Int? {

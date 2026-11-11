@@ -149,6 +149,13 @@ enum class AutoNext(override val label: String) : RemoteChoice {
     Off("Off"),
 }
 
+/** Intros and credits the server marked (Plex, Jellyfin, Emby): a Skip button, skipped by themselves, or nothing. */
+enum class SkipMode(override val label: String) : RemoteChoice {
+    Button("Show a Skip button"),
+    Auto("Skip automatically"),
+    Off("Off"),
+}
+
 enum class StatsOverlay(override val label: String) : RemoteChoice {
     Off("Off"),
     On("On"),
@@ -197,6 +204,8 @@ data class PlaybackSettings(
     val maxResolution: MaxResolution = MaxResolution.entries.first(),
     val buffer: BufferSize = BufferSize.entries.first(),
     val autoNext: AutoNext = AutoNext.entries.first(),
+    val skipIntro: SkipMode = SkipMode.entries.first(),
+    val skipCredits: SkipMode = SkipMode.entries.first(),
     val stats: StatsOverlay = StatsOverlay.entries.first(),
     val trailerPreview: TrailerPreview = TrailerPreview.entries.first(),
     val trailerDelay: TrailerDelay = TrailerDelay.entries.first(),
@@ -239,6 +248,8 @@ class PlaybackStore @Inject constructor(@ApplicationContext private val context:
             maxResolution = p.read(MAX_RES),
             buffer = p.read(BUFFER),
             autoNext = p.read(AUTO_NEXT),
+            skipIntro = p.read(SKIP_INTRO),
+            skipCredits = p.read(SKIP_CREDITS),
             stats = p.read(STATS),
             trailerPreview = p.read(TRAILER_PREVIEW),
             trailerDelay = p.read(TRAILER_DELAY),
@@ -283,6 +294,8 @@ class PlaybackStore @Inject constructor(@ApplicationContext private val context:
         const val MAX_RES = "max_res"
         const val BUFFER = "buffer"
         const val AUTO_NEXT = "auto_next"
+        const val SKIP_INTRO = "skip_intro"
+        const val SKIP_CREDITS = "skip_credits"
         const val STATS = "stats"
         const val TRAILER_PREVIEW = "trailer_preview"
         const val TRAILER_DELAY = "trailer_delay"

@@ -18,6 +18,8 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.async
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -34,7 +36,76 @@ class GuideViewModel @Inject constructor(
     private val repo: GuideRepository,
     private val sessions: SessionStore,
     private val programArt: io.github.petebutty.viewarr.data.media.ProgramArt,
+    private val plugins: io.github.petebutty.viewarr.data.dvr.PluginsRepository,
+    private val sports: io.github.petebutty.viewarr.data.guide.SportsEvents,
 ) : ViewModel() {
+    /** One event for Live now: its channel and guide entry, its tidied name, sport and picture (if found). */
+    data class LiveEvent(
+        val channel: ChannelListItem,
+        val program: GuideProgram,
+        val title: String,
+        val sport: io.github.petebutty.viewarr.data.guide.SportsEvents.Sport?,
+        val picture: String?,
+    )
+
+    /** Live now (the Live TV hub's shortcut): event channels with something on, and what's starting soon. */
+    data class LiveEvents(
+        val onNow: List<LiveEvent>,
+        val soon: List<LiveEvent>,
+        /** The group most of what's on now is in (OK on the shortcut opens the guide there). */
+        val mainGroup: String?,
+    )
+
+    // The event / sports groups: the ones Event Channel Managarr (a Dispatcharr plugin) looks after, read once. Without
+    // it (or for users Dispatcharr doesn't show plugins to), groups whose names look like sport or events.
+    private var eventGroupNames: Set<String>? = null
+    private suspend fun eventGroups(): Set<String> {
+        eventGroupNames?.let { return it }
+        val fromPlugin = runCatching { plugins.installed() }.getOrNull()
+            ?.firstOrNull { it.key == "event_channel_managarr" && it.enabled }
+            ?.settings?.get("channel_groups")?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.content }
+            ?.split(',')?.map { it.trim().lowercase() }?.filter { it.isNotEmpty() }?.toSet().orEmpty()
+        // Ranked Matchups (a Dispatcharr plugin) keeps a "Top Matchups" group of the games worth watching: always in.
+        return (if (fromPlugin.isEmpty()) fromPlugin else fromPlugin + "top matchups").also { eventGroupNames = it }
+    }
+    private val eventWords = Regex("\\b(sports?|events?|ppv|pay per view|box office|football|soccer|rugby|ufc|boxing|wwe|nfl|nba|nhl|mlb|f1|motogp|cricket|golf|tennis|darts|racing|premier league|efl|epl|spfl|uefa|matchroom|dazn)\\b", RegexOption.IGNORE_CASE)
+
+    /** What's on the event channels now, and starting in the next three hours (most recent / soonest first). */
+    suspend fun liveEvents(): LiveEvents {
+        val named = eventGroups()
+        val all = repo.observeChannels(null).first()
+        val chans = all.filter { c -> c.groupName?.let { g -> if (named.isNotEmpty()) g.trim().lowercase() in named else (eventWords.containsMatchIn(g) || g.equals("Top Matchups", true)) } == true }.take(400)
+        val now = System.currentTimeMillis()
+        val onNow = ArrayList<Pair<ChannelListItem, GuideProgram>>()
+        val soon = ArrayList<Pair<ChannelListItem, GuideProgram>>()
+        // Placeholders ("Ended: …", "No event today") left out: only real events.
+        for (c in chans) {
+            val ps = runCatching { repo.programsFor(c.id, c.guideKey, now - 1, now + 3 * 3_600_000L) }.getOrNull().orEmpty()
+                .filter { sports.clean(it.title) != null }
+            ps.firstOrNull { it.startTime <= now && it.endTime > now }?.let { onNow += c to it }
+            ps.firstOrNull { it.startTime > now }?.let { soon += c to it }
+        }
+        // The same event on several channels (feeds, backups): once, on the first.
+        fun distinct(l: List<Pair<ChannelListItem, GuideProgram>>) = l.distinctBy { (_, p) -> (sports.clean(p.title) ?: p.title).trim().lowercase() + "|" + p.startTime }
+        val nowPairs = distinct(onNow.sortedByDescending { it.second.startTime }).take(30)
+        val soonPairs = distinct(soon.sortedBy { it.second.startTime }).take(30)
+        // Each one's sport and picture: the guide's own picture, else the match's from TheSportsDB (a few at a time).
+        val gate = kotlinx.coroutines.sync.Semaphore(6)
+        suspend fun events(l: List<Pair<ChannelListItem, GuideProgram>>) = kotlinx.coroutines.coroutineScope {
+            l.map { (c, p) ->
+                async {
+                    val title = sports.clean(p.title) ?: p.title
+                    val pic = p.image ?: gate.withPermit { runCatching { sports.picture(title) }.getOrNull() }
+                    LiveEvent(c, p, title, sports.sport("$title ${c.name} ${c.groupName.orEmpty()}"), pic)
+                }
+            }.map { it.await() }
+        }
+        return LiveEvents(
+            onNow = events(nowPairs),
+            soon = events(soonPairs),
+            mainGroup = nowPairs.mapNotNull { it.first.groupName }.groupingBy { it }.eachCount().maxByOrNull { it.value }?.key,
+        )
+    }
     /** The highlighted programme's artwork (TMDB), or null to show the channel logo. */
     suspend fun artFor(title: String): String? = programArt.imageFor(title)
 

@@ -301,7 +301,9 @@ class XtreamClient @Inject constructor(private val client: OkHttpClient, private
                 .replace(Regex("^[A-Z]{2,3}\\s*[|:-]\\s*"), "")         // "EN - Name", "NF - Name"
             // Trailing year and provider tags: "Name (2026) (KR) (KOREAN MULTI SUB)", "Name [4K]".
             val tag = Regex("\\s*[(\\[](\\d{4}|[A-Z0-9][A-Z0-9 +&/-]*)[)\\]]\\s*$")
-            while (true) { val n = t.replace(tag, ""); if (n == t || n.isBlank()) break; t = n }
+            // …and bare quality words left at the end: "Name 4K", "Name UHD HDR" (they stopped TMDB finding it).
+            val quality = Regex("\\s+(4K|UHD|FHD|HD|SD|HDR|HDR10|DV|HEVC|H265|2160p|1080p|720p)$", RegexOption.IGNORE_CASE)
+            while (true) { val n = t.replace(tag, "").replace(quality, ""); if (n == t || n.isBlank()) break; t = n }
             return t.trim()
         }
         fun yearIn(name: String): Int? = Regex("\\((\\d{4})\\)").find(name)?.groupValues?.get(1)?.toIntOrNull()

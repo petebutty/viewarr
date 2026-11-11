@@ -106,6 +106,21 @@ class RowLayoutStore @Inject constructor(@ApplicationContext private val context
         }
     }
 
+    /**
+     * Shows dropped from Continue watching (hold OK on one → Drop show): (key, title). The key is its TMDB / IMDb id
+     * when known; the title catches the same show from a server that doesn't say its ids.
+     */
+    val droppedShows: Flow<List<Pair<String, String>>> = context.rowLayoutStore.data.map { p ->
+        p[DROPPED].orEmpty().mapNotNull { e -> e.split(SEP, limit = 2).takeIf { it.size == 2 }?.let { it[0] to it[1] } }.sortedBy { it.second.lowercase() }
+    }
+
+    suspend fun setDropped(key: String, title: String, dropped: Boolean) {
+        context.rowLayoutStore.edit { p ->
+            val now = p[DROPPED].orEmpty().filterNot { it.substringBefore(SEP) == key }.toSet()
+            p[DROPPED] = if (dropped) now + (key + SEP + title) else now
+        }
+    }
+
     suspend fun setLibraryHidden(type: MediaType, key: String, hidden: Boolean) {
         context.rowLayoutStore.edit { p ->
             val now = p[libHiddenKey(type)].orEmpty()
@@ -127,6 +142,7 @@ class RowLayoutStore @Inject constructor(@ApplicationContext private val context
 
     private companion object {
         const val SEP = "\u001F"
+        val DROPPED = stringSetPreferencesKey("dropped_shows")
         const val REC = "\u001E"
         fun orderKey(t: MediaType) = stringPreferencesKey("order_${t.name}")
         fun hiddenKey(t: MediaType) = stringSetPreferencesKey("hidden_${t.name}")

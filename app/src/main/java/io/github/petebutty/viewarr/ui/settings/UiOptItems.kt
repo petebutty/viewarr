@@ -28,3 +28,9 @@ fun optItem(vm: UiOptsViewModel, title: String, description: String, name: Strin
     val now = AppColors.palette.opt(name).coerceIn(0, all.lastIndex)
     return SettingItem(title, description, all, all[now]) { c -> vm.set(name, (c as OptChoice).index) }
 }
+
+/** A UiOpts setting as a slider (Left / Right step through its values), e.g. the next episode countdown. */
+fun optSlider(vm: UiOptsViewModel, title: String, description: String, name: String, now: Int): SettingItem {
+    val all = UiOpts.choices.getValue(name).mapIndexed { i, l -> OptChoice(l, i) }
+    return SettingItem(title, description, all, all[now.coerceIn(0, all.lastIndex)], slider = true) { c -> vm.set(name, (c as OptChoice).index) }
+}

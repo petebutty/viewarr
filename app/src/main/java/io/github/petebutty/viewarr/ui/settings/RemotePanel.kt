@@ -239,7 +239,7 @@ fun RemoteSettingsScreen(onBack: () -> Unit, part: RemotePart = RemotePart.Butto
         optItem(opts, "Rows under the shortcuts", "How many poster rows Down reaches from the shortcuts on live TV. The rest are on the shortcut's own page (OK on it).", io.github.petebutty.viewarr.ui.theme.UiOpts.OSD_ROWS) +
         optItem(opts, "Poster rows", "Down from the shortcuts: Continue watching, Recent channels and Recently added, one row at a time (Up / Down change row).", io.github.petebutty.viewarr.ui.theme.UiOpts.OSD_POSTERS)
         .locked(if (io.github.petebutty.viewarr.ui.theme.AppColors.palette.lowMemory) Locks.LOW_MEMORY else null) +
-        SettingItem("Reset shortcuts", "Back to TV guide, Movies, Shows, Music, Recordings, Search and Settings.", listOf(ButtonStatus("")), ButtonStatus(""), action = { vm.resetLiveShortcuts() }, onSelect = {})
+        SettingItem("Reset shortcuts", "Back to TV guide, Live now, Movies, Shows, Music, Recordings, Search and Settings.", listOf(ButtonStatus("")), ButtonStatus(""), action = { vm.resetLiveShortcuts() }, onSelect = {})
     // The rest by kind, each switch adding to the end of the row (or taking it out). They stay in place when switched.
     fun addList(list: List<io.github.petebutty.viewarr.ui.player.LiveShortcut>) = list.map { sc ->
         val on = sc.id in chosen
@@ -338,6 +338,7 @@ fun RemoteSettingsScreen(onBack: () -> Unit, part: RemotePart = RemotePart.Butto
             "Live TV", "What each button does while a channel plays full screen. The main buttons first, then Record, Stop, the colour buttons and Info.",
             listOf(
                 item("Up / Down", "Show the channel list to pick from, or change channel straight away.", k.ZAP, all<ZapDirection>(), s.zap),
+                optSlider(opts, "Channel change delay", "Zapping through channels: how long one has to stay chosen before Viewarr asks for its stream (Left / Right, a tenth of a second at a time). Passing quickly over channels then doesn't start each one on Dispatcharr and use up your provider's connections, which could leave the channel you stop on loading. A single change starts straight away. No wait: every channel starts at once.", io.github.petebutty.viewarr.ui.theme.UiOpts.ZAP_DELAY, io.github.petebutty.viewarr.ui.theme.AppColors.palette.zapDelayMs.toInt() / 100),
                 item("OK", "Open the playback controls, just show the banner with what's on, or show the channel list (as TiviMate).", k.PLAYER_OK, all<PlayerOk>(), s.playerOk),
                 item("Left / Right", "Rewind and skip ahead (live TV asks \"Rewind?\" first), or as TiviMate: Left the channel list, Right back to the channel you watched before. In catch-up they always move through the programme.", k.LIVE_SIDES, all<io.github.petebutty.viewarr.data.settings.LiveSides>(), s.liveSides),
                 item("Skip size", "How far each press skips (catch-up, paused live TV; films and recordings too).", k.SEEK, all<SeekStep>(), s.seek),
@@ -378,7 +379,7 @@ fun RemoteSettingsScreen(onBack: () -> Unit, part: RemotePart = RemotePart.Butto
             "Live TV shortcuts", "Your row of shortcuts on live TV: press OK, then Down. Each opens a page (Movies, the guide…), a network's rows (Netflix, BBC One…) or one of your libraries, with live TV carrying on in the corner. Add them from the \"Add shortcuts\" lists below. To change the order, press Right on one, move it with Up / Down, then Right again. On live TV, holding OK on a shortcut takes it off.",
             shortcutItems,
         ),
-        SettingCategory("Add shortcuts: pages", "Shortcuts to Viewarr's own pages: Movies, Shows, the TV guide, Music, Recordings, Search and Settings. Switched on, they join the end of your row on live TV.", addList(pageShortcuts)),
+        SettingCategory("Add shortcuts: pages", "Shortcuts to Viewarr's own pages: Movies, Shows, the TV guide, Live now (sport and events on now), Music, Recordings, Search and Settings. Switched on, they join the end of your row on live TV.", addList(pageShortcuts)),
         SettingCategory("Add shortcuts: networks", "Streaming services and TV channels from your addons: each shortcut opens that network's rows (Popular, New, Top rated…). Switched on, they join the end of your row on live TV.", addList(networkShortcuts)),
         SettingCategory("Add shortcuts: your libraries", "Your Plex, Jellyfin and Emby libraries and rows (Continue watching, Recently added, your watchlist), and your music: Albums, Artists, Playlists. Switched on, they join the end of your row on live TV.", addList(plexShortcuts)),
         SettingCategory("Add shortcuts: other rows", "Everything else: other libraries, TMDB and Trakt rows, addon catalogues. Switched on, they join the end of your row on live TV.", addList(otherShortcuts)),
@@ -430,7 +431,7 @@ fun RemoteSettingsScreen(onBack: () -> Unit, part: RemotePart = RemotePart.Butto
             val plex = candidates.filter { it.logoName in setOf("Plex", "Jellyfin", "Emby") && it.id.startsWith("row:") &&
                 (it.id.contains("deck") || it.id.contains("recent") || it.id.contains("watchlist")) }.map { it.id }.take(5)
             // Streaming services and channels first, then your own: Movies, Shows, Plex, Music, Recordings, Search.
-            val ids = names.map { "set:Show:name:$it" } + listOf("home:Movie", "home:Show") + plex +
+            val ids = names.map { "set:Show:name:$it" } + listOf("page:Live", "home:Movie", "home:Show") + plex +
                 listOf("page:Music", "page:Recordings", "page:Search").filter { id -> candidates.any { it.id == id } }
             vm.setLiveShortcuts(ids)
             networkSetup = false

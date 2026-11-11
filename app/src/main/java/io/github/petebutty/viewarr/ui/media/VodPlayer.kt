@@ -140,9 +140,19 @@ fun VodPlayer(
                 playWhenReady = true
             }
     }
+    // Skip intro / credits (Settings → Playback → Episodes), from the server's markers.
+    val skip = remember(stream) { IntroSkip() }
+    val skipModes by androidx.compose.runtime.rememberUpdatedState(pb.skipIntro to pb.skipCredits)
+    // The next episode's countdown over the end of this one (Settings → Playback → Episodes); 0: off.
+    val nextCountdown by androidx.compose.runtime.rememberUpdatedState(
+        if (pb.autoNext == io.github.petebutty.viewarr.data.settings.AutoNext.On) maxOf(io.github.petebutty.viewarr.ui.theme.AppColors.palette.upNextSeconds * 1_000L, 1L) else 0L)
+    // Its server's markers, else ones the community intro databases had (they can arrive a moment after it starts).
+    val skipMarkers by androidx.compose.runtime.rememberUpdatedState(stream.markers.ifEmpty { io.github.petebutty.viewarr.data.media.FoundMarkers.byUrl[stream.url].orEmpty() })
     // Report where you are every 15 s while playing, and on pause/stop.
     LaunchedEffect(player) {
         while (true) {
+            if (player.isPlaying) skip.update(skipMarkers, player.currentPosition, player.duration.coerceAtLeast(0), skipModes.first, skipModes.second, { player.seekTo(it) },
+                hasNext = NextUp.episode != null, countdownMs = nextCountdown, onNext = { NextUp.play() })
             positionMs = player.currentPosition
             durationMs = player.duration.coerceAtLeast(0)
             paused = !player.playWhenReady
@@ -212,6 +222,11 @@ fun VodPlayer(
             }
 
             override fun onPlaybackStateChanged(state: Int) {
+                // The end with the next episode known (and its countdown not turned down): on to it, not closing.
+                if (state == Player.STATE_ENDED && skip.nextAtEnd(NextUp.episode != null, nextCountdown > 0)) {
+                    onProgress("stopped", player.duration.coerceAtLeast(0), player.duration.coerceAtLeast(0))
+                    NextUp.play(); return
+                }
                 if (state == Player.STATE_ENDED) onClose()
                 if (state == Player.STATE_ENDED) onProgress("stopped", player.duration.coerceAtLeast(0), player.duration.coerceAtLeast(0))
             }
@@ -280,6 +295,8 @@ fun VodPlayer(
     val hubOn = io.github.petebutty.viewarr.data.settings.LocalRemote.current.navStyle == io.github.petebutty.viewarr.data.settings.NavStyle.LiveHub
     fun backStep() {
         when {
+            // The next episode's countdown: Back keeps watching this one.
+            skip.cancelNext() -> Unit
             tracksOpen -> tracksOpen = false
             scrub.active -> { scrub.cancel(); showOsd() }
             detailsOn -> detailsOn = false
@@ -301,7 +318,9 @@ fun VodPlayer(
         }
         return selected(androidx.media3.common.C.TRACK_TYPE_AUDIO)?.takeIf { it >= 0 } to selected(androidx.media3.common.C.TRACK_TYPE_TEXT)
     }
-    val buttons = listOfNotNull(PlayerButton.PlayPause, PlayerButton.Stop, PlayerButton.Details, PlayerButton.Audio, PlayerButton.Subtitles, PlayerButton.Info, if (onSwitchPlayer != null) PlayerButton.SwitchPlayer else null, PlayerButton.Settings)
+    // Live TV hub: the TV guide first (live TV comes first there).
+    val buttons = listOfNotNull(if (hubOn) PlayerButton.Guide else null, PlayerButton.PlayPause, PlayerButton.Stop, PlayerButton.Details, PlayerButton.Audio, PlayerButton.Subtitles, PlayerButton.Info, if (onSwitchPlayer != null) PlayerButton.SwitchPlayer else null, PlayerButton.Settings)
+    menu.home = buttons.indexOf(PlayerButton.PlayPause).coerceAtLeast(0)
     fun press(b: PlayerButton) {
         when (b) {
             PlayerButton.PlayPause -> player.playWhenReady = !player.playWhenReady
@@ -313,6 +332,8 @@ fun VodPlayer(
             PlayerButton.Stop -> { onClose(); return }
             // As on live TV: Settings over what's playing (the film carries on in the corner; Back brings it back).
             PlayerButton.Settings -> { menu.open = false; VodHost.minimise(); io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.openSettings(); return }
+            // The TV guide (Live TV hub): the film carries on in the corner; Back brings it back.
+            PlayerButton.Guide -> { menu.open = false; VodHost.minimise(); io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.openGuide(); return }
         }
         showOsd()
     }
@@ -335,16 +356,20 @@ fun VodPlayer(
         atTop = { !tracksOpen && !scrub.active && !detailsOn && !menu.open && !(System.currentTimeMillis() < osdUntil && player.isPlaying) },
         minimise = { VodHost.minimise(); if (!VodHost.active) onClose() },
         stepBack = ::backStep,
+        skipOk = { skip.ok({ player.seekTo(it) }, onNext = { NextUp.play() }) },
         // The live TV shortcuts, as on live TV: opening one sends the film to the corner (still playing) and opens
         // the page; Back from it brings the film back full screen.
         shortcutCount = { if (hubOn) io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.items.size else 0 },
         pickShortcut = { i ->
-            io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.items.getOrNull(i)?.let { (_, go) ->
-                menu.open = false; menu.onShortcuts = false
-                VodHost.minimise()
-                go()
+            io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.items.getOrNull(i)?.let { (sc, go) ->
+                // Refresh (Viewarr's own, last in the row) works where you are; the rest open with the film in the corner.
+                if (sc.id.startsWith("action:")) go()
+                else { menu.open = false; menu.onShortcuts = false; VodHost.minimise(); go() }
             }
         },
+        // Hold OK on a shortcut: the same Move / Refresh / Hide as live TV, on the same row.
+        moveShortcut = { _, d -> io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.items.firstOrNull { it.first.id == menu.scMovingId }?.let { io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.move(it.first, d) } },
+        canHoldShortcut = { i -> io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.items.getOrNull(i)?.first?.id?.startsWith("action:") == false },
         rowSizes = { i -> io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.rowsFor(i).map { it.items.size } },
         pickCard = { r, c ->
             io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.rowsFor(menu.shortcut).getOrNull(r)?.items?.getOrNull(c)?.let { card ->
@@ -361,7 +386,9 @@ fun VodPlayer(
         pausedLong = false
         if (paused) { delay(2_500); pausedLong = true } else detailsOn = false
     }
-    LaunchedEffect(menu.open, menu.lastKey, paused) {
+    // (Not while a shortcut's menu is open or one is being moved: they'd be left behind.)
+    LaunchedEffect(menu.open, menu.lastKey, paused, menu.scOptions, menu.scMoving) {
+        if (menu.scOptions != null || menu.scMoving) return@LaunchedEffect
         if (menu.open && !paused) { kotlinx.coroutines.delay(maxOf(8_000L, 2 * io.github.petebutty.viewarr.ui.theme.AppColors.palette.controlsMs)); menu.open = false }
     }
     // The player must hold focus itself, or the remote keeps driving the screen underneath (the controls never respond).
@@ -439,11 +466,34 @@ fun VodPlayer(
             buttonFocus = if (menu.open && !menu.onBar && !menu.onShortcuts) menu.button else -1,
             barFocused = menu.open && menu.onBar,
             shortcuts = if (menu.open && menu.onShortcuts) io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.items.map { it.first } else null,
-            shortcutFocus = menu.shortcut,
+            shortcutFocus = menu.shortcut, shortcutMoving = menu.scMoving,
             shortcutsHint = hubOn,
             rows = if (menu.open && menu.onRows) io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.rowsFor(menu.shortcut) else null,
             rowFocus = menu.row, cardFocus = menu.card,
         )
+        if (!mini && started && !menu.open && !scrub.active && !tracksOpen && now >= osdUntil && !paused && !buffering) IntroSkipPill(skip, Modifier.align(Alignment.BottomEnd).padding(end = 40.dp, bottom = 36.dp))
+        // Holding OK on a shortcut: live TV's own menu for it (the same actions, on the same row).
+        // The one being moved: the highlight follows it as the row is saved in its new order.
+        val scIds = io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.items.map { it.first.id }
+        LaunchedEffect(scIds, menu.scMoving) {
+            if (!menu.scMoving) return@LaunchedEffect
+            scIds.indexOf(menu.scMovingId).takeIf { it >= 0 }?.let { menu.shortcut = it }
+        }
+        if (menu.open) menu.scOptions?.let { i ->
+            io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.items.getOrNull(i)?.first?.let { sc ->
+                io.github.petebutty.viewarr.ui.player.ShortcutOptions(
+                    sc, onActivity = { menu.touch() },
+                    onMove = { menu.scOptions = null; menu.scMovingId = sc.id; menu.scMoving = true; menu.touch() },
+                    onRefresh = { menu.scOptions = null; io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.refresh(sc) },
+                    onHide = {
+                        menu.scOptions = null
+                        io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.hide(sc)
+                        menu.shortcut = menu.shortcut.coerceAtMost((io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.items.size - 2).coerceAtLeast(0))
+                    },
+                    onCancel = { menu.scOptions = null },
+                )
+            } ?: run { menu.scOptions = null }
+        }
         PlayerLoading(stream.title, art, visible = !mini && !started && error == null)
         if (tracksOpen && !mini) TrackPicker(player, subtitlesFirst = tracksSubs, onSwitchPlayer = onSwitchPlayer?.let { f -> { picks().let { (a, t) -> f(player.currentPosition, a, t) } } }, onClose = { tracksOpen = false; runCatching { focus.requestFocus() } }, modifier = Modifier.align(Alignment.CenterEnd))
         if (!mini && (pb.stats == io.github.petebutty.viewarr.data.settings.StatsOverlay.On || menu.infoOn)) {

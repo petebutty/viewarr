@@ -1158,6 +1158,15 @@ private fun DetailScreen(
             }
         }
         if (inlineEpisodes) InlineEpisodes(ui, vm, free = sectionsFree && ui.episode == null, entry = episodesEntry, up = playFocus, down = tabFocus)
+        // "Episodes" (hold OK on a show, the guide's Go to show…): onto this page's episode row, once the season's in.
+        // (Once per request: changing season afterwards mustn't pull focus down to the episodes again.)
+        var focusedFor by remember { mutableStateOf(0L) }
+        LaunchedEffect(ui.focusEpisodes, ui.episodes != null) {
+            if (ui.focusEpisodes == 0L || ui.focusEpisodes == focusedFor || ui.episodes == null || !inlineEpisodes) return@LaunchedEffect
+            focusedFor = ui.focusEpisodes
+            awaitFrame(); awaitFrame()
+            runCatching { episodesEntry.requestFocus() }
+        }
         Spacer(Modifier.height(16.dp))
         DetailTabs(d, show, sectionsFree && ui.episode == null, tabFocus, onPerson = { c -> vm.openCastMember(c) }, onReview = { reading = it }, onSimilar = { vm.open(it) })
         }
@@ -1682,6 +1691,12 @@ private fun QuickOptions(item: MediaItem, vm: MediaViewModel, onTrailer: () -> U
                     onClick = { if (canAsk) { onClose(); vm.requestOnSeerr(item) } },
                 )
             }
+            // A show you're done with: out of Continue watching (and Upcoming episodes) for good, and dropped on Trakt.
+            // Watching any episode of it again brings it back.
+            if (show && vm.inContinue(item)) io.github.petebutty.viewarr.ui.common.MenuItem(
+                text = "Drop show", selected = false,
+                onClick = { onClose(); vm.dropShow(item) },
+            )
             io.github.petebutty.viewarr.ui.common.MenuItem(text = "Close", selected = false, onClick = onClose)
         }
     }

@@ -87,6 +87,14 @@ fun MpvPlayer(
 ) {
     val context = LocalContext.current
     val settings = LocalPlayback.current
+    // Skip intro / credits (Settings → Playback → Episodes), from the server's markers.
+    val skip = remember(stream) { IntroSkip() }
+    val skipModes by androidx.compose.runtime.rememberUpdatedState(settings.skipIntro to settings.skipCredits)
+    // The next episode's countdown over the end of this one (Settings → Playback → Episodes); 0: off.
+    val nextCountdown by androidx.compose.runtime.rememberUpdatedState(
+        if (settings.autoNext == io.github.petebutty.viewarr.data.settings.AutoNext.On) maxOf(io.github.petebutty.viewarr.ui.theme.AppColors.palette.upNextSeconds * 1_000L, 1L) else 0L)
+    // Its server's markers, else ones the community intro databases had (they can arrive a moment after it starts).
+    val skipMarkers by androidx.compose.runtime.rememberUpdatedState(stream.markers.ifEmpty { io.github.petebutty.viewarr.data.media.FoundMarkers.byUrl[stream.url].orEmpty() })
     val seekSec = LocalRemote.current.seek.ms / 1000.0
     val main = remember { Handler(Looper.getMainLooper()) }
     var restoreMode by remember { mutableStateOf<Int?>(null) }
@@ -141,7 +149,8 @@ fun MpvPlayer(
                         "eof-reached" -> if (value) {
                             ended = true
                             onProgress("stopped", (duration * 1000).toLong(), (duration * 1000).toLong())
-                            onClose()
+                            // The next episode known (its countdown not turned down): on to it, not closing.
+                            if (skip.nextAtEnd(NextUp.episode != null, nextCountdown > 0)) NextUp.play() else onClose()
                         }
                     }
                 }
@@ -269,6 +278,14 @@ fun MpvPlayer(
         }
     }
 
+    LaunchedEffect(mpv, stream) {
+        while (true) {
+            delay(250)
+            if (!paused && position > 0) skip.update(skipMarkers, (position * 1000).toLong(), (duration * 1000).toLong(), skipModes.first, skipModes.second,
+                { ms -> mpv.command(arrayOf("seek", (ms / 1000.0).toString(), "absolute")) },
+                hasNext = NextUp.episode != null, countdownMs = nextCountdown, onNext = { NextUp.play() })
+        }
+    }
     // Progress to Plex/Trakt every 15 s while playing.
     LaunchedEffect(mpv) {
         while (true) {
@@ -299,6 +316,8 @@ fun MpvPlayer(
     val hubOn = io.github.petebutty.viewarr.data.settings.LocalRemote.current.navStyle == io.github.petebutty.viewarr.data.settings.NavStyle.LiveHub
     fun backStep() {
         when {
+            // The next episode's countdown: Back keeps watching this one.
+            skip.cancelNext() -> Unit
             tracksOpen -> tracksOpen = false
             scrub.active -> { scrub.cancel(); showOsd() }
             detailsOn -> detailsOn = false
@@ -325,7 +344,9 @@ fun MpvPlayer(
         val t = if (sid == "no" || sid == "false") -1 else sid?.toIntOrNull()?.minus(1)
         return a to t
     }
-    val buttons = listOfNotNull(PlayerButton.PlayPause, PlayerButton.Stop, PlayerButton.Details, PlayerButton.Audio, PlayerButton.Subtitles, PlayerButton.Info, if (onSwitchPlayer != null) PlayerButton.SwitchPlayer else null, PlayerButton.Settings)
+    // Live TV hub: the TV guide first (live TV comes first there).
+    val buttons = listOfNotNull(if (hubOn) PlayerButton.Guide else null, PlayerButton.PlayPause, PlayerButton.Stop, PlayerButton.Details, PlayerButton.Audio, PlayerButton.Subtitles, PlayerButton.Info, if (onSwitchPlayer != null) PlayerButton.SwitchPlayer else null, PlayerButton.Settings)
+    menu.home = buttons.indexOf(PlayerButton.PlayPause).coerceAtLeast(0)
     fun press(b: PlayerButton) {
         when (b) {
             PlayerButton.PlayPause -> mpv.setPropertyBoolean("pause", !paused)
@@ -337,6 +358,8 @@ fun MpvPlayer(
             PlayerButton.Stop -> { onClose(); return }
             // As on live TV: Settings over what's playing (the film carries on in the corner; Back brings it back).
             PlayerButton.Settings -> { menu.open = false; VodHost.minimise(); io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.openSettings(); return }
+            // The TV guide (Live TV hub): the film carries on in the corner; Back brings it back.
+            PlayerButton.Guide -> { menu.open = false; VodHost.minimise(); io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.openGuide(); return }
         }
         showOsd()
     }
@@ -359,16 +382,20 @@ fun MpvPlayer(
         atTop = { !tracksOpen && !scrub.active && !detailsOn && !menu.open && !(System.currentTimeMillis() < osdUntil && !paused) },
         minimise = { VodHost.minimise(); if (!VodHost.active) onClose() },
         stepBack = ::backStep,
+        skipOk = { skip.ok({ ms -> mpv.command(arrayOf("seek", (ms / 1000.0).toString(), "absolute")) }, onNext = { NextUp.play() }) },
         // The live TV shortcuts, as on live TV: opening one sends the film to the corner (still playing) and opens
         // the page; Back from it brings the film back full screen.
         shortcutCount = { if (hubOn) io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.items.size else 0 },
         pickShortcut = { i ->
-            io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.items.getOrNull(i)?.let { (_, go) ->
-                menu.open = false; menu.onShortcuts = false
-                VodHost.minimise()
-                go()
+            io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.items.getOrNull(i)?.let { (sc, go) ->
+                // Refresh (Viewarr's own, last in the row) works where you are; the rest open with the film in the corner.
+                if (sc.id.startsWith("action:")) go()
+                else { menu.open = false; menu.onShortcuts = false; VodHost.minimise(); go() }
             }
         },
+        // Hold OK on a shortcut: the same Move / Refresh / Hide as live TV, on the same row.
+        moveShortcut = { _, d -> io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.items.firstOrNull { it.first.id == menu.scMovingId }?.let { io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.move(it.first, d) } },
+        canHoldShortcut = { i -> io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.items.getOrNull(i)?.first?.id?.startsWith("action:") == false },
         rowSizes = { i -> io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.rowsFor(i).map { it.items.size } },
         pickCard = { r, c ->
             io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.rowsFor(menu.shortcut).getOrNull(r)?.items?.getOrNull(c)?.let { card ->
@@ -385,7 +412,9 @@ fun MpvPlayer(
         pausedLong = false
         if (paused) { delay(2_500); pausedLong = true } else detailsOn = false
     }
-    LaunchedEffect(menu.open, menu.lastKey, paused) {
+    // (Not while a shortcut's menu is open or one is being moved: they'd be left behind.)
+    LaunchedEffect(menu.open, menu.lastKey, paused, menu.scOptions, menu.scMoving) {
+        if (menu.scOptions != null || menu.scMoving) return@LaunchedEffect
         if (menu.open && !paused) { delay(maxOf(8_000L, 2 * io.github.petebutty.viewarr.ui.theme.AppColors.palette.controlsMs)); menu.open = false }
     }
 
@@ -480,11 +509,34 @@ fun MpvPlayer(
             buttonFocus = if (menu.open && !menu.onBar && !menu.onShortcuts) menu.button else -1,
             barFocused = menu.open && menu.onBar,
             shortcuts = if (menu.open && menu.onShortcuts) io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.items.map { it.first } else null,
-            shortcutFocus = menu.shortcut,
+            shortcutFocus = menu.shortcut, shortcutMoving = menu.scMoving,
             shortcutsHint = hubOn,
             rows = if (menu.open && menu.onRows) io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.rowsFor(menu.shortcut) else null,
             rowFocus = menu.row, cardFocus = menu.card,
         )
+        if (!mini && started && !menu.open && !scrub.active && !tracksOpen && !osdVisible) IntroSkipPill(skip, Modifier.align(Alignment.BottomEnd).padding(end = 40.dp, bottom = 36.dp))
+        // Holding OK on a shortcut: live TV's own menu for it (the same actions, on the same row).
+        // The one being moved: the highlight follows it as the row is saved in its new order.
+        val scIds = io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.items.map { it.first.id }
+        LaunchedEffect(scIds, menu.scMoving) {
+            if (!menu.scMoving) return@LaunchedEffect
+            scIds.indexOf(menu.scMovingId).takeIf { it >= 0 }?.let { menu.shortcut = it }
+        }
+        if (menu.open) menu.scOptions?.let { i ->
+            io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.items.getOrNull(i)?.first?.let { sc ->
+                io.github.petebutty.viewarr.ui.player.ShortcutOptions(
+                    sc, onActivity = { menu.touch() },
+                    onMove = { menu.scOptions = null; menu.scMovingId = sc.id; menu.scMoving = true; menu.touch() },
+                    onRefresh = { menu.scOptions = null; io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.refresh(sc) },
+                    onHide = {
+                        menu.scOptions = null
+                        io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.hide(sc)
+                        menu.shortcut = menu.shortcut.coerceAtMost((io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.items.size - 2).coerceAtLeast(0))
+                    },
+                    onCancel = { menu.scOptions = null },
+                )
+            } ?: run { menu.scOptions = null }
+        }
         PlayerLoading(stream.title, art, visible = !mini && !started && error == null)
         if (!mini && stats.isNotEmpty()) Text(
             stats, fontSize = 13.sp, color = Color.White,

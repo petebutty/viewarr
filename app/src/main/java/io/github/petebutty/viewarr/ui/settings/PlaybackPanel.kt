@@ -96,10 +96,12 @@ fun PlaybackSettingsScreen(onBack: () -> Unit, vm: PlaybackSettingsViewModel = h
             ),
         ),
         SettingCategory(
-            "Episodes", "Watching shows.",
+            "Episodes", "Watching shows: skipping intros and credits, and the next episode.",
             listOf(
-                item("Play next episode automatically", "When an episode ends, the next one starts after a countdown.", k.AUTO_NEXT, choices<io.github.petebutty.viewarr.data.settings.AutoNext>(), s.autoNext),
-                optItem(opts, "Next episode countdown", "How long before the next episode starts.", io.github.petebutty.viewarr.ui.theme.UiOpts.UP_NEXT),
+                item("Skip intros", "A Skip intro button (OK skips it), skipped by itself (with a moment to go back), or off. Where the intro is comes from Plex, Jellyfin or Emby when they marked it, otherwise from the community databases TheIntroDB and IntroDB (addons, IPTV…; only the title's id and episode are sent).", k.SKIP_INTRO, choices<io.github.petebutty.viewarr.data.settings.SkipMode>(), s.skipIntro),
+                item("Skip credits", "During the credits: a Next episode button (OK plays it straight away; a film just ends), moved on by itself, or off. From the same places as the intros.", k.SKIP_CREDITS, choices<io.github.petebutty.viewarr.data.settings.SkipMode>(), s.skipCredits),
+                item("Play next episode automatically", "When an episode ends, the next one plays. Near the end (as the credits start, if they're marked) a countdown card shows it: OK plays it now, Back hides the card.", k.AUTO_NEXT, choices<io.github.petebutty.viewarr.data.settings.AutoNext>(), s.autoNext),
+                optSlider(opts, "Next episode countdown", "How long the countdown runs before the next episode plays (Left / Right, 5 seconds at a time). It starts with the credits, or that long before the end, and always finishes before the episode does. No wait: straight on.", io.github.petebutty.viewarr.ui.theme.UiOpts.UP_NEXT_S, io.github.petebutty.viewarr.ui.theme.AppColors.palette.upNextSeconds / 5),
             ),
         ),
         // (Picture-in-picture for films is off for now: Back stops a film. Its code stays, switched off.)
@@ -132,6 +134,6 @@ fun PlaybackSettingsScreen(onBack: () -> Unit, vm: PlaybackSettingsViewModel = h
     )
     SettingsPage(title = "Playback", categories = categories, onBack = onBack, onReset = {
         vm.reset()
-        opts.reset(listOf(io.github.petebutty.viewarr.ui.theme.UiOpts.CONTROLS_TIME, io.github.petebutty.viewarr.ui.theme.UiOpts.CONTROLS_SIZE, io.github.petebutty.viewarr.ui.theme.UiOpts.SEEK_PREVIEWS, io.github.petebutty.viewarr.ui.theme.UiOpts.UP_NEXT, io.github.petebutty.viewarr.ui.theme.UiOpts.MINI_SIZE, io.github.petebutty.viewarr.ui.theme.UiOpts.MINI_CORNER, io.github.petebutty.viewarr.ui.theme.UiOpts.ANIM_FILM, io.github.petebutty.viewarr.ui.theme.UiOpts.ANIM_LIVE, io.github.petebutty.viewarr.ui.theme.UiOpts.LIVE_CORNER, io.github.petebutty.viewarr.ui.theme.UiOpts.STILL_WATCHING, io.github.petebutty.viewarr.ui.theme.UiOpts.LOW_MEMORY))
+        opts.reset(listOf(io.github.petebutty.viewarr.ui.theme.UiOpts.CONTROLS_TIME, io.github.petebutty.viewarr.ui.theme.UiOpts.CONTROLS_SIZE, io.github.petebutty.viewarr.ui.theme.UiOpts.SEEK_PREVIEWS, io.github.petebutty.viewarr.ui.theme.UiOpts.UP_NEXT, io.github.petebutty.viewarr.ui.theme.UiOpts.UP_NEXT_S, io.github.petebutty.viewarr.ui.theme.UiOpts.MINI_SIZE, io.github.petebutty.viewarr.ui.theme.UiOpts.MINI_CORNER, io.github.petebutty.viewarr.ui.theme.UiOpts.ANIM_FILM, io.github.petebutty.viewarr.ui.theme.UiOpts.ANIM_LIVE, io.github.petebutty.viewarr.ui.theme.UiOpts.LIVE_CORNER, io.github.petebutty.viewarr.ui.theme.UiOpts.STILL_WATCHING, io.github.petebutty.viewarr.ui.theme.UiOpts.LOW_MEMORY))
     })
 }

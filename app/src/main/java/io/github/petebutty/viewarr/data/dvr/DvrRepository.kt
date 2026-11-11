@@ -46,6 +46,9 @@ data class DvrRecording(
     val state: DvrState,
     val hasFile: Boolean,
     val posterLogoId: Int?,
+    /** The programme's own times (start / end above include Dispatcharr's padding); null for older recordings. */
+    val programStart: Long? = null,
+    val programEnd: Long? = null,
 )
 
 data class SeriesRule(val tvgId: String, val title: String, val mode: String, val titleMode: String, val epgSourceId: Int?) {
@@ -130,6 +133,8 @@ class DvrRepository @Inject constructor(
             state = state,
             hasFile = hasFile,
             posterLogoId = cp.int("poster_logo_id"),
+            programStart = program.str("start_time")?.let(::millis)?.takeIf { it > 0 },
+            programEnd = program.str("end_time")?.let(::millis)?.takeIf { it > 0 },
         )
     }
 
@@ -139,9 +144,13 @@ class DvrRepository @Inject constructor(
     private fun iso(ms: Long) = Instant.ofEpochMilli(ms).toString()
 
     /** The scheduled/active recording that covers this programme, if any. */
+    // Matched on the programme it was set for: with the padding (Dispatcharr adds minutes before and after), a
+    // recording also covered most of a short programme straight after it, which showed as recording too.
     fun recordingFor(channelId: Int, p: GuideProgram): DvrRecording? = _recordings.value.firstOrNull {
+        val start = it.programStart ?: it.start
+        val end = it.programEnd ?: it.end
         it.channelId == channelId && it.state != DvrState.Recorded && it.state != DvrState.Failed &&
-            minOf(it.end, p.endTime) - maxOf(it.start, p.startTime) > (p.endTime - p.startTime) / 2
+            minOf(end, p.endTime) - maxOf(start, p.startTime) > (p.endTime - p.startTime) / 2
     }
 
     /** The series rule that would record this programme, if any (exact or simple-regex title match on the same EPG id). */

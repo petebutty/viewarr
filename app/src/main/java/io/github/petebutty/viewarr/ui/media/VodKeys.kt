@@ -46,6 +46,11 @@ class VodHooks(
     /** The rows under a shortcut (their sizes), and opening a card (row, card). */
     val rowSizes: (Int) -> List<Int> = { emptyList() },
     val pickCard: (Int, Int) -> Unit = { _, _ -> },
+    /** Skip intro / credits showing (or an intro just skipped by itself): OK skips it (or goes back). True if used. */
+    val skipOk: () -> Boolean = { false },
+    /** The shortcuts' Move (index, -1 / 1), and whether one has a hold menu (Viewarr's own Refresh doesn't). */
+    val moveShortcut: (Int, Int) -> Unit = { _, _ -> },
+    val canHoldShortcut: (Int) -> Boolean = { true },
 )
 
 /**
@@ -115,13 +120,14 @@ class VodKeys(private val scrub: Scrubber, private val menu: PlayerMenu) {
                 upFromBar = { p.pause(); h.showDetails(); menu.open = false },
                 shortcutCount = h.shortcutCount(), pickShortcut = h.pickShortcut,
                 rowSizes = h.rowSizes, pickCard = h.pickCard,
+                moveShortcut = h.moveShortcut, canHold = h.canHoldShortcut,
             )
         ) return true
         // Tap OK: the controls (Play/Pause on the remote pauses). Hold OK: audio & subtitles.
         if (a == RemoteAction.Ok) {
             when (ok.feed(e)) {
                 Press.Hold -> h.openTracks(null)
-                Press.Tap -> { menu.show(); h.showOsd() }
+                Press.Tap -> if (!h.skipOk()) { menu.show(); h.showOsd() }
                 null -> Unit
             }
             return true

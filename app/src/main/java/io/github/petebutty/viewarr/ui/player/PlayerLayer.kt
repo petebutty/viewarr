@@ -5,6 +5,7 @@ import android.view.ViewGroup
 import androidx.annotation.OptIn
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -25,6 +26,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -128,16 +130,53 @@ fun PlayerLayer(
         }
 
         if (fullscreen && bannerVisible && channel != null) {
+            // The stream's picture and sound, for the info bar's badges (read while it's up).
+            var quality by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<StreamQuality?>(null) }
+            androidx.compose.runtime.LaunchedEffect(playerVersion, channel?.id) {
+                // The frame rate: the player's, when the stream says it; else Dispatcharr's probe of the stream
+                // (admins); else measured from the frames shown each second, rounded to the usual rates (25, 50…).
+                var serverFps: Float? = null
+                var asked = 0
+                var lastFrames = -1L
+                var lastAt = 0L
+                var measured = 0f
+                while (true) {
+                    val p = vm.player
+                    val frames = p?.videoDecoderCounters?.let { it.renderedOutputBufferCount + it.skippedOutputBufferCount + it.droppedBufferCount }?.toLong()
+                    val at = android.os.SystemClock.elapsedRealtime()
+                    if (frames != null && lastFrames >= 0 && frames > lastFrames && at > lastAt) {
+                        val fps = (frames - lastFrames) * 1000f / (at - lastAt)
+                        val usual = floatArrayOf(23.976f, 24f, 25f, 29.97f, 30f, 48f, 50f, 59.94f, 60f)
+                        measured = usual.minByOrNull { kotlin.math.abs(it - fps) }?.takeIf { kotlin.math.abs(it - fps) < 3f } ?: fps
+                    }
+                    if (frames != null) { lastFrames = frames; lastAt = at }
+                    // Dispatcharr probes a stream as it starts: asked a couple of times, a few seconds apart.
+                    if (serverFps == null && asked < 9 && asked++ % 3 == 0) serverFps = runCatching { vm.sourceFps() }.getOrNull()
+                    quality = p?.videoFormat?.let { v ->
+                        StreamQuality(v.height, v.frameRate.takeIf { it > 0 } ?: serverFps ?: measured, p.audioFormat?.channelCount ?: 0)
+                    }
+                    kotlinx.coroutines.delay(1_000)
+                }
+            }
             InfoBanner(
                 channel!!, current, next, now, serverUrl,
                 catchupPosition = if (catchup != null) position else null,
                 paused = paused,
+                quality = quality,
                 modifier = Modifier.align(Alignment.BottomCenter),
             )
         }
     }
 }
 
+/** What the live stream is: picture height, frames per second, sound channels (the info bar's badges). */
+internal data class StreamQuality(val height: Int, val fps: Float, val channels: Int)
+
+/**
+ * The info bar over live TV. Settings → Appearance → Live TV: a fade across the bottom or a panel (glass with or
+ * without a border, or solid; rounded or square) with everything inside it; the channel number and S·E numbers on or
+ * off; badges for the picture (HD / FHD / 4K or 720p…), 5.1 sound and frame rate.
+ */
 @Composable
 internal fun InfoBanner(
     channel: ChannelListItem,
@@ -148,15 +187,33 @@ internal fun InfoBanner(
     catchupPosition: Pair<Long, Long>?,
     paused: Boolean,
     modifier: Modifier,
+    quality: StreamQuality? = null,
 ) {
-    Row(
-        modifier
+    val opt = AppColors.palette
+    val style = opt.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.BANNER_STYLE)
+    val square = opt.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.BANNER_CORNERS) == 1
+    val showNumber = opt.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.BANNER_NUMBER) == 0
+    val showEpisode = opt.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.BANNER_EPISODE) == 0
+    val badgeStyle = opt.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.BANNER_BADGES)
+    val showFps = opt.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.BANNER_FPS) == 0
+    fun title(p: GuideProgram) = if (showEpisode) displayTitle(p) else p.title
+    val shape = RoundedCornerShape(if (square) 0.dp else 18.dp)
+    val outer = when (style) {
+        // A panel: inset from the edges, everything inside it.
+        1, 2, 3 -> modifier
+            .fillMaxWidth()
+            .padding(start = 40.dp, end = 40.dp, bottom = 28.dp)
+            .background(if (style == 3) AppColors.Panel.copy(alpha = 0.96f) else AppColors.Background.copy(alpha = 0.62f), shape)
+            .then(if (style == 1) Modifier.border(1.dp, Color.White.copy(alpha = 0.28f), shape) else Modifier)
+            .padding(horizontal = 24.dp, vertical = 18.dp)
+        // The fade across the bottom (as it was).
+        else -> modifier
             .fillMaxWidth()
             .background(Brush.verticalGradient(listOf(Color.Transparent, AppColors.Background.copy(alpha = 0.92f), AppColors.Background)))
-            .padding(start = 48.dp, end = 48.dp, top = 48.dp, bottom = 32.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
+            .padding(start = 48.dp, end = 48.dp, top = 48.dp, bottom = 32.dp)
+    }
+    Row(outer, verticalAlignment = Alignment.CenterVertically) {
+        if (showNumber) Text(
             channel.number?.let(::formatNumber).orEmpty(),
             fontSize = 34.sp,
             fontWeight = FontWeight.SemiBold,
@@ -181,9 +238,25 @@ internal fun InfoBanner(
                         modifier = Modifier.background(AppColors.Accent, RoundedCornerShape(3.dp)).padding(horizontal = 6.dp, vertical = 1.dp),
                     )
                 }
+                // The stream's own picture / sound / frame rate.
+                quality?.let { q ->
+                    val res = when {
+                        q.height <= 0 -> null
+                        badgeStyle == 2 -> null
+                        badgeStyle == 1 -> when { q.height >= 2000 -> "2160p"; q.height >= 1000 -> "1080p"; q.height >= 700 -> "720p"; else -> "${q.height}p" }
+                        else -> when { q.height >= 2000 -> "4K"; q.height >= 1000 -> "FHD"; q.height >= 700 -> "HD"; else -> "SD" }
+                    }
+                    val sound = if (badgeStyle != 2 && q.channels >= 6) (if (q.channels >= 8) "7.1" else "5.1") else null
+                    val fps = if (showFps && q.fps > 0) (if (kotlin.math.abs(q.fps - kotlin.math.round(q.fps)) > 0.01f) "%.2f".format(q.fps).trimEnd('0') else "${kotlin.math.round(q.fps).toInt()}") + " fps" else null
+                    listOfNotNull(res, sound, fps).forEach { b ->
+                        Spacer(Modifier.width(8.dp))
+                        Text(b, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White,
+                            modifier = Modifier.border(1.dp, Color.White.copy(alpha = 0.6f), RoundedCornerShape(3.dp)).padding(horizontal = 5.dp, vertical = 1.dp))
+                    }
+                }
             }
             Text(
-                current?.let(::displayTitle) ?: "No guide information",
+                current?.let(::title) ?: "No guide information",
                 fontSize = 22.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = Color.White,
@@ -211,7 +284,7 @@ internal fun InfoBanner(
             }
             if (next != null) {
                 Text(
-                    "Next  ${next.startTime.hhmm()}  ${displayTitle(next)}",
+                    "Next  ${next.startTime.hhmm()}  ${title(next)}",
                     fontSize = 14.sp,
                     color = AppColors.TextSecondary,
                     maxLines = 1,

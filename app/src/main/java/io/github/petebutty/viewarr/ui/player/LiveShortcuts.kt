@@ -28,6 +28,9 @@ data class OsdPoster(
     val image: String? = null,
     val logo: Boolean = false,
     val progress: Float? = null,
+    /** No picture: this instead, big, on a [tint] gradient (Live now's sport icon). */
+    val emoji: String? = null,
+    val tint: List<Long>? = null,
     val onClick: () -> Unit,
 )
 
@@ -49,6 +52,7 @@ object ShortcutColours {
     val recordings = listOf(0xFFFF5A5A, 0xFFC2185B)
     val search = listOf(0xFF2ED6A3, 0xFF14A0B8)
     val settings = listOf(0xFF8A97AD, 0xFF4E5A70)
+    val live = listOf(0xFFFF4D4D, 0xFFB3122E)
     val library = listOf(0xFFFFB347, 0xFFFF7043)
     val row = listOf(0xFF5EC8F2, 0xFF6A5CFF)
 }
@@ -64,6 +68,15 @@ object LiveShortcutsBridge {
         set(v) { state.value = v }
     /** The players' Settings button: the menu on Settings (set by the home screen). */
     var openSettings: () -> Unit = {}
+    /** The film player's TV guide button: the guide (the film in the corner). */
+    var openGuide: () -> Unit = {}
+    /**
+     * What holding OK on a shortcut offers (Move / Refresh / Hide), the same for live TV and the film player: both call
+     * these, so a change from either is the one row everywhere (set by the home screen).
+     */
+    var hide: (LiveShortcut) -> Unit = {}
+    var move: (LiveShortcut, Int) -> Unit = { _, _ -> }
+    var refresh: (LiveShortcut) -> Unit = {}
     /** A shortcut's rows (as on live TV), else the default ones (Continue watching…). */
     var previewFor: (String) -> List<OsdRow>? = { null }
     var defaultRows: List<OsdRow> = emptyList()
@@ -186,7 +199,7 @@ object RowSets {
  * "page:Guide", "home:Movie", "lib:Movie:<library key>", "row:Show:<row id>", "page:Settings"… Unset: [defaults].
  */
 object LiveShortcuts {
-    val defaults = listOf("page:Guide", "home:Movie", "home:Show", "page:Music", "page:Recordings", "page:Search", "page:Settings")
+    val defaults = listOf("page:Guide", "page:Live", "home:Movie", "home:Show", "page:Music", "page:Recordings", "page:Search", "page:Settings")
 
     /** Everything that can be a shortcut, in the order offered, each with a familiar icon. */
     fun candidates(
@@ -196,6 +209,8 @@ object LiveShortcuts {
         musicSource: String? = null,
     ): List<LiveShortcut> = buildList {
         add(LiveShortcut("page:Guide", "TV guide", AppIcons.Guide, colors = ShortcutColours.guide))
+        // Live now: what's on the event / sports channels (Event Channel Managarr's groups), with what's starting soon.
+        add(LiveShortcut("page:Live", "Live now", AppIcons.LiveTv, colors = ShortcutColours.live))
         add(LiveShortcut("home:Movie", "Movies", AppIcons.Movie, colors = ShortcutColours.movies))
         add(LiveShortcut("home:Show", "Shows", AppIcons.Tv, colors = ShortcutColours.shows))
         if (musicOn) add(LiveShortcut("page:Music", "Music", AppIcons.MusicNote, colors = ShortcutColours.music))
