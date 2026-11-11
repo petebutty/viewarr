@@ -63,20 +63,22 @@ cairosvg.svg2png(bytestring=s.encode(), write_to='/w/out/icon_preview.png')
 # Adaptive foreground: 108x108 viewport, mark inside the 66dp safe circle (radius 33 -> ring radius ~31)
 open('/w/out/ic_launcher_foreground.xml', 'w').write(vector_drawable(108, 54, 54, 0.30))
 # Banner 1280x720 (render) -> mark left, wordmark right
-font_path = '/w/Poppins-Bold.ttf'
-if not os.path.exists(font_path):
-    urllib.request.urlretrieve('https://github.com/google/fonts/raw/main/ofl/poppins/Poppins-Bold.ttf', font_path)
+import sys; sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from wordmark import wordmark
 W, H = 1280, 720
-font = ImageFont.truetype(font_path, 170)
-tmp = ImageDraw.Draw(Image.new('RGB', (10, 10)))
-tb = tmp.textbbox((0, 0), 'viewarr', font=font)
-tw = tb[2] - tb[0]
+word, pad = wordmark('/w/Baloo2.ttf', 200)
+tw = word.width - 2 * pad
 mark_r = 185; gap = 55
 total = 2 * mark_r + gap + tw
 x0 = (W - total) // 2
 s, _ = svg((W, H), x0 + mark_r, H // 2, mark_r / 100, '#080808'); open('/w/out/banner.svg', 'w').write(s)
 cairosvg.svg2png(bytestring=s.encode(), write_to='/w/out/banner_mark.png')
-im = Image.open('/w/out/banner_mark.png').convert('RGB'); d = ImageDraw.Draw(im)
-d.text((x0 + 2 * mark_r + gap - tb[0], H // 2 - (tb[1] + tb[3]) // 2), 'viewarr', font=font, fill='white')
+im = Image.open('/w/out/banner_mark.png').convert('RGBA')
+im.alpha_composite(word, (x0 + 2 * mark_r + gap - pad, H // 2 - word.height // 2 + 8))
+im = im.convert('RGB')
 im.save('/w/out/banner_1280.png'); im.resize((640, 360), Image.LANCZOS).save('/w/out/banner.png')
+# The app's splash wordmark (transparent): drawn at 84sp-ish on a 1080p TV.
+wm, _ = wordmark('/w/Baloo2.ttf', 260)
+wm.save('/w/out/splash_wordmark.png', optimize=True)
+tb = (0, 0, tw, 0)
 print('ok', tb)

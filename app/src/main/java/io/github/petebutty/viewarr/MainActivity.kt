@@ -53,6 +53,15 @@ class MainActivity : ComponentActivity() {
         setContent {
             ViewarrTheme { AppRoot() }
         }
+        // No screen reader on: skip Compose's screen-reader bookkeeping (a launcher's button-catching accessibility
+        // service switched it on for everything). See A11yTrim.
+        io.github.petebutty.viewarr.ui.common.A11yTrim.install(this)
+    }
+
+    // Compose refreshes its accessibility state when its view attaches and the window gains focus: apply again after.
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) io.github.petebutty.viewarr.ui.common.A11yTrim.refresh(this)
     }
 
     /** Already running: a Watch Next card on the home screen opens its title here. */

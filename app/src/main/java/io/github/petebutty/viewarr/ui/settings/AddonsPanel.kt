@@ -54,7 +54,7 @@ fun AddonsSettingsScreen(onBack: () -> Unit, vm: AddonsSettingsViewModel = hiltV
     else "An addon that's off adds no rows, search results or streams. Add or remove addons in Accounts & sources."
     SettingsPage(
         title = "Addons",
-        categories = listOf(SettingCategory("Stremio addons", blurb, items)),
+        categories = listOf(SettingCategory("Addons", blurb, items)),
         onBack = onBack,
         onReset = if (addons.isEmpty()) null else ({ vm.enableAll() }),
     )

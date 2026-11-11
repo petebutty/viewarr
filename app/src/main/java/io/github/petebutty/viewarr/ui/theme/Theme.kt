@@ -185,6 +185,22 @@ object UiOpts {
     const val BUTTON_HINTS = "button_hints"
     const val ANIM_FILM = "anim_film"
     const val ANIM_LIVE = "anim_live"
+    /** Live TV shortcuts: round, rounded squares (app icons), or wide tiles (wordmark logos). */
+    const val SHORTCUT_STYLE = "shortcut_style"
+    /** Live TV shortcuts: the poster rows only once you press Down (cleaner), or a dimmed preview always. */
+    const val OSD_PEEK = "osd_peek"
+    /** Live TV shortcuts: how big the round icons are. */
+    const val SHORTCUT_SIZE = "shortcut_size"
+    /** Live TV controls: how many poster rows Down reaches under the shortcuts (the rest: open the shortcut). */
+    const val OSD_ROWS = "osd_rows"
+    /** Movies / Shows home page: an addon's network rows ("Netflix · Popular"…) too, or only behind their shortcuts. */
+    const val SET_ROWS_HOME = "set_rows_home"
+    /** Live TV controls → Down → Down: poster rows (Continue watching, Recent channels, Recently added). */
+    const val OSD_POSTERS = "osd_posters"
+    /** Guide: the catch-up (replay) icon on programmes and channel names. */
+    const val CATCHUP_ICONS = "catchup_icons"
+    /** Live TV keeps playing in a corner while you browse from a shortcut (or any page, Live TV hub style). */
+    const val LIVE_CORNER = "live_corner"
     const val SEEK_PREVIEWS = "seek_previews"
     const val CONTROLS_TIME = "controls_time"
     const val CONTROLS_SIZE = "controls_size"
@@ -209,6 +225,14 @@ object UiOpts {
         MINI_CORNER to listOf("Bottom right", "Bottom left", "Top right", "Top left"),
         ANIM_FILM to listOf("On", "Off"),
         ANIM_LIVE to listOf("On", "Off"),
+        SHORTCUT_STYLE to listOf("Round", "Rounded squares", "Wide tiles"),
+        OSD_PEEK to listOf("When you press Down", "Always show a preview"),
+        SHORTCUT_SIZE to listOf("Small", "Medium", "Large"),
+        OSD_ROWS to listOf("3", "2", "5", "All"),
+        SET_ROWS_HOME to listOf("Only through their shortcuts", "On the home page too"),
+        OSD_POSTERS to listOf("On", "Off"),
+        CATCHUP_ICONS to listOf("Programmes and channels", "Channel names only", "Off"),
+        LIVE_CORNER to listOf("On", "Off (browsing stops the channel)"),
         BUTTON_HINTS to listOf("First few times", "Always", "Off"),
         AGE_RATING to listOf("UK (BBFC: U, PG, 12A, 15, 18)", "US (MPA: G, PG, PG-13, R · TV-14, TV-MA)"),
         PLAYER_BACK to listOf("Press Back", "Off (Back stops the film)", "Hold Back (recommended; Back stops the film)"),

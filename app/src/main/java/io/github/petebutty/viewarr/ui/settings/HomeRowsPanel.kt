@@ -119,12 +119,18 @@ fun HomeRowsSettingsScreen(onBack: () -> Unit) {
 private fun RowsEditor(type: MediaType, menu: Boolean, moving: String?, onMoving: (String?) -> Unit) {
     val media: MediaViewModel = hiltViewModel(key = "media-${type.name}")
     LaunchedEffect(type) { media.load(type); media.loadLibraries(type) }
-    val libs = media.allLibraries.collectAsStateWithLifecycle().value.orEmpty()
+    // Turned-on entries are listed first (in their order), then the ones turned off: switching one on moves it to the
+    // end of the "on" part, switching it off to the top of the "off" part.
+    val libs = media.allLibraries.collectAsStateWithLifecycle().value.orEmpty().let { l -> l.filter { !it.second } + l.filter { it.second } }
     val state by media.editableRows.collectAsStateWithLifecycle()
     val (pageRows, done) = state
     val menuRows by media.editableMenuRows.collectAsStateWithLifecycle()
     // The page: its rows. The menu: libraries first (as the menu lists them), then the catalogues.
-    val rows = if (menu) emptyList() else pageRows
+    val rows = (if (menu) emptyList() else pageRows).let { r -> r.filter { !it.second } + r.filter { it.second } }
+    val rowsOn = rows.count { !it.second }
+    val libsOn = libs.count { !it.second }
+    // After a switch: focus follows the switched entry to its new place.
+    var refocus by remember { mutableStateOf<String?>(null) }
     val what = if (type == MediaType.Movie) "Movies" else "Shows"
     val focus = remember { HashMap<String, FocusRequester>() }
     val listState = rememberLazyListState()
@@ -138,11 +144,36 @@ private fun RowsEditor(type: MediaType, menu: Boolean, moving: String?, onMoving
             runCatching { focus[id]?.requestFocus() }
         }
     }
+    LaunchedEffect(refocus, rows.map { it.first.id to it.second }, libs.map { it.first.key to it.second }) {
+        val id = refocus ?: return@LaunchedEffect
+        val idx = if (id.startsWith("lib:")) 1 + libs.indexOfFirst { "lib:" + it.first.key == id } else rows.indexOfFirst { it.first.id == id }
+        if (idx < 0) return@LaunchedEffect
+        if (listState.layoutInfo.visibleItemsInfo.none { it.index == idx }) listState.scrollToItem(maxOf(0, idx - 3))
+        awaitFrame()
+        runCatching { focus[id]?.requestFocus() }
+        refocus = null
+    }
+    fun toggleRow(i: Int) {
+        val (row, hidden) = rows[i]
+        val on = rows.filter { !it.second }.map { it.first.id }
+        val off = rows.filter { it.second }.map { it.first.id }
+        media.setRowOrder(if (hidden) on + row.id + (off - row.id) else (on - row.id) + row.id + off)
+        media.setRowHidden(row.id, !hidden)
+        refocus = row.id
+    }
+    fun toggleLib(i: Int) {
+        val (lib, hidden) = libs[i]
+        val on = libs.filter { !it.second }.map { it.first.key }
+        val off = libs.filter { it.second }.map { it.first.key }
+        media.setLibraryOrder(if (hidden) on + lib.key + (off - lib.key) else (on - lib.key) + lib.key + off)
+        media.setLibraryHidden(lib.key, !hidden)
+        refocus = "lib:" + lib.key
+    }
     Column(Modifier.fillMaxHeight()) {
         Text(
             if (moving != null) "Moving: Up / Down to place it, then OK to put it down."
             else if (menu) "What the menu lists when you press Right on $what. OK turns one on or off, Right picks a library up to move it, and holding OK renames it."
-            else "The rows on the $what page, top to bottom. OK turns a row on or off; Right picks it up to move it.",
+            else "The rows on the $what page, top to bottom (the ones turned on first). OK turns a row on or off; Right picks one that's on up to move it.",
             fontSize = 14.sp, color = if (moving != null) AppColors.Accent else AppColors.TextSecondary,
             modifier = Modifier.padding(top = 26.dp, bottom = 14.dp, start = 4.dp),
         )
@@ -152,17 +183,17 @@ private fun RowsEditor(type: MediaType, menu: Boolean, moving: String?, onMoving
                 val carried = row.id == moving
                 fun move(by: Int) {
                     val j = i + by
-                    if (j !in rows.indices) return
+                    if (j !in 0 until rowsOn) return
                     val ids = rows.map { it.first.id }.toMutableList()
                     ids.add(j, ids.removeAt(i))
                     media.setRowOrder(ids)
                 }
                 Surface(
-                    onClick = { if (moving != null) onMoving(null) else media.setRowHidden(row.id, !hidden) },
+                    onClick = { if (moving != null) onMoving(null) else toggleRow(i) },
                     modifier = Modifier.fillMaxWidth().focusRequester(fr).onPreviewKeyEvent { e ->
                         if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                         when {
-                            moving == null && e.key == Key.DirectionRight -> { onMoving(row.id); true }
+                            moving == null && e.key == Key.DirectionRight -> { if (!hidden) onMoving(row.id); true }
                             carried && (e.key == Key.DirectionRight || e.key == Key.DirectionLeft) -> { onMoving(null); true }
                             carried && e.key == Key.DirectionUp -> { move(-1); true }
                             carried && e.key == Key.DirectionDown -> { move(1); true }
@@ -180,7 +211,7 @@ private fun RowsEditor(type: MediaType, menu: Boolean, moving: String?, onMoving
                     ),
                 ) {
                     Row(Modifier.padding(horizontal = 18.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text(if (carried) "↕" else "${i + 1}", fontSize = 14.sp, modifier = Modifier.width(36.dp))
+                        Text(if (carried) "↕" else if (hidden) "" else "${i + 1}", fontSize = 14.sp, modifier = Modifier.width(36.dp))
                         Column(Modifier.weight(1f)) {
                             Text(row.title, fontSize = 16.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             Text(if (hidden) "Not on the page" else "On the page  ·  ${row.items.size} titles", fontSize = 12.sp)
@@ -209,18 +240,18 @@ private fun RowsEditor(type: MediaType, menu: Boolean, moving: String?, onMoving
                 val carried = id == moving
                 fun move(by: Int) {
                     val j = i + by
-                    if (j !in libs.indices) return
+                    if (j !in 0 until libsOn) return
                     val keys = libs.map { it.first.key }.toMutableList()
                     keys.add(j, keys.removeAt(i))
                     media.setLibraryOrder(keys)
                 }
                 Surface(
-                    onClick = { if (moving != null) onMoving(null) else media.setLibraryHidden(lib.key, !hidden) },
+                    onClick = { if (moving != null) onMoving(null) else toggleLib(i) },
                     onLongClick = { if (moving == null) renaming = true },
                     modifier = Modifier.fillMaxWidth().focusRequester(fr).onPreviewKeyEvent { e ->
                         if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                         when {
-                            moving == null && e.key == Key.DirectionRight -> { onMoving(id); true }
+                            moving == null && e.key == Key.DirectionRight -> { if (!hidden) onMoving(id); true }
                             carried && (e.key == Key.DirectionRight || e.key == Key.DirectionLeft) -> { onMoving(null); true }
                             carried && e.key == Key.DirectionUp -> { move(-1); true }
                             carried && e.key == Key.DirectionDown -> { move(1); true }

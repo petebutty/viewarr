@@ -46,7 +46,7 @@ enum class SetupItem(val id: String, val label: String, val description: String,
     Tmdb("tmdb", "TMDB", "Posters, descriptions and discovery for Movies & Shows", listOf(SetupStep.Tmdb)),
     Trakt("trakt", "Trakt", "Watchlist, history, recommendations and continue watching", listOf(SetupStep.Trakt)),
     Plex("plex", "Plex", "Play films and shows from your Plex library", listOf(SetupStep.Plex)),
-    Stremio("stremio", "Stremio addons", "Streams from addons such as AIOStreams", listOf(SetupStep.Stremio)),
+    Stremio("stremio", "Addons", "Catalogues and streams from addons you add (such as AIOMetadata and AIOStreams)", listOf(SetupStep.Stremio)),
     Jellyfin("jellyfin", "Jellyfin", "Play from a Jellyfin server", listOf(SetupStep.Jellyfin)),
     Emby("emby", "Emby", "Play from an Emby server", listOf(SetupStep.Emby)),
     Vod("vod", "IPTV films & series", "Films and series from your IPTV provider, through Dispatcharr (an IPTV login includes them already)", listOf(SetupStep.Vod)),
@@ -862,7 +862,7 @@ class SetupViewModel @Inject constructor(
             }
             "stremio-list" -> { val list = store.current().addons; reply(true) { addons(list) } }
             "stremio" -> {
-                activity("Adding Stremio addons…")
+                activity("Adding addons…")
                 val urls = v["urls"].orEmpty().split(Regex("\\s+")).filter { it.isNotBlank() }
                 if (urls.isEmpty()) return reply(false, "Paste an addon manifest URL.")
                 val added = ArrayList<String>()
@@ -874,7 +874,7 @@ class SetupViewModel @Inject constructor(
                         added += addon.name
                     }
                 }
-                if (added.isNotEmpty()) activity("Stremio: added ${added.joinToString()}")
+                if (added.isNotEmpty()) activity("Addons: added ${added.joinToString()}")
                 val message = listOfNotNull(
                     added.takeIf { it.isNotEmpty() }?.let { "Added ${it.joinToString()}." },
                     if (failed > 0) "Couldn't load $failed link${if (failed == 1) "" else "s"}. Check it's the manifest URL." else null,

@@ -23,6 +23,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.first
@@ -154,7 +155,8 @@ class CatalogRepository @Inject constructor(
     fun rows(type: MediaType): Flow<RowsState> = channelFlow {
         val a = store.current()
         val traktAuth = a.trakt?.let { freshTrakt(it) }
-        val slots: List<suspend () -> List<MediaRow>> = buildList {
+        // Each source can hand over rows as they come (an addon with many catalogues: network by network).
+        val slots: List<suspend (suspend (List<MediaRow>) -> Unit) -> List<MediaRow>> = buildList {
             plexServers(a).forEach { p -> add { listOfNotNull(plexOnDeck(a, p, type)) } }
             a.jellyfin?.let { j -> add { listOfNotNull(serverResume(a, j, emby = false, type)) } }
             a.emby?.let { e -> add { listOfNotNull(serverResume(a, e, emby = true, type)) } }
@@ -178,20 +180,25 @@ class CatalogRepository @Inject constructor(
                 if (type == MediaType.Movie) add { listOfNotNull(tmdbList(k, type, "/movie/now_playing", "cinema", "In cinemas", mapOf("region" to "GB"))) }
                 else add { listOfNotNull(tmdbList(k, type, "/tv/on_the_air", "airing", "On TV this week")) }
             }
-            a.activeAddons.forEach { addon -> add { stremioRows(addon, type) } }
+            a.activeAddons.forEach { addon -> add { part -> stremioRows(addon, type, part) } }
             // IPTV provider films / series, when live TV is signed in to a provider (Xtream Codes).
             add { providerRows(a, type) }
         }
         val found = arrayOfNulls<List<MediaRow>>(slots.size)
         val lock = Mutex()
         var finished = 0
+        fun clean(rows: List<MediaRow>) = rows.map { r -> r.copy(items = r.items.distinctBy { it.key }) }.filter { it.items.isNotEmpty() }
         slots.forEachIndexed { i, slot ->
             launch {
-                val result = runCatching { withTimeoutOrNull(25_000) { slot() } }
+                // Rows handed over on the way are shown at once and kept even if the source then runs out of time.
+                val part: suspend (List<MediaRow>) -> Unit = { rows ->
+                    lock.withLock { found[i] = clean(rows); send(RowsState(found.filterNotNull().flatten(), done = false)) }
+                }
+                val result = runCatching { withTimeoutOrNull(45_000) { slot(part) } }
                     .onFailure { Log.w(TAG, "row ${type.name}#$i failed: ${it.javaClass.simpleName} ${it.message}") }
-                    .getOrNull().orEmpty().map { r -> r.copy(items = r.items.distinctBy { it.key }) }.filter { it.items.isNotEmpty() }
+                    .getOrNull()?.let(::clean)
                 lock.withLock {
-                    found[i] = result
+                    found[i] = result ?: found[i].orEmpty()
                     finished++
                     send(RowsState(found.filterNotNull().flatten(), done = finished == slots.size))
                 }
@@ -1361,29 +1368,65 @@ class CatalogRepository @Inject constructor(
 
     // ------------------------------------------------------------------ Stremio addons
 
-    private suspend fun stremioRows(addon: AddonInfo, type: MediaType): List<MediaRow> {
+    /** Where each addon row came from (its catalogue), so one shortcut's rows can be fetched again on their own. */
+    private class AddonRowSource(val addon: AddonInfo, val catalog: String, val catType: String, val type: MediaType, val take: Int, val name: String)
+    private val addonRowSources = ConcurrentHashMap<String, AddonRowSource>()
+
+    /** [rowId] fetched again from its addon's catalogue (a shortcut's Refresh); null if it isn't an addon row or failed. */
+    suspend fun refreshAddonRow(rowId: String): MediaRow? {
+        val src = addonRowSources[rowId] ?: return null
+        val r = withTimeoutOrNull(15_000) { runCatching { http.get("${src.addon.baseUrl}/catalog/${src.catType}/${enc(src.catalog)}.json") }.getOrNull() }
+            ?.takeIf { it.ok } ?: return null
+        val items = r.body.array("metas").take(src.take).mapNotNull { m -> stremioMeta(src.addon, m, src.type, src.catType) }
+        return MediaRow(rowId, src.name, items)
+    }
+
+    private suspend fun stremioRows(addon: AddonInfo, type: MediaType, part: suspend (List<MediaRow>) -> Unit = {}): List<MediaRow> {
         val stremioType = if (type == MediaType.Movie) "movie" else "series"
         // Shows also take "anime" catalogues (e.g. One Pace Premium); Movies take the single-play kinds sports and
         // live-event addons use ("tv", "channel", "events"…): normal Stremio types, each asked for under its own name.
         val wanted = if (type == MediaType.Movie) ADDON_SINGLE_TYPES + "movie" else setOf("series", "anime")
         val manifest = http.get("${addon.baseUrl}/manifest.json").takeIf { it.ok }?.body ?: return emptyList()
-        val catalogs = manifest.array("catalogs").filter { c ->
+        val usable = manifest.array("catalogs").filter { c ->
             c.str("type") in wanted &&
                 c.array("extra").none { e -> e.str("isRequired") == "true" } &&
                 c.array("extraRequired").isEmpty()
-        }.take(8)
-        return coroutineScope {
-            catalogs.map { c ->
-                async {
-                    val id = c.str("id") ?: return@async null
-                    val catType = c.str("type") ?: stremioType
-                    val r = runCatching { http.get("${addon.baseUrl}/catalog/$catType/${enc(id)}.json") }.getOrNull()?.takeIf { it.ok }
-                        ?: return@async null
-                    val items = r.body.array("metas").take(40).mapNotNull { m -> stremioMeta(addon, m, type, catType) }
-                    MediaRow("stremio-${addon.id}-$id-$catType-${type.name}", c.str("name") ?: addon.name, items)
-                }
-            }.awaitAll().filterNotNull()
         }
+        // Network rows ("Netflix · Popular", two or more per name): all of them, each network being a live TV
+        // shortcut (the first 8 only gave the first couple of networks). Other catalogues: the first 8, as before.
+        fun setName(c: JsonElement) = c.str("name")?.substringBefore(" · ", "")?.trim()?.takeIf { it.isNotEmpty() }
+        val grouped = usable.mapNotNull(::setName).groupingBy { it }.eachCount().filter { it.value >= 2 }.keys
+        val network = usable.filter { setName(it) in grouped }
+        val catalogs = usable.filter { setName(it) !in grouped }.take(8) + network
+        // A few at a time (an addon can have a hundred). Groups: its other catalogues, then each network's rows; as a
+        // group completes, everything so far is handed over, so networks (and their shortcuts) appear one by one
+        // instead of all waiting for the slowest catalogue.
+        val gate = kotlinx.coroutines.sync.Semaphore(6)
+        val done = java.util.concurrent.ConcurrentHashMap<Int, MediaRow>()
+        val groupOf = catalogs.map { setName(it) ?: "" }
+        val left = java.util.concurrent.ConcurrentHashMap(groupOf.groupingBy { it }.eachCount())
+        val handOver = Mutex()
+        coroutineScope {
+            catalogs.forEachIndexed { i, c ->
+                launch {
+                    val id = c.str("id")
+                    val catType = c.str("type") ?: stremioType
+                    val r = if (id == null) null else gate.withPermit {
+                        withTimeoutOrNull(10_000) { runCatching { http.get("${addon.baseUrl}/catalog/$catType/${enc(id)}.json") }.getOrNull() }
+                    }?.takeIf { it.ok }
+                    if (r != null && id != null) {
+                        val take = if (setName(c) in grouped) 20 else 40
+                        val items = r.body.array("metas").take(take).mapNotNull { m -> stremioMeta(addon, m, type, catType) }
+                        val rowId = "stremio-${addon.id}-$id-$catType-${type.name}"
+                        addonRowSources[rowId] = AddonRowSource(addon, id, catType, type, take, c.str("name") ?: addon.name)
+                        done[i] = MediaRow(rowId, c.str("name") ?: addon.name, items)
+                    }
+                    // This catalogue's group finished: show what's in so far.
+                    if (left.merge(groupOf[i], -1) { a, b -> a + b } == 0) handOver.withLock { part(done.toSortedMap().values.toList()) }
+                }
+            }
+        }
+        return done.toSortedMap().values.toList()
     }
 
     private fun stremioMeta(addon: AddonInfo, m: JsonElement, type: MediaType, catType: String? = null): MediaItem? {
@@ -2683,6 +2726,60 @@ class CatalogRepository @Inject constructor(
         val key = store.current().tmdbKey ?: return null
         return findByImdb(key, imdb, item.type)
     }
+
+    // ------------------------------------------------------------ shortcut logos
+
+    private var providerList: List<Pair<String, String>>? = null
+    private val serviceLogoCache = java.util.concurrent.ConcurrentHashMap<String, ServiceLogo>()
+
+    private fun normName(s: String) = s.lowercase().replace("+", "plus").filter { it.isLetterOrDigit() }
+
+    /**
+     * A network's or streaming service's logo for a live TV shortcut ("Netflix", "BBC One"…), from TMDB: the watch
+     * providers first (square app icons), else the network of a title in its rows ([sample]: one of them), else a
+     * provider whose name starts with it. Null when nothing matches (the shortcut keeps its plain icon).
+     */
+    suspend fun serviceLogo(name: String, sample: MediaItem?): ServiceLogo? {
+        serviceLogoCache[name]?.let { return it.takeIf { l -> l.url.isNotEmpty() } }
+        val key = store.current().tmdbKey ?: return null
+        val n = normName(name)
+        val providers = providerList ?: runCatching {
+            // UK and US lists: US-only services (Hulu, Peacock) aren't in the UK one.
+            listOf("tv", "movie").flatMap { t -> listOf("GB", "US").map { reg -> t to reg } }.flatMap { (t, reg) ->
+                val r = http.get(tmdb.url("/watch/providers/$t", key, mapOf("watch_region" to reg)), tmdb.headers(key))
+                if (!r.ok) emptyList() else r.body.array("results").mapNotNull { p ->
+                    val pn = p.str("provider_name") ?: return@mapNotNull null
+                    val logo = p.str("logo_path") ?: return@mapNotNull null
+                    pn to logo
+                }
+            }.distinctBy { it.first }
+        }.getOrNull()?.also { if (it.isNotEmpty()) providerList = it }.orEmpty()
+        fun provider(match: (String) -> Boolean) = providers.filter { match(normName(it.first)) }.minByOrNull { it.first.length }
+            ?.let { ServiceLogo("https://image.tmdb.org/t/p/w154" + it.second, square = true) }
+        val found = provider { it == n } ?: provider { it == n.removeSuffix("plus") || it.removeSuffix("plus") == n }
+            ?: networkLogo(key, n, sample)
+            ?: if (n.length >= 3) provider { it.startsWith(n) } else null
+        serviceLogoCache[name] = found ?: ServiceLogo("", false)
+        return found
+    }
+
+    /** A network's wide wordmark logo (wide tiles), for the networks Viewarr knows. */
+    suspend fun wideLogo(name: String): ServiceLogo? = runCatching {
+        val id = NetworkSetup.WIDE.entries.firstOrNull { it.key.equals(name, true) }?.value ?: return null
+        val key = store.current().tmdbKey ?: return null
+        val r = http.get(tmdb.url("/network/$id", key, emptyMap()), tmdb.headers(key))
+        r.body.str("logo_path")?.takeIf { r.ok }?.let { ServiceLogo("https://image.tmdb.org/t/p/w300$it", square = false) }
+    }.getOrNull()
+
+    private suspend fun networkLogo(key: String, n: String, sample: MediaItem?): ServiceLogo? = runCatching {
+        val item = sample ?: return null
+        val tvId = item.tmdbId ?: item.imdbId?.let { findByImdb(key, it, MediaType.Show) } ?: return null
+        val r = http.get(tmdb.url("/tv/$tvId", key, emptyMap()), tmdb.headers(key))
+        if (!r.ok) return null
+        val nets = r.body.array("networks")
+        val net = nets.firstOrNull { normName(it.str("name").orEmpty()) == n } ?: return null
+        net.str("logo_path")?.let { ServiceLogo("https://image.tmdb.org/t/p/w300$it", square = false) }
+    }.getOrNull()
 
     private suspend fun findByImdb(key: String, imdbId: String, type: MediaType): Int? = runCatching {
         val r = http.get(tmdb.url("/find/$imdbId", key, mapOf("external_source" to "imdb_id")), tmdb.headers(key))

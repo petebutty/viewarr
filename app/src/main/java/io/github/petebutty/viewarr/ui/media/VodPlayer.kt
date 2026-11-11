@@ -274,6 +274,10 @@ fun VodPlayer(
     }
     // Back: closes audio & subtitles, then hides the controls, then stops (resume point saved). As Netflix / Plex.
     // Back one step: closes what's open, then the last step (corner, or stop: Settings → Remote → Picture-in-picture).
+    // The Live TV hub (Settings → Remote & navigation → Style): Back's last step sends the film to the corner (as
+    // live TV goes to the guide's preview), and the controls have the live TV shortcuts and their rows. Classic: Back
+    // stops the film, no shortcuts.
+    val hubOn = io.github.petebutty.viewarr.data.settings.LocalRemote.current.navStyle == io.github.petebutty.viewarr.data.settings.NavStyle.LiveHub
     fun backStep() {
         when {
             tracksOpen -> tracksOpen = false
@@ -284,7 +288,7 @@ fun VodPlayer(
             // Back again: into the corner, still playing (hold Back to bring it back).
             // (Settings → Remote → Picture-in-picture: or stop.)
             // Back again: stops (resume point saved). Picture-in-picture for films is off for now (VodHost keeps it).
-            else -> onClose()
+            else -> if (hubOn && VodHost.active) VodHost.minimise() else onClose()
         }
     }
     BackHandler(enabled = !mini) { backStep() }
@@ -297,7 +301,7 @@ fun VodPlayer(
         }
         return selected(androidx.media3.common.C.TRACK_TYPE_AUDIO)?.takeIf { it >= 0 } to selected(androidx.media3.common.C.TRACK_TYPE_TEXT)
     }
-    val buttons = listOfNotNull(PlayerButton.PlayPause, PlayerButton.Stop, PlayerButton.Details, PlayerButton.Audio, PlayerButton.Subtitles, PlayerButton.Info, if (onSwitchPlayer != null) PlayerButton.SwitchPlayer else null)
+    val buttons = listOfNotNull(PlayerButton.PlayPause, PlayerButton.Stop, PlayerButton.Details, PlayerButton.Audio, PlayerButton.Subtitles, PlayerButton.Info, if (onSwitchPlayer != null) PlayerButton.SwitchPlayer else null, PlayerButton.Settings)
     fun press(b: PlayerButton) {
         when (b) {
             PlayerButton.PlayPause -> player.playWhenReady = !player.playWhenReady
@@ -307,6 +311,8 @@ fun VodPlayer(
             PlayerButton.Details -> { detailsOn = !detailsOn; if (detailsOn) menu.open = false }
             PlayerButton.SwitchPlayer -> picks().let { (a, t) -> onSwitchPlayer?.invoke(player.currentPosition, a, t) }
             PlayerButton.Stop -> { onClose(); return }
+            // As on live TV: Settings over what's playing (the film carries on in the corner; Back brings it back).
+            PlayerButton.Settings -> { menu.open = false; VodHost.minimise(); io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.openSettings(); return }
         }
         showOsd()
     }
@@ -329,6 +335,24 @@ fun VodPlayer(
         atTop = { !tracksOpen && !scrub.active && !detailsOn && !menu.open && !(System.currentTimeMillis() < osdUntil && player.isPlaying) },
         minimise = { VodHost.minimise(); if (!VodHost.active) onClose() },
         stepBack = ::backStep,
+        // The live TV shortcuts, as on live TV: opening one sends the film to the corner (still playing) and opens
+        // the page; Back from it brings the film back full screen.
+        shortcutCount = { if (hubOn) io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.items.size else 0 },
+        pickShortcut = { i ->
+            io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.items.getOrNull(i)?.let { (_, go) ->
+                menu.open = false; menu.onShortcuts = false
+                VodHost.minimise()
+                go()
+            }
+        },
+        rowSizes = { i -> io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.rowsFor(i).map { it.items.size } },
+        pickCard = { r, c ->
+            io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.rowsFor(menu.shortcut).getOrNull(r)?.items?.getOrNull(c)?.let { card ->
+                menu.open = false; menu.onShortcuts = false; menu.onRows = false
+                VodHost.minimise()
+                card.onClick()
+            }
+        },
         tableAction = { e -> io.github.petebutty.viewarr.data.settings.ButtonMap.pressOf(e)?.takeIf { it in io.github.petebutty.viewarr.data.settings.ButtonMap.presses[io.github.petebutty.viewarr.data.settings.BtnScreen.Film].orEmpty() }
             ?.let { io.github.petebutty.viewarr.data.settings.ButtonMap.action(remoteSettings, io.github.petebutty.viewarr.data.settings.BtnScreen.Film, it) } },
     )
@@ -412,8 +436,13 @@ fun VodPlayer(
         if (!mini && started && (paused || buffering || now < osdUntil || scrub.active || menu.open)) PlayerOsd(
             stream.title, positionMs, durationMs, paused, buffering, scrub.targetMs, thumbs, Modifier.align(Alignment.BottomCenter), logo = art?.logo,
             buttons = if (menu.open) buttons.map { it.osd(paused, menu.infoOn, "mpv") } else null,
-            buttonFocus = if (menu.open && !menu.onBar) menu.button else -1,
+            buttonFocus = if (menu.open && !menu.onBar && !menu.onShortcuts) menu.button else -1,
             barFocused = menu.open && menu.onBar,
+            shortcuts = if (menu.open && menu.onShortcuts) io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.items.map { it.first } else null,
+            shortcutFocus = menu.shortcut,
+            shortcutsHint = hubOn,
+            rows = if (menu.open && menu.onRows) io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.rowsFor(menu.shortcut) else null,
+            rowFocus = menu.row, cardFocus = menu.card,
         )
         PlayerLoading(stream.title, art, visible = !mini && !started && error == null)
         if (tracksOpen && !mini) TrackPicker(player, subtitlesFirst = tracksSubs, onSwitchPlayer = onSwitchPlayer?.let { f -> { picks().let { (a, t) -> f(player.currentPosition, a, t) } } }, onClose = { tracksOpen = false; runCatching { focus.requestFocus() } }, modifier = Modifier.align(Alignment.CenterEnd))

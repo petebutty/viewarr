@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Live TV shortcuts: Jellyfin libraries and rows (no Jellyfin logo on TMDB). Its triangle mark in its colours. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android" xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="96dp" android:height="96dp" android:viewportWidth="96" android:viewportHeight="96">
+  <path android:fillColor="#101322" android:pathData="M48,0A48,48 0 1,1 48,96A48,48 0 1,1 48,0Z"/>
+  <path android:pathData="M48,18C44,18 22,58 24,62C26,66 70,66 72,62C74,58 52,18 48,18ZM48,36C50,36 60,55 59,57C58,59 38,59 37,57C36,55 46,36 48,36Z" android:fillType="evenOdd">
+    <aapt:attr name="android:fillColor">
+      <gradient android:type="linear" android:startX="24" android:startY="62" android:endX="72" android:endY="18"
+          android:startColor="#AA5CC3" android:endColor="#00A4DC"/>
+    </aapt:attr>
+  </path>
+</vector>

@@ -11,7 +11,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -37,6 +39,9 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -59,6 +64,7 @@ import io.github.petebutty.viewarr.ui.guide.logoUrl
 import io.github.petebutty.viewarr.ui.theme.AppColors
 import coil.compose.AsyncImage
 import kotlinx.coroutines.android.awaitFrame
+import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -86,8 +92,18 @@ fun PlayerOsd(
     onSettings: (() -> Unit)? = null,
     /** Channel list, guide and wallpaper transparency, adjusted over the picture. */
     onTransparency: (() -> Unit)? = null,
-    /** Down from the buttons: your shortcuts (libraries, rows, Music…; Settings → Remote & navigation → Live TV shortcuts). */
+    /** Down from the buttons: your shortcuts (libraries, rows, Music…; Settings → Navigation → Live TV shortcuts). */
     shortcuts: List<Pair<LiveShortcut, () -> Unit>> = emptyList(),
+    /** Down from the shortcuts: rows of posters (Continue watching, Recent channels…), one row on screen at a time. */
+    posterRows: List<OsdRow> = emptyList(),
+    /** The rows a shortcut previews underneath while it's highlighted (its network's, its row, its page's); null: [posterRows]. */
+    previewFor: (String) -> List<OsdRow>? = { null },
+    /** Hold OK on a shortcut: take it off the row. */
+    onHideShortcut: (LiveShortcut) -> Unit = {},
+    /** Move a shortcut one place along the row (-1 left, 1 right), from the hold-OK menu's Move. */
+    onMoveShortcut: (LiveShortcut, Int) -> Unit = { _, _ -> },
+    /** Refresh just this shortcut's rows (from the hold-OK menu). */
+    onRefreshShortcut: ((LiveShortcut) -> Unit)? = null,
     /** Opened with the Menu button: start on the audio choices. */
     openAudio: Boolean = false,
     modifier: Modifier = Modifier,
@@ -270,21 +286,124 @@ fun PlayerOsd(
             if (onSettings != null) Pill(io.github.petebutty.viewarr.ui.common.AppIcons.Settings, "Settings") { onSettings() }
             (note ?: sourceNote?.takeIf { popup == null })?.let { Text(it, fontSize = 12.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(start = 8.dp, top = 14.dp)) }
         }
+        // -1: on the shortcuts (the first row peeks underneath); otherwise the poster row being browsed.
+        var posterRow by remember { androidx.compose.runtime.mutableIntStateOf(-1) }
+        // The highlighted shortcut previews its own content underneath; going down keeps what was showing.
+        // (Taken a moment after the highlight rests: each preview loads a new set of pictures, and doing that for
+        // every shortcut passed on the way along made moving sluggish.)
+        var focusedRaw by remember { androidx.compose.runtime.mutableIntStateOf(0) }
+        var focusedSc by remember { androidx.compose.runtime.mutableIntStateOf(0) }
+        LaunchedEffect(focusedRaw) { kotlinx.coroutines.delay(250); focusedSc = focusedRaw }
+        fun rowsFor(i: Int) = shortcuts.getOrNull(i)?.first?.id?.let(previewFor)?.takeIf { it.isNotEmpty() } ?: posterRows
+        val allRows = rowsFor(focusedSc)
+        // Settings → Remote & navigation → Rows under the shortcuts: Down reaches this many; the rest are on the
+        // shortcut's own page.
+        val maxRows = when (AppColors.palette.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.OSD_ROWS)) { 1 -> 2; 2 -> 5; 3 -> Int.MAX_VALUE; else -> 3 }
+        val shownRows = allRows.take(maxRows)
+        val moreRows = allRows.size > shownRows.size
+        var browsing by remember { mutableStateOf<List<OsdRow>?>(null) }
+        // Hold OK on a shortcut takes it off; focus then goes to the one now in its place.
+        val scFocus = remember { HashMap<String, FocusRequester>() }
+        var hiddenAt by remember { androidx.compose.runtime.mutableIntStateOf(-1) }
+        // Hold OK asks first: "Hide Netflix from your shortcuts?" (Cancel highlighted, so a stray press does nothing).
+        var askHide by remember { mutableStateOf<Pair<Int, LiveShortcut>?>(null) }
+        // Move (from that menu): the shortcut picked up; Left / Right slide it along, OK or Back put it down.
+        var movingSc by remember { mutableStateOf<String?>(null) }
+        LaunchedEffect(shortcuts.map { it.first.id }) {
+            val id = movingSc ?: return@LaunchedEffect
+            awaitFrame()
+            runCatching { scFocus[id]?.requestFocus() }
+        }
+        val scope = androidx.compose.runtime.rememberCoroutineScope()
+        askHide?.let { (at, sc) ->
+            androidx.compose.ui.window.Dialog(onDismissRequest = { askHide = null }) {
+                val cancel = remember { FocusRequester() }
+                LaunchedEffect(Unit) { awaitFrame(); runCatching { cancel.requestFocus() } }
+                Column(
+                    // (Pressing here counts as using the controls, so they don't close behind the question.)
+                    // (The held OK that opened it, still down and then let go, mustn't press Cancel: it closed at once.)
+                    Modifier.width(420.dp).background(AppColors.Panel, RoundedCornerShape(14.dp)).onPreviewKeyEvent { onActivity(); false }.ignoreHeldOk().padding(24.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(sc.label, fontSize = 18.sp, color = AppColors.TextPrimary)
+                    Text("Move it along your row, fetch its rows again, or hide it (add it back in Settings → Navigation → Live TV shortcuts).", fontSize = 13.sp, color = AppColors.TextSecondary)
+                    io.github.petebutty.viewarr.ui.common.MenuItem(text = "Move", selected = false, onClick = {
+                        askHide = null; movingSc = sc.id
+                        scope.launch { awaitFrame(); runCatching { scFocus[sc.id]?.requestFocus() } }
+                    })
+                    // Shortcuts with rows of their own (networks, rows, Movies / Shows, libraries): fetch just those again.
+                    if (onRefreshShortcut != null && listOf("set:", "row:", "home:", "lib:").any { sc.id.startsWith(it) })
+                        io.github.petebutty.viewarr.ui.common.MenuItem(text = "Refresh", selected = false, onClick = {
+                            askHide = null; onRefreshShortcut(sc)
+                            scope.launch { awaitFrame(); runCatching { scFocus[sc.id]?.requestFocus() } }
+                        })
+                    io.github.petebutty.viewarr.ui.common.MenuItem(text = "Hide", selected = false, onClick = {
+                        askHide = null; hiddenAt = at; onHideShortcut(sc)
+                    })
+                    io.github.petebutty.viewarr.ui.common.MenuItem(text = "Cancel", selected = false, modifier = Modifier.focusRequester(cancel), onClick = {
+                        askHide = null
+                        scope.launch { awaitFrame(); runCatching { scFocus[sc.id]?.requestFocus() } }
+                    })
+                }
+            }
+        }
+        LaunchedEffect(shortcuts.size) {
+            val at = hiddenAt.takeIf { it >= 0 } ?: return@LaunchedEffect
+            hiddenAt = -1
+            awaitFrame()
+            shortcuts.getOrNull(at.coerceAtMost(shortcuts.lastIndex))?.first?.id?.let { id -> runCatching { scFocus[id]?.requestFocus() } }
+        }
         if (showShortcuts && shortcuts.isNotEmpty()) {
             LaunchedEffect(Unit) { kotlinx.coroutines.android.awaitFrame(); runCatching { shortcutFocus.requestFocus() } }
             androidx.compose.foundation.lazy.LazyRow(
                 Modifier.padding(top = 10.dp).onPreviewKeyEvent { e ->
-                    // Up: back to the buttons, the shortcuts folded away again.
-                    if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionUp) { showShortcuts = false; runCatching { firstFocus.requestFocus() }; true } else false
+                    // Moving one: Left / Right slide it; OK or Back put it down (on letting go, so the release doesn't
+                    // also open it or close the controls); nothing else moves.
+                    movingSc?.let { id ->
+                        onActivity()
+                        val sc = shortcuts.firstOrNull { it.first.id == id }?.first ?: run { movingSc = null; return@onPreviewKeyEvent false }
+                        val ok = e.key == Key.DirectionCenter || e.key == Key.Enter || e.key == Key.NumPadEnter
+                        if (e.type == KeyEventType.KeyDown) {
+                            if (e.key == Key.DirectionLeft) onMoveShortcut(sc, -1)
+                            if (e.key == Key.DirectionRight) onMoveShortcut(sc, 1)
+                        } else if (ok || e.key == Key.Back) movingSc = null
+                        return@onPreviewKeyEvent true
+                    }
+                    if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                    when (e.key) {
+                        // Up: back to the buttons, the shortcuts folded away again.
+                        Key.DirectionUp -> { showShortcuts = false; posterRow = -1; runCatching { firstFocus.requestFocus() }; true }
+                        // Down: into the posters.
+                        // (The highlighted one's rows now, not the preview's, which follows the highlight a moment late.)
+                        Key.DirectionDown -> {
+                            focusedSc = focusedRaw
+                            val rows = rowsFor(focusedRaw).take(maxRows)
+                            if (rows.isNotEmpty()) { browsing = rows; posterRow = 0 }
+                            true
+                        }
+                        else -> false
+                    }
                 },
                 horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(10.dp),
             ) {
                 // Round icons like the buttons above, the highlighted one's name underneath.
-                items(shortcuts.size) { i ->
+                items(shortcuts.size, key = { shortcuts[it].first.id }) { i ->
                     val (sc, go) = shortcuts[i]
-                    Pill(sc.icon, sc.label, if (i == 0) Modifier.focusRequester(shortcutFocus) else Modifier) { go() }
+                    val fr = scFocus.getOrPut(sc.id) { FocusRequester() }
+                    Pill(sc.icon, if (movingSc == sc.id) "◀  ${sc.label}  ▶" else sc.label, (if (i == 0) Modifier.focusRequester(shortcutFocus) else Modifier).focusRequester(fr), emoji = sc.emoji,
+                        logo = sc.logoName?.let { ShortcutLogos.map[it] }, big = true, onFocus = { focusedRaw = i }, colors = sc.colors, shortcut = sc,
+                        onLongClick = if (sc.id.startsWith("action:")) null else ({ askHide = i to sc })) { go() }
                 }
             }
+            val rowsNow = browsing ?: shownRows
+            // Settings → Live TV shortcuts → Rows under the shortcuts appear: only once you go down into them
+            // (the default, cleaner), or a dimmed preview under the shortcuts all along.
+            val peek = AppColors.palette.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.OSD_PEEK) == 1
+            if (rowsNow.isNotEmpty() && (peek || posterRow >= 0)) PosterRows(rowsNow, posterRow, more = moreRows, onRow = { r ->
+                posterRow = r
+                // Up from the first row: back to the shortcut it came from.
+                if (r < 0) { browsing = null; runCatching { (shortcuts.getOrNull(focusedRaw)?.first?.id?.let { scFocus[it] } ?: shortcutFocus).requestFocus() } }
+            })
         }
     }
 }
@@ -300,18 +419,115 @@ private fun Badge(text: String) {
     )
 }
 
+/**
+ * One poster row at a time, floating under the shortcuts (no panel: the controls' own fade is behind it). Up / Down
+ * change row (Up from the first goes back to the shortcuts); the next row's name shows beside this one's.
+ */
 @Composable
-private fun Pill(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, modifier: Modifier = Modifier, groupEnd: Boolean = false, onClick: () -> Unit) {
+private fun PosterRows(rows: List<OsdRow>, current: Int, more: Boolean = false, onRow: (Int) -> Unit) {
+    val r = current.coerceIn(0, rows.lastIndex)
+    val row = rows[r]
+    val inside = current >= 0
+    val firstCard = remember { FocusRequester() }
+    LaunchedEffect(current) { if (current >= 0) { awaitFrame(); runCatching { firstCard.requestFocus() } } }
+    Column(
+        Modifier
+            .padding(top = 6.dp)
+            // Dimmed while it's only a preview: a dark tint drawn over it (fading the whole row with alpha made the
+            // TV draw it twice, every frame).
+            .drawWithContent { drawContent(); if (!inside) drawRect(Color.Black.copy(alpha = 0.5f)) }
+            .onPreviewKeyEvent { e ->
+                if (!inside || e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                when (e.key) {
+                    Key.DirectionUp -> { onRow(r - 1); true }
+                    Key.DirectionDown -> { if (r < rows.lastIndex) onRow(r + 1); true }
+                    else -> false
+                }
+            },
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(row.title, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
+            val next = rows.getOrNull(r + 1)
+            if (next != null) Text("   ·   Down: ${next.title}", fontSize = 12.sp, color = AppColors.TextSecondary)
+            else if (more) Text("   ·   More rows: open the shortcut", fontSize = 12.sp, color = AppColors.TextSecondary)
+        }
+        androidx.compose.runtime.key(r) {
+            // Room round the cards for the highlighted one's slight growth (it was cut off at the row's left edge),
+            // pulled back by the same amount so the first card still lines up with the row's name.
+            androidx.compose.foundation.lazy.LazyRow(
+                Modifier.padding(top = 2.dp).offset(x = (-12).dp),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                items(row.items.size, key = { row.items[it].key }) { i ->
+                    PosterCard(row.items[i], enabled = inside, modifier = if (i == 0) Modifier.focusRequester(firstCard) else Modifier)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PosterCard(p: OsdPoster, enabled: Boolean, modifier: Modifier = Modifier) {
+    var on by remember { mutableStateOf(false) }
+    Column(Modifier.width(176.dp)) {
+        Surface(
+            onClick = p.onClick,
+            enabled = enabled,
+            modifier = modifier.size(176.dp, 99.dp).onFocusChanged { on = it.isFocused },
+            scale = ClickableSurfaceDefaults.scale(scale = 1f, focusedScale = 1.05f, pressedScale = 1f),
+            shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+            border = ClickableSurfaceDefaults.border(
+                focusedBorder = androidx.tv.material3.Border(androidx.compose.foundation.BorderStroke(2.dp, AppColors.Accent)),
+            ),
+            colors = ClickableSurfaceDefaults.colors(
+                containerColor = Color.White.copy(alpha = 0.10f),
+                focusedContainerColor = Color.White.copy(alpha = 0.18f),
+            ),
+        ) {
+            Box(Modifier.fillMaxSize()) {
+                if (p.image != null) AsyncImage(
+                    p.image, null,
+                    contentScale = if (p.logo) ContentScale.Fit else ContentScale.Crop,
+                    modifier = if (p.logo) Modifier.fillMaxSize().padding(horizontal = 28.dp, vertical = 18.dp) else Modifier.fillMaxSize(),
+                ) else Text(p.title, fontSize = 13.sp, color = Color.White, maxLines = 2, modifier = Modifier.align(Alignment.Center).padding(8.dp))
+                p.progress?.takeIf { it > 0f }?.let { f ->
+                    Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(3.dp).background(Color.White.copy(alpha = 0.25f)))
+                    Box(Modifier.align(Alignment.BottomStart).fillMaxWidth(f.coerceIn(0f, 1f)).height(3.dp).background(AppColors.Accent))
+                }
+            }
+        }
+        Text(p.title, fontSize = 12.sp, color = if (on) Color.White else AppColors.TextSecondary, maxLines = 1,
+            overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 5.dp))
+        p.subtitle?.let { Text(it, fontSize = 11.sp, color = AppColors.TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+    }
+}
+
+@Composable
+private fun Pill(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, modifier: Modifier = Modifier, groupEnd: Boolean = false, emoji: String? = null,
+    logo: io.github.petebutty.viewarr.data.media.ServiceLogo? = null,
+    /** The shortcuts row: a larger circle, so logos read from the sofa. */
+    big: Boolean = false, onFocus: () -> Unit = {}, onLongClick: (() -> Unit)? = null,
+    /** A coloured disc behind the icon (Viewarr's own shortcuts, so they sit with the services' logos). */
+    colors: List<Long>? = null,
+    /** The shortcut itself (the shortcuts row): drawn in Settings → Shortcut style. */
+    shortcut: LiveShortcut? = null, onClick: () -> Unit) {
     // Sized like the film / show player's buttons (Settings → Playback → Player controls size).
     val k = AppColors.palette.controlsScale
     fun d(v: Int) = (v * k).dp
     var on by remember { mutableStateOf(false) }
-    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(d(72))) {
+    // Shortcuts: Settings → Live TV shortcuts → Shortcut size (Small is the first size).
+    val sc = if (big) floatArrayOf(1f, 1.25f, 1.5f)[AppColors.palette.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.SHORTCUT_SIZE).coerceIn(0, 2)] else 1f
+    fun b(v: Int) = d((v * sc).toInt())
+    val style = if (shortcut != null) shortcutStyle() else ShortcutStyle.Round
+    val (bw, bh) = shortcutBox(if (big) b(64) else d(48), style)
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(if (big) bw + b(24) else d(72))) {
         Surface(
             onClick = onClick,
-            modifier = modifier.size(d(48)).onFocusChanged { on = it.isFocused },
+            onLongClick = onLongClick,
+            modifier = modifier.size(bw, bh).onFocusChanged { on = it.isFocused; if (it.isFocused) onFocus() },
             scale = ClickableSurfaceDefaults.scale(scale = 1f, focusedScale = 1f, pressedScale = 1f),
-            shape = ClickableSurfaceDefaults.shape(CircleShape),
+            shape = ClickableSurfaceDefaults.shape(shortcutShape(style)),
             colors = ClickableSurfaceDefaults.colors(
                 containerColor = Color.White.copy(alpha = 0.14f),
                 contentColor = Color.White,
@@ -321,8 +537,23 @@ private fun Pill(icon: androidx.compose.ui.graphics.vector.ImageVector, label: S
                 pressedContentColor = AppColors.OnAccent,
             ),
         ) {
-            Box(Modifier.fillMaxHeight().fillMaxWidth(), contentAlignment = Alignment.Center) {
-                androidx.compose.material3.Icon(icon, contentDescription = label, tint = if (on) AppColors.OnAccent else Color.White, modifier = Modifier.size(d(26)))
+            if (shortcut != null) Box(Modifier.fillMaxSize().padding(if (on) d(3) else 0.dp), contentAlignment = Alignment.Center) {
+                ShortcutFace(shortcut, style, bh)
+            } else Box(Modifier.fillMaxHeight().fillMaxWidth(), contentAlignment = Alignment.Center) {
+                // A service's app icon fills the circle; a network's logo sits on a white disc (they're drawn for
+                // light backgrounds). The ring shows focus around either.
+                if (logo != null && logo.square) AsyncImage(logo.url, label, contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize().padding(if (on) d(3) else 0.dp).clip(CircleShape))
+                else if (logo != null) Box(Modifier.fillMaxSize().padding(if (on) d(3) else 0.dp).background(Color.White, CircleShape), contentAlignment = Alignment.Center) {
+                    AsyncImage(logo.url, label, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize().padding(d(6)))
+                }
+                else if (colors != null) Box(
+                    Modifier.fillMaxSize().padding(if (on) d(3) else 0.dp)
+                        .background(Brush.linearGradient(colors.map { Color(it) }), CircleShape),
+                    contentAlignment = Alignment.Center,
+                ) { androidx.compose.material3.Icon(icon, contentDescription = label, tint = Color.White, modifier = Modifier.size(if (big) b(32) else d(26))) }
+                else if (emoji != null) Text(emoji, fontSize = (22 * k).sp)
+                else androidx.compose.material3.Icon(icon, contentDescription = label, tint = if (on) AppColors.OnAccent else Color.White, modifier = Modifier.size(if (big) b(32) else d(26)))
             }
         }
         Text(

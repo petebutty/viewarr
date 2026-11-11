@@ -117,6 +117,8 @@ fun AppearanceSettingsScreen(onBack: () -> Unit, vm: AppearanceViewModel = hiltV
     val dims = (30..90 step 10).map { Choice("$it%", it) }
     // Low-memory mode: settings for what it turns off are hidden.
     val low = palette.lowMemory
+    // Low-memory mode: its settings stay listed, locked, with how to get them back.
+    val lowLock = if (low) Locks.LOW_MEMORY else null
     val categories = listOfNotNull(
         SettingCategory(
             "Colours & text", "Colours, text size, the clock and how dates and times show. Changes show straight away.",
@@ -142,15 +144,15 @@ fun AppearanceSettingsScreen(onBack: () -> Unit, vm: AppearanceViewModel = hiltV
                 optItem(opts, "Time format", "24-hour or 12-hour times: the guide, the clock, programme times and recordings.", io.github.petebutty.viewarr.ui.theme.UiOpts.TIME_FORMAT),
             ),
         ),
-        // Low-memory mode: no wallpaper at all (plain Viewarr colours), so no settings for it.
-        if (low) null else SettingCategory(
+        // Low-memory mode: no wallpaper at all (plain Viewarr colours): locked.
+        SettingCategory(
             "Wallpaper", "A picture behind the guide, menus and settings, darkened so text stays easy to read.",
             buildList {
                 add(SettingItem("Wallpaper", "None, a built-in design, or the artwork of the programme you've highlighted. (Movies and Shows always show the highlighted title's artwork.)", wallModes,
                     wallModes.firstOrNull { it.value == palette.wallpaper } ?: wallModes[0]) { c -> vm.setWallpaper(((c as Choice).value as Int), palette.wallpaperStyle, palette.wallpaperDim) })
                 if (palette.wallpaper == 1) add(SettingItem("Design", "Which built-in wallpaper.", wallStyles,
                     wallStyles[palette.wallpaperStyle.coerceIn(0, wallStyles.lastIndex)]) { c -> vm.setWallpaper(1, (c as Choice).value as Int, palette.wallpaperDim) })
-            },
+            }.map { it.locked(lowLock) },
         ),
         // Every transparency in one place, as sliders (Left / Right).
         SettingCategory(
@@ -160,10 +162,10 @@ fun AppearanceSettingsScreen(onBack: () -> Unit, vm: AppearanceViewModel = hiltV
                     transparencies.first { it.value == currentT }, slider = true) { c -> vm.setTransparency(((c as Choice).value as Int) / 100f) })
                 add(SettingItem("Guide", "The guide's channel names and programmes (the one you're on stays solid). Shows more of the wallpaper behind.", transparencies,
                     transparencies.first { it.value == currentG }, slider = true) { c -> vm.setGuideTransparency(((c as Choice).value as Int) / 100f) })
-                if (palette.wallpaperMode != 0) add(SettingItem("Wallpaper dimming", "How dark the wallpaper is under the menus and text.", dims,
+                if (palette.wallpaper != 0) add(SettingItem("Wallpaper dimming", "How dark the wallpaper is under the menus and text.", dims,
                     dims.firstOrNull { it.value == (palette.wallpaperDim * 100).roundToInt() / 10 * 10 } ?: dims[3], slider = true) { c ->
                     vm.setWallpaper(palette.wallpaper, palette.wallpaperStyle, ((c as Choice).value as Int) / 100f)
-                })
+                }.locked(lowLock))
             },
         ),
         SettingCategory(
@@ -176,9 +178,10 @@ fun AppearanceSettingsScreen(onBack: () -> Unit, vm: AppearanceViewModel = hiltV
                 SettingItem("Corners", "Rounded or square corners on the guide's programmes and channel names.", corners,
                     if (palette.squareCorners) corners[1] else corners[0]) { c -> vm.setSquareCorners((c as Choice).value == true) },
                 optItem(opts, "Channel logos", "Logos beside the channel names.", io.github.petebutty.viewarr.ui.theme.UiOpts.CHANNEL_LOGOS),
+                optItem(opts, "Catch-up icons", "The replay icon on past programmes you can watch again, and beside channels that have catch-up. Catch-up still works with it off.", io.github.petebutty.viewarr.ui.theme.UiOpts.CATCHUP_ICONS),
             ) + listOfNotNull(
                 // Low-memory mode: no programme pictures at all, so no setting for them.
-                if (low) null else optItem(opts, "Programme pictures", "The highlighted programme's picture at the top of the guide. Off: no pictures are looked up (the channel's logo shows instead).", io.github.petebutty.viewarr.ui.theme.UiOpts.GUIDE_ART),
+                optItem(opts, "Programme pictures", "The highlighted programme's picture at the top of the guide. Off: no pictures are looked up (the channel's logo shows instead).", io.github.petebutty.viewarr.ui.theme.UiOpts.GUIDE_ART).locked(lowLock),
             ),
         ),
         SettingCategory(
@@ -190,16 +193,18 @@ fun AppearanceSettingsScreen(onBack: () -> Unit, vm: AppearanceViewModel = hiltV
         ),
         SettingCategory(
             "Title pages", "What a film's or show's page shows. Anything off isn't fetched either, so pages open with less to do.",
-            io.github.petebutty.viewarr.ui.theme.TitleParts.sections.filter { (id, _) -> !(low && id == io.github.petebutty.viewarr.ui.theme.TitleParts.LOGO) }.map { (id, text) ->
+            io.github.petebutty.viewarr.ui.theme.TitleParts.sections.map { (id, text) ->
                 SettingItem(text.first, text.second, onOff, if (palette.shows(id)) onOff[0] else onOff[1]) { c -> vm.setTitlePart(id, (c as Choice).value == true) }
+                    .locked(if (id == io.github.petebutty.viewarr.ui.theme.TitleParts.LOGO) lowLock else null)
             } + optItem(opts, "Age ratings", "Which country's age ratings title pages show.", io.github.petebutty.viewarr.ui.theme.UiOpts.AGE_RATING),
         ),
-        // Low-memory mode fetches only TMDB's rating: nothing to choose.
-        if (low) null else SettingCategory(
+        // Low-memory mode fetches only TMDB's rating: the others locked.
+        SettingCategory(
             "Ratings", "Which ratings show on title pages and the Movies / Shows header. With all but TMDB off, the other ratings aren't fetched.",
             io.github.petebutty.viewarr.ui.theme.TitleParts.ratings.map { (src, name) ->
                 val id = io.github.petebutty.viewarr.ui.theme.TitleParts.rating(src)
                 SettingItem(name, "", onOff, if (palette.shows(id)) onOff[0] else onOff[1]) { c -> vm.setTitlePart(id, (c as Choice).value == true) }
+                    .locked(if (src != "TMDB") lowLock else null)
             },
         ),
         SettingCategory(
@@ -214,7 +219,7 @@ fun AppearanceSettingsScreen(onBack: () -> Unit, vm: AppearanceViewModel = hiltV
     SettingsPage(title = "Appearance", categories = categories, onBack = onBack, onReset = {
         vm.apply(ThemePresets[0].main, ThemePresets[0].highlight); vm.setTransparency(0f); vm.setGuideTransparency(0f)
         vm.setShowNumbers(true); vm.setSquareCorners(true); vm.setHideMedia(false); vm.setWallpaper(0, 0, 0.6f); vm.resetTitleParts()
-        opts.reset(listOf(io.github.petebutty.viewarr.ui.theme.UiOpts.TEXT_SIZE, io.github.petebutty.viewarr.ui.theme.UiOpts.CLOCK, io.github.petebutty.viewarr.ui.theme.UiOpts.CHANNEL_LOGOS, io.github.petebutty.viewarr.ui.theme.UiOpts.GUIDE_ART, io.github.petebutty.viewarr.ui.theme.UiOpts.BADGE_SOURCE, io.github.petebutty.viewarr.ui.theme.UiOpts.BADGE_PROGRESS))
+        opts.reset(listOf(io.github.petebutty.viewarr.ui.theme.UiOpts.TEXT_SIZE, io.github.petebutty.viewarr.ui.theme.UiOpts.CLOCK, io.github.petebutty.viewarr.ui.theme.UiOpts.CHANNEL_LOGOS, io.github.petebutty.viewarr.ui.theme.UiOpts.CATCHUP_ICONS, io.github.petebutty.viewarr.ui.theme.UiOpts.GUIDE_ART, io.github.petebutty.viewarr.ui.theme.UiOpts.BADGE_SOURCE, io.github.petebutty.viewarr.ui.theme.UiOpts.BADGE_PROGRESS))
     })
 }
 

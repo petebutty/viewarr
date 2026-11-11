@@ -185,7 +185,7 @@ class DispatcharrUsers @Inject constructor(private val http: HttpJson) {
 
 /** Which of this TV's services an admin hands to someone else's profile. */
 enum class SharedService(val label: String) {
-    Jellyfin("Jellyfin"), Emby("Emby"), Addons("Stremio addons"), ProviderVod("Provider VOD"),
+    Jellyfin("Jellyfin"), Emby("Emby"), Addons("Addons"), ProviderVod("Provider VOD"),
     Music("Music (Navidrome / server music)"), Seerr("Seerr requests"), Tmdb("TMDB (posters and details)"), Mdblist("MDBList ratings");
 
     /** What [a] has for this service ("" = nothing to share). */

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Live TV shortcuts: Emby libraries and rows (no Emby logo on TMDB). A play mark in Emby green. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="96dp" android:height="96dp" android:viewportWidth="96" android:viewportHeight="96">
+  <path android:fillColor="#52B54B" android:pathData="M48,0A48,48 0 1,1 48,96A48,48 0 1,1 48,0Z"/>
+  <path android:fillColor="#FFFFFF" android:pathData="M38,30L66,48L38,66Z"/>
+</vector>

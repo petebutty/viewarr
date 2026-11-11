@@ -31,6 +31,17 @@ enum class GuideLeft(override val label: String) : RemoteChoice {
     AlwaysPast("Always earlier programmes"),
 }
 
+/**
+ * Settings → Remote buttons → Presets: several settings at once, the way people know from other apps. Every preset
+ * keeps a way to the menu (Left at the guide's start / "now", and Hold Back: the channel groups menu) and a way out
+ * (Back on the guide asks to exit, or Back twice quickly). Changing any of its settings afterwards shows Custom.
+ */
+enum class ControlPreset(override val label: String) : RemoteChoice {
+    Viewarr("Viewarr"),
+    TiviMate("TiviMate-style"),
+    Custom("Custom (your own changes)"),
+}
+
 enum class GuideBack(override val label: String) : RemoteChoice {
     /** Since 0.23: the guide and full screen swap with Back (the channel keeps playing in the preview). */
     FullScreen("Jump to now, then back to full screen"),
@@ -64,9 +75,16 @@ enum class SeekStep(override val label: String, val ms: Long) : RemoteChoice {
     S60("Skip 60 seconds", 60_000),
 }
 
+/** Left / Right on live TV (catch-up always moves through the programme). */
+enum class LiveSides(override val label: String) : RemoteChoice {
+    Seek("Rewind / skip ahead"),
+    ListAndLast("Left: channel list · Right: previous channel"),
+}
+
 enum class PlayerOk(override val label: String) : RemoteChoice {
     Controls("Open the controls"),
     Banner("Show the info banner"),
+    ChannelList("Show the channel list"),
 }
 
 enum class RowMemory(override val label: String) : RemoteChoice {
@@ -100,6 +118,18 @@ enum class MenuBack(override val label: String) : RemoteChoice {
     Close("Close the menu"),
 }
 
+/** The menu's Movies / Shows list: what Right on a library does (OK always opens it). */
+enum class MenuLibraryRight(override val label: String, val groups: List<String>) : RemoteChoice {
+    // Each: the library filters to list, first one the library has (Plex · Jellyfin/Emby · IPTV names), genres after.
+    Categories("Categories / genres", listOf("category", "genre", "Genres")),
+    Collections("Collections", listOf("collection", "Tags")),
+    Decades("Decades", listOf("decade", "Years")),
+    Years("Years", listOf("year", "Years")),
+    Studios("Studios / networks", listOf("studio", "network", "Studios")),
+    AgeRatings("Age ratings", listOf("contentRating", "OfficialRatings")),
+    Open("Just open the library", emptyList()),
+}
+
 /** The button that pops search up from any screen. */
 enum class SearchButton(override val label: String) : RemoteChoice {
     Auto("The remote's search button, or hold Menu (≡)"),
@@ -114,7 +144,7 @@ enum class SearchButton(override val label: String) : RemoteChoice {
 
 data class RemoteSettings(
     val guideLeft: GuideLeft = GuideLeft.entries.first(),
-    val guideBack: GuideBack = GuideBack.entries.first(),
+    val guideBack: GuideBack = GuideBack.NowThenExit,
     val channelKeys: ChannelKeys = ChannelKeys.entries.first(),
     val zap: ZapDirection = ZapDirection.entries.first(),
     val seek: SeekStep = SeekStep.entries.first(),
@@ -125,6 +155,10 @@ data class RemoteSettings(
     val mediaBack: MediaBack = MediaBack.entries.first(),
     val menuOpensOn: MenuOpensOn = MenuOpensOn.entries.first(),
     val menuBack: MenuBack = MenuBack.entries.first(),
+    val menuLibraryRight: MenuLibraryRight = MenuLibraryRight.entries.first(),
+    /** The preset last chosen (Settings → Remote buttons → Presets), for "Custom (from …)"; null: never chosen. */
+    val presetBase: ControlPreset? = null,
+    val liveSides: LiveSides = LiveSides.entries.first(),
     val startPage: StartPage = StartPage.entries.first(),
     val searchButton: SearchButton = SearchButton.entries.first(),
     val navStyle: NavStyle = NavStyle.entries.first(),
@@ -138,6 +172,8 @@ data class RemoteSettings(
     val buttonMap: Map<String, String> = emptyMap(),
     /** Shortcuts under the live TV controls (LiveShortcuts ids, in order); null: the defaults. */
     val liveShortcuts: List<String>? = null,
+    /** Live channels played lately, newest first (Live TV controls → Recent channels). */
+    val recentChannels: List<Int> = emptyList(),
     /** False until the stored settings have been read. */
     val loaded: Boolean = false,
 )
@@ -153,7 +189,10 @@ class RemoteStore @Inject constructor(@ApplicationContext private val context: C
     val settings: Flow<RemoteSettings> = context.remoteStore.data.map { p ->
         RemoteSettings(
             guideLeft = p.read(GUIDE_LEFT),
-            guideBack = p.read(GUIDE_BACK),
+            // Not chosen: ask to exit with Classic menus (0.23 made full screen everyone's default by mistake, so
+            // Back swapped between the guide and full screen with no way out); the Live TV hub goes to full screen.
+            guideBack = if (p[stringPreferencesKey(GUIDE_BACK)] != null) p.read(GUIDE_BACK)
+                else if (p.read<NavStyle>(NAV_STYLE) == NavStyle.LiveHub) GuideBack.FullScreen else GuideBack.NowThenExit,
             channelKeys = p.read(CHANNEL_KEYS),
             zap = p.read(ZAP),
             seek = p.read(SEEK),
@@ -164,6 +203,9 @@ class RemoteStore @Inject constructor(@ApplicationContext private val context: C
             mediaBack = p.read(MEDIA_BACK),
             menuOpensOn = p.read(MENU_OPENS_ON),
             menuBack = p.read(MENU_BACK),
+            menuLibraryRight = p.read(MENU_LIBRARY_RIGHT),
+            liveSides = p.read(LIVE_SIDES),
+            presetBase = p[stringPreferencesKey(PRESET_BASE)]?.let { n -> ControlPreset.entries.firstOrNull { it.name == n } },
             startPage = p.read(START_PAGE),
             searchButton = p.read(SEARCH_BUTTON),
             navStyle = p.read(NAV_STYLE),
@@ -178,6 +220,7 @@ class RemoteStore @Inject constructor(@ApplicationContext private val context: C
                 k to v
             }.toMap(),
             liveShortcuts = p[stringPreferencesKey(LIVE_SHORTCUTS)]?.split('|')?.filter { it.isNotBlank() },
+            recentChannels = p[stringPreferencesKey(RECENT_CHANNELS)].orEmpty().split(',').mapNotNull { it.toIntOrNull() },
             loaded = true,
         )
     }
@@ -226,10 +269,35 @@ class RemoteStore @Inject constructor(@ApplicationContext private val context: C
         context.remoteStore.edit { it[stringPreferencesKey(key)] = value.name }
     }
 
+    /** A preset's settings (see [ControlPreset]); a null value is that setting's own default. */
+    suspend fun applyPreset(p: ControlPreset) {
+        val values: Map<String, Enum<*>?> = when (p) {
+            ControlPreset.Viewarr -> mapOf(GUIDE_LEFT to GuideLeft.EdgeMenu, GUIDE_BACK to null, ZAP to ZapDirection.ChannelList,
+                PLAYER_OK to PlayerOk.Controls, MENU_OPENS_ON to MenuOpensOn.PageList, LIVE_SIDES to LiveSides.Seek)
+            // As TiviMate comes: watching, Up / Down change channel (Up = the next number), OK the player menu, Left
+            // the channel list, Right the previous channel, Back the guide. In the guide, Left goes back to now (then
+            // earlier with catch-up: hold it), at now the groups; Back jumps to now, then shows the groups (Back there
+            // asks to exit); hold Back: straight back to full screen.
+            ControlPreset.TiviMate -> mapOf(GUIDE_LEFT to GuideLeft.NowMenu, GUIDE_BACK to GuideBack.Menu, ZAP to ZapDirection.UpNext,
+                PLAYER_OK to PlayerOk.Controls, MENU_OPENS_ON to MenuOpensOn.PageList, LIVE_SIDES to LiveSides.ListAndLast)
+            ControlPreset.Custom -> return
+        }
+        context.remoteStore.edit { prefs ->
+            prefs[stringPreferencesKey(PRESET_BASE)] = p.name
+            values.forEach { (k, v) -> if (v == null) prefs.remove(stringPreferencesKey(k)) else prefs[stringPreferencesKey(k)] = v.name }
+            // Hold Back on the guide and live TV as the preset has it (live TV: the channel groups; the guide: the
+            // groups, or with TiviMate back to full screen, its Back and Left reaching the groups instead).
+            val map = prefs[stringPreferencesKey(BUTTON_MAP)].orEmpty().split(',').filter { it.isNotBlank() }
+                .filterNot { it.startsWith("Guide.BackHold=") || it.startsWith("Live.BackHold=") } +
+                listOfNotNull("Guide.BackHold=${BtnAction.FullScreen.name}".takeIf { p == ControlPreset.TiviMate })
+            if (map.isEmpty()) prefs.remove(stringPreferencesKey(BUTTON_MAP)) else prefs[stringPreferencesKey(BUTTON_MAP)] = map.joinToString(",")
+        }
+    }
+
     /** Only the button settings back to their defaults (not where the app opens, the menu or the poster rows). */
     suspend fun resetButtons() {
         context.remoteStore.edit { prefs ->
-            listOf(GUIDE_LEFT, GUIDE_BACK, CHANNEL_KEYS, ZAP, SEEK, PLAYER_OK, ROW_LEFT, MEDIA_BACK, MENU_BACK, SEARCH_BUTTON, BUTTONS, BUTTON_MAP)
+            listOf(GUIDE_LEFT, GUIDE_BACK, CHANNEL_KEYS, ZAP, SEEK, PLAYER_OK, ROW_LEFT, MEDIA_BACK, MENU_BACK, SEARCH_BUTTON, BUTTONS, BUTTON_MAP, PRESET_BASE, LIVE_SIDES)
                 .forEach { prefs.remove(stringPreferencesKey(it)) }
             prefs.remove(intPreferencesKey(SEARCH_KEYCODE))
         }
@@ -253,7 +321,11 @@ class RemoteStore @Inject constructor(@ApplicationContext private val context: C
     }
 
     suspend fun setLastChannel(id: Int) {
-        context.remoteStore.edit { it[intPreferencesKey(LAST_CHANNEL)] = id }
+        context.remoteStore.edit {
+            it[intPreferencesKey(LAST_CHANNEL)] = id
+            val before = it[stringPreferencesKey(RECENT_CHANNELS)].orEmpty().split(',').mapNotNull { n -> n.toIntOrNull() }
+            it[stringPreferencesKey(RECENT_CHANNELS)] = (listOf(id) + (before - id)).take(12).joinToString(",")
+        }
     }
 
     private inline fun <reified E : Enum<E>> Preferences.read(key: String): E =
@@ -272,6 +344,9 @@ class RemoteStore @Inject constructor(@ApplicationContext private val context: C
         const val MEDIA_BACK = "media_back_v2" // v2: "ask to exit" became the default (2026-11-05)
         const val MENU_OPENS_ON = "menu_opens_on"
         const val MENU_BACK = "menu_back"
+        const val MENU_LIBRARY_RIGHT = "menu_library_right"
+        const val PRESET_BASE = "preset_base"
+        const val LIVE_SIDES = "live_sides"
         const val START_PAGE = "start_page"
         const val SEARCH_BUTTON = "search_button"
         const val SEARCH_KEYCODE = "search_keycode"
@@ -279,6 +354,7 @@ class RemoteStore @Inject constructor(@ApplicationContext private val context: C
         const val BUTTONS = "buttons_v1"
         const val BUTTON_MAP = "bmap_v1"
         const val LIVE_SHORTCUTS = "live_shortcuts"
+        const val RECENT_CHANNELS = "recent_channels"
         const val NAV_STYLE = "nav_style"
     }
 }

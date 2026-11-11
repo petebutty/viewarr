@@ -94,11 +94,11 @@ fun AppRoot(vm: AppViewModel = hiltViewModel()) {
     val state by vm.state.collectAsStateWithLifecycle()
     val remote by vm.remote.collectAsStateWithLifecycle()
     val playbackSettings by vm.playback.collectAsStateWithLifecycle()
-    // The splash stays up for 2.5 s while the start page loads underneath it, so the first press after it
+    // The splash stays up for 3.8 s (the logo's animation, then a moment's hold) while the start page loads underneath it, so the first press after it
     // fades lands on a ready page (earlier, presses while rows were still loading did nothing).
     var splashDone by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
     androidx.compose.runtime.LaunchedEffect(Unit) {
-        kotlinx.coroutines.delay(2_500)
+        kotlinx.coroutines.delay(3_800)
         splashDone = true
     }
     val splashShown = !splashDone || state == StartState.Loading

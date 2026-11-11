@@ -57,6 +57,14 @@ import kotlinx.coroutines.delay
 private const val PREVIEW_HEIGHT = 480
 
 @OptIn(UnstableApi::class)
+/** A full-screen trailer is open (the Trailer button): live TV stops for it, as for a film (one stream, one sound). */
+object FullTrailer {
+    private val state = mutableStateOf(false)
+    var active: Boolean
+        get() = state.value
+        set(v) { state.value = v }
+}
+
 private fun trailerPlayer(context: android.content.Context, small: Boolean): ExoPlayer =
     ExoPlayer.Builder(context)
         .setLoadControl(
@@ -74,7 +82,8 @@ private fun trailerPlayer(context: android.content.Context, small: Boolean): Exo
 @Composable
 fun TrailerPreview(item: MediaItem?, active: Boolean, trailers: TrailerRepository, modifier: Modifier = Modifier) {
     val pb = LocalPlayback.current
-    if (pb.trailerPreview == TrailerPreview.Off || !io.github.petebutty.viewarr.ui.theme.AppColors.palette.heavyExtras) return
+    if (pb.trailerPreview == TrailerPreview.Off || !io.github.petebutty.viewarr.ui.theme.AppColors.palette.heavyExtras ||
+        io.github.petebutty.viewarr.ui.player.LiveCorner.on) return
     val context = LocalContext.current
     val player = remember { trailerPlayer(context, small = true) }
     var showing by remember { mutableStateOf(false) }
@@ -132,6 +141,10 @@ fun TrailerPlayer(item: MediaItem, trailers: TrailerRepository, onClose: () -> U
     val focus = remember { FocusRequester() }
     val seekMs = io.github.petebutty.viewarr.data.settings.LocalRemote.current.seek.ms
     BackHandler(onBack = onClose)
+    DisposableEffect(Unit) {
+        FullTrailer.active = true
+        onDispose { FullTrailer.active = false }
+    }
     DisposableEffect(player) {
         val listener = object : Player.Listener {
             override fun onRenderedFirstFrame() { message = null }

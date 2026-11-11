@@ -40,6 +40,10 @@ fun PlaybackSettingsScreen(onBack: () -> Unit, vm: PlaybackSettingsViewModel = h
     fun item(title: String, description: String, key: String, all: List<RemoteChoice>, current: RemoteChoice) =
         SettingItem(title, description, all, current) { vm.set(key, it) }
     val k = PlaybackStore.Companion
+    // Low-memory mode: what it switches off stays listed, locked, with how to get it back.
+    val lowLock = if (io.github.petebutty.viewarr.ui.theme.AppColors.palette.lowMemory) Locks.LOW_MEMORY else null
+    // Keeping things playing in a corner while you browse is part of the Live TV hub.
+    val cornerLock = lowLock ?: if (r.navStyle != io.github.petebutty.viewarr.data.settings.NavStyle.LiveHub) Locks.NEEDS_HUB else null
     val categories = listOfNotNull(
         SettingCategory(
             "Player", "Which player plays films, shows and recordings, and how it behaves.",
@@ -83,7 +87,7 @@ fun PlaybackSettingsScreen(onBack: () -> Unit, vm: PlaybackSettingsViewModel = h
             ),
         ),
         SettingCategory(
-            "Streams", "Quality, Plex and Stremio addon streams.",
+            "Streams", "Quality, Plex and addon streams.",
             listOf(
                 item("Addon streams", "Choose from the list yourself, or let Viewarr start the best cached stream within your quality limit.", k.STREAM_PICK, choices<io.github.petebutty.viewarr.data.settings.StreamPick>(), s.streamPick),
                 item("Best quality allowed", "Streams above this are listed last and never auto-picked. Match the TV works out 4K or 1080p for you.", k.MAX_RES, choices<io.github.petebutty.viewarr.data.settings.MaxResolution>(), s.maxResolution),
@@ -103,28 +107,31 @@ fun PlaybackSettingsScreen(onBack: () -> Unit, vm: PlaybackSettingsViewModel = h
             "Live TV", "Watching live channels.",
             listOf(
                 optItem(opts, "Animation", "Back from full screen: the channel glides into the guide's preview, and back. Off: straight there.", io.github.petebutty.viewarr.ui.theme.UiOpts.ANIM_LIVE),
+                optItem(opts, "Keep playing while you browse", "Opening Movies, Shows, Music or Recordings from the live TV shortcuts (or any page in the Live TV hub style): the channel carries on in a corner, and Back takes it full screen again. A film or music starting stops it. Off: browsing stops the channel.", io.github.petebutty.viewarr.ui.theme.UiOpts.LIVE_CORNER).locked(cornerLock),
+                optItem(opts, "Corner size", "The channel's window while you browse.", io.github.petebutty.viewarr.ui.theme.UiOpts.MINI_SIZE).locked(cornerLock),
+                optItem(opts, "Corner", "Where that window sits.", io.github.petebutty.viewarr.ui.theme.UiOpts.MINI_CORNER).locked(cornerLock),
                 optItem(opts, "Still watching?", "After this long without a button press, live TV asks whether you're still there and stops if nobody answers within a minute (frees a provider connection when the TV's left on).", io.github.petebutty.viewarr.ui.theme.UiOpts.STILL_WATCHING),
             ),
         ),
-        // Low-memory mode: no trailer previews (a second player while you browse), so no settings for them.
-        if (io.github.petebutty.viewarr.ui.theme.AppColors.palette.lowMemory) null else SettingCategory(
+        // Low-memory mode: no trailer previews (a second player while you browse): locked.
+        SettingCategory(
             "Trailers", "YouTube trailers for films and shows.",
             listOf(
                 item("Trailer previews", "When you rest on a poster in Movies or Shows, its trailer plays in a small window at the top.", k.TRAILER_PREVIEW, choices<io.github.petebutty.viewarr.data.settings.TrailerPreview>(), s.trailerPreview),
                 item("Start after", "How long to stay on a poster before its trailer starts.", k.TRAILER_DELAY, choices<io.github.petebutty.viewarr.data.settings.TrailerDelay>(), s.trailerDelay),
                 item("Preview sound", "Off plays previews silently. The Trailer button on a title page always has sound.", k.TRAILER_SOUND, choices<io.github.petebutty.viewarr.data.settings.TrailerSound>(), s.trailerSound),
-            ),
+            ).map { it.locked(lowLock) },
         ),
         SettingCategory(
             "Troubleshooting", "Tools for when something doesn't play right.",
             listOf(
                 item("Show playback info", "Shows the video and audio format, decoder and dropped frames while playing.", k.STATS, choices<io.github.petebutty.viewarr.data.settings.StatsOverlay>(), s.stats),
-                optItem(opts, "Low-memory mode", "For boxes with 1–2 GB. Turns off the heavy extras across the app (box-made seek previews, guide pictures, logos, wallpaper, artwork, trailers, multi-view, extra ratings) and hides their settings. Try it if Viewarr is slow or closes.", io.github.petebutty.viewarr.ui.theme.UiOpts.LOW_MEMORY),
+                optItem(opts, "Low-memory mode", "For boxes with 1–2 GB. Turns off the heavy extras across the app (box-made seek previews, guide pictures, logos, wallpaper, artwork, trailers, multi-view, extra ratings); their settings show as locked until it's off. Try it if Viewarr is slow or closes.", io.github.petebutty.viewarr.ui.theme.UiOpts.LOW_MEMORY),
             ),
         ),
     )
     SettingsPage(title = "Playback", categories = categories, onBack = onBack, onReset = {
         vm.reset()
-        opts.reset(listOf(io.github.petebutty.viewarr.ui.theme.UiOpts.CONTROLS_TIME, io.github.petebutty.viewarr.ui.theme.UiOpts.CONTROLS_SIZE, io.github.petebutty.viewarr.ui.theme.UiOpts.SEEK_PREVIEWS, io.github.petebutty.viewarr.ui.theme.UiOpts.UP_NEXT, io.github.petebutty.viewarr.ui.theme.UiOpts.MINI_SIZE, io.github.petebutty.viewarr.ui.theme.UiOpts.MINI_CORNER, io.github.petebutty.viewarr.ui.theme.UiOpts.ANIM_FILM, io.github.petebutty.viewarr.ui.theme.UiOpts.ANIM_LIVE, io.github.petebutty.viewarr.ui.theme.UiOpts.STILL_WATCHING, io.github.petebutty.viewarr.ui.theme.UiOpts.LOW_MEMORY))
+        opts.reset(listOf(io.github.petebutty.viewarr.ui.theme.UiOpts.CONTROLS_TIME, io.github.petebutty.viewarr.ui.theme.UiOpts.CONTROLS_SIZE, io.github.petebutty.viewarr.ui.theme.UiOpts.SEEK_PREVIEWS, io.github.petebutty.viewarr.ui.theme.UiOpts.UP_NEXT, io.github.petebutty.viewarr.ui.theme.UiOpts.MINI_SIZE, io.github.petebutty.viewarr.ui.theme.UiOpts.MINI_CORNER, io.github.petebutty.viewarr.ui.theme.UiOpts.ANIM_FILM, io.github.petebutty.viewarr.ui.theme.UiOpts.ANIM_LIVE, io.github.petebutty.viewarr.ui.theme.UiOpts.LIVE_CORNER, io.github.petebutty.viewarr.ui.theme.UiOpts.STILL_WATCHING, io.github.petebutty.viewarr.ui.theme.UiOpts.LOW_MEMORY))
     })
 }

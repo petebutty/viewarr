@@ -474,10 +474,11 @@ private fun GuideRow(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(start = 8.dp).weight(1f),
             )
-            if (channel.catchupDays > 0) CatchupIcon(Modifier.padding(start = 4.dp).size(14.dp))
+            if (channel.catchupDays > 0 && AppColors.palette.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.CATCHUP_ICONS) != 2) CatchupIcon(Modifier.padding(start = 4.dp).size(14.dp))
         }
         val catchupFrom = if (channel.catchupDays > 0) now - channel.catchupDays * 86_400_000L else null
         val onAccent = AppColors.OnAccent
+        val programmeIcons = AppColors.palette.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.CATCHUP_ICONS) == 0
         val accent = AppColors.Accent
         val iconColor = AppColors.TextSecondary
         val square = AppColors.palette.squareCorners
@@ -535,7 +536,7 @@ private fun GuideRow(
                 val replayable = catchupFrom != null && p.startTime < now && p.startTime >= catchupFrom
                 val iconSide = 12.dp.toPx()
                 var textX = x0 + pad
-                if (replayable && x1 - x0 > iconSide + 2 * pad) {
+                if (replayable && programmeIcons && x1 - x0 > iconSide + 2 * pad) {
                     drawCatchupIcon(Offset(textX, (size.height - iconSide) / 2f), iconSide, if (isFocused) onAccent else iconColor)
                     textX += iconSide + 5.dp.toPx()
                 }

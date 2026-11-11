@@ -12,7 +12,7 @@ Have these ready. Only the things you want to use are needed.
 | **Films & shows** | A free TMDB API key | [themoviedb.org](https://www.themoviedb.org/signup) → Settings → API → request a **Developer** key |
 | **Trakt** (watchlist, history) | A Trakt account | [trakt.tv](https://trakt.tv) |
 | **Plex** | Your Plex account | You sign in during setup |
-| **Stremio addons** | The addon's manifest link (ends in `manifest.json`) | The addon's configure page, e.g. AIOStreams → *Copy manifest URL* |
+| **Addons** | The addon's manifest link (ends in `manifest.json`) | The addon's configure page, e.g. AIOStreams → *Copy manifest URL* |
 | **Jellyfin / Emby** | The server address, plus a login (or Quick Connect for Jellyfin) | Whoever runs the server |
 
 **About your Dispatcharr account:**
@@ -48,7 +48,7 @@ Copy the code shown, tap **Open Trakt**, paste the code, and approve Viewarr. Yo
 ### Plex
 Tap **Sign in with Plex**, sign in, and allow Viewarr. If you have more than one server, pick the one to use.
 
-### Stremio addons
+### Addons
 Paste one or more manifest links, one per line. `stremio://` install links work too.
 
 ### Jellyfin / Emby
@@ -70,10 +70,11 @@ When you're done, tap **Finish on the TV**. The guide loads, which takes a minut
   - **Appearance:** colours (OLED black by default), menu transparency, guide corners, channel numbers, and Movies & Shows on/off.
   - **Home rows:** which rows the Movies and Shows pages show, and in what order.
   - **Dispatcharr plugins** (admin users): turn plugins on and off, run their actions, and install new ones.
-- **Search from anywhere:** hold **Menu (≡)** on any screen (or choose a button in Settings → Remote & navigation → Search button). Back closes it and you're where you were.
+- **Search from anywhere:** hold **Menu (≡)** on any screen (or choose a button in Settings → Remote buttons → Search & extra buttons). Back closes it and you're where you were.
 - **Seerr:** connect it in Accounts & sources (address plus the API key from Seerr → Settings → General), then hold OK on a poster → **Request on Seerr**.
   - **Playback:** which player to use, audio and subtitle language, passthrough to a receiver, and Plex quality.
-  - **Remote & navigation:** what the buttons do, and which page the app opens on.
+  - **Remote buttons:** what each button does on each screen, the search button and extra buttons.
+  - **Navigation:** Classic menus or the Live TV hub (and its shortcuts), which page the app opens on, the side menu and poster rows.
 
 ## 5. Troubleshooting
 

@@ -116,7 +116,7 @@ fun SetupWizard(
                 SetupStep.Phone -> PhoneStep(state, accounts, session, firstFocus, vm, onClose)
                 SetupStep.Welcome -> {
                     Text(
-                        "You'll choose what to connect: live TV from Dispatcharr, and films and shows from Plex, Stremio addons, " +
+                        "You'll choose what to connect: live TV from Dispatcharr, and films and shows from Plex, addons, " +
                             "Jellyfin or Emby, with TMDB and Trakt for discovery. Anything you skip can be added later in Settings.",
                         style = MaterialTheme.typography.bodyLarge,
                         color = AppColors.TextPrimary,
@@ -604,7 +604,7 @@ private fun titleFor(step: SetupStep, mode: SetupMode) = when (step) {
     SetupStep.Tmdb -> "Connect TMDB"
     SetupStep.Trakt -> "Sign in to Trakt"
     SetupStep.Plex -> "Link Plex"
-    SetupStep.Stremio -> "Add Stremio addons"
+    SetupStep.Stremio -> "Add addons"
     SetupStep.Jellyfin -> "Connect Jellyfin"
     SetupStep.Emby -> "Connect Emby"
     SetupStep.Vod -> "IPTV films & series"

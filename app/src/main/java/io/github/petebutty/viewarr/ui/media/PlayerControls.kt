@@ -79,7 +79,7 @@ class Scrubber {
 }
 
 /** The buttons under the seek bar. */
-enum class PlayerButton { PlayPause, Stop, Details, Audio, Subtitles, Info, SwitchPlayer }
+enum class PlayerButton { PlayPause, Stop, Details, Audio, Subtitles, Info, SwitchPlayer, Settings }
 
 /** A control under the seek bar: an icon, with its name shown under it when focused. */
 class OsdButton(val icon: androidx.compose.ui.graphics.vector.ImageVector, val label: String, val groupEnd: Boolean = false)
@@ -92,6 +92,7 @@ fun PlayerButton.osd(paused: Boolean, infoOn: Boolean, otherPlayer: String) = Os
         PlayerButton.Audio -> io.github.petebutty.viewarr.ui.common.AppIcons.Audio
         PlayerButton.Subtitles -> io.github.petebutty.viewarr.ui.common.AppIcons.Subtitles
         PlayerButton.Info -> io.github.petebutty.viewarr.ui.common.AppIcons.Stats
+        PlayerButton.Settings -> io.github.petebutty.viewarr.ui.common.AppIcons.Settings
         PlayerButton.SwitchPlayer -> io.github.petebutty.viewarr.ui.common.AppIcons.Swap
     },
     label(paused, infoOn, otherPlayer),
@@ -109,20 +110,57 @@ class PlayerMenu {
     var onBar by mutableStateOf(true)
     var button by androidx.compose.runtime.mutableIntStateOf(0)
     var infoOn by mutableStateOf(false)
+    /** Down from the buttons: the live TV shortcuts, [shortcut] highlighted. */
+    var onShortcuts by mutableStateOf(false)
+    var shortcut by androidx.compose.runtime.mutableIntStateOf(0)
+    /** Down from the shortcuts: the highlighted one's rows, [row] / [card] highlighted. */
+    var onRows by mutableStateOf(false)
+    var row by androidx.compose.runtime.mutableIntStateOf(0)
+    var card by androidx.compose.runtime.mutableIntStateOf(0)
     var lastKey by androidx.compose.runtime.mutableLongStateOf(0L)
     /** Opens on the seek bar, with Play / Pause highlighted below it (not the button used last time). */
-    fun show() { open = true; onBar = true; button = 0; touch() }
+    fun show() { open = true; onBar = true; button = 0; onShortcuts = false; onRows = false; touch() }
     fun touch() { lastKey = System.currentTimeMillis() }
 
     /**
      * Keys while the controls are open and not scrubbing (the players handle scrubbing themselves). True when used.
      * [beginScrub]: start the marker at the current position and move it one step ([dir], [repeat] for speed).
      */
-    fun handle(e: androidx.compose.ui.input.key.KeyEvent, buttons: List<PlayerButton>, beginScrub: (dir: Int, repeat: Int) -> Unit, press: (PlayerButton) -> Unit, upFromBar: () -> Unit = {}): Boolean {
+    fun handle(
+        e: androidx.compose.ui.input.key.KeyEvent, buttons: List<PlayerButton>, beginScrub: (dir: Int, repeat: Int) -> Unit, press: (PlayerButton) -> Unit, upFromBar: () -> Unit = {},
+        shortcutCount: Int = 0, pickShortcut: (Int) -> Unit = {},
+        /** The number of cards in each of a shortcut's rows, and opening one (row, card). */
+        rowSizes: (Int) -> List<Int> = { emptyList() }, pickCard: (Int, Int) -> Unit = { _, _ -> },
+    ): Boolean {
         val down = e.type == androidx.compose.ui.input.key.KeyEventType.KeyDown
         val a = io.github.petebutty.viewarr.ui.common.RemoteKeys.action(e)
         val repeat = e.nativeKeyEvent.repeatCount
         if (down) touch()
+        // The shortcuts (as on live TV): Left / Right move along, OK opens one (the film goes to the corner), Up back.
+        // The rows under a shortcut: Left / Right along a row, Down / Up between rows (Up from the first: shortcuts).
+        if (onRows) {
+            val sizes = rowSizes(shortcut)
+            when (a) {
+                io.github.petebutty.viewarr.ui.common.RemoteAction.Left -> if (down) card = (card - 1).coerceAtLeast(0)
+                io.github.petebutty.viewarr.ui.common.RemoteAction.Right -> if (down) card = (card + 1).coerceAtMost(((sizes.getOrNull(row) ?: 1) - 1).coerceAtLeast(0))
+                io.github.petebutty.viewarr.ui.common.RemoteAction.Up -> if (down) { if (row == 0) onRows = false else { row--; card = 0 } }
+                io.github.petebutty.viewarr.ui.common.RemoteAction.Down -> if (down && row < sizes.lastIndex) { row++; card = 0 }
+                io.github.petebutty.viewarr.ui.common.RemoteAction.Ok -> if (down && repeat == 0) pickCard(row, card)
+                else -> return false
+            }
+            return true
+        }
+        if (onShortcuts) {
+            when (a) {
+                io.github.petebutty.viewarr.ui.common.RemoteAction.Left -> if (down) shortcut = (shortcut - 1).coerceAtLeast(0)
+                io.github.petebutty.viewarr.ui.common.RemoteAction.Right -> if (down) shortcut = (shortcut + 1).coerceAtMost((shortcutCount - 1).coerceAtLeast(0))
+                io.github.petebutty.viewarr.ui.common.RemoteAction.Up -> if (down) onShortcuts = false
+                io.github.petebutty.viewarr.ui.common.RemoteAction.Ok -> if (down && repeat == 0) pickShortcut(shortcut)
+                io.github.petebutty.viewarr.ui.common.RemoteAction.Down -> if (down && rowSizes(shortcut).isNotEmpty()) { onRows = true; row = 0; card = 0 }
+                else -> return false
+            }
+            return true
+        }
         when {
             onBar && (a == io.github.petebutty.viewarr.ui.common.RemoteAction.Left || a == io.github.petebutty.viewarr.ui.common.RemoteAction.Right) -> {
                 if (down) beginScrub(if (a == io.github.petebutty.viewarr.ui.common.RemoteAction.Left) -1 else 1, repeat)
@@ -134,7 +172,7 @@ class PlayerMenu {
             !onBar && a == io.github.petebutty.viewarr.ui.common.RemoteAction.Left -> if (down) button = (button - 1).coerceAtLeast(0)
             !onBar && a == io.github.petebutty.viewarr.ui.common.RemoteAction.Right -> if (down) button = (button + 1).coerceAtMost(buttons.lastIndex)
             !onBar && a == io.github.petebutty.viewarr.ui.common.RemoteAction.Up -> if (down) onBar = true
-            !onBar && a == io.github.petebutty.viewarr.ui.common.RemoteAction.Down -> Unit
+            !onBar && a == io.github.petebutty.viewarr.ui.common.RemoteAction.Down -> if (down && shortcutCount > 0) { onShortcuts = true; shortcut = shortcut.coerceAtMost(shortcutCount - 1) }
             !onBar && a == io.github.petebutty.viewarr.ui.common.RemoteAction.Ok -> if (down && repeat == 0) buttons.getOrNull(button)?.let(press)
             else -> return false
         }
@@ -151,6 +189,7 @@ fun PlayerButton.label(paused: Boolean, infoOn: Boolean, otherPlayer: String) = 
     PlayerButton.Info -> if (infoOn) "Hide media info" else "Media info"
     PlayerButton.SwitchPlayer -> "Switch to $otherPlayer"
     PlayerButton.Stop -> "Stop"
+    PlayerButton.Settings -> "Settings"
 }
 
 /** The controls over a playing film or episode: title, seek bar (with preview while scrubbing) and times. */
@@ -170,6 +209,15 @@ fun PlayerOsd(
     buttons: List<OsdButton>? = null,
     buttonFocus: Int = -1,
     barFocused: Boolean = false,
+    /** The live TV shortcuts under the buttons (Down from them), [shortcutFocus] highlighted. */
+    shortcuts: List<io.github.petebutty.viewarr.ui.player.LiveShortcut>? = null,
+    shortcutFocus: Int = -1,
+    /** Down from the shortcuts: its rows, the [rowFocus] one shown with [cardFocus] highlighted. */
+    rows: List<io.github.petebutty.viewarr.ui.player.OsdRow>? = null,
+    rowFocus: Int = 0,
+    cardFocus: Int = 0,
+    /** Whether the shortcuts are there (Live TV hub), for the hint line. */
+    shortcutsHint: Boolean = false,
 ) {
     val scrubbing = scrubMs != null
     // Settings → Playback → Player controls size.
@@ -257,7 +305,9 @@ fun PlayerOsd(
                 when {
                     scrubbing -> "◀ ▶ move  ·  OK: jump here  ·  Back: cancel"
                     buttons != null && barFocused -> "◀ ▶ seek  ·  ▼ options  ·  ▲ pause + details$pip"
-                    buttons != null -> "▲ seek bar  ·  ⏯ play / pause$pip"
+                    rows != null -> "◀ ▶ move  ·  ▲ ▼ rows  ·  OK: open (the film carries on in a corner)"
+                    shortcuts != null -> "◀ ▶ shortcuts  ·  ▼ rows  ·  OK: open (the film carries on in a corner)  ·  ▲ buttons"
+                    buttons != null -> "▲ seek bar  ·  " + (if (shortcutsHint) "▼ shortcuts  ·  " else "") + "⏯ play / pause$pip"
                     else -> "OK: controls  ·  ◀ ▶ skip  ·  ⏯ play / pause$pip"
                 },
                 fontSize = t(13), color = Color.White.copy(alpha = 0.7f),
@@ -282,6 +332,56 @@ fun PlayerOsd(
                     )
                 }
                 if (b.groupEnd) Box(Modifier.padding(horizontal = d(10), vertical = d(10)).width(1.dp).height(d(28)).background(Color.White.copy(alpha = 0.3f)))
+            }
+        }
+        // Down from the buttons: your live TV shortcuts (Settings → Remote & navigation → Live TV shortcuts), the
+        // same row as live TV's. OK opens one; the film carries on in a corner.
+        if (shortcuts != null) {
+            val size = floatArrayOf(1f, 1.25f, 1.5f)[AppColors.palette.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.SHORTCUT_SIZE).coerceIn(0, 2)]
+            val rowState = androidx.compose.foundation.lazy.rememberLazyListState()
+            androidx.compose.runtime.LaunchedEffect(shortcutFocus) { if (shortcutFocus >= 0) runCatching { rowState.animateScrollToItem((shortcutFocus - 2).coerceAtLeast(0)) } }
+            androidx.compose.foundation.lazy.LazyRow(state = rowState, modifier = Modifier.padding(top = d(12)), horizontalArrangement = Arrangement.spacedBy(d(10)), userScrollEnabled = false) {
+                items(shortcuts.size) { i ->
+                    val sc = shortcuts[i]
+                    androidx.compose.foundation.layout.Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(io.github.petebutty.viewarr.ui.player.shortcutBox(d((64 * size).toInt())).first + d((24 * size).toInt()))) {
+                        io.github.petebutty.viewarr.ui.player.ShortcutDisc(sc, highlighted = i == shortcutFocus, size = d((64 * size).toInt()))
+                        Text(
+                            if (i == shortcutFocus) sc.label else "", fontSize = t(12), color = Color.White, maxLines = 1, softWrap = false,
+                            modifier = Modifier.padding(top = d(4)).then(Modifier.wrapContentWidth(unbounded = true)),
+                        )
+                    }
+                }
+            }
+        }
+        // The rows under the highlighted shortcut, one at a time (as on live TV).
+        val shownRow = rows?.getOrNull(rowFocus)
+        if (shownRow != null) {
+            Row(Modifier.padding(top = d(10)), verticalAlignment = Alignment.CenterVertically) {
+                Text(shownRow.title, fontSize = t(15), color = Color.White)
+                rows.getOrNull(rowFocus + 1)?.let { Text("   ·   Down: ${it.title}", fontSize = t(12), color = Color.White.copy(alpha = 0.6f)) }
+            }
+            val cardState = androidx.compose.foundation.lazy.rememberLazyListState()
+            androidx.compose.runtime.LaunchedEffect(rowFocus, cardFocus) { runCatching { cardState.animateScrollToItem((cardFocus - 1).coerceAtLeast(0)) } }
+            androidx.compose.foundation.lazy.LazyRow(state = cardState, modifier = Modifier.padding(top = d(6)), horizontalArrangement = Arrangement.spacedBy(d(12)), userScrollEnabled = false) {
+                items(shownRow.items.size) { i ->
+                    val p = shownRow.items[i]
+                    val on = i == cardFocus
+                    androidx.compose.foundation.layout.Column(Modifier.width(d(176))) {
+                        Box(
+                            Modifier.size(d(176), d(99)).clip(RoundedCornerShape(8.dp))
+                                .background(Color.White.copy(alpha = 0.1f))
+                                .then(if (on) Modifier.border(2.dp, AppColors.Accent, RoundedCornerShape(8.dp)) else Modifier),
+                        ) {
+                            if (p.image != null) coil.compose.AsyncImage(
+                                p.image, null,
+                                contentScale = if (p.logo) androidx.compose.ui.layout.ContentScale.Fit else androidx.compose.ui.layout.ContentScale.Crop,
+                                modifier = if (p.logo) Modifier.fillMaxSize().padding(horizontal = d(28), vertical = d(18)) else Modifier.fillMaxSize(),
+                            )
+                        }
+                        Text(p.title, fontSize = t(12), color = if (on) Color.White else Color.White.copy(alpha = 0.7f), maxLines = 1, modifier = Modifier.padding(top = d(5)))
+                        p.subtitle?.let { Text(it, fontSize = t(11), color = Color.White.copy(alpha = 0.6f), maxLines = 1) }
+                    }
+                }
             }
         }
     }

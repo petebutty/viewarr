@@ -43,6 +43,7 @@ import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -69,9 +70,24 @@ class SettingItem(
     val slider: Boolean = false,
     /** Reorderable (e.g. Live TV shortcuts): Right picks the row up, Up / Down move it (by -1 / +1), Right or OK puts it down. */
     val reorder: ((Int) -> Unit)? = null,
+    /**
+     * Shown but can't be changed: another setting decides it (Low-memory mode, the Live TV hub style). The note says
+     * why and how to unlock it; OK does nothing.
+     */
+    val locked: String? = null,
     val onSelect: (RemoteChoice) -> Unit,
 ) {
     val isToggle get() = action == null && choices.size == 2 && choices.map { it.label }.toSet() == setOf("On", "Off")
+    /** This row locked with [note] (null: as it is). */
+    fun locked(note: String?): SettingItem =
+        if (note == null) this else SettingItem(title, description, choices, current, action, slider, null, note, onSelect)
+}
+
+/** Lock notes, the same words everywhere. */
+object Locks {
+    const val LOW_MEMORY = "Off in Low-memory mode. To use it, switch off Settings → Playback → Low-memory mode."
+    const val LIVE_HUB = "Set by the Live TV hub style. To choose it yourself, set Settings → Navigation → Start → Style to Classic."
+    const val NEEDS_HUB = "Part of the Live TV hub. To use it, set Settings → Navigation → Start → Style to Live TV hub."
 }
 
 /** [header]: drawn above the items (e.g. Remote & navigation's remote picture); not focusable. */
@@ -90,6 +106,7 @@ fun Modifier.leftReturnsTo(target: () -> FocusRequester?): Modifier = onKeyEvent
  * Full-screen settings: categories on the left, their settings on the right, each with a plain explanation.
  * OK flips a toggle, or opens the list of choices.
  */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun SettingsPage(
     title: String,
@@ -101,7 +118,10 @@ fun SettingsPage(
     // The open category, kept by name: a setting can add or hide categories (low-memory mode hides some), and an
     // index alone then pointed past the end (crash) or at the wrong one.
     var categoryName by remember { mutableStateOf<String?>(null) }
-    val category = categories.indexOfFirst { it.name == categoryName }.takeIf { it >= 0 } ?: 0
+    // A category that's gone (e.g. "Live TV hub" once the hub is turned on from it): the one now in its place.
+    var lastCategory by remember { androidx.compose.runtime.mutableIntStateOf(0) }
+    val category = categories.indexOfFirst { it.name == categoryName }.takeIf { it >= 0 } ?: lastCategory.coerceIn(0, maxOf(0, categories.lastIndex))
+    androidx.compose.runtime.SideEffect { lastCategory = category }
     // The settings list starts at the top for each category (it kept the last one's scroll).
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
     val pageScope = androidx.compose.runtime.rememberCoroutineScope()
@@ -114,6 +134,26 @@ fun SettingsPage(
     val catFocus = remember(categories.map { it.name }) { categories.map { FocusRequester() } }
     // After a choice list closes, focus goes back to the setting it was opened from (it used to vanish).
     val rowFocus = remember { HashMap<String, FocusRequester>() }
+    // A row that changes place when it's changed (a Live TV shortcut turned on, or moved): focus follows it there
+    // (it stayed on the old spot and vanished).
+    var refocus by remember { mutableStateOf<String?>(null) }
+    // Where that row was: if it's gone (taken out of a list), the row now in its place gets focus.
+    var refocusAt by remember { androidx.compose.runtime.mutableIntStateOf(0) }
+    val currentItems = categories.getOrNull(category)?.items.orEmpty()
+    val hasHeader = categories.getOrNull(category)?.header != null
+    LaunchedEffect(refocus, currentItems.map { it.title }) {
+        val wanted = refocus ?: return@LaunchedEffect
+        val found = currentItems.indexOfFirst { it.title == wanted }
+        val idx = if (found >= 0) found else refocusAt.coerceAtMost(currentItems.lastIndex)
+        if (idx < 0) return@LaunchedEffect
+        val t = currentItems[idx].title
+        val listIdx = idx + if (hasHeader) 1 else 0
+        val visible = listState.layoutInfo.visibleItemsInfo.any { it.index == listIdx }
+        if (!visible) runCatching { listState.scrollToItem((listIdx - 2).coerceAtLeast(0)) }
+        awaitFrame()
+        runCatching { rowFocus[t]?.requestFocus() }
+        refocus = null
+    }
     var returnTo by remember { mutableStateOf<String?>(null) }
     fun closeChoices() {
         returnTo = choosing?.title
@@ -130,7 +170,19 @@ fun SettingsPage(
         awaitFrame()
         runCatching { catFocus[0].requestFocus() }
     }
-    Box(Modifier.fillMaxSize().appBackground(readable = true).trapFocus()) {
+    // Safety net: if focus ever drops out of the page (a list redrawing, a pop-up closing), it goes back to the last
+    // row used, else the open category, instead of leaving nothing highlighted.
+    var pageHasFocus by remember { mutableStateOf(true) }
+    var lastRow by remember { mutableStateOf<String?>(null) }
+    // (Not while a pop-up has the screen, e.g. the Live TV hub guide: then when it closes.)
+    val windowFocused = androidx.compose.ui.platform.LocalWindowInfo.current.isWindowFocused
+    LaunchedEffect(pageHasFocus, choosing, windowFocused) {
+        if (pageHasFocus || choosing != null || !windowFocused) return@LaunchedEffect
+        kotlinx.coroutines.delay(200)
+        val row = lastRow?.takeIf { t -> currentItems.any { it.title == t } }?.let { rowFocus[it] }
+        if (row == null || runCatching { row.requestFocus() }.isFailure) runCatching { catFocus.getOrNull(category)?.requestFocus() }
+    }
+    Box(Modifier.fillMaxSize().appBackground(readable = true).onFocusChanged { pageHasFocus = it.hasFocus }.trapFocus()) {
         Row(Modifier.fillMaxSize().padding(horizontal = 56.dp, vertical = 40.dp)) {
             Column(Modifier.width(300.dp).fillMaxHeight()) {
                 Text("Settings", fontSize = 14.sp, color = AppColors.Accent)
@@ -151,6 +203,13 @@ fun SettingsPage(
                                     pageScope.launch {
                                         runCatching { listState.scrollToItem(0) }
                                         awaitFrame()
+                                        // A section's picture (Remote & navigation) can be taller than the screen on
+                                        // some TVs: the first row was then off screen and focus had nowhere to go.
+                                        val firstIdx = if (categories[i].header != null) 1 else 0
+                                        if (listState.layoutInfo.visibleItemsInfo.none { it.index == firstIdx && it.offset + it.size <= listState.layoutInfo.viewportEndOffset }) {
+                                            runCatching { listState.scrollToItem(firstIdx) }
+                                            awaitFrame()
+                                        }
                                         runCatching { rowFocus[first]?.requestFocus() }
                                     }
                                     true
@@ -173,6 +232,23 @@ fun SettingsPage(
             val c = categories[category]
             Column(Modifier.weight(1f).fillMaxHeight().leftReturnsTo { catFocus[category] }) {
                 Text(c.blurb, fontSize = 14.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(top = 26.dp, bottom = 14.dp, start = 4.dp))
+                // Android TV's own scrolling keeps the focused row about a third of the way down, which pushed a
+                // section's picture (Remote & navigation) half off the top. Here the list only moves when the row
+                // would go off screen, keeping a row's margin; the first row brings the list right back to the top.
+                val margin = with(androidx.compose.ui.platform.LocalDensity.current) { 70.dp.toPx() }
+                val gentle = remember(margin) {
+                    object : androidx.compose.foundation.gestures.BringIntoViewSpec {
+                        override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float {
+                            val m = margin.coerceAtMost(((containerSize - size) / 2f).coerceAtLeast(0f))
+                            return when {
+                                offset < m -> offset - m
+                                offset + size > containerSize - m -> offset + size - (containerSize - m)
+                                else -> 0f
+                            }
+                        }
+                    }
+                }
+                androidx.compose.runtime.CompositionLocalProvider(androidx.compose.foundation.gestures.LocalBringIntoViewSpec provides gentle) {
                 LazyColumn(Modifier.stopAt(androidx.compose.ui.focus.FocusDirection.Down), state = listState, verticalArrangement = Arrangement.spacedBy(6.dp), contentPadding = PaddingValues(bottom = 40.dp)) {
                     c.header?.let { h -> item(key = c.name + "#header") { h() } }
                     itemsIndexed(c.items, key = { _, it -> c.name + it.title }) { index, item ->
@@ -181,18 +257,34 @@ fun SettingsPage(
                             item, enabled = choosing == null, focus = rowFocusReq,
                             moving = moving == item.title,
                             onMove = { picked -> moving = if (picked) item.title else null },
-                            onMoved = {
-                                // Keep the moved row in view and focused after the list reorders.
-                                pageScope.launch { awaitFrame(); runCatching { listState.animateScrollToItem((index - 2).coerceAtLeast(0)) }; runCatching { rowFocusReq.requestFocus() } }
+                            onMoved = { refocus = item.title },
+                            onFocused = {
+                                lastRow = item.title
+                                // The first row shows the section's picture above it in full, when both fit on screen.
+                                if (index == 0 && c.header != null) pageScope.launch {
+                                    awaitFrame()
+                                    val info = listState.layoutInfo
+                                    val head = info.visibleItemsInfo.firstOrNull { it.index == 0 }?.size
+                                    val row = info.visibleItemsInfo.firstOrNull { it.index == 1 }?.size ?: return@launch
+                                    if (head != null && head + row + 20 <= info.viewportEndOffset - info.viewportStartOffset) runCatching { listState.animateScrollToItem(0) }
+                                }
                             },
                         ) {
                             if (moving == item.title) moving = null
+                            else if (item.locked != null) Unit
                             else if (item.slider) Unit
                             else if (item.action != null) item.action.invoke()
-                            else if (item.isToggle) item.onSelect(item.choices.first { it != item.current })
+                            else if (item.isToggle) {
+                                item.onSelect(item.choices.first { it != item.current })
+                                // Reorderable lists move a row when it's turned on / off: focus follows it there.
+                                // The list redraws after a switch (rows can move, or the redraw drops focus):
+                                // focus goes back to the switched row, or the one now in its place.
+                                refocusAt = c.items.indexOf(item); refocus = item.title
+                            }
                             else choosing = item
                         }
                     }
+                }
                 }
             }
         }
@@ -204,11 +296,12 @@ fun SettingsPage(
 private fun SettingRow(
     item: SettingItem, enabled: Boolean, focus: FocusRequester,
     moving: Boolean = false, onMove: (Boolean) -> Unit = {}, onMoved: () -> Unit = {},
+    onFocused: () -> Unit = {},
     onClick: () -> Unit,
 ) {
     Surface(
         onClick = onClick,
-        modifier = Modifier.fillMaxWidth().focusRequester(focus).focusProperties { canFocus = enabled }
+        modifier = Modifier.fillMaxWidth().focusRequester(focus).focusProperties { canFocus = enabled }.onFocusChanged { if (it.isFocused) onFocused() }
             .then(if (item.reorder == null) Modifier else Modifier.onPreviewKeyEvent { e ->
                 // Right: pick up / put down. While picked up, Up / Down move the row (and nothing else moves focus).
                 if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent moving && e.key != Key.Back
@@ -221,7 +314,7 @@ private fun SettingRow(
                     else -> false
                 }
             })
-            .then(if (!item.slider) Modifier else Modifier.onPreviewKeyEvent { e ->
+            .then(if (!item.slider || item.locked != null) Modifier else Modifier.onPreviewKeyEvent { e ->
                 // Slider: Left / Right change the value; Left at the lowest goes back to the categories as usual.
                 if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 val i = item.choices.indexOf(item.current).coerceAtLeast(0)
@@ -242,12 +335,14 @@ private fun SettingRow(
     ) {
         Row(Modifier.padding(horizontal = 18.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             if (moving) Text("↕ ", fontSize = 18.sp)
-            Column(Modifier.weight(1f)) {
-                Text(item.title, fontSize = 16.sp, fontWeight = FontWeight.Medium)
-                Text(item.description, fontSize = 12.sp, maxLines = 3, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp))
+            Column(Modifier.weight(1f).graphicsLayer { alpha = if (item.locked != null) 0.75f else 1f }) {
+                Text((if (item.locked != null) "🔒 " else "") + item.title, fontSize = 16.sp, fontWeight = FontWeight.Medium)
+                if (item.description.isNotEmpty()) Text(item.description, fontSize = 12.sp, maxLines = 3, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp))
+                item.locked?.let { Text(it, fontSize = 12.sp, fontWeight = FontWeight.Medium, maxLines = 3, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp)) }
             }
             Spacer(Modifier.width(20.dp))
-            if (item.slider) {
+            if (item.locked != null) Text("Locked", fontSize = 14.sp, modifier = Modifier.graphicsLayer { alpha = 0.75f })
+            else if (item.slider) {
                 val i = item.choices.indexOf(item.current).coerceAtLeast(0)
                 val fraction = if (item.choices.size > 1) i / item.choices.lastIndex.toFloat() else 0f
                 Row(Modifier.width(260.dp), verticalAlignment = Alignment.CenterVertically) {

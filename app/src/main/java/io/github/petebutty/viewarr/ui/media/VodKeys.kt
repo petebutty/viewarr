@@ -40,6 +40,12 @@ class VodHooks(
     val stepBack: () -> Unit = {},
     /** Settings → Remote → Buttons for films: what a colour button / Info press does (null: not one of those). */
     val tableAction: (KeyEvent) -> io.github.petebutty.viewarr.data.settings.BtnAction? = { null },
+    /** The live TV shortcuts under the controls: how many, and opening one (the film goes to the corner). */
+    val shortcutCount: () -> Int = { 0 },
+    val pickShortcut: (Int) -> Unit = {},
+    /** The rows under a shortcut (their sizes), and opening a card (row, card). */
+    val rowSizes: (Int) -> List<Int> = { emptyList() },
+    val pickCard: (Int, Int) -> Unit = { _, _ -> },
 )
 
 /**
@@ -107,6 +113,8 @@ class VodKeys(private val scrub: Scrubber, private val menu: PlayerMenu) {
                 press = h.press,
                 // Up from the seek bar: pause, with what's playing (its synopsis) on screen.
                 upFromBar = { p.pause(); h.showDetails(); menu.open = false },
+                shortcutCount = h.shortcutCount(), pickShortcut = h.pickShortcut,
+                rowSizes = h.rowSizes, pickCard = h.pickCard,
             )
         ) return true
         // Tap OK: the controls (Play/Pause on the remote pauses). Hold OK: audio & subtitles.

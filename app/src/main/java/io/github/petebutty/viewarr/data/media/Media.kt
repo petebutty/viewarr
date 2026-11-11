@@ -51,6 +51,9 @@ data class PlexEpisode(val ratingKey: String, val viewOffsetMs: Long, val watche
  * A row of titles. Rows with the same [group] are shown as one (e.g. continue watching on every server, or the
  * same library's recently added on two Plex servers); [groupName] is the library name for the merged title.
  */
+/** A shortcut's logo: [square] app icons (streaming services) fill the circle; network logos sit on a light disc. */
+data class ServiceLogo(val url: String, val square: Boolean)
+
 data class MediaRow(val id: String, val title: String, val items: List<MediaItem>, val group: String? = null, val groupName: String? = null)
 
 /**

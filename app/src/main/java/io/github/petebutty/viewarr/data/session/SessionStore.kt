@@ -33,7 +33,7 @@ data class Session(
     val isDirect get() = isXc || isM3u
     /** Identifies a saved source (the same server and login is the same source). */
     val id get() = "${serverUrl.trimEnd('/')}|$username|${if (isM3u) "m3u" else if (isXc) "xc" else "d"}"
-    /** How it's listed: "Dispatcharr · 192.168.1.50 (pete)", "IPTV · provider.tv (user)", "Playlist · host". */
+    /** How it's listed: "Dispatcharr · 192.168.0.10 (alex)", "IPTV · provider.tv (user)", "Playlist · host". */
     val label: String get() {
         name?.takeIf { it.isNotBlank() }?.let { return it }
         val host = runCatching { java.net.URI(if ("://" in serverUrl) serverUrl else "http://$serverUrl").host }.getOrNull() ?: serverUrl

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Live TV shortcuts: music from Navidrome (no logo on TMDB). A note on Navidrome blue. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="96dp" android:height="96dp" android:viewportWidth="96" android:viewportHeight="96">
+  <path android:fillColor="#2273D8" android:pathData="M48,0A48,48 0 1,1 48,96A48,48 0 1,1 48,0Z"/>
+  <path android:fillColor="#FFFFFF" android:pathData="M58,24L58,56A9,9 0 1,1 52,47.5L52,34L40,37L40,62A9,9 0 1,1 34,53.5L34,30Z"/>
+</vector>

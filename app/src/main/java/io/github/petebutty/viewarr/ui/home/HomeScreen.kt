@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -45,6 +46,9 @@ import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.onKeyEvent
+import io.github.petebutty.viewarr.ui.common.ignoreHeldOk
+import kotlinx.coroutines.flow.first
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -206,6 +210,15 @@ fun HomeScreen(
     var digitsToken by remember { mutableLongStateOf(0L) }
     var digitsMessage by remember { mutableStateOf<String?>(null) }
     var fullscreen by rememberSaveable { mutableStateOf(false) }
+    // Live TV hub: the channel carries on in a corner over another page (Settings → Playback → Live TV).
+    var liveCorner by remember { mutableStateOf(false) }
+    // The film player's Settings button opened the menu (its film is in the corner meanwhile).
+    var settingsFromFilm by remember { mutableStateOf(false) }
+    // Full-screen live TV: Left asks "Rewind?" first (a second Left, or holding it, rewinds), so a stray press
+    // doesn't drop you out of live. When it was asked; 0: not asking.
+    var rewindAsk by remember { mutableLongStateOf(0L) }
+    // A hold that already rewound: the rest of that press is ignored (each repeat would rewind again).
+    var rewindHeld by remember { mutableStateOf(false) }
     var bannerToken by remember { mutableLongStateOf(0L) }
     var bannerVisible by remember { mutableStateOf(false) }
     var osdVisible by remember { mutableStateOf(false) }
@@ -236,7 +249,9 @@ fun HomeScreen(
     // Leaving full screen (guide, another page) ends multi-view; it mustn't reappear next time.
     LaunchedEffect(fullscreen) { if (!fullscreen) multiView = false }
     var osdAudio by remember { mutableStateOf(false) }
-    var osdToken by remember { mutableLongStateOf(0L) }
+    // When the live controls were last used: a plain holder, not state. As state, every press inside the controls
+    // rebuilt the whole home screen (guide, shortcuts, poster rows), which made them sluggish.
+    val osdUsedAt = remember { longArrayOf(0L) }
     val guideFocus = remember { FocusRequester() }
     val playerFocus = remember { FocusRequester() }
     val playing by playback.channel.collectAsStateWithLifecycle()
@@ -289,7 +304,7 @@ fun HomeScreen(
         osdAudio = audio
         bannerVisible = false
         osdVisible = true
-        osdToken = System.nanoTime()
+        osdUsedAt[0] = System.currentTimeMillis()
     }
 
     /** A press from the button table (Settings → Remote → Buttons) on the guide, live TV or a page. */
@@ -337,8 +352,17 @@ fun HomeScreen(
             io.github.petebutty.viewarr.data.settings.BtnAction.Banner -> showBanner()
             io.github.petebutty.viewarr.data.settings.BtnAction.AudioSubs -> showOsd(audio = true)
             io.github.petebutty.viewarr.data.settings.BtnAction.Search -> { channelListOpen = false; searchStart = null; quickSearch = true }
+            // Live TV stops (catch-up too): the guide with nothing playing, where Back asks to exit.
+            io.github.petebutty.viewarr.data.settings.BtnAction.Stop -> if (ch != null || catchup != null) {
+                playback.stop()
+                osdVisible = false
+                channelListOpen = false
+                multiView = false
+                fullscreen = false
+                bannerVisible = false
+            }
             // Films only (VodKeys).
-            io.github.petebutty.viewarr.data.settings.BtnAction.Details, io.github.petebutty.viewarr.data.settings.BtnAction.PlayPause, io.github.petebutty.viewarr.data.settings.BtnAction.Stop -> Unit
+            io.github.petebutty.viewarr.data.settings.BtnAction.Details, io.github.petebutty.viewarr.data.settings.BtnAction.PlayPause -> Unit
         }
     }
 
@@ -358,7 +382,12 @@ fun HomeScreen(
             else -> return false
         }
         // Settings → Remote → Buttons: "Nothing" still takes the hold (it isn't also a tap of Back).
-        doButton(screen, io.github.petebutty.viewarr.data.settings.ButtonMap.action(remote, screen, io.github.petebutty.viewarr.data.settings.BtnPress.BackHold))
+        var act = io.github.petebutty.viewarr.data.settings.ButtonMap.action(remote, screen, io.github.petebutty.viewarr.data.settings.BtnPress.BackHold)
+        // The guide must always have a way to the menu: with Left never opening it and Back not either, hold Back does.
+        if (screen == io.github.petebutty.viewarr.data.settings.BtnScreen.Guide && remote.guideLeft == io.github.petebutty.viewarr.data.settings.GuideLeft.AlwaysPast && remote.guideBack != GuideBack.Menu &&
+            act !in setOf(io.github.petebutty.viewarr.data.settings.BtnAction.GroupsMenu, io.github.petebutty.viewarr.data.settings.BtnAction.MainMenu)
+        ) act = io.github.petebutty.viewarr.data.settings.BtnAction.GroupsMenu
+        doButton(screen, act)
         return true
     }
 
@@ -378,10 +407,13 @@ fun HomeScreen(
             bannerVisible = false
         }
     }
-    LaunchedEffect(osdToken) {
-        if (osdVisible) {
-            delay(8_000)
-            osdVisible = false
+    // The live controls close 8 s after they were last used.
+    LaunchedEffect(osdVisible) {
+        if (!osdVisible) return@LaunchedEffect
+        while (true) {
+            val left = 8_000 - (System.currentTimeMillis() - osdUsedAt[0])
+            if (left <= 0) { osdVisible = false; break }
+            delay(left)
         }
     }
     LaunchedEffect(remote.loaded) {
@@ -427,13 +459,20 @@ fun HomeScreen(
     // its player let go (it carried on underneath, sound and all). Picking a channel afterwards starts it afresh.
     val vodOver = io.github.petebutty.viewarr.ui.media.VodHost.active
     LaunchedEffect(vodOver) {
-        if (vodOver) { fullscreen = false; playback.close() }
+        if (vodOver) { fullscreen = false; liveCorner = false; playback.close() }
     }
     // …and a channel started while a film is in the corner ends the film (one stream, one sound).
     LaunchedEffect(playing?.id) { if (playing != null) { io.github.petebutty.viewarr.ui.media.VodHost.close(); io.github.petebutty.viewarr.playback.MusicPlayer.stop() } }
     // Music starting ends Live TV (as a film does).
     val musicOn = io.github.petebutty.viewarr.playback.MusicPlayer.active
-    LaunchedEffect(musicOn) { if (musicOn) { fullscreen = false; playback.close() } }
+    LaunchedEffect(musicOn) { if (musicOn) { fullscreen = false; liveCorner = false; playback.close() } }
+    // A full-screen trailer (title page → Trailer) ends live TV too; it was silent with the channel still playing.
+    val trailerOn = io.github.petebutty.viewarr.ui.media.FullTrailer.active
+    LaunchedEffect(trailerOn) { if (trailerOn) { fullscreen = false; liveCorner = false; playback.close() } }
+    // Back on the guide (or the channel stopped): nothing in the corner any more.
+    LaunchedEffect(page, playing == null) { if (page == Page.Tv || playing == null) liveCorner = false }
+    val cornerNow = liveCorner && playing != null && page != Page.Tv
+    androidx.compose.runtime.SideEffect { io.github.petebutty.viewarr.ui.player.LiveCorner.on = cornerNow }
     // Settings → Playback → Still watching?: after hours without a button press on live TV, ask, then stop (a TV left
     // on otherwise holds a provider connection all night).
     var lastKeyAt by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -458,6 +497,16 @@ fun HomeScreen(
     // seconds exits. The menu handles its own Back (list → main menu → closed).
     val activity = LocalContext.current as? Activity
     var exitArmed by remember { mutableLongStateOf(0L) }
+    /**
+     * The menu was opened by Back in the guide (TV guide → Back: Open the menu, as TiviMate): Back out of it asks to
+     * exit, and Back once more exits (it used to close the menu, and Back opened it again: no way out).
+     */
+    var menuFromGuideBack by remember { mutableStateOf(false) }
+    LaunchedEffect(menuOpen) { if (!menuOpen) menuFromGuideBack = false }
+    /** When Back last took full screen down to the guide (a quick second Back then asks to exit). */
+    var guideFromFullAt by remember { mutableLongStateOf(0L) }
+    /** The guide's Back (Settings → Remote & navigation → TV guide). */
+    val guideBack = remote.guideBack
     /** Live TV hub: back to the channel watched last, full screen. False when there's none to go back to. */
     fun goLive(): Boolean {
         val s = session ?: return false
@@ -478,8 +527,12 @@ fun HomeScreen(
     }
 
     fun backOnPage() {
+        // A film opened a shortcut and is in the corner: Back takes it full screen again (as live TV does).
+        if (io.github.petebutty.viewarr.ui.media.VodHost.active && io.github.petebutty.viewarr.ui.media.VodHost.mini) { io.github.petebutty.viewarr.ui.media.VodHost.expand(); return }
         // Live TV hub (Settings → Remote & navigation → Style): Back from a page goes back to the channel.
-        if (remote.navStyle == io.github.petebutty.viewarr.data.settings.NavStyle.LiveHub && page != Page.Tv && goLive()) return
+        // Also whenever the channel is still playing in the corner: Back takes it full screen again.
+        if ((remote.navStyle == io.github.petebutty.viewarr.data.settings.NavStyle.LiveHub || (liveCorner && playing != null)) &&
+            page != Page.Tv && goLive()) return
         if (exitArmed != 0L) activity?.finish() else exitArmed = System.currentTimeMillis()
     }
     LaunchedEffect(exitArmed) {
@@ -487,17 +540,23 @@ fun HomeScreen(
     }
     // Back returns to live TV first when browsing the past/future, then asks to exit (or opens the menu).
     BackHandler(enabled = page == Page.Tv && !menuOpen && !fullscreen && !showAccounts && !quickSearch) {
+        val toFull = guideBack == GuideBack.FullScreen && playing != null
         when {
             !vm.isAtNow() -> vm.goToNow()
+            // "Press Back again to exit" is up: this Back exits.
+            exitArmed != 0L -> backOnPage()
+            // Back twice quickly from full screen asks to exit (as before 0.23), rather than swapping straight back.
+            toFull && System.currentTimeMillis() - guideFromFullAt < 1_500 -> backOnPage()
             // Back to the channel playing in the preview, full screen (Back there brings you here again).
-            remote.guideBack == GuideBack.FullScreen && playing != null -> { fullscreen = true; showBanner() }
-            remote.guideBack == GuideBack.Menu -> menuOpen = true
+            toFull -> { fullscreen = true; showBanner() }
+            guideBack == GuideBack.Menu -> { menuOpen = true; menuFromGuideBack = true }
             else -> backOnPage()
         }
     }
     BackHandler(enabled = fullscreen && !osdVisible) {
         fullscreen = false
         bannerVisible = false
+        guideFromFullAt = System.currentTimeMillis()
     }
 
     fun tuneTyped() {
@@ -540,7 +599,11 @@ fun HomeScreen(
         (if (show) showsVm else moviesVm).open(item)
     }
 
-    fun openPage(p: Page) {
+    /**
+     * [keepLive]: leaving live TV for this page leaves the channel playing in a corner (a shortcut under the live
+     * controls, or any page in the Live TV hub style), unless that's switched off or the box is short of memory.
+     */
+    fun openPage(p: Page, keepLive: Boolean = remote.navStyle == io.github.petebutty.viewarr.data.settings.NavStyle.LiveHub) {
         // Search never replaces what's on screen: it slides over it, and Back returns you there.
         if (p == Page.Search) {
             menuOpen = false
@@ -548,7 +611,14 @@ fun HomeScreen(
             return
         }
         if (p != Page.Tv && page == Page.Tv) {
-            playback.stop()
+            val pal = io.github.petebutty.viewarr.ui.theme.AppColors.palette
+            // (Only in the Live TV hub style.)
+            if (keepLive && remote.navStyle == io.github.petebutty.viewarr.data.settings.NavStyle.LiveHub && playing != null && !multiView &&
+                pal.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.LIVE_CORNER) == 0 && !pal.lowMemory) {
+                liveCorner = true
+                bannerVisible = false
+                osdVisible = false
+            } else playback.stop()
             fullscreen = false
         }
         page = p
@@ -560,12 +630,49 @@ fun HomeScreen(
     val movieMenuRows by moviesVm.menuRows.collectAsStateWithLifecycle()
     val showMenuRows by showsVm.menuRows.collectAsStateWithLifecycle()
     val musicOnNow by musicVm.enabled.collectAsStateWithLifecycle()
-    LaunchedEffect(osdVisible) { if (osdVisible) { moviesVm.loadLibraries(MediaType.Movie); showsVm.loadLibraries(MediaType.Show) } }
+    // Settings → Remote & navigation → Live TV shortcuts → Poster rows (off in Low memory mode: no pictures).
+    val postersOn = AppColors.palette.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.OSD_POSTERS) == 0 && !AppColors.palette.lowMemory
+    LaunchedEffect(osdVisible) {
+        if (!osdVisible) return@LaunchedEffect
+        moviesVm.loadLibraries(MediaType.Movie); showsVm.loadLibraries(MediaType.Show)
+        // Row and network shortcuts come from the pages' rows (Plex rows, AIOMetadata's networks): load them too.
+        moviesVm.load(MediaType.Movie); showsVm.load(MediaType.Show)
+        if (postersOn) {
+            moviesVm.loadContinue(MediaType.Movie); showsVm.loadContinue(MediaType.Show)
+            moviesVm.loadRecent(MediaType.Movie); showsVm.loadRecent(MediaType.Show)
+        }
+    }
+    // The music service in use (its logo on the music shortcuts).
+    val musicSources by musicVm.sources.collectAsStateWithLifecycle()
+    val musicSourceName = musicSources.firstOrNull { it.on }?.name
+    /**
+     * The Refresh shortcut: every row again from your addons (AIOMetadata, AIOStreams…), Plex, Jellyfin and Emby, with
+     * the libraries and Continue watching, so the shortcuts and their previews show what's there now.
+     */
+    fun refreshShortcuts() {
+        digitsMessage = "Refreshing your shortcuts…"
+        digitsToken = System.nanoTime()
+        listOf(moviesVm to MediaType.Movie, showsVm to MediaType.Show).forEach { (m, t) ->
+            m.load(t, force = true); m.loadLibraries(t, force = true); m.loadContinue(t, force = true)
+        }
+        fromStartScope.launch {
+            val done = kotlinx.coroutines.withTimeoutOrNull(60_000) {
+                moviesVm.menuRows.first { it.done }; showsVm.menuRows.first { it.done }
+            }
+            digitsMessage = if (done != null) "Shortcuts up to date" else "Some addons are slow to answer: their rows will appear when they do"
+            digitsToken = System.nanoTime()
+        }
+    }
     val liveShortcuts: List<Pair<io.github.petebutty.viewarr.ui.player.LiveShortcut, () -> Unit>> = run {
         val all = io.github.petebutty.viewarr.ui.player.LiveShortcuts.candidates(
-            movieLibs.orEmpty(), showLibs.orEmpty(), movieMenuRows.rows, showMenuRows.rows, musicOnNow,
+            movieLibs.orEmpty(), showLibs.orEmpty(), movieMenuRows.rows, showMenuRows.rows, musicOnNow, musicSourceName,
         ).associateBy { it.id }
-        (remote.liveShortcuts ?: io.github.petebutty.viewarr.ui.player.LiveShortcuts.defaults).mapNotNull { id ->
+        val rowsForIds = movieMenuRows.rows + showMenuRows.rows
+        val saved = (remote.liveShortcuts ?: io.github.petebutty.viewarr.ui.player.LiveShortcuts.defaults)
+            .mapNotNull { io.github.petebutty.viewarr.ui.player.LiveShortcuts.resolve(it, all, rowsForIds) }.distinctBy { it.id }
+        // Nothing usable saved (everything gone, or not loaded yet): the defaults rather than an empty row.
+        val use = saved.ifEmpty { io.github.petebutty.viewarr.ui.player.LiveShortcuts.defaults.mapNotNull { all[it] } }
+        use.map { it.id }.mapNotNull { id ->
             val sc = all[id] ?: return@mapNotNull null
             sc to {
                 osdVisible = false
@@ -574,21 +681,207 @@ fun HomeScreen(
                 val mvm = if (type == MediaType.Show) showsVm else moviesVm
                 val target = if (type == MediaType.Show) Page.Shows else Page.Movies
                 when (parts[0]) {
-                    "home" -> { mvm.openLibrary(null, type); mvm.jumpTo(null); openPage(target) }
-                    "lib" -> { (if (type == MediaType.Show) showLibs else movieLibs).orEmpty().firstOrNull { it.key == parts[2] }?.let { mvm.openLibrary(it, type) }; openPage(target) }
-                    "row" -> { mvm.openLibrary(null, type); mvm.jumpTo(parts[2]); openPage(target) }
+                    "home" -> { mvm.openLibrary(null, type); mvm.jumpTo(null); openPage(target, keepLive = true) }
+                    "lib" -> { (if (type == MediaType.Show) showLibs else movieLibs).orEmpty().firstOrNull { it.key == parts[2] }?.let { mvm.openLibrary(it, type) }; openPage(target, keepLive = true) }
+                    "row" -> { mvm.openLibrary(null, type); mvm.jumpTo(parts[2]); openPage(target, keepLive = true) }
+                    "set" -> {
+                        mvm.openLibrary(null, type); mvm.jumpTo(null)
+                        // A network: its film rows follow its show rows on the same page (named "… (films)").
+                        val other = if (type == MediaType.Show) movieMenuRows.rows else showMenuRows.rows
+                        val extra = if (!parts[2].startsWith("name:")) emptyList() else other
+                            .filter { io.github.petebutty.viewarr.ui.player.RowSets.matches(parts[2], it) }
+                            .map { it.copy(title = it.title + if (type == MediaType.Show) " (films)" else " (shows)") }
+                        mvm.showRowSet(parts[2], extra)
+                        openPage(target, keepLive = true)
+                    }
+                    // Music: straight into Albums, Artists, Playlists… (the channel carries on in the corner).
+                    "music" -> {
+                        runCatching { io.github.petebutty.viewarr.ui.music.MusicBrowseKind.valueOf(parts[1]) }.getOrNull()?.let { musicVm.openBrowse(it) }
+                        openPage(Page.Music, keepLive = true)
+                    }
                     "page" -> when (parts[1]) {
                         "Guide" -> fullscreen = false
-                        "Music" -> openPage(Page.Music)
-                        "Recordings" -> openPage(Page.Recordings)
+                        "Music" -> openPage(Page.Music, keepLive = true)
+                        "Recordings" -> openPage(Page.Recordings, keepLive = true)
                         "Settings" -> { menuOnSettings = true; menuOpen = true }
                         else -> { searchStart = null; quickSearch = true }
                     }
                 }
             }
-        }
+        } + listOf(
+            // Last in the row: fetch every row again from your addons (AIOMetadata, AIOStreams…) and servers, so new
+            // networks and fresh catalogues turn up without restarting Viewarr. (Not movable or hideable.)
+            io.github.petebutty.viewarr.ui.player.LiveShortcut(REFRESH_SHORTCUT, "Refresh", io.github.petebutty.viewarr.ui.common.AppIcons.Refresh,
+                colors = io.github.petebutty.viewarr.ui.player.ShortcutColours.settings) to { refreshShortcuts() },
+        )
     }
 
+    // Network / service shortcuts: their logos (TMDB), looked up when the controls first open.
+    LaunchedEffect(osdVisible, liveShortcuts.map { it.first.id }) {
+        if (!osdVisible) return@LaunchedEffect
+        val names = liveShortcuts.mapNotNull { (sc, _) -> sc.logoName?.let { n -> n to sc } }
+            .filter { (n, _) -> n !in io.github.petebutty.viewarr.ui.player.ShortcutLogos.map }
+        if (names.isEmpty()) return@LaunchedEffect
+        // A show from its rows tells TMDB which network it is (networks aren't watch providers).
+        moviesVm.loadShortcutLogos(names.associate { (n, _) ->
+            n to showMenuRows.rows.firstOrNull { io.github.petebutty.viewarr.ui.player.RowSets.name(it) == n }?.items?.firstOrNull()
+        })
+    }
+    // The same shortcuts in the film and show players' controls.
+    androidx.compose.runtime.SideEffect {
+        io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.items = liveShortcuts
+        io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.openSettings = { settingsFromFilm = true; menuOnSettings = true; menuOpen = true }
+    }
+    // Settings opened from a film: closing it brings the film back full screen.
+    LaunchedEffect(menuOpen) {
+        if (!menuOpen && settingsFromFilm) {
+            settingsFromFilm = false
+            if (io.github.petebutty.viewarr.ui.media.VodHost.active && io.github.petebutty.viewarr.ui.media.VodHost.mini) io.github.petebutty.viewarr.ui.media.VodHost.expand()
+        }
+    }
+    // Hold OK on a shortcut: off the row (saved ids that stand for it too), with a note on getting it back.
+    val remoteVm: io.github.petebutty.viewarr.ui.settings.RemoteViewModel = hiltViewModel()
+    fun hideShortcut(sc: io.github.petebutty.viewarr.ui.player.LiveShortcut) {
+        val all = io.github.petebutty.viewarr.ui.player.LiveShortcuts.candidates(
+            movieLibs.orEmpty(), showLibs.orEmpty(), movieMenuRows.rows, showMenuRows.rows, musicOnNow, musicSourceName,
+        ).associateBy { it.id }
+        val rows = movieMenuRows.rows + showMenuRows.rows
+        val shown = liveShortcuts.map { it.first.id }
+        val stored = remote.liveShortcuts ?: shown
+        remoteVm.setLiveShortcuts(stored.filterNot { id -> id == sc.id || io.github.petebutty.viewarr.ui.player.LiveShortcuts.resolve(id, all, rows)?.id == sc.id })
+        digitsMessage = "${sc.label} hidden from your shortcuts"
+        digitsToken = System.nanoTime()
+    }
+    /**
+     * Hold OK on a shortcut → Refresh: only its rows again. A network: its rows from the addon (films and shows);
+     * a row: that row (an addon's on its own; Plex and the rest with their page); Movies / Shows or a library: that page.
+     */
+    fun refreshOne(sc: io.github.petebutty.viewarr.ui.player.LiveShortcut) {
+        val parts = sc.id.split(":", limit = 3)
+        val type = if (parts.getOrNull(1) == "Show") MediaType.Show else MediaType.Movie
+        val vm1 = if (type == MediaType.Show) showsVm else moviesVm
+        fun note(text: String) { digitsMessage = text; digitsToken = System.nanoTime() }
+        note("Refreshing ${sc.label}…")
+        when (parts[0]) {
+            "set" -> {
+                var left = 2
+                var got = 0
+                listOf(moviesVm to movieMenuRows.rows, showsVm to showMenuRows.rows).forEach { (m, rows) ->
+                    m.refreshRows(rows.filter { io.github.petebutty.viewarr.ui.player.RowSets.matches(parts[2], it) }.map { it.id }) { n ->
+                        got += n; left--
+                        if (left == 0) note(if (got > 0) "${sc.label} is up to date" else "${sc.label}: its addon didn't answer, try again in a moment")
+                    }
+                }
+            }
+            "row" -> if (parts[2].startsWith("stremio-")) vm1.refreshRows(listOf(parts[2])) { n -> note(if (n > 0) "${sc.label} is up to date" else "${sc.label}: its addon didn't answer, try again in a moment") }
+                else { vm1.load(type, force = true); note("${sc.label}: refreshing with the ${if (type == MediaType.Show) "Shows" else "Movies"} page") }
+            "home" -> { vm1.load(type, force = true); vm1.loadContinue(type, force = true) }
+            "lib" -> vm1.loadLibraries(type, force = true)
+            else -> refreshShortcuts()
+        }
+    }
+    /** Hold OK on a shortcut → Move: one place left (-1) or right (1) in the row (saved as the row's new order). */
+    fun moveShortcut(sc: io.github.petebutty.viewarr.ui.player.LiveShortcut, delta: Int) {
+        val shown = liveShortcuts.map { it.first.id }.filter { it != REFRESH_SHORTCUT }
+        val i = shown.indexOf(sc.id)
+        val j = i + delta
+        if (i < 0 || j !in shown.indices) return
+        val all = io.github.petebutty.viewarr.ui.player.LiveShortcuts.candidates(
+            movieLibs.orEmpty(), showLibs.orEmpty(), movieMenuRows.rows, showMenuRows.rows, musicOnNow, musicSourceName,
+        ).associateBy { it.id }
+        val rows = movieMenuRows.rows + showMenuRows.rows
+        // Chosen ones not showing right now (rows still loading) are kept, after the row.
+        val unseen = (remote.liveShortcuts ?: shown).filter { id -> io.github.petebutty.viewarr.ui.player.LiveShortcuts.resolve(id, all, rows)?.id !in shown }
+        remoteVm.setLiveShortcuts(shown.toMutableList().apply { add(j, removeAt(i)) } + unseen)
+    }
+    // Live TV controls → Down → Down: Continue watching, Recent channels, Recently added (Live TV hub, step 3).
+    val continueMovies by moviesVm.continueItems.collectAsStateWithLifecycle()
+    val continueShows by showsVm.continueItems.collectAsStateWithLifecycle()
+    val recentMovies by moviesVm.recent.collectAsStateWithLifecycle()
+    val recentShows by showsVm.recent.collectAsStateWithLifecycle()
+    val allChannels by dvr.channels.collectAsStateWithLifecycle()
+    // A film or show as a card under the live controls: OK opens its page (the channel carries on in the corner).
+    fun titleCard(item: io.github.petebutty.viewarr.data.media.MediaItem) = io.github.petebutty.viewarr.ui.player.OsdPoster(
+        key = item.key, title = item.title, subtitle = item.subtitle,
+        image = item.backdrop ?: item.poster, progress = item.progress,
+    ) {
+        osdVisible = false
+        val show = item.type == MediaType.Show
+        (if (show) showsVm else moviesVm).open(item)
+        openPage(if (show) Page.Shows else Page.Movies, keepLive = true)
+    }
+    // A highlighted shortcut's own content, previewed under it: a network's rows, its row, its page's first rows.
+    val movieHomeRows by moviesVm.rows.collectAsStateWithLifecycle()
+    val showHomeRows by showsVm.rows.collectAsStateWithLifecycle()
+    // Music and Recordings preview their own: your music's home rows, your recordings.
+    val musicHome by musicVm.home.collectAsStateWithLifecycle()
+    LaunchedEffect(osdVisible, musicOnNow) { if (osdVisible && musicOnNow && musicHome.rows.isEmpty()) musicVm.load() }
+    val previewFor: (String) -> List<io.github.petebutty.viewarr.ui.player.OsdRow>? = { id ->
+        if (!postersOn) null else if (id == "page:Music" || id.startsWith("music:")) musicHome.rows.take(4).map { r ->
+            io.github.petebutty.viewarr.ui.player.OsdRow(r.title, r.cards.take(20).map { card ->
+                io.github.petebutty.viewarr.ui.player.OsdPoster(key = "m:" + card.id, title = card.title, subtitle = card.sub, image = card.art?.small) {
+                    osdVisible = false
+                    musicVm.open(card)
+                    openPage(Page.Music, keepLive = true)
+                }
+            })
+        }.filter { it.items.isNotEmpty() } else if (id == "page:Recordings") {
+            val chans = dvr.channels.value
+            fun card(rec: io.github.petebutty.viewarr.data.dvr.DvrRecording) = io.github.petebutty.viewarr.ui.player.OsdPoster(
+                key = "r:${rec.id}", title = rec.title,
+                subtitle = listOfNotNull(rec.season?.let { "S$it" }, rec.episode?.let { "E$it" }, io.github.petebutty.viewarr.ui.theme.Dates.dayTime(rec.start)).joinToString(" · "),
+                image = chans[rec.channelId]?.let { io.github.petebutty.viewarr.ui.guide.channelLogo(session?.serverUrl.orEmpty(), it) }, logo = true,
+            ) { osdVisible = false; openPage(Page.Recordings, keepLive = true) }
+            listOf(
+                io.github.petebutty.viewarr.ui.player.OsdRow("Recordings", dvrRecordings
+                    .filter { it.state == io.github.petebutty.viewarr.data.dvr.DvrState.Recorded || it.state == io.github.petebutty.viewarr.data.dvr.DvrState.Recording }
+                    .sortedByDescending { it.start }.take(20).map(::card)),
+                io.github.petebutty.viewarr.ui.player.OsdRow("Coming up", dvrRecordings
+                    .filter { it.state == io.github.petebutty.viewarr.data.dvr.DvrState.Scheduled }.sortedBy { it.start }.take(20).map(::card)),
+            ).filter { it.items.isNotEmpty() }
+        } else {
+            val parts = id.split(":", limit = 3)
+            val show = parts.getOrNull(1) == "Show"
+            val menu = if (show) showMenuRows.rows else movieMenuRows.rows
+            when (parts[0]) {
+                "set" -> menu.filter { io.github.petebutty.viewarr.ui.player.RowSets.matches(parts[2], it) } +
+                    (if (parts[2].startsWith("name:")) (if (show) movieMenuRows.rows else showMenuRows.rows)
+                        .filter { io.github.petebutty.viewarr.ui.player.RowSets.matches(parts[2], it) }
+                        .map { it.copy(title = it.title + if (show) " (films)" else " (shows)") } else emptyList())
+                "row" -> menu.filter { it.id == parts[2] }
+                "home" -> (if (show) showHomeRows.rows else movieHomeRows.rows).take(4)
+                else -> null
+            }?.map { r -> io.github.petebutty.viewarr.ui.player.OsdRow(r.title, r.items.take(20).map(::titleCard)) }?.filter { it.items.isNotEmpty() }
+        }
+    }
+    val posterRows: List<io.github.petebutty.viewarr.ui.player.OsdRow> = if (!postersOn) emptyList() else run {
+        // Films and shows taken in turn, so neither crowds out the other.
+        fun mix(a: List<io.github.petebutty.viewarr.data.media.MediaItem>, b: List<io.github.petebutty.viewarr.data.media.MediaItem>) =
+            (0 until maxOf(a.size, b.size)).flatMap { i -> listOfNotNull(a.getOrNull(i), b.getOrNull(i)) }.distinctBy { it.key }.take(20)
+        val chNow = System.currentTimeMillis()
+        listOf(
+            io.github.petebutty.viewarr.ui.player.OsdRow("Continue watching", mix(continueMovies.orEmpty(), continueShows.orEmpty()).map(::titleCard)),
+            io.github.petebutty.viewarr.ui.player.OsdRow("Recent channels", remote.recentChannels.filter { it != playing?.id }.mapNotNull { allChannels[it] }.map { ch ->
+                io.github.petebutty.viewarr.ui.player.OsdPoster(
+                    key = "ch-${ch.id}", title = ch.name,
+                    subtitle = GuideViewModel.programAt(programsOf(ch), chNow)?.let { io.github.petebutty.viewarr.ui.guide.displayTitle(it) },
+                    image = io.github.petebutty.viewarr.ui.guide.channelLogo(session?.serverUrl.orEmpty(), ch), logo = true,
+                ) {
+                    osdVisible = false
+                    playback.play(ch, session)
+                    vm.selectChannel(ch.id)
+                    showBanner()
+                }
+            }),
+            io.github.petebutty.viewarr.ui.player.OsdRow("Recently added", mix(recentMovies.orEmpty(), recentShows.orEmpty()).map(::titleCard)),
+        ).filter { it.items.isNotEmpty() }
+    }
+
+    // The film and show players' rows under their shortcuts: the same as live TV's.
+    androidx.compose.runtime.SideEffect {
+        io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.previewFor = previewFor
+        io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.defaultRows = posterRows
+    }
     Box(
         Modifier
             .fillMaxSize()
@@ -693,8 +986,10 @@ fun HomeScreen(
                 // Settings → Remote → Buttons: colour buttons, Record and Info on the guide and full-screen live TV.
                 if (e.type == KeyEventType.KeyDown && e.nativeKeyEvent.repeatCount == 0 && page == Page.Tv && !menuOpen && !showAccounts &&
                     !quickSearch && recordTarget == null && infoTarget == null && !io.github.petebutty.viewarr.ui.media.VodHost.covering &&
-                    !channelListOpen && !osdVisible && !transparencyOpen && !(fullscreen && multiView)
+                    !transparencyOpen && ((!channelListOpen && !osdVisible && !(fullscreen && multiView)) ||
+                        io.github.petebutty.viewarr.data.settings.ButtonMap.pressOf(e) == io.github.petebutty.viewarr.data.settings.BtnPress.Stop)
                 ) {
+                    // (Stop works with the controls, the channel list or multi-view open too.)
                     val press = io.github.petebutty.viewarr.data.settings.ButtonMap.pressOf(e)
                     val screen = if (fullscreen) io.github.petebutty.viewarr.data.settings.BtnScreen.Live else io.github.petebutty.viewarr.data.settings.BtnScreen.Guide
                     if (press != null && press in io.github.petebutty.viewarr.data.settings.ButtonMap.presses[screen].orEmpty()) {
@@ -837,7 +1132,8 @@ fun HomeScreen(
                 focusEnabled = !menuOpen && !showAccounts && !quickSearch,
                 onOpenMenu = { menuOpen = true },
                 onBack = {
-                    if (remote.navStyle == io.github.petebutty.viewarr.data.settings.NavStyle.LiveHub && goLive()) return@MediaScreen
+                    if (io.github.petebutty.viewarr.ui.media.VodHost.active && io.github.petebutty.viewarr.ui.media.VodHost.mini) { io.github.petebutty.viewarr.ui.media.VodHost.expand(); return@MediaScreen }
+                    if ((remote.navStyle == io.github.petebutty.viewarr.data.settings.NavStyle.LiveHub || (liveCorner && playing != null)) && goLive()) return@MediaScreen
                     when (remote.mediaBack) {
                         MediaBack.Exit -> backOnPage()
                         MediaBack.Menu -> menuOpen = true
@@ -903,7 +1199,18 @@ fun HomeScreen(
             else androidx.compose.animation.core.snap(),
             label = "live",
         )
-        val channel = playing.takeIf { page == Page.Tv }
+        // Over another page (a shortcut, the Live TV hub): from the guide's preview place to the chosen corner.
+        val inCorner = liveCorner && page != Page.Tv
+        val liveSide = androidx.compose.animation.core.animateFloatAsState(
+            if (inCorner) 1f else 0f,
+            if (AppColors.palette.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.ANIM_LIVE) == 0)
+                androidx.compose.animation.core.tween(300, easing = androidx.compose.animation.core.FastOutSlowInEasing)
+            else androidx.compose.animation.core.snap(),
+            label = "liveCorner",
+        )
+        val cornerSize = when (AppColors.palette.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.MINI_SIZE)) { 1 -> 320.dp to 180.dp; 2 -> 512.dp to 288.dp; else -> 400.dp to 225.dp }
+        val cornerAt = AppColors.palette.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.MINI_CORNER) // 0 BR, 1 BL, 2 TR, 3 TL
+        val channel = playing.takeIf { page == Page.Tv || inCorner }
         val list = channel?.let { programsOf(it) }.orEmpty()
         val current = catchup ?: GuideViewModel.programAt(list, now)
         if (channel != null && !(multiView && fullscreen)) {
@@ -911,7 +1218,7 @@ fun HomeScreen(
             PlayerLayer(
                 vm = playback,
                 fullscreen = fullscreen,
-                bannerVisible = bannerVisible && !osdVisible,
+                bannerVisible = bannerVisible && !osdVisible && !inCorner,
                 current = current,
                 next = next,
                 now = now,
@@ -920,12 +1227,21 @@ fun HomeScreen(
                 modifier = Modifier.fillMaxSize()
                     .layout { measurable, constraints ->
                         val p = liveShrink.value
+                        val q = liveSide.value
                         val fw = constraints.maxWidth
                         val fh = constraints.maxHeight
-                        val cw = (fw + (320.dp.roundToPx() - fw) * p).toInt().coerceAtLeast(1)
-                        val ch = (fh + (180.dp.roundToPx() - fh) * p).toInt().coerceAtLeast(1)
+                        // The small window: the guide's preview (q 0) or the corner (q 1), and in between on the way.
+                        val sw = 320.dp.roundToPx() + (cornerSize.first.roundToPx() - 320.dp.roundToPx()) * q
+                        val sh = 180.dp.roundToPx() + (cornerSize.second.roundToPx() - 180.dp.roundToPx()) * q
+                        val margin = 32.dp.roundToPx()
+                        val cx = if (cornerAt == 1 || cornerAt == 3) margin.toFloat() else fw - margin - sw
+                        val cy = if (cornerAt >= 2) margin.toFloat() else fh - margin - sh
+                        val sx = 12.dp.roundToPx() + (cx - 12.dp.roundToPx()) * q
+                        val sy = 20.dp.roundToPx() + (cy - 20.dp.roundToPx()) * q
+                        val cw = (fw + (sw - fw) * p).toInt().coerceAtLeast(1)
+                        val ch = (fh + (sh - fh) * p).toInt().coerceAtLeast(1)
                         val placeable = measurable.measure(androidx.compose.ui.unit.Constraints.fixed(cw, ch))
-                        layout(fw, fh) { placeable.place((12.dp.roundToPx() * p).toInt(), (20.dp.roundToPx() * p).toInt()) }
+                        layout(fw, fh) { placeable.place((sx * p).toInt(), (sy * p).toInt()) }
                     }
                     .graphicsLayer { clip = liveShrink.value > 0.99f; shape = RoundedCornerShape(8.dp) },
             )
@@ -976,8 +1292,52 @@ fun HomeScreen(
                             }
                             return@onPreviewKeyEvent true
                         }
-                        if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                        if (e.type != KeyEventType.KeyDown) {
+                            if (action == io.github.petebutty.viewarr.ui.common.RemoteAction.Left) rewindHeld = false
+                            return@onPreviewKeyEvent false
+                        }
+                        if (action != io.github.petebutty.viewarr.ui.common.RemoteAction.Left) rewindAsk = 0L
+                        // Settings → Remote buttons → Live TV → Left / Right, as TiviMate: Left the channel list, Right
+                        // back to the channel watched before (catch-up still moves through the programme).
+                        if (remote.liveSides == io.github.petebutty.viewarr.data.settings.LiveSides.ListAndLast && catchup == null && !multiView) {
+                            if (action == io.github.petebutty.viewarr.ui.common.RemoteAction.Left) {
+                                if (e.nativeKeyEvent.repeatCount == 0) channelListOpen = true
+                                return@onPreviewKeyEvent true
+                            }
+                            if (action == io.github.petebutty.viewarr.ui.common.RemoteAction.Right) {
+                                val before = remote.recentChannels.firstOrNull { it != playing?.id }
+                                if (e.nativeKeyEvent.repeatCount == 0) {
+                                    if (before == null) { digitsMessage = "No channel watched before this one yet"; digitsToken = System.nanoTime() }
+                                    else fromStartScope.launch {
+                                        val ch = vm.channelById(before) ?: return@launch
+                                        playback.play(ch, session)
+                                        vm.selectChannel(ch.id)
+                                        showBanner()
+                                    }
+                                }
+                                return@onPreviewKeyEvent true
+                            }
+                        }
                         when (action) {
+                            // Live: ask first. In catch-up (already behind live) Left steps back straight away.
+                            io.github.petebutty.viewarr.ui.common.RemoteAction.Left -> if (catchup == null) {
+                                val ch = playing
+                                val again = rewindAsk != 0L && System.currentTimeMillis() - rewindAsk < 4_000
+                                when {
+                                    rewindHeld -> Unit
+                                    ch == null || ch.catchupDays <= 0 -> { digitsMessage = "This channel has no catch-up to rewind"; digitsToken = System.nanoTime() }
+                                    again || e.nativeKeyEvent.repeatCount > 0 -> {
+                                        rewindAsk = 0L
+                                        rewindHeld = e.nativeKeyEvent.repeatCount > 0
+                                        playback.seekBy(-remote.seek.ms)
+                                        showBanner()
+                                    }
+                                    else -> rewindAsk = System.currentTimeMillis()
+                                }
+                            } else {
+                                playback.seekBy(-remote.seek.ms)
+                                showBanner()
+                            }
                             io.github.petebutty.viewarr.ui.common.RemoteAction.Up, io.github.petebutty.viewarr.ui.common.RemoteAction.Down -> when (remote.zap) {
                                 ZapDirection.ChannelList -> channelListOpen = true
                                 ZapDirection.UpNext -> zap(if (action == io.github.petebutty.viewarr.ui.common.RemoteAction.Up) 1 else -1)
@@ -988,13 +1348,16 @@ fun HomeScreen(
                             io.github.petebutty.viewarr.ui.common.RemoteAction.Ok -> when {
                                 playState is PlaybackState.Error -> playback.retry()
                                 remote.playerOk == PlayerOk.Banner -> showBanner()
+                                remote.playerOk == PlayerOk.ChannelList && !multiView -> channelListOpen = true
                                 else -> showOsd()
                             }
                             io.github.petebutty.viewarr.ui.common.RemoteAction.PlayPause -> {
                                 playback.togglePause()
                                 showBanner()
                             }
-                            io.github.petebutty.viewarr.ui.common.RemoteAction.Left, io.github.petebutty.viewarr.ui.common.RemoteAction.Rewind -> {
+                            // The remote's own rewind button means it: no question.
+                            io.github.petebutty.viewarr.ui.common.RemoteAction.Rewind -> {
+                                rewindAsk = 0L
                                 playback.seekBy(-remote.seek.ms)
                                 showBanner()
                             }
@@ -1045,12 +1408,18 @@ fun HomeScreen(
                         fullscreen = false
                     },
                     onClose = { osdVisible = false },
-                    onActivity = { osdToken = System.nanoTime() },
+                    onActivity = { osdUsedAt[0] = System.currentTimeMillis() },
                     // Low-memory mode: no multi-view (up to four players at once).
                     // Settings over live TV: the menu opens on Settings; Back closes it, back to the channel.
                     onSettings = { osdVisible = false; menuOnSettings = true; menuOpen = true },
                     onTransparency = { osdVisible = false; transparencyOpen = true },
-                    shortcuts = liveShortcuts,
+                    // The shortcut row and its rows are part of the Live TV hub.
+                    shortcuts = if (remote.navStyle == io.github.petebutty.viewarr.data.settings.NavStyle.LiveHub) liveShortcuts else emptyList(),
+                    posterRows = posterRows,
+                    previewFor = previewFor,
+                    onHideShortcut = { sc -> hideShortcut(sc) },
+                    onMoveShortcut = { sc, d -> moveShortcut(sc, d) },
+                    onRefreshShortcut = { sc -> refreshOne(sc) },
                     onMultiView = if (!AppColors.palette.heavyExtras) null else ({
                         osdVisible = false
                         if (catchup != null) playback.goLive()
@@ -1069,6 +1438,23 @@ fun HomeScreen(
             }
         }
 
+        // "Rewind?" after Left on full-screen live TV: gone after 4 s, or as soon as anything else happens.
+        LaunchedEffect(rewindAsk) { if (rewindAsk != 0L) { delay(4_000); rewindAsk = 0L } }
+        LaunchedEffect(fullscreen, osdVisible, playing?.id, page) { rewindAsk = 0L }
+        androidx.compose.animation.AnimatedVisibility(
+            rewindAsk != 0L && fullscreen && page == Page.Tv,
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 64.dp),
+            enter = androidx.compose.animation.fadeIn(), exit = androidx.compose.animation.fadeOut(),
+        ) {
+            Row(
+                Modifier.background(AppColors.Panel.copy(alpha = 0.94f), RoundedCornerShape(20.dp)).padding(horizontal = 20.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                androidx.compose.material3.Icon(io.github.petebutty.viewarr.ui.common.AppIcons.Replay, null, tint = AppColors.Accent, modifier = Modifier.size(22.dp))
+                Text("Rewind?", fontSize = 17.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, color = AppColors.TextPrimary, modifier = Modifier.padding(start = 10.dp))
+                Text("   Press ◀ again, or hold ◀", fontSize = 13.sp, color = AppColors.TextSecondary)
+            }
+        }
         // What the buttons do here (Settings → Appearance → Button hints), following the button settings.
         if (!menuOpen && !quickSearch && !showAccounts && recordTarget == null && infoTarget == null && !io.github.petebutty.viewarr.ui.media.VodHost.active) {
             val holdBackGuide = io.github.petebutty.viewarr.data.settings.ButtonMap.action(remote, io.github.petebutty.viewarr.data.settings.BtnScreen.Guide, io.github.petebutty.viewarr.data.settings.BtnPress.BackHold).label.lowercase()
@@ -1076,7 +1462,7 @@ fun HomeScreen(
                 page == Page.Tv && fullscreen && !osdVisible && !channelListOpen && !multiView -> io.github.petebutty.viewarr.ui.common.ButtonHint(
                     "live", "OK: controls  ·  ▲ ▼ channels  ·  Back: guide  ·  hold Back: " + io.github.petebutty.viewarr.data.settings.ButtonMap.action(remote, io.github.petebutty.viewarr.data.settings.BtnScreen.Live, io.github.petebutty.viewarr.data.settings.BtnPress.BackHold).label.lowercase())
                 page == Page.Tv && !fullscreen && session != null -> io.github.petebutty.viewarr.ui.common.ButtonHint(
-                    "guide", "OK: watch  ·  ◀ ▶ earlier / later  ·  Back: full screen  ·  hold Back: $holdBackGuide")
+                    "guide", "OK: watch  ·  ◀ ▶ earlier / later  ·  Back: " + (when { guideBack == GuideBack.Menu -> "menu"; guideBack == GuideBack.FullScreen && playing != null -> "full screen"; else -> "exit" }) + "  ·  hold Back: $holdBackGuide")
                 page == Page.Movies || page == Page.Shows -> io.github.petebutty.viewarr.ui.common.ButtonHint(
                     "media", "OK: open  ·  hold OK: options  ·  ◀ menu  ·  hold Back: " + io.github.petebutty.viewarr.data.settings.ButtonMap.action(remote, io.github.petebutty.viewarr.data.settings.BtnScreen.Pages, io.github.petebutty.viewarr.data.settings.BtnPress.BackHold).label.lowercase())
                 else -> Unit
@@ -1106,6 +1492,11 @@ fun HomeScreen(
                 onSearchFor = { q -> searchStart = q; searchVoice = false; openPage(Page.Search) },
                 onVoiceSearch = { searchStart = null; searchVoice = true; openPage(Page.Search) },
                 onClose = { menuOpen = false; menuOnSettings = false; menuOnMain = false },
+                backOut = menuFromGuideBack,
+                onBackOut = {
+                    menuOpen = false; menuOnSettings = false; menuOnMain = false
+                    if (page == Page.Tv && !fullscreen) exitArmed = System.currentTimeMillis()
+                },
                 onSignOut = {
                     playback.stop()
                     onSignOut()
@@ -1315,6 +1706,9 @@ private fun MenuOverlay(
     onAccounts: () -> Unit,
     onClose: () -> Unit,
     onSignOut: () -> Unit,
+    /** Opened by Back in the guide: Back from the groups (or the main list) leaves it through [onBackOut] instead. */
+    backOut: Boolean = false,
+    onBackOut: () -> Unit = onClose,
     /** Reopened after Accounts & sources: straight back on Settings, on its first item. */
     onSettings: Boolean = false,
     /** Open on the main list (Live TV, Movies…), whatever "Menu opens on" says. */
@@ -1336,6 +1730,8 @@ private fun MenuOverlay(
     val pluginsItem = remember { FocusRequester() }
     val homeRowsItem = remember { FocusRequester() }
     var showRemote by remember { mutableStateOf(false) }
+    var showNavigation by remember { mutableStateOf(false) }
+    val navigationItem = remember { FocusRequester() }
     var showPlayback by remember { mutableStateOf(false) }
     val playbackItem = remember { FocusRequester() }
     var showAddons by remember { mutableStateOf(false) }
@@ -1404,7 +1800,7 @@ private fun MenuOverlay(
     fun enter(s: Section) {
         when (s) {
             // Into the channel groups: on the guide the main list slides back out (Left brings it again).
-            Section.Tv -> { runCatching { groupsFocus.requestFocus() }; if (page == Page.Tv) showMain = false }
+            Section.Tv -> runCatching { groupsFocus.requestFocus() }
             Section.Settings -> runCatching { settingsFirst.requestFocus() }
             Section.Movies -> onOpenPage(Page.Movies)
             Section.Shows -> onOpenPage(Page.Shows)
@@ -1416,9 +1812,26 @@ private fun MenuOverlay(
     }
     // Back steps out one level: from the right-hand list to the main list, then closes the menu.
     var subListFocused by remember { mutableStateOf(false) }
+    // Movies / Shows: the library whose categories fill the list column (the library list slid away), or null.
+    var menuCats by remember { mutableStateOf<io.github.petebutty.viewarr.data.media.MediaLibrary?>(null) }
+    // Movies / Shows: editing the list in place (libraries on / off and their order, the rows under "Jump to a row").
+    var menuEditing by remember { mutableStateOf(false) }
+    LaunchedEffect(section) { menuCats = null; menuEditing = false }
+    // Into a section's own list (Movies' rows, Recordings, Music…): the main list slides out to the left, as the
+    // guide's channel groups always did, so the menu doesn't cover half the screen. Left brings it back.
+    // (Not Settings: its pages open from the Settings entry in the main list.)
+    LaunchedEffect(subListFocused) { if (subListFocused && section != Section.Settings) showMain = false }
     BackHandler {
-        if (subListFocused && showMain) runCatching { navFocus.getValue(section).requestFocus() }.onFailure { onClose() }
-        else onClose()
+        when {
+            // A library's categories: back to the library list. Editing the list: done.
+            menuCats != null -> menuCats = null
+            menuEditing -> menuEditing = false
+            // Opened by Back in the guide (as TiviMate): Back from the groups asks to exit.
+            backOut && section == Section.Tv -> onBackOut()
+            // A section's list: the main list slides back in.
+            subListFocused -> if (showMain) runCatching { navFocus.getValue(section).requestFocus() }.onFailure { onClose() } else revealMain()
+            else -> if (backOut) onBackOut() else onClose()
+        }
     }
 
     Box(Modifier.fillMaxSize()) {
@@ -1432,21 +1845,18 @@ private fun MenuOverlay(
                 .padding(horizontal = 10.dp, vertical = 24.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
-            // The Viewarr logo: aperture mark plus the wordmark in the banner's font.
+            // The Viewarr logo: aperture mark plus the glossy wordmark (the splash's, tools/brand/wordmark.py; its
+            // picture has room round it for the shadow, hence the negative gap).
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 10.dp, bottom = 20.dp)) {
                 androidx.compose.foundation.Image(
                     painter = androidx.compose.ui.res.painterResource(io.github.petebutty.viewarr.R.drawable.logo_mark),
                     contentDescription = null,
                     modifier = Modifier.size(30.dp),
                 )
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    "viewarr",
-                    fontSize = 22.sp,
-                    fontFamily = LogoFont,
-                    color = Color.White,
-                    // Poppins sits high in its line box; trim the extra space so it centres on the mark.
-                    style = androidx.compose.ui.text.TextStyle(platformStyle = androidx.compose.ui.text.PlatformTextStyle(includeFontPadding = false)),
+                androidx.compose.foundation.Image(
+                    painter = androidx.compose.ui.res.painterResource(io.github.petebutty.viewarr.R.drawable.splash_wordmark),
+                    contentDescription = "Viewarr",
+                    modifier = Modifier.height(40.dp).offset(x = (-2).dp),
                 )
             }
             // Settings → Appearance → Movies & Shows off: a live-TV-only menu.
@@ -1464,7 +1874,7 @@ private fun MenuOverlay(
                         .onFocusChanged { if (it.isFocused) section = s }
                         .onPreviewKeyEvent { e ->
                             // Right does the same as OK: open what's inside this entry.
-                            if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionRight && !(s == Section.Settings && (showAppearance || showRemote || showPlayback || showAddons || showUpdates || showAbout || showHomeRows || showPlugins))) {
+                            if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionRight && !(s == Section.Settings && (showAppearance || showRemote || showNavigation || showPlayback || showAddons || showUpdates || showAbout || showHomeRows || showPlugins))) {
                                 // Movies / Shows with recently added posters showing: Right goes onto them (OK opens the page).
                                 val t = if (s == Section.Movies) MediaType.Movie else if (s == Section.Shows) MediaType.Show else null
                                 // (Movies / Shows always have their list: home, libraries, catalogues.)
@@ -1486,12 +1896,20 @@ private fun MenuOverlay(
                 .fillMaxHeight()
                 .background(if (seeThrough) AppColors.MenuPanelAlt else AppColors.palette.panelAlt)
                 .onFocusChanged { subListFocused = it.hasFocus }
+                // Any other list (Music, Search): a Left nothing in it used brings the main list back.
+                .onKeyEvent { e ->
+                    if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionLeft && !showMain && section != Section.Settings) { revealMain(); true } else false
+                }
                 .onPreviewKeyEvent { e ->
                     if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                     when {
+                        // In a library's categories: Left goes back to the library list (it slides back in).
+                        e.key == Key.DirectionLeft && menuCats != null -> { menuCats = null; true }
+                        // Editing the list: Left finishes (a library being moved is put down where it is).
+                        e.key == Key.DirectionLeft && menuEditing -> { menuEditing = false; true }
                         // Left goes back to this section's menu entry, not whichever one is geometrically closest.
                         e.key == Key.DirectionLeft && (section == Section.Tv || section == Section.Movies || section == Section.Shows || section == Section.Recordings ||
-                            (section == Section.Settings && !showAppearance && !showRemote && !showPlayback && !showAddons && !showUpdates && !showAbout && !showHomeRows && !showPlugins)) -> {
+                            (section == Section.Settings && !showAppearance && !showRemote && !showNavigation && !showPlayback && !showAddons && !showUpdates && !showAbout && !showHomeRows && !showPlugins)) -> {
                             revealMain()
                             true
                         }
@@ -1539,6 +1957,11 @@ private fun MenuOverlay(
                         runCatching { navFocus.getValue(Section.Settings).requestFocus() }
                         showRemote = true
                     },
+                    navigationItem = navigationItem,
+                    onNavigation = {
+                        runCatching { navFocus.getValue(Section.Settings).requestFocus() }
+                        showNavigation = true
+                    },
                     session = session,
                     sync = sync,
                     firstItem = settingsFirst,
@@ -1579,6 +2002,11 @@ private fun MenuOverlay(
                 Section.Movies, Section.Shows -> MediaMenuPanel(
                     type = if (section == Section.Movies) MediaType.Movie else MediaType.Show,
                     focusRequester = recentFocus,
+                    catsFor = menuCats,
+                    onCats = { menuCats = it },
+                    editing = menuEditing,
+                    onEditing = { menuEditing = it },
+                    rightMode = remote.menuLibraryRight,
                     onCount = { t, n -> recentCount[t] = n },
                     onOpenPage = { onOpenPage(if (section == Section.Movies) Page.Movies else Page.Shows) },
                 )
@@ -1628,6 +2056,13 @@ private fun MenuOverlay(
             runCatching { remoteItem.requestFocus() }
             showRemote = false
             returnTo = remoteItem
+        })
+    }
+    if (showNavigation) {
+        io.github.petebutty.viewarr.ui.settings.RemoteSettingsScreen(part = io.github.petebutty.viewarr.ui.settings.RemotePart.Navigation, onBack = {
+            runCatching { navigationItem.requestFocus() }
+            showNavigation = false
+            returnTo = navigationItem
         })
     }
     if (showAbout) {
@@ -1730,7 +2165,7 @@ private fun Modifier.rightDoes(action: () -> Unit): Modifier = this.composed(fac
 private fun Modifier.rightIgnored(): Modifier = onPreviewKeyEvent { e -> e.key == Key.DirectionRight }
 
 @Composable
-private fun SettingsPanel(playbackItem: FocusRequester, onPlayback: () -> Unit, addonsItem: FocusRequester, onAddons: () -> Unit, remoteItem: FocusRequester, onRemote: () -> Unit, updatesItem: FocusRequester, onUpdates: () -> Unit, aboutItem: FocusRequester, onAbout: () -> Unit, session: Session?, sync: SyncState, firstItem: FocusRequester, appearanceItem: FocusRequester, onAppearance: () -> Unit, homeRowsItem: FocusRequester, onHomeRows: () -> Unit, pluginsItem: FocusRequester, onPlugins: () -> Unit, onAccounts: () -> Unit, onRefresh: () -> Unit, onSignOut: () -> Unit) {
+private fun SettingsPanel(playbackItem: FocusRequester, onPlayback: () -> Unit, addonsItem: FocusRequester, onAddons: () -> Unit, remoteItem: FocusRequester, onRemote: () -> Unit, navigationItem: FocusRequester, onNavigation: () -> Unit, updatesItem: FocusRequester, onUpdates: () -> Unit, aboutItem: FocusRequester, onAbout: () -> Unit, session: Session?, sync: SyncState, firstItem: FocusRequester, appearanceItem: FocusRequester, onAppearance: () -> Unit, homeRowsItem: FocusRequester, onHomeRows: () -> Unit, pluginsItem: FocusRequester, onPlugins: () -> Unit, onAccounts: () -> Unit, onRefresh: () -> Unit, onSignOut: () -> Unit) {
     // Scrolls: the list is taller than the screen with the Dispatcharr sync items.
     Column(Modifier.verticalScroll(androidx.compose.foundation.rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(session?.let { "Signed in as ${it.username}" } ?: "Live TV not set up", fontSize = 15.sp, color = AppColors.TextPrimary, modifier = Modifier.padding(horizontal = 12.dp))
@@ -1742,37 +2177,43 @@ private fun SettingsPanel(playbackItem: FocusRequester, onPlayback: () -> Unit, 
         }?.let {
             Text(it, fontSize = 13.sp, color = AppColors.Accent, modifier = Modifier.padding(horizontal = 12.dp))
         }
-        Spacer(Modifier.height(12.dp))
+        // What the highlighted entry covers, so it's clear where things live before opening one.
+        var hint by remember { mutableStateOf<String?>(null) }
+        fun Modifier.hint(text: String) = onFocusChanged { if (it.isFocused) hint = text }
+        Text(hint ?: "", fontSize = 13.sp, color = AppColors.TextSecondary, maxLines = 3,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp).height(54.dp))
+        Spacer(Modifier.height(6.dp))
         // Grouped: accounts, look & feel, remote, watching, live TV, then this TV (backup, updates, sign out).
         // An admin's locks for this person (Settings → Users & profiles → What they can do): locked items don't show.
         val canAccounts = io.github.petebutty.viewarr.data.profiles.Access.can(io.github.petebutty.viewarr.data.profiles.Lock.ACCOUNTS)
         val canSettings = io.github.petebutty.viewarr.data.profiles.Access.can(io.github.petebutty.viewarr.data.profiles.Lock.SETTINGS)
         SettingsGroup("Accounts & people", first = true)
-        if (canAccounts) MenuItem(text = "Accounts & sources", selected = false, onClick = onAccounts, modifier = Modifier.focusRequester(firstItem).rightDoes(onAccounts))
+        if (canAccounts) MenuItem(text = "Accounts & sources", selected = false, onClick = onAccounts, modifier = Modifier.hint("Your live TV (Dispatcharr or IPTV), Plex, Jellyfin, Emby, Trakt, addons and music sign-ins.").focusRequester(firstItem).rightDoes(onAccounts))
         io.github.petebutty.viewarr.ui.profiles.ProfileSettingsItems()
         if (canSettings) {
         SettingsGroup("Look & controls")
         // Accounts & sources locked: Appearance is the first row (Right / OK from the menu land here).
-        MenuItem(text = "Appearance", selected = false, onClick = onAppearance, modifier = Modifier.focusRequester(appearanceItem).then(if (!canAccounts) Modifier.focusRequester(firstItem) else Modifier).rightDoes(onAppearance))
-        MenuItem(text = "Home page & menu", selected = false, onClick = onHomeRows, modifier = Modifier.focusRequester(homeRowsItem).rightDoes(onHomeRows))
-        MenuItem(text = "Remote & navigation", selected = false, onClick = onRemote, modifier = Modifier.focusRequester(remoteItem).rightDoes(onRemote))
+        MenuItem(text = "Appearance", selected = false, onClick = onAppearance, modifier = Modifier.hint("How Viewarr looks: theme and wallpaper, the guide, title pages, posters and how the player looks.").focusRequester(appearanceItem).then(if (!canAccounts) Modifier.focusRequester(firstItem) else Modifier).rightDoes(onAppearance))
+        MenuItem(text = "Home page & menu", selected = false, onClick = onHomeRows, modifier = Modifier.hint("Which rows show on the Movies and Shows pages, in what order, and what the side menu lists.").focusRequester(homeRowsItem).rightDoes(onHomeRows))
+        MenuItem(text = "Remote buttons", selected = false, onClick = onRemote, modifier = Modifier.hint("What each button on your remote does: in the guide, on live TV, in films and on Movies & Shows. The search button and extra buttons.").focusRequester(remoteItem).rightDoes(onRemote))
+        MenuItem(text = "Navigation", selected = false, onClick = onNavigation, modifier = Modifier.hint("How you get around: Classic menus or the Live TV hub (and its shortcuts), what the app opens on, the side menu and poster rows.").focusRequester(navigationItem).rightDoes(onNavigation))
         SettingsGroup("Watching")
-        MenuItem(text = "Playback", selected = false, onClick = onPlayback, modifier = Modifier.focusRequester(playbackItem).rightDoes(onPlayback))
+        MenuItem(text = "Playback", selected = false, onClick = onPlayback, modifier = Modifier.hint("Players and streams: built-in player or mpv, quality, subtitles, audio, skipping, catch-up and the corner player.").focusRequester(playbackItem).rightDoes(onPlayback))
         // Which watchlist Add / Remove and "Your watchlist" use (Trakt, Plex, Jellyfin or Emby favourites).
         io.github.petebutty.viewarr.ui.settings.WatchlistItem(Modifier.rightIgnored())
         }
         SettingsGroup("Live TV")
         // Plugins: Dispatcharr admins only (Standard users have no use for them).
-        if (session != null && !session.isDirect && io.github.petebutty.viewarr.ui.profiles.isAdmin()) MenuItem(text = "Dispatcharr plugins", selected = false, onClick = onPlugins, modifier = Modifier.focusRequester(pluginsItem).rightDoes(onPlugins))
-        MenuItem(text = "Refresh channels & guide", selected = false, onClick = onRefresh, modifier = Modifier.rightIgnored())
+        if (session != null && !session.isDirect && io.github.petebutty.viewarr.ui.profiles.isAdmin()) MenuItem(text = "Dispatcharr plugins", selected = false, onClick = onPlugins, modifier = Modifier.hint("Plugins on your Dispatcharr server (admins only).").focusRequester(pluginsItem).rightDoes(onPlugins))
+        MenuItem(text = "Refresh channels & guide", selected = false, onClick = onRefresh, modifier = Modifier.hint("Loads the channel list and TV guide again now.").rightIgnored())
         SettingsGroup("This TV")
         // Viewarr's setup kept on the Dispatcharr server (Dispatcharr sign-ins only).
         val canSignOut = io.github.petebutty.viewarr.data.profiles.Access.can(io.github.petebutty.viewarr.data.profiles.Lock.SIGNOUT)
         if (canSignOut && session != null && !session.isDirect) io.github.petebutty.viewarr.ui.sync.BackupSyncItem()
         // Accounts and settings both locked: Updates is the first row.
-        MenuItem(text = "Updates", selected = false, onClick = onUpdates, modifier = Modifier.focusRequester(updatesItem).then(if (!canAccounts && !canSettings) Modifier.focusRequester(firstItem) else Modifier).rightDoes(onUpdates))
+        MenuItem(text = "Updates", selected = false, onClick = onUpdates, modifier = Modifier.hint("Check for a new version of Viewarr and install it.").focusRequester(updatesItem).then(if (!canAccounts && !canSettings) Modifier.focusRequester(firstItem) else Modifier).rightDoes(onUpdates))
         // Version, this TV, what Viewarr stores (with clearing), Live TV sources.
-        MenuItem(text = "About", selected = false, onClick = onAbout, modifier = Modifier.focusRequester(aboutItem).rightDoes(onAbout))
+        MenuItem(text = "About", selected = false, onClick = onAbout, modifier = Modifier.hint("Version, this TV, what Viewarr stores (and clearing it), and your live TV sources.").focusRequester(aboutItem).rightDoes(onAbout))
         var confirmUntil by remember { mutableLongStateOf(0L) }
         LaunchedEffect(confirmUntil) {
             if (confirmUntil != 0L) {
@@ -1784,7 +2225,7 @@ private fun SettingsPanel(playbackItem: FocusRequester, onPlayback: () -> Unit, 
             text = if (confirmUntil != 0L) "Press OK again to sign out" else "Sign out of everything",
             selected = false,
             onClick = { if (confirmUntil != 0L) onSignOut() else confirmUntil = System.currentTimeMillis() },
-            modifier = Modifier.rightIgnored(),
+            modifier = Modifier.hint("Signs this TV out of all your accounts and sources.").rightIgnored(),
         )
     }
 }
@@ -1792,6 +2233,9 @@ private fun SettingsPanel(playbackItem: FocusRequester, onPlayback: () -> Unit, 
 /** A small heading between groups of settings. */
 @Composable
 private fun SettingsGroup(title: String, first: Boolean = false) = MenuGroupLabel(title, first)
+
+/** The Refresh shortcut at the end of the live TV row (not a saved shortcut). */
+internal const val REFRESH_SHORTCUT = "action:refresh"
 
 /** A group's heading in the side menu's lists: small capitals with a rule above, so it can't be mistaken for an item. */
 @Composable
@@ -1928,7 +2372,7 @@ private fun SearchPage(
                         items(catchupHits, key = { (c, p) -> "cu:${c.id}:${p.startTime}" }) { (ch, p) ->
                             androidx.tv.material3.Surface(
                                 onClick = { onCatchup(ch, p) },
-                                modifier = Modifier.width(250.dp).focusProperties { canFocus = fieldFree && focusEnabled },
+                                modifier = Modifier.width(300.dp).focusProperties { canFocus = fieldFree && focusEnabled },
                                 shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(androidx.compose.foundation.shape.RoundedCornerShape(8.dp)),
                                 colors = androidx.tv.material3.ClickableSurfaceDefaults.colors(
                                     containerColor = AppColors.Panel, contentColor = AppColors.TextPrimary,
@@ -1943,7 +2387,12 @@ private fun SearchPage(
                                     }
                                     Spacer(Modifier.width(10.dp))
                                     Column {
-                                        Text(p.title + (p.subTitle?.let { " · $it" } ?: ""), fontSize = 14.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Medium, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                                        Text(p.title, fontSize = 14.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Medium, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                                        // Which episode: "S2 · E5 · Feel Her Love". The name is the sub-title, else (Sky's
+                                        // guides) the start of the description before its colon.
+                                        val epName = p.subTitle ?: p.description?.substringBefore(": ", "")?.trim()?.takeIf { it.isNotEmpty() && it.length <= 60 }
+                                        val epLine = listOfNotNull(p.season?.let { "S$it" }, p.episode?.let { "E$it" }, epName).joinToString(" · ")
+                                        if (epLine.isNotEmpty()) Text(epLine, fontSize = 12.sp, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                                         Text(
                                             "↺ " + io.github.petebutty.viewarr.ui.theme.Dates.dayTime(p.startTime) + " on " + ch.name,
                                             fontSize = 12.sp, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
@@ -2478,12 +2927,19 @@ private fun whenText(start: Long, now: Long): String {
  */
 @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
-private fun MediaMenuPanel(type: MediaType, focusRequester: FocusRequester, onCount: (MediaType, Int) -> Unit, onOpenPage: () -> Unit) {
+private fun MediaMenuPanel(
+    type: MediaType, focusRequester: FocusRequester, onCount: (MediaType, Int) -> Unit, onOpenPage: () -> Unit,
+    catsFor: io.github.petebutty.viewarr.data.media.MediaLibrary? = null,
+    onCats: (io.github.petebutty.viewarr.data.media.MediaLibrary?) -> Unit = {},
+    rightMode: io.github.petebutty.viewarr.data.settings.MenuLibraryRight = io.github.petebutty.viewarr.data.settings.MenuLibraryRight.Categories,
+    editing: Boolean = false,
+    onEditing: (Boolean) -> Unit = {},
+) {
     // Same instance as the page's, so what's picked here shows there straight away.
     val media: MediaViewModel = hiltViewModel(key = "media-${type.name}")
     LaunchedEffect(type) { media.load(type); media.loadLibraries(type) }
     // The menu's own list (Settings → Home page & menu → Menu list), separate from which rows the page shows.
-    val rowsState by media.menuRows.collectAsStateWithLifecycle()
+    val rowsState by media.jumpRows.collectAsStateWithLifecycle()
     val libraries by media.libraries.collectAsStateWithLifecycle()
     val browse by media.browse.collectAsStateWithLifecycle()
     val current by media.currentRow.collectAsStateWithLifecycle()
@@ -2492,6 +2948,35 @@ private fun MediaMenuPanel(type: MediaType, focusRequester: FocusRequester, onCo
     LaunchedEffect(type) { onCount(type, 1) } // "home" is always there
     val home = if (type == MediaType.Movie) "Movies home" else "Shows home"
     var rowsOpen by remember(type) { mutableStateOf(false) }
+    // Back from a library's categories: focus on that library again.
+    val libFocus = remember(type) { HashMap<String, FocusRequester>() }
+    var lastLib by remember(type) { mutableStateOf<String?>(null) }
+    LaunchedEffect(catsFor) {
+        if (catsFor != null) return@LaunchedEffect
+        val key = lastLib ?: return@LaunchedEffect
+        awaitFrame(); awaitFrame()
+        runCatching { libFocus[key]?.requestFocus() }
+    }
+    // Back from editing: focus on the library edited, else the first entry.
+    var wasEditing by remember(type) { mutableStateOf(false) }
+    LaunchedEffect(editing) {
+        if (editing) { wasEditing = true; return@LaunchedEffect }
+        if (!wasEditing) return@LaunchedEffect
+        wasEditing = false
+        awaitFrame(); awaitFrame()
+        val key = lastLib
+        if (key == null || runCatching { libFocus[key]?.requestFocus() }.isFailure) runCatching { focusRequester.requestFocus() }
+    }
+    if (editing) {
+        MenuListEditor(media, type, startAt = lastLib, onDone = { onEditing(false) })
+        return
+    }
+    if (catsFor != null) {
+        LibraryCategories(media, type, catsFor, rightMode.groups, browse,
+            onPick = { group, v -> media.openLibraryAt(catsFor, type, group, v); onCats(null); onOpenPage() },
+            onNone = { media.openLibrary(catsFor, type); onCats(null); onOpenPage() })
+        return
+    }
     LazyColumn(
         Modifier.focusRequester(focusRequester),
         verticalArrangement = Arrangement.spacedBy(1.dp), contentPadding = PaddingValues(bottom = 24.dp),
@@ -2505,12 +2990,17 @@ private fun MediaMenuPanel(type: MediaType, focusRequester: FocusRequester, onCo
         }
         items(libs, key = { "l-" + it.key }) { lib ->
             val go = { media.openLibrary(lib, type); onOpenPage() }
+            // Right: the library's categories / genres / collections in this column (Settings → Remote → Menu).
+            val right = if (rightMode == io.github.petebutty.viewarr.data.settings.MenuLibraryRight.Open) go else { { lastLib = lib.key; onCats(lib) } }
             MenuItem(
                 text = lib.title,
-                trailing = lib.source.removePrefix("Plex · ").takeIf { libs.map { l -> l.source }.distinct().size > 1 },
+                trailing = lib.source.removePrefix("Plex · ").takeIf { libs.map { l -> l.source }.distinct().size > 1 }
+                    ?: if (rightMode != io.github.petebutty.viewarr.data.settings.MenuLibraryRight.Open) "›" else null,
                 selected = browse?.library?.key == lib.key,
                 onClick = go,
-                modifier = Modifier.rightDoes(go),
+                // Hold OK: edit this list, on this library.
+                onLongClick = { lastLib = lib.key; onEditing(true) },
+                modifier = Modifier.focusRequester(libFocus.getOrPut(lib.key) { FocusRequester() }).rightDoes(right),
             )
         }
         // The page's rows are on the page itself; here they're folded away under one entry (OK / Right opens it),
@@ -2527,6 +3017,141 @@ private fun MediaMenuPanel(type: MediaType, focusRequester: FocusRequester, onCo
         if (rowsOpen) items(rows, key = { "r-" + it.id }) { row ->
             val go = { media.openLibrary(null, type); media.jumpTo(row.id); onOpenPage() }
             MenuItem(text = "   " + row.title, trailing = row.items.size.toString(), selected = browse == null && row.id == current, onClick = go, modifier = Modifier.rightDoes(go))
+        }
+        item(key = "edit") {
+            val go = { lastLib = null; onEditing(true) }
+            MenuItem(text = "✎ Edit this list", selected = false, dim = true, onClick = go, modifier = Modifier.padding(top = 8.dp).rightDoes(go))
+        }
+    }
+}
+
+/**
+ * The menu's Movies / Shows list, edited in place (the same settings as Settings → Home page & menu → Menu list):
+ * every library with On / Off (OK switches; Right picks one up, Up / Down move it, Right or OK puts it down), then
+ * the rows under "Jump to a row" with On / Off. Done, Back or Left (MenuOverlay) finish.
+ */
+@Composable
+private fun MenuListEditor(media: MediaViewModel, type: MediaType, startAt: String?, onDone: () -> Unit) {
+    val all = media.allLibraries.collectAsStateWithLifecycle().value.orEmpty()
+    // On first (in their order), then off: as the menu shows them.
+    val libs = all.filter { !it.second } + all.filter { it.second }
+    val rows by media.editableMenuRows.collectAsStateWithLifecycle()
+    var carrying by remember { mutableStateOf<String?>(null) }
+    val focus = remember { HashMap<String, FocusRequester>() }
+    val doneFocus = remember { FocusRequester() }
+    // Opened on a library (hold OK): focus there, else on Done. After a switch or a move: focus follows that library.
+    var follow by remember { mutableStateOf(startAt) }
+    LaunchedEffect(follow, libs.map { it.first.key to it.second }) {
+        awaitFrame(); awaitFrame()
+        val key = follow
+        if (key == null || runCatching { focus[key]?.requestFocus() }.isFailure) runCatching { doneFocus.requestFocus() }
+        follow = null
+    }
+    val on = libs.filter { !it.second }.map { it.first.key }
+    val off = libs.filter { it.second }.map { it.first.key }
+    // Opened by holding OK on a library: that held OK, let go, mustn't switch the library off.
+    LazyColumn(Modifier.ignoreHeldOk(), verticalArrangement = Arrangement.spacedBy(1.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
+        item(key = "done") {
+            MenuItem(text = "✓ Done", selected = false, onClick = onDone, modifier = Modifier.focusRequester(doneFocus).rightDoes(onDone))
+        }
+        item(key = "hint") {
+            Text(if (carrying != null) "Up / Down to move it, then OK to put it down." else "OK: on / off  ·  Right: move", fontSize = 12.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
+        }
+        if (libs.isNotEmpty()) item(key = "h-lib") { MenuGroupLabel("Libraries") }
+        itemsIndexed(libs, key = { _, it -> "l-" + it.first.key }) { i, (lib, hidden) ->
+            val carried = carrying == lib.key
+            fun move(by: Int) {
+                val j = i + by
+                if (j !in on.indices) return
+                media.setLibraryOrder(on.toMutableList().apply { add(j, removeAt(i)) } + off)
+                follow = lib.key
+            }
+            MenuItem(
+                text = (if (carried) "↕ " else "") + lib.title,
+                trailing = if (hidden) "Off" else "On",
+                dim = hidden,
+                selected = carried,
+                onClick = {
+                    if (carried) carrying = null
+                    else if (carrying == null) {
+                        // On → the end of the "on" part; off → the top of the "off" part (as in Settings).
+                        media.setLibraryOrder(if (hidden) on + lib.key + (off - lib.key) else (on - lib.key) + lib.key + off)
+                        media.setLibraryHidden(lib.key, !hidden)
+                        follow = lib.key
+                    }
+                },
+                modifier = Modifier.focusRequester(focus.getOrPut(lib.key) { FocusRequester() }).onPreviewKeyEvent { e ->
+                    if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent carrying != null && e.key != Key.Back && e.key != Key.DirectionLeft
+                    when {
+                        carrying == null && e.key == Key.DirectionRight -> { if (!hidden) carrying = lib.key; true }
+                        carried && e.key == Key.DirectionRight -> { carrying = null; true }
+                        carried && e.key == Key.DirectionUp -> { move(-1); true }
+                        carried && e.key == Key.DirectionDown -> { move(1); true }
+                        carrying != null && e.key != Key.DirectionLeft -> true
+                        else -> false
+                    }
+                },
+            )
+        }
+        if (rows.isNotEmpty()) item(key = "h-rows") { MenuGroupLabel("Under \"Jump to a row\"") }
+        items(rows, key = { "r-" + it.first.id }) { (row, hidden) ->
+            MenuItem(text = row.title, trailing = if (hidden) "Off" else "On", dim = hidden, selected = false,
+                onClick = { if (carrying == null) media.setMenuRowHidden(row.id, !hidden) })
+        }
+    }
+}
+
+/**
+ * The menu's third column: one library's categories (IPTV), genres or collections, "All" first. OK or Right opens the
+ * library on that one; Left / Back go back to the library list (MenuOverlay). [onNone]: it has none, so it just opens.
+ */
+@Composable
+private fun LibraryCategories(
+    media: MediaViewModel, type: MediaType, lib: io.github.petebutty.viewarr.data.media.MediaLibrary, groups: List<String>,
+    browse: MediaViewModel.LibraryBrowse?,
+    onPick: (String, io.github.petebutty.viewarr.data.media.FilterValue?) -> Unit, onNone: () -> Unit,
+) {
+    var cats by remember(lib.key, groups) { mutableStateOf<Pair<String, List<io.github.petebutty.viewarr.data.media.FilterValue>>?>(null) }
+    var loaded by remember(lib.key, groups) { mutableStateOf(false) }
+    LaunchedEffect(lib.key, groups) {
+        cats = media.menuCategories(lib, type, groups)
+        loaded = true
+        if (cats == null) onNone()
+    }
+    val first = remember { FocusRequester() }
+    val c = cats
+    // The one showing now (this library, this filter), else All.
+    val currentId = c?.let { (g, _) -> browse?.takeIf { it.library.key == lib.key }?.query?.filters?.get(g)?.firstOrNull()?.id }
+    LaunchedEffect(c != null) {
+        if (c == null) return@LaunchedEffect
+        awaitFrame(); awaitFrame()
+        runCatching { first.requestFocus() }
+    }
+    if (c == null) {
+        // Holds focus while loading (it would otherwise drop out of the menu).
+        Box(Modifier.focusRequester(first).focusable()) {
+            Column {
+                MenuGroupLabel(lib.title, first = true)
+                Text(if (loaded) "Nothing to list here" else "Loading…", fontSize = 15.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(12.dp))
+            }
+        }
+        LaunchedEffect(Unit) { awaitFrame(); runCatching { first.requestFocus() } }
+        return
+    }
+    val (group, values) = c
+    val startIdx = values.indexOfFirst { it.id == currentId }.let { if (it < 0) 0 else it + 1 }
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState(initialFirstVisibleItemIndex = (startIdx - 3).coerceAtLeast(0))
+    LazyColumn(state = listState, verticalArrangement = Arrangement.spacedBy(1.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
+        item(key = "h") { MenuGroupLabel(lib.title, first = true) }
+        item(key = "all") {
+            val go = { onPick(group, null) }
+            MenuItem(text = "All", selected = currentId == null && browse?.library?.key == lib.key, onClick = go,
+                modifier = (if (startIdx == 0) Modifier.focusRequester(first) else Modifier).rightDoes(go))
+        }
+        itemsIndexed(values, key = { _, v -> "c-" + v.id }) { i, v ->
+            val go = { onPick(group, v) }
+            MenuItem(text = v.label, selected = v.id == currentId, onClick = go,
+                modifier = (if (startIdx == i + 1) Modifier.focusRequester(first) else Modifier).rightDoes(go))
         }
     }
 }

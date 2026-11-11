@@ -15,6 +15,7 @@ import io.github.petebutty.viewarr.data.media.RowsState
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
@@ -183,24 +184,56 @@ class MediaViewModel @Inject constructor(
     val searchFocus = _searchFocus.asStateFlow()
     fun setSearchFocus(f: SearchFilter?) { _searchFocus.value = f }
 
-    val rows: kotlinx.coroutines.flow.StateFlow<RowsState> = kotlinx.coroutines.flow.combine(shownRows, layout, _searchFilter, openedFromMenu, _searchFocus) { r, l, f, extra, focus ->
-        if (l != null) r.copy(rows = l.ordered(r.rows).filter { it.id !in l.hidden || it.id == extra }) else r.copy(rows = focusFirst(orderSearch(f.apply(r.rows)), focus))
+    /**
+     * A live TV shortcut's set of rows (RowSets: "🇬🇧 UK" = rows named 🇬🇧…, "Plex" = your Plex rows): only those
+     * on the page, rows hidden from the normal home page included. Cleared by any other way onto the page.
+     */
+    private val rowSet = MutableStateFlow<String?>(null)
+    val currentRowSet = rowSet.asStateFlow()
+    /** The other page's rows of the same set (a network's films on its shows page), shown after this page's. */
+    private val rowSetExtra = MutableStateFlow<List<io.github.petebutty.viewarr.data.media.MediaRow>>(emptyList())
+    fun showRowSet(key: String?, extra: List<io.github.petebutty.viewarr.data.media.MediaRow> = emptyList()) { rowSetExtra.value = extra; rowSet.value = key }
+    // Settings → Home page & menu → Network rows: off the home page unless chosen (an addon like AIOMetadata can add
+    // dozens; they're reached through their shortcuts).
+    private val setRowsHome = androidx.compose.runtime.snapshotFlow {
+        io.github.petebutty.viewarr.ui.theme.AppColors.palette.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.SET_ROWS_HOME) == 1
+    }
+    private val shownWithSet = kotlinx.coroutines.flow.combine(shownRows, rowSet, setRowsHome) { r, set, home ->
+        if (set != null || home) r to set
+        else {
+            val grouped = io.github.petebutty.viewarr.ui.player.RowSets.sets(r.rows).filter { it.startsWith("name:") }.toSet()
+            r.copy(rows = r.rows.filter { row -> io.github.petebutty.viewarr.ui.player.RowSets.name(row)?.let { "name:$it" !in grouped } ?: true }) to null
+        }
+    }
+
+    val rows: kotlinx.coroutines.flow.StateFlow<RowsState> = kotlinx.coroutines.flow.combine(shownWithSet, layout, _searchFilter, openedFromMenu, _searchFocus) { (r, set), l, f, extra, focus ->
+        if (set != null && l != null) r.copy(rows = l.ordered(r.rows).filter { io.github.petebutty.viewarr.ui.player.RowSets.matches(set, it) } + rowSetExtra.value)
+        else if (l != null) r.copy(rows = l.ordered(r.rows).filter { it.id !in l.hidden || it.id == extra }) else r.copy(rows = focusFirst(orderSearch(f.apply(r.rows)), focus))
     }.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, RowsState(emptyList(), done = false))
     /** Every row in the chosen order with whether it's hidden, for Settings → Home rows. */
     val editableRows: kotlinx.coroutines.flow.StateFlow<Pair<List<Pair<io.github.petebutty.viewarr.data.media.MediaRow, Boolean>>, Boolean>> =
-        kotlinx.coroutines.flow.combine(shownRows, layout) { r, l ->
+        kotlinx.coroutines.flow.combine(shownRows, layout, setRowsHome) { r, l, home ->
             val lay = l ?: io.github.petebutty.viewarr.data.settings.RowLayout()
-            lay.ordered(r.rows).map { it to (it.id in lay.hidden) } to r.done
+            // Network rows that are kept off the home page (their shortcuts open them) aren't listed here either.
+            val grouped = if (home) emptySet() else io.github.petebutty.viewarr.ui.player.RowSets.sets(r.rows).filter { it.startsWith("name:") }.toSet()
+            lay.ordered(r.rows).filter { row -> io.github.petebutty.viewarr.ui.player.RowSets.name(row)?.let { "name:$it" !in grouped } ?: true }
+                .map { it to (it.id in lay.hidden) } to r.done
         }.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, emptyList<Pair<io.github.petebutty.viewarr.data.media.MediaRow, Boolean>>() to false)
 
     /** The menu's Catalogues list (Movies / Shows → Right): in the page's order, with its own on / off. */
+    // (Every row, network rows included: the live TV shortcuts are built from these.)
     val menuRows: kotlinx.coroutines.flow.StateFlow<RowsState> = kotlinx.coroutines.flow.combine(shownRows, layout) { r, l ->
+        val lay = l ?: io.github.petebutty.viewarr.data.settings.RowLayout()
+        r.copy(rows = lay.ordered(r.rows).filter { it.id !in lay.menuHidden })
+    }.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, RowsState(emptyList(), done = false))
+    /** The menu's "Jump to a row": only rows the page has (network rows kept to their shortcuts couldn't be jumped to). */
+    val jumpRows: kotlinx.coroutines.flow.StateFlow<RowsState> = kotlinx.coroutines.flow.combine(shownWithSet, layout) { (r, _), l ->
         val lay = l ?: io.github.petebutty.viewarr.data.settings.RowLayout()
         r.copy(rows = lay.ordered(r.rows).filter { it.id !in lay.menuHidden })
     }.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, RowsState(emptyList(), done = false))
     /** Every row with whether it's left out of the menu, for Settings → Menu list. */
     val editableMenuRows: kotlinx.coroutines.flow.StateFlow<List<Pair<io.github.petebutty.viewarr.data.media.MediaRow, Boolean>>> =
-        kotlinx.coroutines.flow.combine(shownRows, layout) { r, l ->
+        kotlinx.coroutines.flow.combine(shownWithSet, layout) { (r, _), l ->
             val lay = l ?: io.github.petebutty.viewarr.data.settings.RowLayout()
             lay.ordered(r.rows).map { it to (it.id in lay.menuHidden) }
         }.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, emptyList())
@@ -330,7 +363,7 @@ class MediaViewModel @Inject constructor(
     val currentRow = _currentRow.asStateFlow()
     fun setCurrentRow(id: String) { if (_currentRow.value != id) _currentRow.value = id }
 
-    fun jumpTo(rowId: String?) { openedFromMenu.value = rowId; _jump.value = rowId to System.nanoTime() }
+    fun jumpTo(rowId: String?) { rowSet.value = null; openedFromMenu.value = rowId; _jump.value = rowId to System.nanoTime() }
     fun jumpDone() { _jump.value = null }
 
     private var loaded: MediaType? = null
@@ -393,6 +426,20 @@ class MediaViewModel @Inject constructor(
         }
     }
 
+    /**
+     * A shortcut's Refresh: just these rows fetched again from their addons, put back in place. Rows that aren't an
+     * addon's (Plex, Trakt…) or that fail keep what they had. [onDone]: how many came back fresh.
+     */
+    fun refreshRows(ids: Collection<String>, onDone: (Int) -> Unit = {}) {
+        viewModelScope.launch {
+            val fresh = kotlinx.coroutines.coroutineScope {
+                ids.map { id -> async { runCatching { repo.refreshAddonRow(id) }.getOrNull() } }.awaitAll().filterNotNull()
+            }.associateBy { it.id }
+            if (fresh.isNotEmpty()) _rows.value = _rows.value.let { st -> st.copy(rows = st.rows.map { fresh[it.id] ?: it }) }
+            onDone(fresh.size)
+        }
+    }
+
     fun load(type: MediaType, force: Boolean = false) {
         if (!force && loaded == type) return
         loaded = type
@@ -443,6 +490,28 @@ class MediaViewModel @Inject constructor(
 
     /** Quick picks under the search box (titles and names that match what's typed). */
     suspend fun suggestions(q: String): List<String> = if (q.trim().length < 2) emptyList() else runCatching { repo.suggestions(q.trim()) }.getOrDefault(emptyList())
+
+    /** Live TV shortcuts' logos (network / service name → logo), looked up once per name per run. */
+    fun loadShortcutLogos(names: Map<String, MediaItem?>) {
+        names.forEach { (name, sample) ->
+            if (io.github.petebutty.viewarr.ui.player.ShortcutLogos.asked.add(name)) viewModelScope.launch {
+                repo.serviceLogo(name, sample)?.let { io.github.petebutty.viewarr.ui.player.ShortcutLogos.map[name] = it }
+            }
+            if (io.github.petebutty.viewarr.ui.player.ShortcutLogos.askedWide.add(name)) viewModelScope.launch {
+                repo.wideLogo(name)?.let { io.github.petebutty.viewarr.ui.player.ShortcutLogos.wide[name] = it }
+            }
+        }
+    }
+
+    /** Live TV controls → poster rows: Continue watching for this type (every server), refreshed after 2 min. */
+    private val _continueItems = MutableStateFlow<List<MediaItem>?>(null)
+    val continueItems = _continueItems.asStateFlow()
+    private var continueAt = 0L
+    fun loadContinue(type: MediaType, force: Boolean = false) {
+        if (!force && _continueItems.value != null && System.currentTimeMillis() - continueAt < 2 * 60_000L) return
+        continueAt = System.currentTimeMillis()
+        viewModelScope.launch { _continueItems.value = runCatching { repo.continueWatching(type) }.getOrDefault(emptyList()) }
+    }
 
     /** The menu's Movies / Shows panel: newest titles in your libraries (loaded once, refreshed every 10 min). */
     private val _recent = MutableStateFlow<List<MediaItem>?>(null)
@@ -508,9 +577,9 @@ class MediaViewModel @Inject constructor(
     fun setLibraryName(key: String, name: String?) { val t = libType.value ?: return; viewModelScope.launch { rowLayouts.setLibraryName(t, key, name) } }
     fun setLibraryHidden(key: String, hidden: Boolean) { val t = libType.value ?: return; viewModelScope.launch { rowLayouts.setLibraryHidden(t, key, hidden) } }
     fun setLibraryOrder(keys: List<String>) { val t = libType.value ?: return; viewModelScope.launch { rowLayouts.setLibraryOrder(t, keys) } }
-    fun loadLibraries(type: MediaType) {
+    fun loadLibraries(type: MediaType, force: Boolean = false) {
         libType.value = type
-        if (librariesFor == type && _libraries.value != null) return
+        if (!force && librariesFor == type && _libraries.value != null) return
         librariesFor = type
         viewModelScope.launch { _libraries.value = runCatching { repo.libraries(type) }.getOrDefault(emptyList()) }
     }
@@ -526,6 +595,36 @@ class MediaViewModel @Inject constructor(
     fun lastIndexFor(version: Int) = if (lastIndexVersion == version) lastIndex else null
 
     /** Opens a library as you last left it (its sort and filters), or (null) goes back to the page's rows. */
+    /**
+     * The menu's third column (Settings → Remote & navigation → Menu → Right on a library): [lib]'s categories (IPTV),
+     * genres or collections, as the filter group they belong to and its values. Null while loading or when it has none.
+     */
+    private val menuCatCache = HashMap<String, Pair<String, List<io.github.petebutty.viewarr.data.media.FilterValue>>>()
+    suspend fun menuCategories(lib: io.github.petebutty.viewarr.data.media.MediaLibrary, type: MediaType, groups: List<String>): Pair<String, List<io.github.petebutty.viewarr.data.media.FilterValue>>? {
+        val cacheKey = lib.key + "|" + type.name + "|" + groups.joinToString(",")
+        menuCatCache[cacheKey]?.let { return it }
+        val options = runCatching { repo.libraryOptions(lib, type) }.getOrNull() ?: return null
+        val ids = options.filters.filter { !it.toggle }.map { it.id }
+        // The library hasn't that one (IPTV has only categories; Jellyfin no decades): its categories / genres instead.
+        val want = groups + listOf("category", "genre", "Genres")
+        val group = want.firstOrNull { it in ids } ?: return null
+        val values = runCatching { repo.filterValues(lib, type, group) }.getOrNull().orEmpty()
+        if (values.isEmpty()) return null
+        return (group to values).also { menuCatCache[cacheKey] = it }
+    }
+
+    /**
+     * Opens [library] with just [value] of filter [group] (null: all of it), keeping the library's other filters and
+     * sort. From the menu's categories column.
+     */
+    fun openLibraryAt(library: io.github.petebutty.viewarr.data.media.MediaLibrary, type: MediaType, group: String, value: io.github.petebutty.viewarr.data.media.FilterValue?) {
+        val saved = libraryViews.load(library.key)
+        val base = saved ?: io.github.petebutty.viewarr.data.media.LibraryQuery("", true)
+        val filters = if (value == null) base.filters - group else base.filters + (group to listOf(value))
+        libraryViews.save(library.key, base.copy(filters = filters, query = ""))
+        openLibrary(library, type)
+    }
+
     fun openLibrary(library: io.github.petebutty.viewarr.data.media.MediaLibrary?, type: MediaType) {
         browseJob?.cancel(); queryJob?.cancel(); pageJobs.values.forEach { it.cancel() }; pageJobs.clear()
         if (library == null) { _browse.value = null; return }
@@ -539,7 +638,8 @@ class MediaViewModel @Inject constructor(
             // A saved sort this library no longer has (or none yet): newest releases first, as before.
             val q = saved?.takeIf { it.sort in ids } ?: run {
                 val def = options.sorts.firstOrNull { it.id in setOf("originallyAvailableAt", "PremiereDate", "Released") } ?: options.sorts.firstOrNull()
-                io.github.petebutty.viewarr.data.media.LibraryQuery(def?.id ?: "", def?.descFirst ?: true)
+                // (Keeping any filters saved with it, e.g. a category picked in the menu before the first visit.)
+                io.github.petebutty.viewarr.data.media.LibraryQuery(def?.id ?: "", def?.descFirst ?: true, filters = saved?.filters.orEmpty(), toggles = saved?.toggles.orEmpty())
             }
             if (_browse.value?.library?.key != library.key) return@launch
             reload(start.copy(options = options, query = q))

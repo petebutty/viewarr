@@ -103,6 +103,7 @@ import io.github.petebutty.viewarr.ui.theme.AppColors
 import coil.compose.AsyncImage
 import kotlinx.coroutines.android.awaitFrame
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
 
 /** Movies or Shows: a hero for the focused title over Netflix-style poster rows. */
 @OptIn(ExperimentalFoundationApi::class)
@@ -136,9 +137,9 @@ fun MediaScreen(
     var lastCard by remember { mutableStateOf<String?>(null) }
     var hasFocus by remember { mutableStateOf(false) }
     // Waiting a moment before swapping the hero keeps fast scrolling smooth on the weak box.
-    val hero by produceState<MediaItem?>(null, focused) {
-        delay(250)
-        value = focused
+    // (Followed through snapshotFlow, not read here: reading it rebuilt the whole page on every move.)
+    val hero by produceState<MediaItem?>(null) {
+        androidx.compose.runtime.snapshotFlow { focused }.collectLatest { delay(250); value = it }
     }
 
     LaunchedEffect(type) { if (searchHeader == null) vm.load(type) }
@@ -221,15 +222,23 @@ fun MediaScreen(
         awaitFrame(); awaitFrame()
         runCatching { focusRequester.requestFocus() }
     }
-    LaunchedEffect(jump, rows.size) {
+    // Menu → Jump to a row: once the menu has gone (until then the posters can't take focus, and the jump was used up
+    // with focus landing wherever the page put it), that row's first poster. Tried for a moment while it's drawn.
+    LaunchedEffect(jump, rows.size, focusEnabled, detail == null) {
         val (rowId, _) = jump ?: return@LaunchedEffect
+        if (!focusEnabled || detail != null) return@LaunchedEffect
         val index = if (rowId == null) 0 else rows.indexOfFirst { it.id == rowId }
         val row = rows.getOrNull(index) ?: return@LaunchedEffect
-        listState.scrollToItem(index)
+        rowPos[row.id] = 0
+        rowStates[row.id]?.let { runCatching { it.scrollToItem(0) } }
         row.items.firstOrNull()?.let { lastCard = cardId(row, it) }
-        awaitFrame()
-        awaitFrame()
-        runCatching { focusRequester.requestFocus() }
+        listState.scrollToItem(index)
+        repeat(6) {
+            awaitFrame(); awaitFrame()
+            if (runCatching { focusRequester.requestFocus() }.isSuccess && hasFocus) { vm.jumpDone(); return@LaunchedEffect }
+            listState.scrollToItem(index)
+            delay(80)
+        }
         vm.jumpDone()
     }
     // Back from a title opened from the rows: straight back to that poster. Without this, focus fell to whichever
@@ -274,8 +283,10 @@ fun MediaScreen(
     Box(Modifier.fillMaxSize().then(if (searchHeader != null) Modifier else Modifier.appBackground(titleArt = true))) {
         // A library's grid has no hero: the background follows the highlighted title here too (it kept the last
         // page's artwork, e.g. a show's on the films' grid).
-        val gridArt = focused?.takeIf { browse != null }?.backdrop
-        LaunchedEffect(gridArt) { gridArt?.let { io.github.petebutty.viewarr.ui.theme.Wallpaper.title = it } }
+        LaunchedEffect(browse != null) {
+            if (browse == null) return@LaunchedEffect
+            androidx.compose.runtime.snapshotFlow { focused?.backdrop }.collect { art -> art?.let { io.github.petebutty.viewarr.ui.theme.Wallpaper.title = it } }
+        }
         browse?.let { b ->
             LibraryGrid(
                 b = b,
@@ -313,7 +324,7 @@ fun MediaScreen(
                     color = AppColors.TextSecondary, modifier = Modifier.padding(start = 48.dp, top = 12.dp),
                 )
                 rows.isEmpty() -> Text(
-                    "Nothing to show yet. Connect Plex, TMDB, Trakt or a Stremio addon in Settings → Accounts & sources.",
+                    "Nothing to show yet. Connect Plex, TMDB, Trakt or an addon in Settings → Accounts & sources.",
                     color = AppColors.TextSecondary, modifier = Modifier.padding(start = 48.dp, top = 12.dp, end = 48.dp),
                 )
                 else -> CompositionLocalProvider(LocalBringIntoViewSpec provides topAligned, LocalButtonsFree provides (detail == null && playing == null)) { LazyColumn(
@@ -338,7 +349,8 @@ fun MediaScreen(
                             },
                             onLongOpen = { if (!it.key.startsWith("person:")) quick = it },
                             onLeftEdge = if (remote.rowLeft == RowLeft.Menu) onOpenMenu else null,
-                            entryCard = entryCard,
+                            // Only the row that has it gets it: given to every row, each move rebuilt them all.
+                            entryCard = entryCard?.takeIf { it.startsWith(row.id + "|") },
                             entryFocus = focusRequester,
                             onFocus = { item, id ->
                                 focused = item
@@ -356,7 +368,9 @@ fun MediaScreen(
             DetailScreen(
                 ui = d,
                 vm = vm,
-                active = playing == null,
+                // Not while the menu (hold Back), search or Accounts is over it: its focus trap kept the remote
+                // here, under the menu. Focus comes back to Play when they close.
+                active = playing == null && focusEnabled,
                 onPlayPlex = vm::playPlex,
                 onSearch = vm::searchAddons,
                 onPickStream = vm::playStream,
@@ -1022,7 +1036,8 @@ private fun DetailScreen(
         awaitFrame()
         runCatching { playFocus.requestFocus() }
     }
-    Box(Modifier.fillMaxSize().background(AppColors.Background).onFocusChanged { pageFocused = it.hasFocus }.trapFocus()) {
+    Box(Modifier.fillMaxSize().background(AppColors.Background).onFocusChanged { pageFocused = it.hasFocus }
+        .then(if (active) Modifier.trapFocus() else Modifier.focusGroup())) {
         item.backdrop?.let {
             AsyncImage(model = it, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.align(Alignment.TopEnd).fillMaxHeight().fillMaxWidth(0.75f))
         }
@@ -1138,7 +1153,7 @@ private fun DetailScreen(
                 }
                 if (!ui.episodesOpen) ui.message?.let { Text(it, fontSize = 14.sp, color = AppColors.Accent) }
                 if (!onPlex && !onProvider && !onServer && !ui.hasAddons && ui.copies != null) {
-                    Text("Connect Plex or a Stremio addon in Settings → Accounts & sources to play this.", fontSize = 13.sp, color = AppColors.TextSecondary)
+                    Text("Connect Plex or an addon in Settings → Accounts & sources to play this.", fontSize = 13.sp, color = AppColors.TextSecondary)
                 }
             }
         }
@@ -1538,7 +1553,7 @@ private fun EpisodeActions(
             serverLabel?.let { io.github.petebutty.viewarr.ui.common.MenuItem(text = it, selected = false, onClick = onServer, modifier = m()) }
             onProvider?.let { io.github.petebutty.viewarr.ui.common.MenuItem(text = "Play from IPTV", selected = false, onClick = it, modifier = m()) }
             if (hasAddons) io.github.petebutty.viewarr.ui.common.MenuItem(text = if (searching) "Searching…" else "Search addons", selected = false, onClick = onSearch, modifier = m())
-            if (plexLabel == null && serverLabel == null && onProvider == null && !hasAddons) Text("This episode isn't in Plex or on IPTV, and no Stremio addon is connected.", fontSize = 13.sp, color = AppColors.TextSecondary)
+            if (plexLabel == null && serverLabel == null && onProvider == null && !hasAddons) Text("This episode isn't in Plex or on IPTV, and no addon is connected.", fontSize = 13.sp, color = AppColors.TextSecondary)
             io.github.petebutty.viewarr.ui.common.MenuItem(text = "Close", selected = false, onClick = onClose, modifier = m())
             message?.let { Text(it, fontSize = 13.sp, color = AppColors.Accent, modifier = Modifier.padding(top = 8.dp)) }
         }
