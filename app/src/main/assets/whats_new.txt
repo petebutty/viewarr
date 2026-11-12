@@ -1,8 +1,8 @@
 # Shown once, the first time a new version opens (not on a fresh install). Keep it to the few things worth knowing.
 # Lines starting with "- " are the points; the first line without "#" or "-" is the heading.
-Sports, shortcuts everywhere, and easier browsing
-- Sports: follow your teams and leagues (Settings → Sports); the Sports shortcut shows their games, results and which channel shows each, weeks ahead with the UK Sport on TV plugin
-- The live TV shortcuts are now always there (no separate hub style): browse a shortcut with live TV in the corner, and it stops as soon as you pick something
-- Hold OK on a shortcut to choose the rows under it; in Continue watching, OK carries on and hold OK goes to the show or season
-- The picture in the corner: press towards it to highlight it, then Full screen or Close; Settings → Playback → After a film or episode can go back to live TV
-- The guide and channel list can jump from the last channel to the first (Appearance → End of a list); smoother shortcuts, search over a playing film, and many fixes
+A new look: one glass menu, one player bar
+- The menu on the left is see-through glass on every page and slides the page aside; moving over Live TV, Movies, Shows, your streaming services (Netflix, Disney+…), Music or Recordings shows that page straight away
+- Live TV keeps playing in the top-left window while you browse, with the details of what you're on beside it; with nothing on, trailers play there
+- One info bar for live TV and films, with the controls inside it; every pop-up uses the same glass
+- Edit menus (top of the menu): show, hide and reorder everything in the menu, a service's rows and your libraries, right there
+- Live now and Sports are in the menu; the shortcut row is gone. Remote buttons is now one list of every button, each set per place; and a new Viewarr theme

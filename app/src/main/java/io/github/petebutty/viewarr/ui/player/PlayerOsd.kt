@@ -87,6 +87,8 @@ fun PlayerOsd(
     onRecord: (() -> Unit)? = null,
     /** Several channels at once. */
     onMultiView: (() -> Unit)? = null,
+    /** Stop live TV (the guide, with nothing playing). */
+    onStop: (() -> Unit)? = null,
     /** The settings, over live TV (Back returns here). */
     onSettings: (() -> Unit)? = null,
     /** Channel list, guide and wallpaper transparency, adjusted over the picture. */
@@ -136,16 +138,13 @@ fun PlayerOsd(
         runCatching { firstFocus.requestFocus() }
     }
 
-    Column(
+    // The info bar itself, with the buttons inside it: the same bar as when channels change, and as the film player's.
+    InfoBarPanel(
         modifier
-            .fillMaxWidth()
-            .background(Brush.verticalGradient(listOf(Color.Transparent, AppColors.Background.copy(alpha = 0.9f), AppColors.Background)))
             .onPreviewKeyEvent { onActivity(); false }
             // Opened by OK: the release of that same press (Fire TV remotes send it a beat later) mustn't press
             // "TV guide", the first button, and throw you out to the guide.
-            .ignoreHeldOk()
-            .padding(start = 48.dp, end = 48.dp, top = 40.dp, bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+            .ignoreHeldOk(),
     ) {
         if (popup == OsdPopup.Info) StreamInfoPopup(vm)
         popup?.takeIf { it != OsdPopup.Info }?.let { p ->
@@ -177,85 +176,76 @@ fun PlayerOsd(
             )
         }
 
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                channel.number?.let(::formatNumber).orEmpty(),
-                fontSize = 22.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = Color.White,
-                modifier = Modifier.width(64.dp),
-            )
-            Box(Modifier.size(width = 72.dp, height = 40.dp), contentAlignment = Alignment.Center) {
-                io.github.petebutty.viewarr.ui.guide.channelLogo(serverUrl, channel)?.let { AsyncImage(it, null, contentScale = ContentScale.Fit) }
-            }
-            Column(Modifier.weight(1f).padding(start = 16.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(channel.name, fontSize = 13.sp, color = AppColors.TextSecondary)
-                    val behind = vm.behindLiveMs()?.takeIf { it > 60_000 }?.let { "${it / 60_000} MIN BEHIND LIVE" }
-                    if (catchup != null) Badge(listOfNotNull(if (behind != null) null else "CATCH-UP", behind, if (paused) "PAUSED" else null).joinToString(" · "))
-                    else if (paused) Badge("PAUSED · PLAY CARRIES ON FROM HERE")
+        val showNumber = AppColors.palette.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.BANNER_NUMBER) == 0
+        InfoBarTop(
+            number = if (showNumber) channel.number?.let(::formatNumber).orEmpty() else null,
+            logo = {
+                io.github.petebutty.viewarr.ui.guide.channelLogo(serverUrl, channel)?.let {
+                    AsyncImage(it, null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
                 }
-                Text(
-                    current?.let(::displayTitle) ?: "No guide information",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = Color.White,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            if (current != null) {
-                Text(
-                    "${current.startTime.clockTime()} – ${current.endTime.clockTime()}",
-                    fontSize = 14.sp,
-                    color = AppColors.TextSecondary,
-                )
-            }
-        }
-
-        if (catchup != null) {
-            SeekBar(
-                position = position.first,
-                // The programme's own length: a programme still on air is only as long as what's been broadcast in
-                // the provider's archive, which made the bar look nearly finished.
-                duration = catchup!!.endTime - catchup!!.startTime,
-                // How far through it live is (a programme still on air).
-                live = (now - catchup!!.startTime).takeIf { now < catchup!!.endTime },
-                paused = paused,
-                onSeek = vm::seekBy,
-                onToggle = vm::togglePause,
-                modifier = Modifier.focusRequester(firstFocus).focusRequester(barFocus),
-            )
-        } else if (current != null) {
-            if (channel.catchupDays > 0) {
-                var barOn by remember { mutableStateOf(false) }
-                // Left / Right move a marker to where the rewind will jump to; it jumps on OK, or once you stop.
-                var rewindTo by remember { mutableStateOf<Long?>(null) }
-                val earliest = maxOf(current.startTime, now - channel.catchupDays * 86_400_000L)
-                fun jump() { rewindTo?.let { keepBar = true; vm.rewindLiveTo(it) }; rewindTo = null }
-                LaunchedEffect(rewindTo) { if (rewindTo != null) { kotlinx.coroutines.delay(2_500); jump() } }
-                Column(
-                    Modifier.focusRequester(barFocus).onFocusChanged { barOn = it.isFocused; if (!it.isFocused) rewindTo = null }.focusable().onPreviewKeyEvent { e ->
-                        if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                        val step = if (e.nativeKeyEvent.repeatCount >= 4) seekStep * 4 else seekStep
-                        when (e.key) {
-                            // The first step back is at least a minute (the archive runs just behind live).
-                            Key.DirectionLeft -> rewindTo = (minOf(rewindTo ?: now, now - 60_000 + step) - step).coerceAtLeast(earliest)
-                            Key.DirectionRight -> rewindTo = rewindTo?.let { (it + step).takeIf { t -> t < now - 60_000 } }
-                            Key.DirectionCenter, Key.Enter, Key.NumPadEnter -> if (rewindTo != null) jump() else { keepBar = true; vm.togglePause() }
-                            else -> return@onPreviewKeyEvent false
+            },
+            smallLine = {
+                Text(channel.name, fontSize = 14.sp, color = AppColors.TextSecondary)
+                val behind = vm.behindLiveMs()?.takeIf { it > 60_000 }?.let { "${it / 60_000} MIN BEHIND LIVE" }
+                if (catchup != null) Badge(listOfNotNull(if (behind != null) null else "CATCH-UP", behind, if (paused) "PAUSED" else null).joinToString(" · "))
+                else if (paused) Badge("PAUSED · PLAY CARRIES ON FROM HERE")
+                QualityBadges(LiveQuality.now)
+            },
+            title = current?.let(::displayTitle) ?: "No guide information",
+            progress = {
+                if (catchup != null) {
+                    SeekBar(
+                        position = position.first,
+                        // The programme's own length: a programme still on air is only as long as what's been broadcast in
+                        // the provider's archive, which made the bar look nearly finished.
+                        duration = catchup!!.endTime - catchup!!.startTime,
+                        // How far through it live is (a programme still on air).
+                        live = (now - catchup!!.startTime).takeIf { now < catchup!!.endTime },
+                        paused = paused,
+                        onSeek = vm::seekBy,
+                        onToggle = vm::togglePause,
+                        modifier = Modifier.focusRequester(firstFocus).focusRequester(barFocus),
+                    )
+                } else if (current != null) {
+                    if (channel.catchupDays > 0) {
+                        var barOn by remember { mutableStateOf(false) }
+                        // Left / Right move a marker to where the rewind will jump to; it jumps on OK, or once you stop.
+                        var rewindTo by remember { mutableStateOf<Long?>(null) }
+                        val earliest = maxOf(current.startTime, now - channel.catchupDays * 86_400_000L)
+                        fun jump() { rewindTo?.let { keepBar = true; vm.rewindLiveTo(it) }; rewindTo = null }
+                        LaunchedEffect(rewindTo) { if (rewindTo != null) { kotlinx.coroutines.delay(2_500); jump() } }
+                        Column(
+                            Modifier.focusRequester(barFocus).onFocusChanged { barOn = it.isFocused; if (!it.isFocused) rewindTo = null }.focusable().onPreviewKeyEvent { e ->
+                                if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                                val step = if (e.nativeKeyEvent.repeatCount >= 4) seekStep * 4 else seekStep
+                                when (e.key) {
+                                    // The first step back is at least a minute (the archive runs just behind live).
+                                    Key.DirectionLeft -> rewindTo = (minOf(rewindTo ?: now, now - 60_000 + step) - step).coerceAtLeast(earliest)
+                                    Key.DirectionRight -> rewindTo = rewindTo?.let { (it + step).takeIf { t -> t < now - 60_000 } }
+                                    Key.DirectionCenter, Key.Enter, Key.NumPadEnter -> if (rewindTo != null) jump() else { keepBar = true; vm.togglePause() }
+                                    else -> return@onPreviewKeyEvent false
+                                }
+                                true
+                            },
+                        ) {
+                            val marker = rewindTo?.let { ((it - current.startTime).toFloat() / (current.endTime - current.startTime)).coerceIn(0f, 1f) }
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("${current.startTime.clockTime()} – ${current.endTime.clockTime()}", fontSize = 14.sp, color = Color.White)
+                                Spacer(Modifier.width(12.dp))
+                                Box(Modifier.weight(1f)) { LiveProgress(current, now, highlighted = barOn, marker = marker) }
+                            }
+                            val hint = rewindTo?.let { t -> "Back to ${t.clockTime()}  ·  ${((now - t) / 60_000).coerceAtLeast(1)} min ago  ·  OK to jump now" }
+                                ?: "◀ Left to rewind  ·  OK to pause"
+                            if (barOn) Text(hint, fontSize = 11.sp, color = if (rewindTo != null) Color.White else AppColors.TextSecondary, modifier = Modifier.padding(top = 4.dp))
                         }
-                        true
-                    },
-                ) {
-                    val marker = rewindTo?.let { ((it - current.startTime).toFloat() / (current.endTime - current.startTime)).coerceIn(0f, 1f) }
-                    LiveProgress(current, now, highlighted = barOn, marker = marker)
-                    val hint = rewindTo?.let { t -> "Back to ${t.clockTime()}  ·  ${((now - t) / 60_000).coerceAtLeast(1)} min ago  ·  OK to jump now" }
-                        ?: "◀ Left to rewind  ·  OK to pause"
-                    if (barOn) Text(hint, fontSize = 11.sp, color = if (rewindTo != null) Color.White else AppColors.TextSecondary, modifier = Modifier.padding(top = 4.dp))
+                    } else Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("${current.startTime.clockTime()} – ${current.endTime.clockTime()}", fontSize = 14.sp, color = Color.White)
+                        Spacer(Modifier.width(12.dp))
+                        Box(Modifier.weight(1f)) { LiveProgress(current, now) }
+                    }
                 }
-            } else LiveProgress(current, now)
-        }
+            },
+        )
 
         // The same icon buttons as the film / show player's controls (the focused one's name underneath).
         var showShortcuts by remember { mutableStateOf(false) }
@@ -272,6 +262,7 @@ fun PlayerOsd(
                 Pill(io.github.petebutty.viewarr.ui.common.AppIcons.SkipNext, "Go live", groupEnd = true) { vm.goLive() }
             }
             Pill(io.github.petebutty.viewarr.ui.common.AppIcons.Guide, "TV guide", if (catchup == null) Modifier.focusRequester(firstFocus) else Modifier, onClick = onGuide)
+            if (onStop != null) Pill(io.github.petebutty.viewarr.ui.common.AppIcons.Stop, "Stop", groupEnd = true) { onStop() }
             Pill(io.github.petebutty.viewarr.ui.common.AppIcons.Audio, "Audio") { popup = OsdPopup.Audio }
             Pill(io.github.petebutty.viewarr.ui.common.AppIcons.Subtitles, "Subtitles") { popup = OsdPopup.Subtitles }
             Pill(io.github.petebutty.viewarr.ui.common.AppIcons.Aspect, "Aspect: ${aspect.label}") { popup = OsdPopup.Aspect }

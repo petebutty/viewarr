@@ -49,8 +49,16 @@ object VodHost {
     var active by mutableStateOf(false)
         internal set
 
+    /**
+     * The menu open over it (Left from the controls' first button): it plays on full screen underneath, the menu
+     * (drawn above it) has the remote. Picking a page puts it in the corner; closing the menu gives it the remote back.
+     */
+    var behind by mutableStateOf(false)
+    /** Opens the menu over the film (the home screen sets it). */
+    var openMenu: () -> Unit = {}
+
     /** Full screen over the page. */
-    val covering: Boolean get() = active && !mini
+    val covering: Boolean get() = active && !mini && !behind
 
     /** A page starts playing: it takes the player (whatever was playing from another page stops). */
     fun show(src: VodSource) {
@@ -108,7 +116,7 @@ fun VodHostLayer() {
     LaunchedEffect(stream == null) {
         VodHost.active = stream != null
         // Stopped or ended (even mid-glide): nothing is gliding any more, or the page would wait for it for ever.
-        if (stream == null) { VodHost.mini = false; VodHost.gliding = false }
+        if (stream == null) { VodHost.mini = false; VodHost.gliding = false; VodHost.behind = false }
     }
     val s = stream ?: return
     val mini = VodHost.mini
@@ -203,7 +211,7 @@ fun VodHostLayer() {
               VodHost.openSearch()
               true
           }
-          Box(if (mini && !VodHost.gliding) Modifier.fillMaxSize()
+          Box(if ((mini && !VodHost.gliding) || VodHost.behind) Modifier.fillMaxSize()
                   .focusProperties { enter = { androidx.compose.ui.focus.FocusRequester.Cancel } }.focusGroup()
               else Modifier.fillMaxSize().then(searchKeys)) {
             // A new film or episode gets a fresh player and picture surface. Without this the old screen's

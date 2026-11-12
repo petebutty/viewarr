@@ -38,7 +38,6 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.compose.foundation.layout.size
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -47,8 +46,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
-import io.github.petebutty.viewarr.data.local.GroupWithCount
-import io.github.petebutty.viewarr.ui.common.MenuItem
 import io.github.petebutty.viewarr.ui.common.trapFocus
 import io.github.petebutty.viewarr.ui.guide.GuideScreen
 import io.github.petebutty.viewarr.ui.guide.GuideViewModel
@@ -72,6 +69,12 @@ internal fun ChannelListOverlay(
     onCatchup: (ChannelListItem, GuideProgram) -> Unit = { _, _ -> },
     /** A programme still to come: record / remind options. */
     onFuture: (ChannelListItem, GuideProgram) -> Unit = { _, _ -> },
+    /**
+     * Left from the channels: the menu strip opens beside them (channel groups, then the main list), as TiviMate.
+     */
+    onLeft: () -> Unit = {},
+    /** Inside the menu strip (its background, its Back): focus stays with the groups until a group is picked. */
+    embedded: Boolean = false,
 ) {
     val channels by vm.channels.collectAsStateWithLifecycle()
     // Right on a channel: its programmes in a panel beside the list (Left goes back).
@@ -90,17 +93,7 @@ internal fun ChannelListOverlay(
         runCatching { returnFocus.requestFocus() }
     }
     val programs by vm.programs.collectAsStateWithLifecycle()
-    val groups by vm.groups.collectAsStateWithLifecycle()
     val groupId by vm.groupId.collectAsStateWithLifecycle()
-    var showGroups by remember { mutableStateOf(false) }
-    val groupFocus = remember { FocusRequester() }
-    // One more Left from the groups: your Live TV sources (several Dispatcharr instances, logins, playlists).
-    val sourcesVm: io.github.petebutty.viewarr.ui.settings.LiveSourcesViewModel = hiltViewModel()
-    val savedSources by sourcesVm.saved.collectAsStateWithLifecycle()
-    val activeSource by sourcesVm.active.collectAsStateWithLifecycle()
-    var showSources by remember { mutableStateOf(false) }
-    val sourceFocus = remember { FocusRequester() }
-    LaunchedEffect(showSources) { if (showSources) { awaitFrame(); runCatching { sourceFocus.requestFocus() } } else if (showGroups) { awaitFrame(); runCatching { groupFocus.requestFocus() } } }
     val start = channels.indexOfFirst { it.id == current.id }.coerceAtLeast(0)
     // Settings → Appearance → End of a list: 1 jumps to the other end on a fresh press, 2 stops.
     val ends = if (AppColors.palette.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.LIST_ENDS) == 0) 1 else 2
@@ -112,30 +105,16 @@ internal fun ChannelListOverlay(
     val jumpScope = androidx.compose.runtime.rememberCoroutineScope()
     val focus = remember { FocusRequester() }
     var activity by remember { mutableLongStateOf(System.nanoTime()) }
-    BackHandler { if (epgFor != null) epgFor = null else if (showSources) showSources = false else if (showGroups) showGroups = false else onClose() }
-    // Focus: the current channel (or the first one after a group change), or the selected group.
-    var groupSeen by remember { mutableStateOf(groupId) }
-    // The group under the highlight while moving through them (its channels are previewed a moment later).
-    var hoverGroup by remember { mutableStateOf<Int?>(null) }
-    var hovering by remember { mutableStateOf(false) }
-    LaunchedEffect(showGroups) { if (!showGroups) hovering = false }
-    LaunchedEffect(showGroups, groupId) {
-        val groupChanged = groupId != groupSeen
-        groupSeen = groupId
+    // (In the menu strip, Back belongs to the menu unless the programme panel is open.)
+    BackHandler(enabled = !embedded || epgFor != null) { if (epgFor != null) epgFor = null else onClose() }
+    // The current channel at the top, and focused (in the strip: only scrolled, a group being previewed mustn't take
+    // the highlight from the groups).
+    LaunchedEffect(groupId) {
         awaitFrame()
-        if (showGroups) {
-            // Opening the groups leaves the channel list where it is (no jump); previewing another group shows its
-            // channels from the top (or around the one playing). Focus is only placed on opening: a preview landing
-            // while you've already moved on mustn't pull the highlight back to it.
-            if (groupChanged) listState.scrollToItem(maxOf(0, channels.indexOfFirst { it.id == current.id }.coerceAtLeast(0)))
-            else runCatching { groupFocus.requestFocus() }
-        } else {
-            listState.scrollToItem(maxOf(0, channels.indexOfFirst { it.id == current.id }.coerceAtLeast(0)))
-            awaitFrame()
-            runCatching { focus.requestFocus() }
-        }
+        listState.scrollToItem(maxOf(0, channels.indexOfFirst { it.id == current.id }.coerceAtLeast(0)))
+        if (!embedded) { awaitFrame(); runCatching { focus.requestFocus() } }
     }
-    LaunchedEffect(activity) { delay(10_000); onClose() }
+    LaunchedEffect(activity) { if (!embedded) { delay(10_000); onClose() } }
     val focusTarget = channels.firstOrNull { it.id == current.id }?.id ?: channels.firstOrNull()?.id
     Row(Modifier.fillMaxHeight().onPreviewKeyEvent { e ->
         if (e.type == KeyEventType.KeyDown) activity = System.nanoTime()
@@ -144,83 +123,17 @@ internal fun ChannelListOverlay(
             // The programme panel: Left closes it; Right on a channel opens it.
             epgFor != null && e.key == Key.DirectionLeft -> { epgFor = null; true }
             epgFor != null -> false
-            e.key == Key.DirectionRight && !showGroups -> { focusedCh?.let { epgFor = it }; true }
-            // Left from the channels opens the groups; Right (or Back) from the groups returns.
-            e.key == Key.DirectionLeft && !showGroups -> { showGroups = true; true }
-            e.key == Key.DirectionLeft && showGroups && !showSources && savedSources.size > 1 && io.github.petebutty.viewarr.data.profiles.Access.can(io.github.petebutty.viewarr.data.profiles.Lock.SOURCES) -> { showSources = true; true }
-            e.key == Key.DirectionLeft && showSources -> true
-            e.key == Key.DirectionRight && showSources -> { showSources = false; true }
-            e.key == Key.DirectionRight && showGroups -> { showGroups = false; true }
+            e.key == Key.DirectionRight -> { focusedCh?.let { epgFor = it }; true }
+            e.key == Key.DirectionLeft -> { onLeft(); true }
             else -> false
         }
     }.trapFocus()) {
-    // Moving through the groups previews each group's channels on the right (short pause so fast scrolling stays smooth).
-    val previewScope = androidx.compose.runtime.rememberCoroutineScope()
-    var previewJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
-    fun preview(id: Int?) {
-        previewJob?.cancel()
-        previewJob = previewScope.launch { delay(250); if (vm.groupId.value != id) vm.selectGroup(id) }
-    }
-    if (showSources) io.github.petebutty.viewarr.ui.common.GrowFromLeft(300.dp) {
-        Box(Modifier.fillMaxHeight().width(300.dp).background(AppColors.Panel.copy(alpha = AppColors.palette.menuAlpha)).padding(16.dp)) {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                item { Text("Sources", fontSize = 13.sp, color = AppColors.Accent, modifier = Modifier.padding(start = 12.dp, bottom = 6.dp)) }
-                items(savedSources, key = { "src:" + it.id }) { src ->
-                    val on = src.id == activeSource?.id
-                    MenuItem(
-                        text = src.label, selected = on, trailing = if (on) "✓" else null,
-                        modifier = if (on) Modifier.focusRequester(sourceFocus) else Modifier,
-                        // The list stays open on the new source's groups, to pick a channel there.
-                        onClick = { if (!on) { sourcesVm.switchTo(src); vm.selectGroup(null) }; showSources = false },
-                    )
-                }
-            }
-        }
-    }
-    if (showGroups) io.github.petebutty.viewarr.ui.common.GrowFromLeft(280.dp) {
-        Box(Modifier.fillMaxHeight().width(280.dp).background(AppColors.Panel.copy(alpha = AppColors.palette.menuAlpha)).padding(16.dp)) {
-            // "All channels", then the groups; End of a list as the channels (jumping: a fresh press past the last /
-            // first). Opens with the current group at the top.
-            val entries: List<GroupWithCount?> = listOf<GroupWithCount?>(null) + groups
-            val m = entries.size
-            val at = entries.indexOfFirst { it?.id == groupId }.coerceAtLeast(0)
-            val groupState = rememberLazyListState(initialFirstVisibleItemIndex = maxOf(0, at))
-            val firstG = remember { FocusRequester() }
-            val lastG = remember { FocusRequester() }
-            LazyColumn(state = groupState, verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                items(m, key = { v -> entries.getOrNull(v)?.id?.toString() ?: "all-$v" }) { v ->
-                    val g = entries.getOrNull(v)
-                    val id = g?.id
-                    MenuItem(
-                        text = g?.name ?: "All channels", selected = id == (if (hovering) hoverGroup else groupId),
-                        trailing = g?.channelCount?.toString(),
-                        modifier = (if (id == groupId) Modifier.focusRequester(groupFocus) else Modifier)
-                            .then(if (v == 0) Modifier.focusRequester(firstG) else Modifier)
-                            .then(if (v == m - 1) Modifier.focusRequester(lastG) else Modifier)
-                            .then(if (ends == 1 && m > 1 && (v == 0 || v == m - 1)) Modifier.onPreviewKeyEvent { e ->
-                                if (e.type != KeyEventType.KeyDown || e.nativeKeyEvent.repeatCount != 0) return@onPreviewKeyEvent false
-                                val toLast = v == 0 && e.key == Key.DirectionUp
-                                val toFirst = v == m - 1 && e.key == Key.DirectionDown
-                                if (!toLast && !toFirst) return@onPreviewKeyEvent false
-                                jumpScope.launch {
-                                    groupState.scrollToItem(if (toFirst) 0 else maxOf(0, m - 6))
-                                    awaitFrame()
-                                    runCatching { (if (toFirst) firstG else lastG).requestFocus() }
-                                }
-                                true
-                            } else Modifier)
-                            .onFocusChanged { if (it.isFocused) { hoverGroup = id; hovering = true; preview(id) } },
-                        onClick = { previewJob?.cancel(); vm.selectGroup(id); showGroups = false },
-                    )
-                }
-            }
-        }
-    }
     Box(
         Modifier
             .fillMaxHeight()
             .width(460.dp)
-            .background(androidx.compose.ui.graphics.Brush.horizontalGradient(0f to AppColors.Panel.copy(alpha = AppColors.palette.menuAlpha), 0.9f to AppColors.Panel.copy(alpha = AppColors.palette.menuAlpha), 1f to Color.Transparent))
+            // The menu strip's colour (in the strip, the strip draws it once behind every column).
+            .then(if (embedded) Modifier else Modifier.background(AppColors.MenuPanel))
             .padding(start = 24.dp, top = 24.dp, bottom = 24.dp, end = 36.dp),
     ) {
         LazyColumn(state = listState, verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -249,7 +162,7 @@ internal fun ChannelListOverlay(
                             }
                             true
                         } else Modifier)
-                        .focusProperties { canFocus = !showGroups && epgFor == null }
+                        .focusProperties { canFocus = epgFor == null }
                         .onFocusChanged { if (it.isFocused) { focusedCh = ch; focusedV = v } }
                         .fillMaxWidth(),
                     scale = ClickableSurfaceDefaults.scale(scale = 1f, focusedScale = 1f, pressedScale = 1f),

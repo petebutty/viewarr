@@ -215,8 +215,7 @@ fun GuideScreen(
                         vm.moveVertical(if (remote.channelKeys == ChannelKeys.Reversed) -PAGE else PAGE, ends, fresh)
                     e.key == Key.DirectionRight || action == io.github.petebutty.viewarr.ui.common.RemoteAction.FastForward -> vm.moveRight()
                     action == io.github.petebutty.viewarr.ui.common.RemoteAction.Rewind -> vm.moveLeft()
-                    // Record (remotes that have it): the highlighted programme's options, as holding OK.
-                    action == io.github.petebutty.viewarr.ui.common.RemoteAction.Record -> selectedChannel?.let { ch -> focused?.let { onLongSelect(ch, it) } }
+                    // (Record: Settings → Remote buttons, handled above the guide.)
                     else -> return@onPreviewKeyEvent false
                 }
                 true

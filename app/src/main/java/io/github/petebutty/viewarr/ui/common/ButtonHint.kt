@@ -1,13 +1,11 @@
 package io.github.petebutty.viewarr.ui.common
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.foundation.background
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -51,11 +49,11 @@ fun ButtonHint(screen: String, text: String, modifier: Modifier = Modifier) {
         shown = false
     }
     Box(modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
-        AnimatedVisibility(shown, enter = fadeIn(), exit = fadeOut()) {
+        AnimatedVisibility(shown, enter = EnterTransition.None, exit = ExitTransition.None) {
             Text(
                 text, fontSize = 13.sp, color = AppColors.TextPrimary, maxLines = 1,
                 modifier = Modifier.padding(bottom = 18.dp)
-                    .background(AppColors.Panel.copy(alpha = 0.92f), RoundedCornerShape(16.dp))
+                    .glass(16.dp)
                     .padding(horizontal = 16.dp, vertical = 6.dp),
             )
         }

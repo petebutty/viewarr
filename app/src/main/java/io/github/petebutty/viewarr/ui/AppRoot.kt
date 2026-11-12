@@ -1,5 +1,6 @@
 package io.github.petebutty.viewarr.ui
 
+import kotlinx.coroutines.flow.first
 import io.github.petebutty.viewarr.ui.theme.appBackground
 
 import androidx.compose.foundation.background
@@ -9,6 +10,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
@@ -94,11 +96,20 @@ fun AppRoot(vm: AppViewModel = hiltViewModel()) {
     val state by vm.state.collectAsStateWithLifecycle()
     val remote by vm.remote.collectAsStateWithLifecycle()
     val playbackSettings by vm.playback.collectAsStateWithLifecycle()
-    // The splash stays up for 3.8 s (the logo's animation, then a moment's hold) while the start page loads underneath it, so the first press after it
-    // fades lands on a ready page (earlier, presses while rows were still loading did nothing).
+    // The splash stays up for at least 3.8 s (the logo's animation, then a moment's hold) while the start page loads
+    // underneath it, and then until that page is ready (StartupGate: the guide's channels are in), so the first press
+    // after it fades lands on a ready page. Slow boxes get longer; a guide that never comes (no live TV yet) doesn't
+    // hold it past the limit.
     var splashDone by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
+    val appCtx = androidx.compose.ui.platform.LocalContext.current
     androidx.compose.runtime.LaunchedEffect(Unit) {
+        if (splashDone) return@LaunchedEffect
         kotlinx.coroutines.delay(3_800)
+        val am = appCtx.getSystemService(android.content.Context.ACTIVITY_SERVICE) as? android.app.ActivityManager
+        val slow = am?.isLowRamDevice == true || io.github.petebutty.viewarr.ui.theme.AppColors.palette.lowMemory
+        kotlinx.coroutines.withTimeoutOrNull(if (slow) 12_000L else 7_000L) {
+            androidx.compose.runtime.snapshotFlow { io.github.petebutty.viewarr.ui.common.StartupGate.ready }.first { it }
+        }
         splashDone = true
     }
     val splashShown = !splashDone || state == StartState.Loading
@@ -110,10 +121,17 @@ fun AppRoot(vm: AppViewModel = hiltViewModel()) {
     val scale = io.github.petebutty.viewarr.ui.theme.AppColors.palette.textScale
     // Buttons taught in Settings → Remote: read wherever a press is turned into an action.
     androidx.compose.runtime.SideEffect { io.github.petebutty.viewarr.ui.common.RemoteKeys.setTaught(remote.buttons) }
+    // Weak boxes get smaller pictures (Low-memory mode counts, as well as what Android says about the box).
+    val lowMem = io.github.petebutty.viewarr.ui.theme.AppColors.palette.lowMemory
+    val lowRam = androidx.compose.runtime.remember { (appCtx.getSystemService(android.content.Context.ACTIVITY_SERVICE) as? android.app.ActivityManager)?.isLowRamDevice == true }
+    androidx.compose.runtime.SideEffect { io.github.petebutty.viewarr.data.net.SmallerImages.weak = lowMem || lowRam }
     androidx.compose.runtime.CompositionLocalProvider(
         io.github.petebutty.viewarr.data.settings.LocalRemote provides remote,
         io.github.petebutty.viewarr.data.settings.LocalPlayback provides playbackSettings,
         androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(baseDensity.density * scale, baseDensity.fontScale),
+        // Settings → Appearance → Font.
+        androidx.tv.material3.LocalTextStyle provides androidx.tv.material3.LocalTextStyle.current.copy(fontFamily = appFont()),
+        androidx.compose.material3.LocalTextStyle provides androidx.compose.material3.LocalTextStyle.current.copy(fontFamily = appFont()),
     ) {
     Box(
         Modifier
@@ -122,7 +140,8 @@ fun AppRoot(vm: AppViewModel = hiltViewModel()) {
             // Presses during the splash are swallowed rather than lost on a half-loaded page.
             .onPreviewKeyEvent { splashShown },
     ) {
-        io.github.petebutty.viewarr.ui.theme.WallpaperLoader()
+        // (After the splash: decoding pictures competed with the start page loading.)
+        if (!splashShown) io.github.petebutty.viewarr.ui.theme.WallpaperLoader()
         when (val s = state) {
             StartState.Loading -> Unit
             StartState.NeedsSetup -> if (!splashShown) {
@@ -146,7 +165,10 @@ fun AppRoot(vm: AppViewModel = hiltViewModel()) {
                 // tour is up: a channel playing underneath kept the remote (Left / Right there mean skip).
                 // (No offscreen layer for the page while a film glides: switching it on cost one very slow frame at the
                 // start of every glide, more than it saved; measured on a Formuler.)
-                if (!touring) HomeScreen(session = s.session, onSignOut = vm::signOut)
+                // (Drawn above the film while the menu is open over it: Left from the film controls' first button.)
+                if (!touring) androidx.compose.foundation.layout.Box(Modifier.fillMaxSize().zIndex(if (io.github.petebutty.viewarr.ui.media.VodHost.behind) 2f else 0f)) {
+                    HomeScreen(session = s.session, onSignOut = vm::signOut)
+                }
                 // Films, episodes and recordings: above every page, full screen or shrunk to a corner.
                 io.github.petebutty.viewarr.ui.media.VodHostLayer()
                 // Music: the Now Playing screen, or the small now-playing bar while you browse.
@@ -186,4 +208,19 @@ private fun Clock(modifier: Modifier) {
             .background(Color.Black.copy(alpha = 0.45f), androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
             .padding(horizontal = 10.dp, vertical = 3.dp),
     )
+}
+
+/** Settings → Appearance → Font: one of the fonts every Android TV box has (null: the standard one). */
+@Composable
+private fun appFont(): androidx.compose.ui.text.font.FontFamily? {
+    val i = io.github.petebutty.viewarr.ui.theme.AppColors.palette.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.FONT)
+    return androidx.compose.runtime.remember(i) {
+        when (i) {
+            1 -> androidx.compose.ui.text.font.FontFamily(android.graphics.Typeface.create("sans-serif-condensed", android.graphics.Typeface.NORMAL))
+            2 -> androidx.compose.ui.text.font.FontFamily(android.graphics.Typeface.create("sans-serif-light", android.graphics.Typeface.NORMAL))
+            3 -> androidx.compose.ui.text.font.FontFamily(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL))
+            4 -> androidx.compose.ui.text.font.FontFamily.Serif
+            else -> null
+        }
+    }
 }

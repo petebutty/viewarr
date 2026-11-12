@@ -18,6 +18,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import io.github.petebutty.viewarr.ui.common.glass
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -90,7 +91,8 @@ fun VodPlayer(
     var now by remember { mutableStateOf(System.currentTimeMillis()) }
     fun showOsd() { osdUntil = System.currentTimeMillis() + io.github.petebutty.viewarr.ui.theme.AppColors.palette.controlsMs }
     // Shrunk to the corner (picture-in-picture): just the picture; the page has the remote.
-    val mini = VodHost.mini
+    // (The menu over it counts too: the player lets go of the remote and its controls.)
+    val mini = VodHost.mini || VodHost.behind
     LaunchedEffect(mini) {
         if (mini) { menu.open = false; tracksOpen = false; detailsOn = false; if (scrub.active) scrub.cancel(); osdUntil = 0L }
     }
@@ -361,15 +363,20 @@ fun VodPlayer(
         // The live TV shortcuts, as on live TV: opening one sends the film to the corner (still playing) and opens
         // the page; Back from it brings the film back full screen.
         // The shortcuts and their rows (FilmShortcuts.kt: shared with the other player).
-        shortcutCount = { FilmShortcuts.count(hubOn) },
+        // (No shortcut row under the buttons: the menu on the left has every library and service.)
+        shortcutCount = { 0 },
         pickShortcut = { i -> FilmShortcuts.pick(menu, i) },
         moveShortcut = { _, d -> FilmShortcuts.move(menu, d) },
         canHoldShortcut = FilmShortcuts::canHold,
         rowSizes = FilmShortcuts::rowSizes,
         pickCard = { r, c -> FilmShortcuts.pickCard(menu, r, c) },
         holdCard = { r, c -> FilmShortcuts.holdCard(menu, r, c) },
-        tableAction = { e -> io.github.petebutty.viewarr.data.settings.ButtonMap.pressOf(e)?.takeIf { it in io.github.petebutty.viewarr.data.settings.ButtonMap.presses[io.github.petebutty.viewarr.data.settings.BtnScreen.Film].orEmpty() }
-            ?.let { io.github.petebutty.viewarr.data.settings.ButtonMap.action(remoteSettings, io.github.petebutty.viewarr.data.settings.BtnScreen.Film, it) } },
+        // Settings → Remote buttons → Films & shows: buttons changed from standard (FilmShortcuts.kt has the rest).
+        tableAction = { e -> io.github.petebutty.viewarr.data.settings.ButtonMap.pressOf(e)?.takeIf { it !in io.github.petebutty.viewarr.data.settings.ButtonMap.filmNavigation }
+            ?.let { io.github.petebutty.viewarr.data.settings.ButtonMap.changed(remoteSettings, io.github.petebutty.viewarr.data.settings.BtnScreen.Film, it) } },
+        mapped = { press -> io.github.petebutty.viewarr.data.settings.ButtonMap.changed(remoteSettings, io.github.petebutty.viewarr.data.settings.BtnScreen.Film, press) },
+        openGuide = { menu.open = false; VodHost.close(); io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.openGuide() },
+        search = { VodHost.minimise(); VodHost.openSearch() },
     )
     // The controls close after a while without a key (not while paused).
     LaunchedEffect(paused) {
@@ -457,7 +464,7 @@ fun VodPlayer(
             barFocused = menu.open && menu.onBar,
             shortcuts = if (menu.open && menu.onShortcuts) io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.items.map { it.first } else null,
             shortcutFocus = menu.shortcut, shortcutMoving = menu.scMoving,
-            shortcutsHint = hubOn,
+            shortcutsHint = false,
             rows = if (menu.open && menu.onRows) io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.rowsFor(menu.shortcut) else null,
             rowFocus = menu.row, cardFocus = menu.card,
         )
@@ -537,7 +544,7 @@ private fun TrackPicker(player: ExoPlayer, subtitlesFirst: Boolean = false, onSw
         }
     }
     androidx.compose.foundation.lazy.LazyColumn(
-        modifier.fillMaxHeight().width(380.dp).background(io.github.petebutty.viewarr.ui.theme.AppColors.Panel.copy(alpha = 0.95f)).padding(20.dp).trapFocus().then(Modifier.ignoreHeldOk()),
+        modifier.fillMaxHeight().padding(vertical = 28.dp).padding(end = 28.dp).width(380.dp).glass().padding(20.dp).trapFocus().then(Modifier.ignoreHeldOk()),
         verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(2.dp),
     ) {
         // Focus starts on the first audio track, or (Subtitles button) on the subtitles' "Off".

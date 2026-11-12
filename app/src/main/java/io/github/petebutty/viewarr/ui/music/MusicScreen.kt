@@ -498,7 +498,22 @@ fun MusicScreen(
         if (!mem.restore(page)) runCatching { focusRequester.requestFocus() }
     }
 
-    Box(Modifier.fillMaxSize().background(AppColors.Background)) {
+    // Live TV in the guide's preview place (top left): the highlighted album, artist or playlist beside it, the
+    // music below.
+    val besidePreview = io.github.petebutty.viewarr.ui.common.LiveBehind.preview
+    Column(Modifier.fillMaxSize().background(AppColors.Background)) {
+    if (besidePreview) Row(Modifier.fillMaxWidth().height(200.dp)) {
+        Spacer(Modifier.width(356.dp))
+        Column(Modifier.padding(top = 26.dp, end = 48.dp)) {
+            val c = MusicHover.card
+            Text("Music", fontSize = 14.sp, color = AppColors.Accent)
+            Spacer(Modifier.height(8.dp))
+            Text(c?.title ?: "Your music", fontSize = 26.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            c?.sub?.takeIf { it.isNotBlank() }?.let { Spacer(Modifier.height(6.dp)); Text(it, fontSize = 15.sp, color = AppColors.TextSecondary, maxLines = 2, overflow = TextOverflow.Ellipsis) }
+            c?.let { Spacer(Modifier.height(4.dp)); Text(it.kind.name, fontSize = 13.sp, color = AppColors.TextSecondary) }
+        }
+    }
+    Box(Modifier.fillMaxWidth().weight(1f)) {
         when {
             connected == null -> Text("Loading…", fontSize = 16.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(48.dp).focusRequester(focusRequester))
             connected == false -> NotConnected(focusRequester, onSetUp, onOpenMenu)
@@ -507,6 +522,12 @@ fun MusicScreen(
             else -> MusicHomePage(home, vm, page, mem, lists.getOrPut(page) { LazyListState() }, { lists.getOrPut("row:$it") { LazyListState() } }, focusRequester, onOpenMenu)
         }
     }
+    }
+}
+
+/** The music card highlighted last (shown beside the live TV preview). */
+private object MusicHover {
+    var card by androidx.compose.runtime.mutableStateOf<MusicCard?>(null)
 }
 
 @Composable
@@ -834,7 +855,7 @@ internal fun MusicCardView(c: MusicCard, size: Dp?, modifier: Modifier, onClick:
     Column(if (size != null) Modifier.width(size) else Modifier.fillMaxWidth()) {
         Surface(
             onClick = onClick,
-            modifier = modifier.then(if (size != null) Modifier.size(size) else Modifier.fillMaxWidth().aspectRatio(1f)),
+            modifier = modifier.onFocusChanged { if (it.isFocused) MusicHover.card = c }.then(if (size != null) Modifier.size(size) else Modifier.fillMaxWidth().aspectRatio(1f)),
             scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
             shape = ClickableSurfaceDefaults.shape(shape),
             border = ClickableSurfaceDefaults.border(focusedBorder = Border(BorderStroke(3.dp, AppColors.Accent), shape = shape)),

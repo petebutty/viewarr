@@ -283,14 +283,33 @@ fun MediaScreen(
         io.github.petebutty.viewarr.ui.theme.Wallpaper.titlePages++
         onDispose { io.github.petebutty.viewarr.ui.theme.Wallpaper.titlePages-- }
     }
-    Box(Modifier.fillMaxSize().then(if (searchHeader != null) Modifier else Modifier.appBackground(titleArt = true))) {
+    // Over live TV (opened from the menu while a channel was full screen): a see-through dark page, so it shows.
+    val overLive = io.github.petebutty.viewarr.ui.common.LiveBehind.on && searchHeader == null
+    Box(Modifier.fillMaxSize().then(when {
+        searchHeader != null -> Modifier
+        overLive -> Modifier.background(AppColors.palette.main.copy(alpha = 0.35f + 0.5f * AppColors.palette.menuAlpha))
+        else -> Modifier.appBackground(titleArt = true)
+    })) {
         // A library's grid has no hero: the background follows the highlighted title here too (it kept the last
         // page's artwork, e.g. a show's on the films' grid).
         LaunchedEffect(browse != null) {
             if (browse == null) return@LaunchedEffect
             androidx.compose.runtime.snapshotFlow { focused?.backdrop }.collect { art -> art?.let { io.github.petebutty.viewarr.ui.theme.Wallpaper.title = it } }
         }
-        browse?.let { b ->
+        // As the catalogues' pages: the top-left window (live TV, or the highlighted title's trailer) with its details
+        // beside it, and the library's grid below.
+        browse?.let { b -> Column(Modifier.fillMaxSize()) {
+            if (!io.github.petebutty.viewarr.ui.common.LiveBehind.on) Hero(
+                item = focused,
+                type = type,
+                trailerItem = focused,
+                trailerActive = focusEnabled && hasFocus && detail == null && playing == null,
+                trailers = vm.trailers,
+                librarySourcesOf = vm::librarySources,
+                logoOf = vm::logoFor,
+                ratingsOf = vm::ratingsFor,
+            )
+            Box(Modifier.fillMaxWidth().weight(1f)) {
             LibraryGrid(
                 b = b,
                 vm = vm,
@@ -305,7 +324,8 @@ fun MediaScreen(
                 onLong = { quick = it },
                 onLeftEdge = onOpenMenu,
             )
-        }
+            }
+        } }
         if (browse == null) Column(Modifier.fillMaxSize()) {
             val personInfo by vm.personInfo.collectAsStateWithLifecycle()
             val pi = personInfo?.takeIf { personShown != null }
@@ -441,7 +461,7 @@ private fun Hero(
     LaunchedEffect(item?.backdrop) { item?.backdrop?.let { io.github.petebutty.viewarr.ui.theme.Wallpaper.title = it } }
     // On the Movies and Shows pages the artwork fills the whole page (drawn by the page's background), so the
     // hero doesn't draw its own copy (it left a seam where it ended).
-    val pageArt = io.github.petebutty.viewarr.ui.theme.Wallpaper.titlePages > 0
+    val pageArt = io.github.petebutty.viewarr.ui.theme.Wallpaper.titlePages > 0 || io.github.petebutty.viewarr.ui.common.LiveBehind.on
     Box(Modifier.fillMaxWidth().height(232.dp)) {
         if (!pageArt) item?.backdrop?.let { url ->
             AsyncImage(
@@ -457,19 +477,16 @@ private fun Hero(
             Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(0.3f to bg, 0.55f to bg.copy(alpha = bg.alpha * 0.55f), 1f to Color.Transparent)))
             Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.6f to Color.Transparent, 1f to bg)))
         }
-        // Picture-in-picture trailer over the right of the backdrop, clear of the title and overview.
-        if (trailers != null) TrailerPreview(
-            item = trailerItem,
-            active = trailerActive,
-            trailers = trailers,
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(top = 16.dp, end = 48.dp)
-                .height(200.dp)
-                .aspectRatio(16f / 9f)
-                .clip(RoundedCornerShape(10.dp)),
-        )
-        Column(Modifier.padding(start = 48.dp, top = 26.dp, end = 48.dp).fillMaxWidth(0.5f)) {
+        // The top-left window, always in the same place (the guide's preview place): live TV when a channel's on
+        // (drawn by the home screen), otherwise the highlighted title's picture with its trailer playing over it.
+        val besidePreview = !io.github.petebutty.viewarr.ui.common.LiveBehind.on
+        if (besidePreview && !io.github.petebutty.viewarr.ui.common.LiveBehind.preview) Box(
+            Modifier.padding(start = 12.dp, top = 20.dp).size(width = 320.dp, height = 180.dp).clip(RoundedCornerShape(8.dp)).background(Color.Black.copy(alpha = 0.35f)),
+        ) {
+            item?.backdrop?.let { AsyncImage(model = it, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
+            if (trailers != null) TrailerPreview(item = trailerItem, active = trailerActive, trailers = trailers, modifier = Modifier.fillMaxSize())
+        }
+        Column(Modifier.padding(start = if (besidePreview) 356.dp else 48.dp, top = 26.dp, end = 48.dp).fillMaxWidth(if (besidePreview) 0.75f else 0.5f)) {
             Text(if (type == MediaType.Movie) "Movies" else "Shows", fontSize = 14.sp, color = AppColors.Accent)
             Spacer(Modifier.height(8.dp))
             if (item != null) {
@@ -1029,6 +1046,11 @@ private fun DetailScreen(
     // and the check finishing mustn't throw you back to Play.
     var pageFocused by remember { mutableStateOf(false) }
     var buttonsFocused by remember { mutableStateOf(false) }
+    // The channel in the preview place (top left): the details beside it follow what's highlighted below (an episode,
+    // a title in More like this), and are the page's own again back up on the buttons.
+    val besidePreview = io.github.petebutty.viewarr.ui.common.LiveBehind.preview
+    var hover by remember(item.key) { mutableStateOf<Pair<String, String?>?>(null) }
+    LaunchedEffect(buttonsFocused) { if (buttonsFocused) hover = null }
     var lastMode by remember { mutableStateOf<Any?>(null) }
     LaunchedEffect(ui.copies != null, ui.hasAddons, ui.streams == null, active, ui.episodesOpen) {
         val mode = listOf(ui.streams == null, active, ui.episodesOpen)
@@ -1056,13 +1078,17 @@ private fun DetailScreen(
         val episodesEntry = remember { FocusRequester() }
         val inlineEpisodes = show && ui.seasons.isNotEmpty() && parts.shows(io.github.petebutty.viewarr.ui.theme.TitleParts.EPISODES)
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 56.dp, end = 40.dp, top = 24.dp, bottom = 12.dp)) {
-        Row(verticalAlignment = Alignment.Top) {
-            item.poster?.let {
+        Row(verticalAlignment = Alignment.Top, modifier = if (besidePreview) Modifier.heightIn(min = 190.dp) else Modifier) {
+            // The preview's place (12–332 dp from the left, under the page's 56 dp margin) instead of the poster.
+            if (besidePreview) Spacer(Modifier.width(300.dp))
+            else item.poster?.let {
                 io.github.petebutty.viewarr.ui.common.PosterImage(it, null, Modifier.size(width = 120.dp, height = 180.dp).clip(RoundedCornerShape(10.dp)))
                 Spacer(Modifier.width(24.dp))
             }
             Column(Modifier.fillMaxWidth(0.68f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                TitleLogo(item, vm::logoFor, height = 54.dp, maxWidth = 320.dp, fontSize = 28)
+                val hovered = hover.takeIf { besidePreview }
+                if (hovered != null) Text(hovered.first, fontSize = 24.sp, fontWeight = FontWeight.Medium, color = AppColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                else TitleLogo(item, vm::logoFor, height = 54.dp, maxWidth = 320.dp, fontSize = 28)
                 val meta = listOfNotNull(
                     item.year?.toString(),
                     // The age rating is a badge below (Settings → Appearance → Title pages: Badges); in the line when they're off.
@@ -1075,7 +1101,7 @@ private fun DetailScreen(
                 TitleBadges(item, d, ui.media)
                 RatingsLine(item.rating, d.voteCount, ui.ratings)
                 item.subtitle?.takeIf { parts.shows(io.github.petebutty.viewarr.ui.theme.TitleParts.UP_NEXT) }?.let { Text("Up next: $it", fontSize = 13.sp, color = AppColors.Accent, maxLines = 1) }
-                item.overview?.let { Text(it, fontSize = 14.sp, lineHeight = 20.sp, color = AppColors.TextPrimary, maxLines = if (show) 2 else 3, overflow = TextOverflow.Ellipsis) }
+                (if (hovered != null) hovered.second else item.overview)?.let { Text(it, fontSize = 14.sp, lineHeight = 20.sp, color = AppColors.TextPrimary, maxLines = if (show) 2 else 3, overflow = TextOverflow.Ellipsis) }
                 Text(
                     listOfNotNull(
                         d.directors.takeIf { it.isNotEmpty() }?.let { (if (show) "Created by " else "Directed by ") + it.take(2).joinToString(", ") },
@@ -1160,7 +1186,7 @@ private fun DetailScreen(
                 }
             }
         }
-        if (inlineEpisodes) InlineEpisodes(ui, vm, free = sectionsFree && ui.episode == null, entry = episodesEntry, up = playFocus, down = tabFocus)
+        if (inlineEpisodes) InlineEpisodes(ui, vm, free = sectionsFree && ui.episode == null, entry = episodesEntry, up = playFocus, down = tabFocus, onHover = { ep -> hover = "S${ep.season} E${ep.number} · ${ep.name}" to ep.overview })
         // "Episodes" (hold OK on a show, the guide's Go to show…): onto this page's episode row, once the season's in.
         // (Once per request: changing season afterwards mustn't pull focus down to the episodes again.)
         var focusedFor by remember { mutableStateOf(0L) }
@@ -1171,7 +1197,7 @@ private fun DetailScreen(
             runCatching { episodesEntry.requestFocus() }
         }
         Spacer(Modifier.height(16.dp))
-        DetailTabs(d, show, sectionsFree && ui.episode == null, tabFocus, onPerson = { c -> vm.openCastMember(c) }, onReview = { reading = it }, onSimilar = { vm.open(it) })
+        DetailTabs(d, show, sectionsFree && ui.episode == null, tabFocus, onPerson = { c -> vm.openCastMember(c) }, onReview = { reading = it }, onSimilar = { vm.open(it) }, onHover = { m -> hover = m?.let { it.title to it.overview } })
         }
         reading?.let { r -> ReviewDialog(r) { reading = null } }
         if (ui.episodesOpen) EpisodesPanel(ui, vm, onPlex)
@@ -1421,7 +1447,7 @@ private fun EpisodeActionsFor(ui: DetailUi, vm: MediaViewModel) {
  * up to). OK plays an episode from the best source; holding OK lists the sources.
  */
 @Composable
-private fun InlineEpisodes(ui: DetailUi, vm: MediaViewModel, free: Boolean, entry: FocusRequester, up: FocusRequester, down: FocusRequester) {
+private fun InlineEpisodes(ui: DetailUi, vm: MediaViewModel, free: Boolean, entry: FocusRequester, up: FocusRequester, down: FocusRequester, onHover: (io.github.petebutty.viewarr.data.media.EpisodeInfo) -> Unit = {}) {
     val item = ui.detail.item
     fun watched(s: Int, e: Int) = ui.plexEpisodes[s to e]?.watched == true || ui.serverEpisodes[s to e]?.watched == true || (s to e) in ui.traktEpisodes
     // Opens on the season you're up to (once that's known; a few seconds at most), else the first.
@@ -1509,7 +1535,7 @@ private fun InlineEpisodes(ui: DetailUi, vm: MediaViewModel, free: Boolean, entr
                             modifier = (if (i == target.coerceAtLeast(0)) Modifier.focusRequester(entry) else Modifier)
                                 .focusProperties { canFocus = free && !loading }
                                 .safeMove(Key.DirectionUp) { seasonFocus }.safeMove(Key.DirectionDown) { down }
-                                .onFocusChanged { focused = it.isFocused }
+                                .onFocusChanged { focused = it.isFocused; if (it.isFocused) onHover(ep) }
                                 .size(width = 192.dp, height = 108.dp),
                             scale = ClickableSurfaceDefaults.scale(scale = 1f, focusedScale = 1f, pressedScale = 1f),
                             shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
@@ -1793,6 +1819,8 @@ private fun DetailTabs(
     onPerson: (io.github.petebutty.viewarr.data.media.CastMember) -> Unit,
     onReview: (io.github.petebutty.viewarr.data.media.Review) -> Unit,
     onSimilar: (MediaItem) -> Unit,
+    /** A title highlighted in More like this / the collection (null: off them, onto the tabs). */
+    onHover: (MediaItem?) -> Unit = {},
 ) {
     val facts = listOfNotNull(
         d.released?.let { (if (show) "First aired" else "Released") to it },
@@ -1821,7 +1849,7 @@ private fun DetailTabs(
         tabs.forEach { t ->
             Surface(
                 onClick = { tab = t },
-                modifier = (if (t == tab) Modifier.focusRequester(tabFocus) else Modifier).onFocusChanged { if (it.isFocused) tab = t }.focusProperties { canFocus = free },
+                modifier = (if (t == tab) Modifier.focusRequester(tabFocus) else Modifier).onFocusChanged { if (it.isFocused) { tab = t; onHover(null) } }.focusProperties { canFocus = free },
                 scale = ClickableSurfaceDefaults.scale(scale = 1f, focusedScale = 1f, pressedScale = 1f),
                 shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(16.dp)),
                 colors = ClickableSurfaceDefaults.colors(
@@ -1845,7 +1873,7 @@ private fun DetailTabs(
             // The film you're on stays out of its own collection row.
             items(if (tab == DetailTab.Collection) d.collection.filter { it.tmdbId != d.item.tmdbId } else d.similar, key = { it.key }) { m ->
                 Column(Modifier.width(86.dp)) {
-                    PosterCard(m, Modifier.focusProperties { canFocus = free }, onClick = { onSimilar(m) })
+                    PosterCard(m, Modifier.focusProperties { canFocus = free }.onFocusChanged { if (it.isFocused) onHover(m) }, onClick = { onSimilar(m) })
                     Text(m.title, fontSize = 11.sp, color = AppColors.TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp))
                 }
             }

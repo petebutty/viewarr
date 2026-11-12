@@ -342,9 +342,10 @@ class PlaybackViewModel @Inject constructor(
             DefaultTsPayloadReaderFactory.FLAG_ALLOW_NON_IDR_KEYFRAMES or
                 DefaultTsPayloadReaderFactory.FLAG_DETECT_ACCESS_UNITS
         )
-        // Small start buffer so channel changes feel quick; live TV doesn't need a long one.
+        // Small start buffer so channel changes feel quick; live TV doesn't need a long one. (Half a second to start:
+        // Dispatcharr sends a few seconds it already has straight away, so that's there almost at once.)
         val loadControl = DefaultLoadControl.Builder()
-            .setBufferDurationsMs(4_000, 30_000, 1_000, 2_500)
+            .setBufferDurationsMs(4_000, 30_000, 500, 2_500)
             .build()
         return ExoPlayer.Builder(context)
             .setRenderersFactory(
@@ -360,6 +361,10 @@ class PlaybackViewModel @Inject constructor(
 
     private fun attachListener(p: ExoPlayer) {
                 p.addListener(object : Player.Listener {
+                    override fun onRenderedFirstFrame() {
+                        if (startedAt > 0) android.util.Log.i("Playback", "first picture after ${android.os.SystemClock.elapsedRealtime() - startedAt} ms")
+                        startedAt = 0L
+                    }
                     override fun onPlaybackStateChanged(playbackState: Int) {
                         when (playbackState) {
                             Player.STATE_BUFFERING -> _state.value = PlaybackState.Buffering
@@ -437,9 +442,13 @@ class PlaybackViewModel @Inject constructor(
         start(channel, null, s, liveUrl(s, channel))
         stallJob?.cancel()
         stallJob = viewModelScope.launch {
-            delay(8_000)
-            if (_channel.value?.id == channel.id && _catchup.value == null && _state.value == PlaybackState.Buffering) {
-                android.util.Log.i("Playback", "channel ${channel.id} still loading after 8 s: asking again")
+            // Long enough for a slow provider (some take 6–7 s to start on Dispatcharr): asking again sooner threw
+            // away a start that was nearly there. Only when nothing at all has arrived.
+            delay(15_000)
+            if (_channel.value?.id == channel.id && _catchup.value == null && _state.value == PlaybackState.Buffering &&
+                (player?.bufferedPosition ?: 0L) <= 0L
+            ) {
+                android.util.Log.i("Playback", "channel ${channel.id} still loading after 15 s: asking again")
                 start(channel, null, s, liveUrl(s, channel))
             }
         }
@@ -520,10 +529,14 @@ class PlaybackViewModel @Inject constructor(
         _position.value = (if (program != null) catchupOffset else startAt) to (program?.let { it.endTime - it.startTime } ?: 0L)
         _paused.value = false
         _state.value = PlaybackState.Buffering
+        startedAt = android.os.SystemClock.elapsedRealtime()
         p.setMediaItem(MediaItem.fromUri(url), startAt)
         p.prepare()
         p.play()
     }
+
+    /** When the last stream was asked for: logged against its first picture, to see where channel changes spend time. */
+    private var startedAt = 0L
 
     private fun restart(startAt: Long = 0) {
         val channel = _channel.value ?: return

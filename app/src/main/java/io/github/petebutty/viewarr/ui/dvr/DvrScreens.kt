@@ -33,6 +33,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import io.github.petebutty.viewarr.ui.common.glass
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
@@ -150,18 +152,19 @@ internal fun ChoicePanel(
         awaitFrame()
         runCatching { first.requestFocus() }
     }
-    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.55f)), contentAlignment = Alignment.Center) {
+    // On the glass (as the info bar): a light dim behind, the card in the middle.
+    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.3f)), contentAlignment = Alignment.Center) {
         Column(
-            Modifier.width(400.dp)
+            Modifier.width(440.dp)
                 // Long lists (a show with many series) scroll with the focus rather than running off the screen.
                 .heightIn(max = (androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp * 0.92f).dp)
-                .background(AppColors.Panel, RoundedCornerShape(14.dp)).verticalScroll(androidx.compose.foundation.rememberScrollState())
-                .padding(horizontal = 18.dp, vertical = 16.dp).trapFocus()
+                .glass(18.dp).verticalScroll(androidx.compose.foundation.rememberScrollState())
+                .padding(horizontal = 22.dp, vertical = 20.dp).trapFocus()
                 .then(Modifier.ignoreHeldOk()),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
-            Text(title, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Text(subtitle, fontSize = 12.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(bottom = 8.dp))
+            Text(title, fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(subtitle, fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(top = 2.dp, bottom = 12.dp))
             description?.takeIf { it.isNotBlank() }?.let {
                 Text(it, fontSize = 14.sp, lineHeight = 20.sp, color = AppColors.TextPrimary, maxLines = 7, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(bottom = 14.dp))
             }
@@ -323,6 +326,9 @@ fun RecordingsScreen(
     var picked by remember { mutableStateOf<DvrRow?>(null) }
     var confirmDelete by remember { mutableLongStateOf(0L) }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
+    // Live TV in the guide's preview place (top left): the highlighted recording's details beside it, the list below.
+    val besidePreview = io.github.petebutty.viewarr.ui.common.LiveBehind.preview
+    var hover by remember { mutableStateOf<Pair<String, String>?>(null) }
 
     LaunchedEffect(Unit) { vm.refresh() }
     BackHandler(enabled = focusEnabled && picked == null) { onBack() }
@@ -356,8 +362,19 @@ fun RecordingsScreen(
                 }
                 .padding(horizontal = 56.dp, vertical = 32.dp),
         ) {
-            Text("Recordings", fontSize = 28.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary)
-            Text("Recorded and scheduled on your Dispatcharr server  ·  OK plays  ·  Hold OK for options", fontSize = 13.sp, color = AppColors.TextSecondary)
+            if (besidePreview) androidx.compose.foundation.layout.Row(Modifier.heightIn(min = 180.dp)) {
+                Spacer(Modifier.width(288.dp))
+                Column {
+                    Text("Recordings", fontSize = 14.sp, color = AppColors.Accent)
+                    Spacer(Modifier.height(6.dp))
+                    Text(hover?.first ?: "Recorded and scheduled", fontSize = 24.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, maxLines = 2)
+                    Spacer(Modifier.height(4.dp))
+                    Text(hover?.second ?: "OK plays  ·  Hold OK for options", fontSize = 14.sp, color = AppColors.TextSecondary, maxLines = 2)
+                }
+            } else {
+                Text("Recordings", fontSize = 28.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary)
+                Text("Recorded and scheduled on your Dispatcharr server  ·  OK plays  ·  Hold OK for options", fontSize = 13.sp, color = AppColors.TextSecondary)
+            }
             Spacer(Modifier.height(16.dp))
             when {
                 allowed == false -> Text(
@@ -379,7 +396,9 @@ fun RecordingsScreen(
                                 title = row.rec.title + episodeTag(row.rec.season, row.rec.episode) + if (row.rec.state == DvrState.Failed) "  (failed)" else "",
                                 detail = "${channels[row.rec.channelId]?.name ?: "Channel"}  ·  ${span(row.rec.start, row.rec.end)}",
                                 live = row.rec.state == DvrState.Recording,
-                                modifier = if (i == firstItem) Modifier.focusRequester(focusRequester) else Modifier,
+                                modifier = (if (i == firstItem) Modifier.focusRequester(focusRequester) else Modifier).onFocusChanged {
+                                    if (it.hasFocus) hover = (row.rec.title + episodeTag(row.rec.season, row.rec.episode)) to "${channels[row.rec.channelId]?.name ?: "Channel"}  ·  ${span(row.rec.start, row.rec.end)}"
+                                },
                                 // Hold OK: the options (stop, cancel, delete…).
                                 onLongClick = { picked = row; confirmDelete = 0L; vm.clearMessage() },
                             ) {
@@ -392,7 +411,9 @@ fun RecordingsScreen(
                                 detail = (if (row.rule.mode == "new") "New episodes" else "Every episode") +
                                     (row.rule.tvgId.takeIf { it.isNotEmpty() }?.let { "  ·  $it" } ?: "  ·  Any channel"),
                                 live = false,
-                                modifier = if (i == firstItem) Modifier.focusRequester(focusRequester) else Modifier,
+                                modifier = (if (i == firstItem) Modifier.focusRequester(focusRequester) else Modifier).onFocusChanged {
+                                    if (it.hasFocus) hover = row.rule.label to (if (row.rule.mode == "new") "Series recording · new episodes" else "Series recording · every episode")
+                                },
                             ) { picked = row; vm.clearMessage() }
                         }
                     }

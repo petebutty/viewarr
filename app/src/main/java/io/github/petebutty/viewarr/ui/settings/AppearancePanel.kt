@@ -37,6 +37,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.tv.material3.Border
@@ -63,6 +64,7 @@ class AppearanceViewModel @Inject constructor(private val store: ThemeStore) : V
     fun setHideMedia(on: Boolean) {
         viewModelScope.launch { store.saveHideMedia(on) }
     }
+    fun setMenuOrder(ids: List<String>) { viewModelScope.launch { store.saveMenuOrder(ids) } }
 
     fun setSquareCorners(on: Boolean) {
         viewModelScope.launch { store.saveSquareCorners(on) }
@@ -103,12 +105,8 @@ private val HighlightNames = listOf("Cyan", "Pink", "Sky blue", "Blue", "Teal", 
 @Composable
 fun AppearanceSettingsScreen(onBack: () -> Unit, vm: AppearanceViewModel = hiltViewModel(), opts: UiOptsViewModel = hiltViewModel()) {
     val palette = AppColors.palette
-    val presets = ThemePresets.map { Choice(it.name, it.name) }
-    val currentPreset = ThemePresets.firstOrNull { it.main == palette.main && it.highlight == palette.highlight }
-    val mains = MainColourChoices.mapIndexed { i, c -> Choice(MainColourNames.getOrElse(i) { "Colour ${i + 1}" }, c) }
     val highs = HighlightChoices.mapIndexed { i, c -> Choice(HighlightNames.getOrElse(i) { "Colour ${i + 1}" }, c) }
     val onOff = listOf(Choice("On", true), Choice("Off", false))
-    val corners = listOf(Choice("Rounded", false), Choice("Square", true))
     val transparencies = (0..100 step 10).map { Choice(if (it == 0) "Solid" else "$it%", it) }
     val currentT = ((palette.transparency * 100).roundToInt() / 10 * 10).coerceIn(0, 100)
     val currentG = ((palette.guideTransparency * 100).roundToInt() / 10 * 10).coerceIn(0, 100)
@@ -119,26 +117,30 @@ fun AppearanceSettingsScreen(onBack: () -> Unit, vm: AppearanceViewModel = hiltV
     val low = palette.lowMemory
     // Low-memory mode: its settings stay listed, locked, with how to get them back.
     val lowLock = if (low) Locks.LOW_MEMORY else null
+    // The main menu's choices: its pages and the streaming services from your addons (AIOMetadata's rows).
+    val moviesM: io.github.petebutty.viewarr.ui.media.MediaViewModel = hiltViewModel(key = "media-Movie")
+    val showsM: io.github.petebutty.viewarr.ui.media.MediaViewModel = hiltViewModel(key = "media-Show")
+    val mRows by moviesM.menuRows.collectAsStateWithLifecycle()
+    val sRows by showsM.menuRows.collectAsStateWithLifecycle()
+    val serviceNames = (io.github.petebutty.viewarr.ui.player.RowSets.sets(sRows.rows) + io.github.petebutty.viewarr.ui.player.RowSets.sets(mRows.rows))
+        .filter { it.startsWith("name:") }.map { it.removePrefix("name:") }.distinct()
+    fun menuItem(label: String, id: String, description: String, alsoOn: () -> Unit = {}) =
+        SettingItem(label, description, onOff, if (palette.shows(id)) onOff[0] else onOff[1]) { c ->
+            val on = (c as Choice).value == true
+            vm.setTitlePart(id, on)
+            if (on) alsoOn()
+        }
     val categories = listOfNotNull(
         SettingCategory(
             "Colours & text", "Colours, text size, the clock and how dates and times show. Changes show straight away.",
             listOf(
-                SettingItem("Theme", "A ready-made pair of background and highlight colours.", presets,
-                    presets.firstOrNull { it.value == currentPreset?.name } ?: Choice("Custom", "custom")) { c ->
-                    ThemePresets.firstOrNull { it.name == (c as Choice).value }?.let { vm.apply(it.main, it.highlight) }
-                },
-                // With a wallpaper on, the background colour is only its tint (Dimming sets that): hidden to avoid
-                // two settings that seem to do the same thing.
-                *(if (palette.wallpaperMode != 0) emptyArray() else arrayOf(
-                SettingItem("Background colour", "The main colour behind menus and pages.", mains,
-                    mains.firstOrNull { it.value == palette.main } ?: Choice("Custom", palette.main)) { c ->
-                    vm.apply((c as Choice).value as androidx.compose.ui.graphics.Color, palette.highlight)
-                })),
+                // One theme for now (Viewarr): only the highlight colour can change.
                 SettingItem("Highlight colour", "The colour of whatever is selected.", highs,
                     highs.firstOrNull { it.value == palette.highlight } ?: Choice("Custom", palette.highlight)) { c ->
                     vm.apply(palette.main, (c as Choice).value as androidx.compose.ui.graphics.Color)
                 },
                 optItem(opts, "Text size", "How big text and everything else on screen is. Larger is easier to read from the sofa.", io.github.petebutty.viewarr.ui.theme.UiOpts.TEXT_SIZE),
+                optItem(opts, "Font", "The lettering for all text, from the fonts built into your box.", io.github.petebutty.viewarr.ui.theme.UiOpts.FONT),
                 optItem(opts, "Clock", "The time in the top corner.", io.github.petebutty.viewarr.ui.theme.UiOpts.CLOCK),
                 optItem(opts, "Date format", "How dates show across Viewarr: the guide, recordings, episodes and reviews.", io.github.petebutty.viewarr.ui.theme.UiOpts.DATE_ORDER),
                 optItem(opts, "Time format", "24-hour or 12-hour times: the guide, the clock, programme times and recordings.", io.github.petebutty.viewarr.ui.theme.UiOpts.TIME_FORMAT),
@@ -158,7 +160,7 @@ fun AppearanceSettingsScreen(onBack: () -> Unit, vm: AppearanceViewModel = hiltV
         SettingCategory(
             "Transparency", "Left / Right on each: how much shows through. Solid hides what's behind completely.",
             buildList {
-                add(SettingItem("Channel list", "The channel list and its programmes over full-screen live TV.", transparencies,
+                add(SettingItem("Glass", "The menu strip on the left and the channel list, on every page and over video.", transparencies,
                     transparencies.first { it.value == currentT }, slider = true) { c -> vm.setTransparency(((c as Choice).value as Int) / 100f) })
                 add(SettingItem("Guide", "The guide's channel names and programmes (the one you're on stays solid). Shows more of the wallpaper behind.", transparencies,
                     transparencies.first { it.value == currentG }, slider = true) { c -> vm.setGuideTransparency(((c as Choice).value as Int) / 100f) })
@@ -175,8 +177,6 @@ fun AppearanceSettingsScreen(onBack: () -> Unit, vm: AppearanceViewModel = hiltV
                     if (palette.showNumbers) onOff[0] else onOff[1]) { c -> vm.setShowNumbers((c as Choice).value == true) },
                 SettingItem("Progress bars", "The bar showing how far through each programme on now is: on every channel, only the channel you're watching, or none.", progressChoices,
                     progressChoices[palette.progressBars.coerceIn(0, 2)]) { c -> vm.setProgressBars((c as Choice).value as Int) },
-                SettingItem("Corners", "Rounded or square corners on the guide's programmes and channel names.", corners,
-                    if (palette.squareCorners) corners[1] else corners[0]) { c -> vm.setSquareCorners((c as Choice).value == true) },
                 optItem(opts, "Channel logos", "Logos beside the channel names.", io.github.petebutty.viewarr.ui.theme.UiOpts.CHANNEL_LOGOS),
                 optItem(opts, "End of a list", "The TV guide, the channel list and its groups, past the last channel (or above the first). Jump to the other end: one more press goes to the top (holding the button stops at the end, so a long scroll doesn't fly round). Stop: nothing more.", io.github.petebutty.viewarr.ui.theme.UiOpts.LIST_ENDS),
                 optItem(opts, "Catch-up icons", "The replay icon on past programmes you can watch again, and beside channels that have catch-up. Catch-up still works with it off.", io.github.petebutty.viewarr.ui.theme.UiOpts.CATCHUP_ICONS),
@@ -185,8 +185,9 @@ fun AppearanceSettingsScreen(onBack: () -> Unit, vm: AppearanceViewModel = hiltV
                 optItem(opts, "Programme pictures", "The highlighted programme's picture at the top of the guide. Off: no pictures are looked up (the channel's logo shows instead).", io.github.petebutty.viewarr.ui.theme.UiOpts.GUIDE_ART).locked(lowLock),
             ) + listOf(
                 // The info bar over live TV.
-                optItem(opts, "Info bar: style", "The bar over live TV: a fade across the bottom of the picture, or a panel (glass, with or without a border, or solid) with everything inside it.", io.github.petebutty.viewarr.ui.theme.UiOpts.BANNER_STYLE),
-                optItem(opts, "Info bar: corners", "Rounded or square corners on the info bar's panel styles.", io.github.petebutty.viewarr.ui.theme.UiOpts.BANNER_CORNERS),
+                // The glass: the info bar and controls, and every pop-up (next episode, skip intro, reminders, notes).
+                optItem(opts, "Info bar: glass", "How dark the glass is behind the info bar, the player's controls and every pop-up (next episode, skip intro, reminders).", io.github.petebutty.viewarr.ui.theme.UiOpts.BANNER_GLASS),
+                optItem(opts, "Info bar: border", "The thin light edge round the glass.", io.github.petebutty.viewarr.ui.theme.UiOpts.BANNER_BORDER),
                 optItem(opts, "Info bar: channel number", "The channel's number at the left of the info bar.", io.github.petebutty.viewarr.ui.theme.UiOpts.BANNER_NUMBER),
                 optItem(opts, "Info bar: episode numbers", "Series and episode numbers after programme names (\"S2026E180\") in the info bar.", io.github.petebutty.viewarr.ui.theme.UiOpts.BANNER_EPISODE),
                 optItem(opts, "Info bar: picture quality", "Badges for the channel's picture (HD, FHD, 4K, or 720p, 1080p, 2160p) and 5.1 sound, from the stream itself.", io.github.petebutty.viewarr.ui.theme.UiOpts.BANNER_BADGES),
@@ -216,18 +217,23 @@ fun AppearanceSettingsScreen(onBack: () -> Unit, vm: AppearanceViewModel = hiltV
                     .locked(if (src != "TMDB") lowLock else null)
             },
         ),
+        // What the main menu lists (Live TV and Settings are always there).
         SettingCategory(
-            "Menu", "What the side menu offers.",
+            "Main menu", "What's listed in the menu on the left. Live TV and Settings are always there; streaming services appear once your addons' rows have loaded.",
             listOf(
-                optItem(opts, "Button hints", "A small pill at the bottom of the screen saying what the buttons do there, for a few seconds when you arrive: the first few times on each screen, always, or never.", io.github.petebutty.viewarr.ui.theme.UiOpts.BUTTON_HINTS),
-                SettingItem("Movies & Shows", "Turn off to use Viewarr for live TV only: Movies and Shows leave the menu.", onOff,
-                    if (palette.hideMedia) onOff[1] else onOff[0]) { c -> vm.setHideMedia((c as Choice).value != true) },
-            ),
+                menuItem("Live now", "menu:Live now", "The TV guide on the event channels: sport and events on now and soon."),
+                menuItem("Sports", "menu:Sports", "The TV guide on your sports channels."),
+                menuItem("Movies", "menu:Movies", "Your films: libraries, catalogues and rows.") { vm.setHideMedia(false) },
+                menuItem("Shows", "menu:Shows", "Your TV shows: libraries, catalogues and rows.") { vm.setHideMedia(false) },
+                menuItem("Music", "menu:Music", "Your music (when a music source is connected)."),
+                menuItem("Recordings", "menu:Recordings", "Recorded and scheduled programmes on Dispatcharr."),
+                menuItem("Search", "menu:Search", "Search everything (the search button on the remote works either way)."),
+            ) + serviceNames.map { n -> menuItem(n, "menu:svc:$n", "$n's rows (Popular, New, Top rated…) under Shows in the menu.") },
         ),
     )
     SettingsPage(title = "Appearance", categories = categories, onBack = onBack, onReset = {
         vm.apply(ThemePresets[0].main, ThemePresets[0].highlight); vm.setTransparency(0f); vm.setGuideTransparency(0f)
-        vm.setShowNumbers(true); vm.setSquareCorners(true); vm.setHideMedia(false); vm.setWallpaper(0, 0, 0.6f); vm.resetTitleParts()
+        vm.setShowNumbers(true); vm.setHideMedia(false); vm.setWallpaper(0, 0, 0.6f); vm.resetTitleParts()
         opts.reset(listOf(io.github.petebutty.viewarr.ui.theme.UiOpts.TEXT_SIZE, io.github.petebutty.viewarr.ui.theme.UiOpts.CLOCK, io.github.petebutty.viewarr.ui.theme.UiOpts.CHANNEL_LOGOS, io.github.petebutty.viewarr.ui.theme.UiOpts.CATCHUP_ICONS, io.github.petebutty.viewarr.ui.theme.UiOpts.GUIDE_ART, io.github.petebutty.viewarr.ui.theme.UiOpts.BADGE_SOURCE, io.github.petebutty.viewarr.ui.theme.UiOpts.BADGE_PROGRESS))
     })
 }

@@ -1,16 +1,14 @@
 package io.github.petebutty.viewarr.ui.media
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import io.github.petebutty.viewarr.ui.common.glass
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -18,7 +16,6 @@ import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Text
 import io.github.petebutty.viewarr.data.media.SkipMarker
 import io.github.petebutty.viewarr.data.settings.SkipMode
-import io.github.petebutty.viewarr.ui.theme.AppColors
 
 /**
  * The episode after the one playing (found as it starts), for the players: Skip credits plays it, and its countdown
@@ -150,8 +147,7 @@ fun IntroSkipPill(skip: IntroSkip, modifier: Modifier = Modifier) {
     skip.nextIn?.let { secs ->
         androidx.compose.foundation.layout.Column(
             modifier
-                .background(Color.Black.copy(alpha = 0.8f), RoundedCornerShape(16.dp))
-                .border(2.dp, AppColors.Accent, RoundedCornerShape(16.dp))
+                .glass(16.dp)
                 .padding(horizontal = 22.dp, vertical = 14.dp),
         ) {
             Text("Next episode in $secs", fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
@@ -166,8 +162,7 @@ fun IntroSkipPill(skip: IntroSkip, modifier: Modifier = Modifier) {
     val hint = if (skip.offered != null) "OK" else "OK to watch it"
     Row(
         modifier
-            .background(Color.Black.copy(alpha = 0.72f), RoundedCornerShape(24.dp))
-            .border(2.dp, AppColors.Accent, RoundedCornerShape(24.dp))
+            .glass(24.dp)
             .padding(horizontal = 22.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

@@ -153,6 +153,8 @@ class PlayerMenu {
         holdCard: (Int, Int) -> Unit = { _, _ -> },
         /** Move the shortcut being moved one place (-1 / 1); whether one can be held for its menu (not Refresh). */
         moveShortcut: (Int, Int) -> Unit = { _, _ -> }, canHold: (Int) -> Boolean = { true },
+        /** Left from the first button: the menu, over the film (it plays on full screen behind it). */
+        leftFromFirst: () -> Unit = {},
     ): Boolean {
         val down = e.type == androidx.compose.ui.input.key.KeyEventType.KeyDown
         val a = io.github.petebutty.viewarr.ui.common.RemoteKeys.action(e)
@@ -212,7 +214,7 @@ class PlayerMenu {
             // Up from the seek bar: pause, with what's playing (its synopsis) on screen.
             onBar && a == io.github.petebutty.viewarr.ui.common.RemoteAction.Up -> if (down && repeat == 0) upFromBar()
             onBar && a == io.github.petebutty.viewarr.ui.common.RemoteAction.Ok -> Unit
-            !onBar && a == io.github.petebutty.viewarr.ui.common.RemoteAction.Left -> if (down) button = (button - 1).coerceAtLeast(0)
+            !onBar && a == io.github.petebutty.viewarr.ui.common.RemoteAction.Left -> if (down) { if (button == 0) { if (repeat == 0) { open = false; leftFromFirst() } } else button -= 1 }
             !onBar && a == io.github.petebutty.viewarr.ui.common.RemoteAction.Right -> if (down) button = (button + 1).coerceAtMost(buttons.lastIndex)
             !onBar && a == io.github.petebutty.viewarr.ui.common.RemoteAction.Up -> if (down) onBar = true
             !onBar && a == io.github.petebutty.viewarr.ui.common.RemoteAction.Down -> if (down && shortcutCount > 0) { onShortcuts = true; shortcut = shortcut.coerceAtMost(shortcutCount - 1) }
@@ -279,88 +281,98 @@ fun PlayerOsd(
         android.util.Log.i("SeekThumbs", "preview for ${scrubMs / 1000}s: ${if (b == null) "none" else "${b.width}x${b.height}"}")
         if (b != null) thumb = b
     }
-    Column(
-        modifier
-            .fillMaxWidth()
-            .background(Brush.verticalGradient(0f to Color.Transparent, 0.35f to Color.Black.copy(alpha = 0.55f), 1f to Color.Black.copy(alpha = 0.9f)))
-            .padding(start = 56.dp, end = 56.dp, top = if (scrubbing && thumbs != null) 24.dp else d(80), bottom = d(36)),
-    ) {
-        // With a logo: the logo, then just the episode ("S1 E1"), if any, beside the play state.
+    // The same bar as live TV's info bar (its panel, logo, title and progress line), with the buttons inside it.
+    io.github.petebutty.viewarr.ui.player.InfoBarPanel(modifier) {
+        // The film or show's own logo in the logo's place (the play state there without one).
         var logoShown by remember(logo) { mutableStateOf(false) }
-        if (logo != null) coil.compose.AsyncImage(
-            // Loaded at its own size: the space stays 0 high until it arrives, and the loader won't fetch into 0.
-            model = coil.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current).data(logo).size(coil.size.Size.ORIGINAL).build(),
-            contentDescription = title,
-            contentScale = ContentScale.Fit,
-            alignment = Alignment.CenterStart,
-            onSuccess = { logoShown = true },
-            modifier = Modifier.padding(start = d(40), bottom = d(10)).height(if (logoShown) d(48) else 0.dp).width(d(280)),
-        )
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(if (buffering) "◌" else if (paused) "❚❚" else "▶", fontSize = t(22), color = Color.White, modifier = Modifier.width(d(40)))
-            Text(if (logoShown) title.substringAfter(" · ", "") else title, fontSize = t(22), fontWeight = FontWeight.Medium, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-            Text(if (buffering) "Loading…" else "", fontSize = 15.sp, color = Color.White.copy(alpha = 0.8f))
-        }
-        Spacer(Modifier.height(d(14)))
-        BoxWithConstraints(Modifier.fillMaxWidth()) {
-            val barWidth = maxWidth
-            val played = if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
-            val marker = if (durationMs > 0 && scrubMs != null) (scrubMs.toFloat() / durationMs).coerceIn(0f, 1f) else played
-            Column {
-                if (scrubbing && thumbs != null) {
-                    // Preview above the marker, kept on screen at the ends.
-                    val w = 128.dp
-                    val x = (barWidth * marker - w / 2).coerceIn(0.dp, (barWidth - w).coerceAtLeast(0.dp))
-                    Column(Modifier.offset(x = x).width(w), horizontalAlignment = Alignment.CenterHorizontally) {
-                        Box(
-                            Modifier.width(w).height(72.dp).clip(RoundedCornerShape(6.dp)).background(Color.Black)
-                                .border(2.dp, Color.White.copy(alpha = 0.85f), RoundedCornerShape(6.dp)),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            val b = thumb
-                            if (b != null) Image(b.asImageBitmap(), null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxWidth().fillMaxHeight())
-                            else Text("…", fontSize = 22.sp, color = Color.White.copy(alpha = 0.6f))
+        io.github.petebutty.viewarr.ui.player.InfoBarTop(
+            number = null,
+            logo = {
+                if (!logoShown) Text(if (buffering) "◌" else if (paused) "❚❚" else "▶", fontSize = 30.sp, color = Color.White)
+                if (logo != null) coil.compose.AsyncImage(
+                    model = coil.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current).data(logo).size(coil.size.Size.ORIGINAL).build(),
+                    contentDescription = title,
+                    contentScale = ContentScale.Fit,
+                    onSuccess = { logoShown = true },
+                    modifier = Modifier.fillMaxWidth().fillMaxHeight(),
+                )
+            },
+            smallLine = {
+                // The show's name (episodes) or "Film", and the play state.
+                Text(if (title.contains(" · ")) title.substringBefore(" · ") else "Film", fontSize = 14.sp, color = AppColors.TextSecondary, maxLines = 1)
+                val state = if (buffering) "LOADING" else if (paused) "PAUSED" else null
+                if (state != null) {
+                    Spacer(Modifier.width(10.dp))
+                    Text(state, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = AppColors.OnAccent,
+                        modifier = Modifier.background(AppColors.Accent, RoundedCornerShape(3.dp)).padding(horizontal = 6.dp, vertical = 1.dp))
+                }
+            },
+            title = if (title.contains(" · ")) title.substringAfter(" · ") else title,
+            progress = {
+                Column {
+                    BoxWithConstraints(Modifier.fillMaxWidth()) {
+                        val barWidth = maxWidth
+                        val played = if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
+                        val marker = if (durationMs > 0 && scrubMs != null) (scrubMs.toFloat() / durationMs).coerceIn(0f, 1f) else played
+                        Column {
+                            if (scrubbing && thumbs != null) {
+                                // Preview above the marker, kept on screen at the ends.
+                                val w = 128.dp
+                                val x = (barWidth * marker - w / 2).coerceIn(0.dp, (barWidth - w).coerceAtLeast(0.dp))
+                                Column(Modifier.offset(x = x).width(w), horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Box(
+                                        Modifier.width(w).height(72.dp).clip(RoundedCornerShape(6.dp)).background(Color.Black)
+                                            .border(2.dp, Color.White.copy(alpha = 0.85f), RoundedCornerShape(6.dp)),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        val b = thumb
+                                        if (b != null) Image(b.asImageBitmap(), null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxWidth().fillMaxHeight())
+                                        else Text("…", fontSize = 22.sp, color = Color.White.copy(alpha = 0.6f))
+                                    }
+                                    Text(clockMs(scrubMs ?: 0), fontSize = 16.sp, fontWeight = FontWeight.Medium, color = Color.White, modifier = Modifier.padding(top = 4.dp, bottom = 6.dp))
+                                }
+                            } else if (scrubbing) {
+                                val w = 120.dp
+                                val x = (barWidth * marker - w / 2).coerceIn(0.dp, (barWidth - w).coerceAtLeast(0.dp))
+                                Text(clockMs(scrubMs ?: 0), fontSize = 18.sp, fontWeight = FontWeight.Medium, color = Color.White,
+                                    modifier = Modifier.offset(x = x).width(w).padding(bottom = 8.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                            }
+                            val barHeight = if (scrubbing) 10.dp else 6.dp
+                            Box(Modifier.fillMaxWidth().height(18.dp), contentAlignment = Alignment.CenterStart) {
+                                Box(Modifier.fillMaxWidth().height(barHeight).clip(RoundedCornerShape(5.dp)).background(Color.White.copy(alpha = 0.25f))) {
+                                    Box(Modifier.fillMaxHeight().fillMaxWidth(played).background(if (scrubbing) Color.White.copy(alpha = 0.55f) else AppColors.Accent))
+                                }
+                                if (scrubbing) Box(
+                                    Modifier.offset(x = (barWidth * marker - 9.dp).coerceAtLeast(0.dp)).size(18.dp).clip(CircleShape).background(AppColors.Accent)
+                                        .border(2.dp, Color.White, CircleShape),
+                                )
+                            }
                         }
-                        Text(clockMs(scrubMs ?: 0), fontSize = 16.sp, fontWeight = FontWeight.Medium, color = Color.White, modifier = Modifier.padding(top = 4.dp, bottom = 6.dp))
                     }
-                } else if (scrubbing) {
-                    val w = 120.dp
-                    val x = (barWidth * marker - w / 2).coerceIn(0.dp, (barWidth - w).coerceAtLeast(0.dp))
-                    Text(clockMs(scrubMs ?: 0), fontSize = 18.sp, fontWeight = FontWeight.Medium, color = Color.White,
-                        modifier = Modifier.offset(x = x).width(w).padding(bottom = 8.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-                }
-                val barHeight = if (scrubbing) 10.dp else 6.dp
-                Box(Modifier.fillMaxWidth().height(18.dp), contentAlignment = Alignment.CenterStart) {
-                    Box(Modifier.fillMaxWidth().height(barHeight).clip(RoundedCornerShape(5.dp)).background(Color.White.copy(alpha = 0.25f))) {
-                        Box(Modifier.fillMaxHeight().fillMaxWidth(played).background(if (scrubbing) Color.White.copy(alpha = 0.55f) else AppColors.Accent))
+                    Spacer(Modifier.height(4.dp))
+                    Row {
+                        Text(clockMs(positionMs), fontSize = t(14), color = Color.White)
+                        Spacer(Modifier.weight(1f))
+                        // How to get to picture-in-picture, as Settings → Remote → Picture-in-picture has it (none for "Stop").
+                        val pip = "" // Picture-in-picture for films is off for now.
+                        Text(
+                            when {
+                                scrubbing -> "◀ ▶ move  ·  OK: jump here  ·  Back: cancel"
+                                buttons != null && barFocused -> "◀ ▶ seek  ·  ▼ options  ·  ▲ pause + details$pip"
+                                rows != null -> "◀ ▶ move  ·  ▲ ▼ rows  ·  OK: open (the film carries on in a corner)"
+                                shortcuts != null -> "◀ ▶ shortcuts  ·  ▼ rows  ·  OK: open (the film carries on in a corner)  ·  hold OK: move, refresh or hide  ·  ▲ buttons"
+                                buttons != null -> "▲ seek bar  ·  " + (if (shortcutsHint) "▼ shortcuts  ·  " else "") + "⏯ play / pause$pip"
+                                else -> "OK: controls  ·  ◀ ▶ skip  ·  ⏯ play / pause$pip"
+                            },
+                            fontSize = t(13), color = Color.White.copy(alpha = 0.7f), maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(4f, fill = false).padding(horizontal = 12.dp),
+                        )
+                        Spacer(Modifier.weight(1f))
+                        Text(if (durationMs > 0) "-" + clockMs(durationMs - positionMs) else "", fontSize = t(14), color = Color.White)
                     }
-                    if (scrubbing) Box(
-                        Modifier.offset(x = (barWidth * marker - 9.dp).coerceAtLeast(0.dp)).size(18.dp).clip(CircleShape).background(AppColors.Accent)
-                            .border(2.dp, Color.White, CircleShape),
-                    )
                 }
-            }
-        }
-        Spacer(Modifier.height(d(8)))
-        Row {
-            Text(clockMs(positionMs), fontSize = t(14), color = Color.White)
-            Spacer(Modifier.weight(1f))
-            // How to get to picture-in-picture, as Settings → Remote → Picture-in-picture has it (none for "Stop").
-            val pip = "" // Picture-in-picture for films is off for now.
-            Text(
-                when {
-                    scrubbing -> "◀ ▶ move  ·  OK: jump here  ·  Back: cancel"
-                    buttons != null && barFocused -> "◀ ▶ seek  ·  ▼ options  ·  ▲ pause + details$pip"
-                    rows != null -> "◀ ▶ move  ·  ▲ ▼ rows  ·  OK: open (the film carries on in a corner)"
-                    shortcuts != null -> "◀ ▶ shortcuts  ·  ▼ rows  ·  OK: open (the film carries on in a corner)  ·  hold OK: move, refresh or hide  ·  ▲ buttons"
-                    buttons != null -> "▲ seek bar  ·  " + (if (shortcutsHint) "▼ shortcuts  ·  " else "") + "⏯ play / pause$pip"
-                    else -> "OK: controls  ·  ◀ ▶ skip  ·  ⏯ play / pause$pip"
-                },
-                fontSize = t(13), color = Color.White.copy(alpha = 0.7f),
-            )
-            Spacer(Modifier.weight(1f))
-            Text(if (durationMs > 0) "-" + clockMs(durationMs - positionMs) else "", fontSize = t(14), color = Color.White)
-        }
+            },
+        )
         if (buttons != null) Row(Modifier.padding(top = d(14)), verticalAlignment = Alignment.Top) {
             buttons.forEachIndexed { i, b ->
                 val on = i == buttonFocus
@@ -385,7 +397,7 @@ fun PlayerOsd(
         if (shortcuts != null) {
             val size = floatArrayOf(1f, 1.25f, 1.5f)[AppColors.palette.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.SHORTCUT_SIZE).coerceIn(0, 2)]
             val rowState = androidx.compose.foundation.lazy.rememberLazyListState()
-            androidx.compose.runtime.LaunchedEffect(shortcutFocus) { if (shortcutFocus >= 0) runCatching { rowState.animateScrollToItem((shortcutFocus - 2).coerceAtLeast(0)) } }
+            androidx.compose.runtime.LaunchedEffect(shortcutFocus) { if (shortcutFocus >= 0) runCatching { rowState.scrollToItem((shortcutFocus - 2).coerceAtLeast(0)) } }
             // (Spaced as live TV's shortcut row.)
             androidx.compose.foundation.lazy.LazyRow(state = rowState, modifier = Modifier.padding(top = 2.dp).offset(x = (-14).dp), horizontalArrangement = Arrangement.spacedBy(14.dp), userScrollEnabled = false,
                 // (Room for the highlighted one to grow into, as on live TV.)
@@ -408,7 +420,7 @@ fun PlayerOsd(
         if (shownRow != null) androidx.compose.foundation.layout.Column(Modifier.padding(top = 6.dp)) {
             io.github.petebutty.viewarr.ui.player.OsdRowHeading(shownRow.title, rows.getOrNull(rowFocus + 1)?.title)
             val cardState = androidx.compose.foundation.lazy.rememberLazyListState()
-            androidx.compose.runtime.LaunchedEffect(rowFocus, cardFocus) { runCatching { cardState.animateScrollToItem((cardFocus - 1).coerceAtLeast(0)) } }
+            androidx.compose.runtime.LaunchedEffect(rowFocus, cardFocus) { runCatching { cardState.scrollToItem((cardFocus - 1).coerceAtLeast(0)) } }
             androidx.compose.foundation.lazy.LazyRow(
                 state = cardState,
                 modifier = Modifier.padding(top = 2.dp).offset(x = (-12).dp),

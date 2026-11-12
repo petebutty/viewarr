@@ -109,10 +109,8 @@ fun PlaybackSettingsScreen(onBack: () -> Unit, vm: PlaybackSettingsViewModel = h
         SettingCategory(
             "Live TV", "Watching live channels.",
             listOf(
-                optItem(opts, "Animation", "Back from full screen: the channel glides into the guide's preview, and back. Off: straight there.", io.github.petebutty.viewarr.ui.theme.UiOpts.ANIM_LIVE),
-                optItem(opts, "Keep playing while you browse", "Opening Movies, Shows, Music or Recordings from the live TV shortcuts (or any page in the Live TV hub style): the channel carries on in a corner, and Back takes it full screen again. A film or music starting stops it. Off: browsing stops the channel.", io.github.petebutty.viewarr.ui.theme.UiOpts.LIVE_CORNER).locked(cornerLock),
-                optItem(opts, "Corner size", "The channel's window while you browse.", io.github.petebutty.viewarr.ui.theme.UiOpts.MINI_SIZE).locked(cornerLock),
-                optItem(opts, "Corner", "Where that window sits.", io.github.petebutty.viewarr.ui.theme.UiOpts.MINI_CORNER).locked(cornerLock),
+                optItem(opts, "Corner size", "A film's window in the corner while you browse (the live channel stays in the guide's preview place).", io.github.petebutty.viewarr.ui.theme.UiOpts.MINI_SIZE).locked(cornerLock),
+                optItem(opts, "Corner", "Where a film's corner window sits.", io.github.petebutty.viewarr.ui.theme.UiOpts.MINI_CORNER).locked(cornerLock),
                 optItem(opts, "Highlight the corner picture", "At the edge of a page, pressing towards the picture in the corner (live TV or a film) highlights it: Full screen or Close. Holding Back gives the same choice anywhere. Off: only hold Back.", io.github.petebutty.viewarr.ui.theme.UiOpts.CORNER_FOCUS).locked(cornerLock),
                 optItem(opts, "Still watching?", "After this long without a button press, live TV asks whether you're still there and stops if nobody answers within a minute (frees a provider connection when the TV's left on).", io.github.petebutty.viewarr.ui.theme.UiOpts.STILL_WATCHING),
             ),

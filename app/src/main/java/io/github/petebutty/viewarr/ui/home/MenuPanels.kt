@@ -66,6 +66,8 @@ internal fun MediaMenuPanel(
     rightMode: io.github.petebutty.viewarr.data.settings.MenuLibraryRight = io.github.petebutty.viewarr.data.settings.MenuLibraryRight.Categories,
     editing: Boolean = false,
     onEditing: (Boolean) -> Unit = {},
+    /** The menu's edit mode (✎ Edit menus): "Edit this list" and hold OK to edit are offered only then. */
+    editMode: Boolean = false,
 ) {
     // Same instance as the page's, so what's picked here shows there straight away.
     val media: MediaViewModel = hiltViewModel(key = "media-${type.name}")
@@ -131,7 +133,7 @@ internal fun MediaMenuPanel(
                 selected = browse?.library?.key == lib.key,
                 onClick = go,
                 // Hold OK: edit this list, on this library.
-                onLongClick = { lastLib = lib.key; onEditing(true) },
+                onLongClick = if (editMode) ({ lastLib = lib.key; onEditing(true) }) else null,
                 modifier = Modifier.focusRequester(libFocus.getOrPut(lib.key) { FocusRequester() }).rightDoes(right),
             )
         }
@@ -150,7 +152,7 @@ internal fun MediaMenuPanel(
             val go = { media.openLibrary(null, type); media.jumpTo(row.id); onOpenPage() }
             MenuItem(text = "   " + row.title, trailing = row.items.size.toString(), selected = browse == null && row.id == current, onClick = go, modifier = Modifier.rightDoes(go))
         }
-        item(key = "edit") {
+        if (editMode) item(key = "edit") {
             val go = { lastLib = null; onEditing(true) }
             MenuItem(text = "✎ Edit this list", selected = false, dim = true, onClick = go, modifier = Modifier.padding(top = 8.dp).rightDoes(go))
         }

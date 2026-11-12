@@ -18,6 +18,7 @@ data class Palette(val main: Color, val highlight: Color, val transparency: Floa
     /** Which built-in wallpaper (WallpaperStyles). */ val wallpaperStyle: Int = 0,
     /** How much the background colour covers the wallpaper (0.3 light … 0.9 dark). */ val wallpaperDim: Float = 0.6f,
     /** Title pages: the parts switched off in Settings → Appearance (TitleParts ids). */ val titleHidden: Set<String> = emptySet(),
+    /** The main menu's order (between Live TV and Settings): "Movies", "svc:Netflix", "Live now"… (hold OK in the menu to edit). */ val menuOrder: List<String> = emptyList(),
     /** Small display / behaviour options (UiOpts names → chosen index; 0 = the default). */ val opts: Map<String, Int> = emptyMap()) {
     fun shows(part: String) = part !in titleHidden
     fun opt(name: String) = opts[name] ?: UiOpts.defaults[name] ?: 0
@@ -61,25 +62,9 @@ data class Palette(val main: Color, val highlight: Color, val transparency: Floa
 data class ThemePreset(val name: String, val main: Color, val highlight: Color)
 
 val ThemePresets = listOf(
-    // Default. True black: OLED TVs switch those pixels off (deeper blacks, no glow around menus).
-    ThemePreset("OLED black", Color(0xFF000000), Color(0xFF00E5FF)),
-    // The logo's colours (near-black, aperture cyan); and its pink half.
-    ThemePreset("Viewarr", Color(0xFF0E1016), Color(0xFF00E5FF)),
-    ThemePreset("Viewarr pink", Color(0xFF0E1016), Color(0xFFFF3366)),
-    ThemePreset("Classic blue", Color(0xFF1B2766), Color(0xFF22C7E8)),
-    ThemePreset("Midnight", Color(0xFF121418), Color(0xFF3D8BFD)),
-    ThemePreset("Ocean", Color(0xFF0D3640), Color(0xFF2DD4BF)),
-    ThemePreset("Royal purple", Color(0xFF2A1B4D), Color(0xFFC084FC)),
-    ThemePreset("Ember", Color(0xFF2B1515), Color(0xFFF97316)),
-    ThemePreset("Forest", Color(0xFF10301F), Color(0xFF4ADE80)),
-    ThemePreset("Sunset", Color(0xFF2D1520), Color(0xFFFB923C)),
-    ThemePreset("Slate", Color(0xFF2E2E36), Color(0xFF93C5FD)),
-    ThemePreset("Nord", Color(0xFF2E3440), Color(0xFF88C0D0)),
-    ThemePreset("Dracula", Color(0xFF282A36), Color(0xFFFF79C6)),
-    ThemePreset("Mocha", Color(0xFF2A211C), Color(0xFFE0B080)),
-    ThemePreset("Rose gold", Color(0xFF2A1A1E), Color(0xFFF4A6B8)),
-    ThemePreset("Gold", Color(0xFF14120C), Color(0xFFFACC15)),
-    ThemePreset("High contrast", Color(0xFF000000), Color(0xFFFFFFFF)),
+    // The one theme for now: Viewarr's charcoal glass with the orange highlight (the rest of the look is set with it:
+    // ThemeStore's VIEWARR_LOOK).
+    ThemePreset("Viewarr", Color(0xFF0E1016), Color(0xFFF97316)),
 )
 
 val MainColourChoices = listOf(
@@ -176,6 +161,11 @@ object TitleParts {
 /** Small display / behaviour settings (Appearance and Playback), each a list of choices; the first is the default. */
 object UiOpts {
     const val TEXT_SIZE = "text_size"
+    /** Settings → Appearance → Font: one of the box's own fonts for all text. */
+    const val FONT = "font"
+    /** The info bar's glass (and every pop-up's): how dark, and its thin border. */
+    const val BANNER_GLASS = "banner_glass"
+    const val BANNER_BORDER = "banner_border"
     const val CLOCK = "clock"
     const val BADGE_SOURCE = "badge_source"
     const val BADGE_PROGRESS = "badge_progress"
@@ -237,6 +227,9 @@ object UiOpts {
     )
     val choices = mapOf(
         TEXT_SIZE to listOf("Normal", "Small", "Large", "Extra large"),
+        FONT to listOf("Standard", "Condensed", "Light", "Medium", "Serif"),
+        BANNER_GLASS to listOf("Medium", "Light", "Dark"),
+        BANNER_BORDER to listOf("On", "Off"),
         CLOCK to listOf("Off", "On"),
         BADGE_SOURCE to listOf("On", "Off"),
         BADGE_PROGRESS to listOf("On", "Off"),

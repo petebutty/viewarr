@@ -237,7 +237,8 @@ class MediaViewModel @Inject constructor(
     private val setRowsHome = androidx.compose.runtime.snapshotFlow {
         io.github.petebutty.viewarr.ui.theme.AppColors.palette.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.SET_ROWS_HOME) == 1
     }
-    private val shownWithSet = kotlinx.coroutines.flow.combine(shownRows, rowSet, setRowsHome) { r, set, home ->
+    // (The set's rows from the other page count too: changing them redraws the set's page.)
+    private val shownWithSet = kotlinx.coroutines.flow.combine(shownRows, rowSet, setRowsHome, rowSetExtra) { r, set, home, _ ->
         if (set != null || home) r to set
         else {
             val grouped = io.github.petebutty.viewarr.ui.player.RowSets.sets(r.rows).filter { it.startsWith("name:") }.toSet()
@@ -246,7 +247,7 @@ class MediaViewModel @Inject constructor(
     }
 
     val rows: kotlinx.coroutines.flow.StateFlow<RowsState> = kotlinx.coroutines.flow.combine(shownWithSet, layout, _searchFilter, openedFromMenu, _searchFocus) { (r, set), l, f, extra, focus ->
-        if (set != null && l != null) r.copy(rows = l.ordered(r.rows).filter { io.github.petebutty.viewarr.ui.player.RowSets.matches(set, it) } + rowSetExtra.value)
+        if (set != null && l != null) r.copy(rows = l.ordered(r.rows).filter { io.github.petebutty.viewarr.ui.player.RowSets.matches(set, it) && it.id !in l.hidden } + rowSetExtra.value)
         else if (l != null) r.copy(rows = l.ordered(r.rows).filter { it.id !in l.hidden || it.id == extra }) else r.copy(rows = focusFirst(orderSearch(f.apply(r.rows)), focus))
     }.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, RowsState(emptyList(), done = false))
     /**
@@ -295,6 +296,25 @@ class MediaViewModel @Inject constructor(
     fun setRowHidden(id: String, hidden: Boolean) {
         val t = layoutType.value ?: return
         viewModelScope.launch { rowLayouts.setHidden(t, id, hidden) }
+    }
+
+    /** Every row in the chosen order, with the ones hidden from the page (the menu's service editor). */
+    val orderedRows: kotlinx.coroutines.flow.StateFlow<Pair<List<io.github.petebutty.viewarr.data.media.MediaRow>, Set<String>>> =
+        kotlinx.coroutines.flow.combine(shownRows, layout) { r, l ->
+            val lay = l ?: io.github.petebutty.viewarr.data.settings.RowLayout()
+            lay.ordered(r.rows) to lay.hidden
+        }.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, emptyList<io.github.petebutty.viewarr.data.media.MediaRow>() to emptySet())
+
+    /** Moves a row one place up (-1) or down (1) among the rows matching [among] (a service's), keeping the rest. */
+    fun moveRowAmong(id: String, dir: Int, among: (io.github.petebutty.viewarr.data.media.MediaRow) -> Boolean) {
+        val full = orderedRows.value.first.map { it.id }.toMutableList()
+        val members = orderedRows.value.first.filter(among).map { it.id }
+        val at = members.indexOf(id)
+        val other = members.getOrNull(at + dir) ?: return
+        val i = full.indexOf(id); val j = full.indexOf(other)
+        if (i < 0 || j < 0) return
+        full[i] = other; full[j] = id
+        setRowOrder(full)
     }
 
     fun setRowOrder(ids: List<String>) {
@@ -461,6 +481,8 @@ class MediaViewModel @Inject constructor(
 
     fun jumpTo(rowId: String?) { rowSet.value = null; openedFromMenu.value = rowId; _jump.value = rowId to System.nanoTime() }
     fun jumpDone() { _jump.value = null }
+    /** To a row of the set on show (a service's Popular, New…), keeping the set. */
+    fun jumpWithin(rowId: String) { openedFromMenu.value = rowId; _jump.value = rowId to System.nanoTime() }
 
     private var loaded: MediaType? = null
     private var rowsJob: Job? = null

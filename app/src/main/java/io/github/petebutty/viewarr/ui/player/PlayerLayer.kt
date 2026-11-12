@@ -29,7 +29,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
+import io.github.petebutty.viewarr.ui.common.glass
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -155,6 +155,7 @@ fun PlayerLayer(
                     quality = p?.videoFormat?.let { v ->
                         StreamQuality(v.height, v.frameRate.takeIf { it > 0 } ?: serverFps ?: measured, p.audioFormat?.channelCount ?: 0)
                     }
+                    LiveQuality.now = quality
                     kotlinx.coroutines.delay(1_000)
                 }
             }
@@ -172,11 +173,77 @@ fun PlayerLayer(
 /** What the live stream is: picture height, frames per second, sound channels (the info bar's badges). */
 internal data class StreamQuality(val height: Int, val fps: Float, val channels: Int)
 
+/** The live stream's picture / sound / frame rate, last measured (the controls show the same badges). */
+internal object LiveQuality {
+    var now by androidx.compose.runtime.mutableStateOf<StreamQuality?>(null)
+}
+
+/** The info bar's panel: the one bar for live TV and films alike (the info bar, and the controls with their buttons inside it). */
+@Composable
+internal fun InfoBarPanel(modifier: Modifier, content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
+    // One look: the glass panel, inset from the edges, everything inside it.
+    val outer = modifier
+        .fillMaxWidth()
+        .padding(start = 40.dp, end = 40.dp, bottom = 28.dp)
+        .glass()
+        .padding(horizontal = 24.dp, vertical = 18.dp)
+    Column(outer, verticalArrangement = Arrangement.spacedBy(10.dp), content = content)
+}
+
 /**
- * The info bar over live TV. Settings → Appearance → Live TV: a fade across the bottom or a panel (glass with or
- * without a border, or solid; rounded or square) with everything inside it; the channel number and S·E numbers on or
- * off; badges for the picture (HD / FHD / 4K or 720p…), 5.1 sound and frame rate.
+ * The info bar's top: number, logo, the small line (channel name, badges), the title, the progress line and what's
+ * next. Live TV fills it with the channel; films with the title's logo and the seek bar.
  */
+@Composable
+internal fun InfoBarTop(
+    number: String?,
+    logo: @Composable androidx.compose.foundation.layout.BoxScope.() -> Unit,
+    smallLine: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit,
+    title: String,
+    progress: @Composable () -> Unit,
+    nextLine: String? = null,
+) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        if (number != null) Text(
+            number,
+            fontSize = 34.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = Color.White,
+            modifier = Modifier.width(90.dp),
+        )
+        Box(Modifier.size(width = 110.dp, height = 62.dp), contentAlignment = Alignment.Center, content = logo)
+        Column(Modifier.weight(1f).padding(start = 24.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, content = smallLine)
+            Text(title, fontSize = 22.sp, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            progress()
+            if (nextLine != null) Text(nextLine, fontSize = 14.sp, color = AppColors.TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
+/** The stream's own picture / sound / frame-rate badges (Settings → Appearance → Live TV). */
+@Composable
+internal fun QualityBadges(q: StreamQuality?) {
+    q ?: return
+    val opt = AppColors.palette
+    val badgeStyle = opt.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.BANNER_BADGES)
+    val showFps = opt.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.BANNER_FPS) == 0
+    val res = when {
+        q.height <= 0 -> null
+        badgeStyle == 2 -> null
+        badgeStyle == 1 -> when { q.height >= 2000 -> "2160p"; q.height >= 1000 -> "1080p"; q.height >= 700 -> "720p"; else -> "${q.height}p" }
+        else -> when { q.height >= 2000 -> "4K"; q.height >= 1000 -> "FHD"; q.height >= 700 -> "HD"; else -> "SD" }
+    }
+    val sound = if (badgeStyle != 2 && q.channels >= 6) (if (q.channels >= 8) "7.1" else "5.1") else null
+    val fps = if (showFps && q.fps > 0) (if (kotlin.math.abs(q.fps - kotlin.math.round(q.fps)) > 0.01f) "%.2f".format(q.fps).trimEnd('0') else "${kotlin.math.round(q.fps).toInt()}") + " fps" else null
+    listOfNotNull(res, sound, fps).forEach { b ->
+        Spacer(Modifier.width(8.dp))
+        Text(b, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White,
+            modifier = Modifier.border(1.dp, Color.White.copy(alpha = 0.6f), RoundedCornerShape(3.dp)).padding(horizontal = 5.dp, vertical = 1.dp))
+    }
+}
+
+/** The info bar over live TV (as channels change): [InfoBarPanel] with [InfoBarTop]. */
 @Composable
 internal fun InfoBanner(
     channel: ChannelListItem,
@@ -190,43 +257,18 @@ internal fun InfoBanner(
     quality: StreamQuality? = null,
 ) {
     val opt = AppColors.palette
-    val style = opt.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.BANNER_STYLE)
-    val square = opt.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.BANNER_CORNERS) == 1
     val showNumber = opt.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.BANNER_NUMBER) == 0
     val showEpisode = opt.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.BANNER_EPISODE) == 0
-    val badgeStyle = opt.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.BANNER_BADGES)
-    val showFps = opt.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.BANNER_FPS) == 0
     fun title(p: GuideProgram) = if (showEpisode) displayTitle(p) else p.title
-    val shape = RoundedCornerShape(if (square) 0.dp else 18.dp)
-    val outer = when (style) {
-        // A panel: inset from the edges, everything inside it.
-        1, 2, 3 -> modifier
-            .fillMaxWidth()
-            .padding(start = 40.dp, end = 40.dp, bottom = 28.dp)
-            .background(if (style == 3) AppColors.Panel.copy(alpha = 0.96f) else AppColors.Background.copy(alpha = 0.62f), shape)
-            .then(if (style == 1) Modifier.border(1.dp, Color.White.copy(alpha = 0.28f), shape) else Modifier)
-            .padding(horizontal = 24.dp, vertical = 18.dp)
-        // The fade across the bottom (as it was).
-        else -> modifier
-            .fillMaxWidth()
-            .background(Brush.verticalGradient(listOf(Color.Transparent, AppColors.Background.copy(alpha = 0.92f), AppColors.Background)))
-            .padding(start = 48.dp, end = 48.dp, top = 48.dp, bottom = 32.dp)
-    }
-    Row(outer, verticalAlignment = Alignment.CenterVertically) {
-        if (showNumber) Text(
-            channel.number?.let(::formatNumber).orEmpty(),
-            fontSize = 34.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = Color.White,
-            modifier = Modifier.width(90.dp),
-        )
-        Box(Modifier.size(width = 110.dp, height = 62.dp), contentAlignment = Alignment.Center) {
-            io.github.petebutty.viewarr.ui.guide.channelLogo(serverUrl, channel)?.let {
-                AsyncImage(model = it, contentDescription = null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
-            }
-        }
-        Column(Modifier.weight(1f).padding(start = 24.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+    InfoBarPanel(modifier) {
+        InfoBarTop(
+            number = if (showNumber) channel.number?.let(::formatNumber).orEmpty() else null,
+            logo = {
+                io.github.petebutty.viewarr.ui.guide.channelLogo(serverUrl, channel)?.let {
+                    AsyncImage(model = it, contentDescription = null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
+                }
+            },
+            smallLine = {
                 Text(channel.name, fontSize = 14.sp, color = AppColors.TextSecondary)
                 if (catchupPosition != null) {
                     Spacer(Modifier.width(10.dp))
@@ -238,33 +280,11 @@ internal fun InfoBanner(
                         modifier = Modifier.background(AppColors.Accent, RoundedCornerShape(3.dp)).padding(horizontal = 6.dp, vertical = 1.dp),
                     )
                 }
-                // The stream's own picture / sound / frame rate.
-                quality?.let { q ->
-                    val res = when {
-                        q.height <= 0 -> null
-                        badgeStyle == 2 -> null
-                        badgeStyle == 1 -> when { q.height >= 2000 -> "2160p"; q.height >= 1000 -> "1080p"; q.height >= 700 -> "720p"; else -> "${q.height}p" }
-                        else -> when { q.height >= 2000 -> "4K"; q.height >= 1000 -> "FHD"; q.height >= 700 -> "HD"; else -> "SD" }
-                    }
-                    val sound = if (badgeStyle != 2 && q.channels >= 6) (if (q.channels >= 8) "7.1" else "5.1") else null
-                    val fps = if (showFps && q.fps > 0) (if (kotlin.math.abs(q.fps - kotlin.math.round(q.fps)) > 0.01f) "%.2f".format(q.fps).trimEnd('0') else "${kotlin.math.round(q.fps).toInt()}") + " fps" else null
-                    listOfNotNull(res, sound, fps).forEach { b ->
-                        Spacer(Modifier.width(8.dp))
-                        Text(b, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White,
-                            modifier = Modifier.border(1.dp, Color.White.copy(alpha = 0.6f), RoundedCornerShape(3.dp)).padding(horizontal = 5.dp, vertical = 1.dp))
-                    }
-                }
-            }
-            Text(
-                current?.let(::title) ?: "No guide information",
-                fontSize = 22.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = Color.White,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            if (current != null) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                QualityBadges(quality)
+            },
+            title = current?.let(::title) ?: "No guide information",
+            progress = {
+                if (current != null) Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("${current.startTime.hhmm()} – ${current.endTime.hhmm()}", fontSize = 14.sp, color = Color.White)
                     Spacer(Modifier.width(12.dp))
                     val total = catchupPosition?.second?.takeIf { it > 0 } ?: (current.endTime - current.startTime)
@@ -281,17 +301,9 @@ internal fun InfoBanner(
                         color = AppColors.TextSecondary,
                     )
                 }
-            }
-            if (next != null) {
-                Text(
-                    "Next  ${next.startTime.hhmm()}  ${title(next)}",
-                    fontSize = 14.sp,
-                    color = AppColors.TextSecondary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-        }
+            },
+            nextLine = next?.let { "Next  ${it.startTime.hhmm()}  ${title(it)}" },
+        )
     }
 }
 

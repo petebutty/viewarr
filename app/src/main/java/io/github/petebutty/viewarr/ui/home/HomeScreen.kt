@@ -4,11 +4,9 @@ import io.github.petebutty.viewarr.R
 import androidx.compose.runtime.mutableStateMapOf
 import io.github.petebutty.viewarr.ui.theme.appBackground
 
-import io.github.petebutty.viewarr.ui.common.slideInFromLeft
 import android.app.Activity
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,8 +26,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import io.github.petebutty.viewarr.ui.common.glass
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.layout.layout
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.key.Key
@@ -90,10 +91,7 @@ import kotlinx.coroutines.launch
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
@@ -106,6 +104,10 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.foundation.layout.offset
+import androidx.compose.animation.core.animateIntAsState
+import androidx.compose.runtime.mutableIntStateOf
 import io.github.petebutty.viewarr.data.dvr.DvrRecording
 import io.github.petebutty.viewarr.data.dvr.DvrState
 import io.github.petebutty.viewarr.data.dvr.Reminder
@@ -194,6 +196,13 @@ fun HomeScreen(
     // Search popped up over the current screen (Settings → Remote → Search button); Back closes it.
     var quickSearch by remember { mutableStateOf(false) }
     var searchHeld by remember { mutableStateOf(false) }
+    // A changed button from Settings → Remote buttons: the rest of its press (repeats, release) is swallowed.
+    var tableHeld by remember { mutableStateOf<BtnPress?>(null) }
+    // A button with a long press as well (Settings → Remote buttons): its tap waits for the release, its hold for a timer.
+    var holdTap by remember { mutableStateOf<BtnPress?>(null) }
+    val holdJob = remember { arrayOfNulls<kotlinx.coroutines.Job>(1) }
+    // Buttons that open a page or leave the app (done once those are in reach, below).
+    var buttonRequest by remember { mutableStateOf<BtnAction?>(null) }
     // "Remind me": the programme starting now pops up in the corner; OK watches it, Back dismisses.
     var dueReminder by remember { mutableStateOf<Reminder?>(null) }
     LaunchedEffect(Unit) {
@@ -237,6 +246,8 @@ fun HomeScreen(
     LaunchedEffect(connectionNote) { if (connectionNote != null) { delay(12_000); playback.clearConnectionNote() } }
     val dvrRecordings by dvr.recordings.collectAsStateWithLifecycle()
     var menuOpen by rememberSaveable { mutableStateOf(false) }
+    var menuWidth by remember { mutableIntStateOf(0) }
+    var menuFullPage by remember { mutableStateOf(false) }
     var showAccounts by rememberSaveable { mutableStateOf(false) }
     val remote = LocalRemote.current
     var page by rememberSaveable { mutableStateOf(Page.Tv) }
@@ -267,6 +278,13 @@ fun HomeScreen(
     var fullscreen by rememberSaveable { mutableStateOf(false) }
     // Live TV hub: the channel carries on in a corner over another page (Settings → Playback → Live TV).
     var liveCorner by remember { mutableStateOf(false) }
+    // Movies or Shows opened from the menu over the guide: the channel carries on in the guide's preview place, the
+    // page's content starting where the guide's did.
+    var livePreview by remember { mutableStateOf(false) }
+    SideEffect { io.github.petebutty.viewarr.ui.common.LiveBehind.preview = livePreview }
+    // Movies / Shows opened from the menu over full-screen live TV: the channel carries on full screen behind the page.
+    var liveBehind by remember { mutableStateOf(false) }
+    SideEffect { io.github.petebutty.viewarr.ui.common.LiveBehind.on = liveBehind }
     // The film player's Settings button opened the menu (its film is in the corner meanwhile).
     var settingsFromFilm by remember { mutableStateOf(false) }
     // Full-screen live TV: Left asks "Rewind?" first (a second Left, or holding it, rewinds), so a stray press
@@ -379,15 +397,69 @@ fun HomeScreen(
         osdUsedAt[0] = System.currentTimeMillis()
     }
 
+    /** Back to the channel watched before this one. */
+    fun lastChannel() {
+        val before = remote.recentChannels.firstOrNull { it != playing?.id }
+        if (before == null) { toast("No channel watched before this one yet"); return }
+        fromStartScope.launch {
+            val ch = vm.channelById(before) ?: return@launch
+            playback.play(ch, session)
+            vm.selectChannel(ch.id)
+            showBanner()
+        }
+    }
+
+    fun zap(delta: Int) {
+        val list = vm.channels.value
+        val index = list.indexOfFirst { it.id == playing?.id }
+        val target = list.getOrNull((if (index < 0) 0 else index + delta).coerceIn(0, maxOf(0, list.size - 1))) ?: return
+        if (target.id == playing?.id) return
+        playback.play(target, session)
+        vm.selectChannel(target.id)
+        showBanner()
+    }
+
     /** A press from the button table (Settings → Remote → Buttons) on the guide, live TV or a page. */
     fun doButton(screen: BtnScreen, act: BtnAction) {
         val ch = playing
         when (act) {
-            BtnAction.Nothing -> Unit
+            BtnAction.Nothing, BtnAction.TimeTitle, BtnAction.SeekBar, BtnAction.MediaInfo, BtnAction.SwitchPlayer -> Unit
+            BtnAction.Movies, BtnAction.Shows, BtnAction.Recordings, BtnAction.Music, BtnAction.Exit -> buttonRequest = act
+            BtnAction.Settings -> { fullscreen = false; channelListOpen = false; menuOnSettings = true; menuOpen = true }
+            BtnAction.WatchInGuide -> vm.channels.value.getOrNull(vm.cursor.value.row)?.let { c ->
+                if (playing?.id == c.id && catchup == null) { fullscreen = true; showBanner() } else { playback.play(c, session); vm.selectChannel(c.id) }
+            }
+            BtnAction.Watch -> vm.channels.value.getOrNull(vm.cursor.value.row)?.let { c ->
+                playback.play(c, session); vm.selectChannel(c.id); fullscreen = true; showBanner()
+            }
+            BtnAction.GoLive -> if (catchup != null) { playback.goLive(); showBanner() }
+            BtnAction.Description -> {
+                val target = if (screen == BtnScreen.Live) ch?.let { c -> GuideViewModel.programAt(programsOf(c), now)?.let { c to it } }
+                else vm.cursor.value.let { cur -> vm.channels.value.getOrNull(cur.row)?.let { c -> GuideViewModel.programAt(programsOf(c), cur.focusTime)?.let { c to it } } }
+                if (target != null) { osdVisible = false; channelListOpen = false; infoTarget = target }
+            }
+            BtnAction.MultiView -> if (ch != null && AppColors.palette.heavyExtras) {
+                osdVisible = false; channelListOpen = false
+                if (catchup != null) playback.goLive()
+                fullscreen = true; multiView = true
+            }
+            BtnAction.Transparency -> { osdVisible = false; channelListOpen = false; transparencyOpen = true }
+            BtnAction.PageUp, BtnAction.PageDown -> vm.moveVertical(if (act == BtnAction.PageUp) -7 else 7, if (AppColors.palette.opt(UiOpts.LIST_ENDS) == 0) 1 else 2)
+            BtnAction.Earlier -> vm.moveLeft()
+            BtnAction.Later -> vm.moveRight()
+            BtnAction.Controls -> if (ch != null) showOsd()
+            BtnAction.NextChannel -> zap(1)
+            BtnAction.PrevChannel -> zap(-1)
+            BtnAction.LastChannel -> lastChannel()
+            BtnAction.SkipBack, BtnAction.SkipForward -> if (ch != null || catchup != null) {
+                playback.seekBy(if (act == BtnAction.SkipBack) -remote.seek.ms else remote.seek.ms)
+                showBanner()
+            }
+            BtnAction.PlayPause -> if (ch != null || catchup != null) { playback.togglePause(); showBanner() }
             BtnAction.GroupsMenu -> { fullscreen = false; channelListOpen = false; menuOnMain = false; menuOpen = true }
             BtnAction.MainMenu -> { fullscreen = false; channelListOpen = false; menuOnMain = true; menuOpen = true }
             BtnAction.FullScreen -> if (ch != null) { fullscreen = true; showBanner() }
-            BtnAction.Guide -> { fullscreen = false; channelListOpen = false }
+            BtnAction.Guide -> if (screen == BtnScreen.Pages) buttonRequest = act else { fullscreen = false; channelListOpen = false }
             BtnAction.Now -> vm.goToNow()
             BtnAction.DayBack -> vm.jumpBy(-86_400_000L)
             BtnAction.DayForward -> vm.jumpBy(86_400_000L)
@@ -413,7 +485,15 @@ fun HomeScreen(
                 }
             }
             BtnAction.ChannelList -> if (fullscreen) channelListOpen = true
-            BtnAction.StartOver -> if (ch != null && ch.catchupDays > 0) {
+            // The guide: the highlighted programme from its start (catch-up, or on now).
+            BtnAction.StartOver -> if (screen == BtnScreen.Guide) {
+                val cur = vm.cursor.value
+                vm.channels.value.getOrNull(cur.row)?.takeIf { it.catchupDays > 0 }?.let { c ->
+                    GuideViewModel.programAt(programsOf(c), cur.focusTime)?.takeIf { it.startTime < now }?.let { prog ->
+                        playback.playCatchup(c, prog, session); vm.selectChannel(c.id); fullscreen = true; showBanner()
+                    }
+                }
+            } else if (ch != null && ch.catchupDays > 0) {
                 GuideViewModel.programAt(programsOf(ch), now)?.takeIf { it.startTime < now }?.let { prog ->
                     playback.playCatchup(ch, prog, session)
                     vm.selectChannel(ch.id)
@@ -433,7 +513,7 @@ fun HomeScreen(
                 bannerVisible = false
             }
             // Films only (VodKeys).
-            BtnAction.Details, BtnAction.PlayPause -> Unit
+            BtnAction.Details, BtnAction.TimeTitle, BtnAction.SeekBar -> Unit
         }
     }
 
@@ -462,14 +542,14 @@ fun HomeScreen(
         return true
     }
 
-    fun zap(delta: Int) {
-        val list = vm.channels.value
-        val index = list.indexOfFirst { it.id == playing?.id }
-        val target = list.getOrNull((if (index < 0) 0 else index + delta).coerceIn(0, maxOf(0, list.size - 1))) ?: return
-        if (target.id == playing?.id) return
-        playback.play(target, session)
-        vm.selectChannel(target.id)
-        showBanner()
+    /** Which screen of Settings → Remote buttons a press is on now (null: none, e.g. a menu or dialog is open). */
+    fun tableScreen(): BtnScreen? {
+        if (menuOpen || showAccounts || quickSearch || recordTarget != null || infoTarget != null || VodHost.covering || transparencyOpen) return null
+        return when {
+            page == Page.Tv -> if (fullscreen) BtnScreen.Live else BtnScreen.Guide
+            page != Page.Search && !MusicPlayer.nowPlayingOpen -> BtnScreen.Pages
+            else -> null
+        }
     }
 
     LaunchedEffect(bannerToken) {
@@ -525,18 +605,18 @@ fun HomeScreen(
     // its player let go (it carried on underneath, sound and all). Picking a channel afterwards starts it afresh.
     val vodOver = VodHost.active
     LaunchedEffect(vodOver) {
-        if (vodOver) { fullscreen = false; liveCorner = false; playback.close() }
+        if (vodOver) { fullscreen = false; liveCorner = false; livePreview = false; playback.close() }
     }
     // …and a channel started while a film is in the corner ends the film (one stream, one sound).
     LaunchedEffect(playing?.id) { if (playing != null) { VodHost.close(); MusicPlayer.stop() } }
     // Music starting ends Live TV (as a film does).
     val musicOn = MusicPlayer.active
-    LaunchedEffect(musicOn) { if (musicOn) { fullscreen = false; liveCorner = false; playback.close() } }
+    LaunchedEffect(musicOn) { if (musicOn) { fullscreen = false; liveCorner = false; livePreview = false; playback.close() } }
     // A full-screen trailer (title page → Trailer) ends live TV too; it was silent with the channel still playing.
     val trailerOn = FullTrailer.active
-    LaunchedEffect(trailerOn) { if (trailerOn) { fullscreen = false; liveCorner = false; playback.close() } }
+    LaunchedEffect(trailerOn) { if (trailerOn) { fullscreen = false; liveCorner = false; livePreview = false; playback.close() } }
     // Back on the guide (or the channel stopped): nothing in the corner any more.
-    LaunchedEffect(page, playing == null) { if (page == Page.Tv || playing == null) liveCorner = false }
+    LaunchedEffect(page, playing == null) { if (page == Page.Tv || playing == null) { liveCorner = false; livePreview = false } }
     val cornerNow = liveCorner && playing != null && page != Page.Tv
     // A picture in the corner (live TV over another page, or a film).
     val pictureInCorner = cornerNow || (VodHost.active && VodHost.mini)
@@ -570,7 +650,9 @@ fun HomeScreen(
      * exit, and Back once more exits (it used to close the menu, and Back opened it again: no way out).
      */
     var menuFromGuideBack by remember { mutableStateOf(false) }
-    LaunchedEffect(menuOpen) { if (!menuOpen) menuFromGuideBack = false }
+    LaunchedEffect(menuOpen) { if (!menuOpen) { menuFromGuideBack = false; menuFullPage = false; VodHost.behind = false } }
+    // Left from the film controls' first button: the menu over the film, which plays on full screen underneath.
+    SideEffect { VodHost.openMenu = { VodHost.behind = true; menuOnMain = true; menuOpen = true } }
     /** When Back last took full screen down to the guide (a quick second Back then asks to exit). */
     var guideFromFullAt by remember { mutableLongStateOf(0L) }
     /** The guide's Back (Settings → Remote & navigation → TV guide). */
@@ -591,6 +673,10 @@ fun HomeScreen(
     fun backOnPage() {
         // A film opened a shortcut and is in the corner: Back takes it full screen again (as live TV does).
         if (VodHost.active && VodHost.mini) { VodHost.expand(); return }
+        // A library over live TV: Back is the channel full screen again.
+        if (liveBehind && playing != null) { liveBehind = false; page = Page.Tv; fullscreen = true; showBanner(); return }
+        // The channel in the guide's preview place: Back is the guide again.
+        if (livePreview && playing != null && page != Page.Tv) { livePreview = false; page = Page.Tv; return }
         // The channel still playing in the corner: Back takes it full screen again. (Otherwise Back is the page's own.)
         if (liveCorner && playing != null && page != Page.Tv && goLive()) return
         if (exitArmed != 0L) activity?.finish() else exitArmed = System.currentTimeMillis()
@@ -614,6 +700,7 @@ fun HomeScreen(
         }
     }
     BackHandler(enabled = fullscreen && !osdVisible) {
+        ButtonMap.changed(remote, BtnScreen.Live, BtnPress.Back)?.let { doButton(BtnScreen.Live, it); return@BackHandler }
         fullscreen = false
         bannerVisible = false
         guideFromFullAt = System.currentTimeMillis()
@@ -648,8 +735,19 @@ fun HomeScreen(
     // Into a title (a poster on a library or catalogue page) while the channel's in the corner: it stops. Browsing a
     // shortcut's posters keeps it; choosing one is watching something else.
     val titleOpen = moviesVm.detail.collectAsStateWithLifecycle().value != null || showsVm.detail.collectAsStateWithLifecycle().value != null
-    LaunchedEffect(titleOpen) { if (titleOpen && liveCorner) { liveCorner = false; playback.stop() } }
+    LaunchedEffect(titleOpen) {
+        // (The channel in the preview place stays: the title page makes room for it.)
+        if (titleOpen && liveCorner) { liveCorner = false; playback.stop() }
+        if (titleOpen && liveBehind) { liveBehind = false; playback.stop() }
+    }
+    // Over live TV only on Movies / Shows; nothing playing, nothing behind.
+    LaunchedEffect(page, playing == null) { if ((page != Page.Movies && page != Page.Shows) || playing == null) liveBehind = false }
     LaunchedEffect(Unit) { moviesVm.refreshPlexServers(); delay(20_000); moviesVm.refreshWatchNext() }
+    // The splash can go once the guide has its channels (the splash's own limit covers a guide that doesn't come).
+    LaunchedEffect(Unit) {
+        vm.channels.first { it.isNotEmpty() }
+        io.github.petebutty.viewarr.ui.common.StartupGate.ready = true
+    }
     val deepLink by DeepLink.pending.collectAsStateWithLifecycle()
     LaunchedEffect(deepLink) {
         val item = deepLink ?: return@LaunchedEffect
@@ -666,56 +764,120 @@ fun HomeScreen(
      * [keepLive]: leaving live TV for this page leaves the channel playing in a corner (a shortcut under the live
      * controls, or any page in the Live TV hub style), unless that's switched off or the box is short of memory.
      */
-    fun openPage(p: Page, keepLive: Boolean = false) {
+    fun openPage(p: Page, keepLive: Boolean = false, closeMenu: Boolean = true) {
+        // From the menu over a full-screen film: the film carries on in the corner, the page opens.
+        if (VodHost.behind) { VodHost.behind = false; VodHost.minimise() }
         // Search never replaces what's on screen: it slides over it, and Back returns you there.
         if (p == Page.Search) {
             menuOpen = false
             quickSearch = true
             return
         }
+        // Over live TV already: another of Movies / Shows keeps it behind; anything else stops it (the TV guide: full screen).
+        if (liveBehind && p != Page.Movies && p != Page.Shows) {
+            liveBehind = false
+            if (p == Page.Tv) { fullscreen = true; showBanner() } else playback.stop()
+        }
+        // From Movies / Shows with the channel in the preview place: the guide keeps it; anything else stops it.
+        if (livePreview && p == Page.Tv) livePreview = false
         if (p != Page.Tv && page == Page.Tv) {
             val pal = AppColors.palette
-            // (Only in the Live TV hub style.)
-            if (keepLive && playing != null && !multiView &&
-                pal.opt(UiOpts.LIVE_CORNER) == 0 && !pal.lowMemory) {
-                liveCorner = true
+            // From the menu over full-screen live TV, a library or catalogue: the channel stays full screen behind it.
+            if (!keepLive && fullscreen && playing != null && !multiView && (p == Page.Movies || p == Page.Shows) && !pal.lowMemory) {
+                liveBehind = true
+                bannerVisible = false
+                osdVisible = false
+                channelListOpen = false
+            } else if ((keepLive || !fullscreen) && playing != null && !multiView && p != Page.Search && !pal.lowMemory) {
+                // From the guide: the channel stays where the guide's preview was.
+                livePreview = true
                 bannerVisible = false
                 osdVisible = false
             } else playback.stop()
             fullscreen = false
         }
         page = p
-        menuOpen = false
+        if (closeMenu) menuOpen = false
+    }
+
+    // A button's page (Movies, Recordings…), the TV guide from a page, or leaving the app.
+    LaunchedEffect(buttonRequest) {
+        val r = buttonRequest ?: return@LaunchedEffect
+        buttonRequest = null
+        when (r) {
+            BtnAction.Movies -> openPage(Page.Movies)
+            BtnAction.Shows -> openPage(Page.Shows)
+            BtnAction.Recordings -> openPage(Page.Recordings)
+            BtnAction.Music -> openPage(Page.Music)
+            BtnAction.Guide -> { menuOpen = false; openPage(Page.Tv) }
+            BtnAction.Exit -> activity?.finish()
+            else -> Unit
+        }
     }
     // Live TV controls → Down: your shortcuts (Settings → Remote & navigation → Live TV shortcuts).
     val movieLibs by moviesVm.libraries.collectAsStateWithLifecycle()
     val showLibs by showsVm.libraries.collectAsStateWithLifecycle()
     val movieMenuRows by moviesVm.menuRows.collectAsStateWithLifecycle()
     val showMenuRows by showsVm.menuRows.collectAsStateWithLifecycle()
+    // Streaming services down the main menu (AIOMetadata's "Netflix · Popular", "Netflix · New"… rows), each with its
+    // rows' names: its show rows then its film rows on one page.
+    val menuServices = remember(movieMenuRows.rows, showMenuRows.rows) {
+        val all = showMenuRows.rows + movieMenuRows.rows
+        (RowSets.sets(showMenuRows.rows) + RowSets.sets(movieMenuRows.rows)).filter { it.startsWith("name:") }.distinct().map { key ->
+            key.removePrefix("name:") to all.filter { RowSets.matches(key, it) }.map { it.id to RowSets.rowTitle(it) }.distinctBy { it.first }
+        }
+    }
+    fun openService(name: String, closeMenu: Boolean, rowId: String? = null) {
+        val key = "name:$name"
+        val type = if (showMenuRows.rows.any { RowSets.matches(key, it) }) MediaType.Show else MediaType.Movie
+        val mvm = if (type == MediaType.Show) showsVm else moviesVm
+        if (mvm.currentRowSet.value != key) { mvm.openLibrary(null, type); mvm.jumpTo(null) }
+        // Its rows from the other page follow, in that page's order without the ones hidden (the menu's rows list
+        // can change both, so this is redone each time).
+        val (other, otherHidden) = (if (type == MediaType.Show) moviesVm else showsVm).orderedRows.value
+        val extra = other.filter { RowSets.matches(key, it) && it.id !in otherHidden }
+            .map { it.copy(title = it.title + if (type == MediaType.Show) " (films)" else " (shows)") }
+        mvm.showRowSet(key, extra)
+        // A row picked in the menu (Popular, New…): the page opens on it.
+        rowId?.let { mvm.jumpWithin(it) }
+        openPage(if (type == MediaType.Show) Page.Shows else Page.Movies, closeMenu = closeMenu)
+    }
     val musicOnNow by musicVm.enabled.collectAsStateWithLifecycle()
     // Settings → Remote & navigation → Live TV shortcuts → Poster rows (off in Low memory mode: no pictures).
     val postersOn = AppColors.palette.opt(UiOpts.OSD_POSTERS) == 0 && !AppColors.palette.lowMemory
-    // The shortcuts' rows, logos, Live now and Sports: loaded a few seconds after the app starts (once connected), not
-    // the first time the controls open, so they're ready then. (Refreshed again as the controls open, as before.)
-    var preload by remember { mutableStateOf(false) }
+    // The shortcuts' rows, logos, Live now and Sports: loaded after the app starts (once connected and the start page is
+    // up), not the first time the controls open, so they're ready then. One at a time, a few seconds apart, so a slow
+    // box isn't asked for everything at once while you start using it. (Refreshed again as the controls open.)
+    var preloadStage by remember { androidx.compose.runtime.mutableIntStateOf(0) }
+    val ctxForPreload = LocalContext.current
     LaunchedEffect(session?.id) {
         if (session == null) return@LaunchedEffect
-        delay(5_000)
-        preload = true
-        // Once: on for long enough to load, then off, so the controls closing later doesn't load it all again.
+        androidx.compose.runtime.snapshotFlow { io.github.petebutty.viewarr.ui.common.StartupGate.ready }.first { it }
+        val am = ctxForPreload.getSystemService(android.content.Context.ACTIVITY_SERVICE) as? android.app.ActivityManager
+        val gap = if (am?.isLowRamDevice == true || AppColors.palette.lowMemory) 5_000L else 2_500L
+        delay(3_000)
+        for (stage in 1..5) { preloadStage = stage; delay(gap) }
+        // On for long enough to load, then off, so the controls closing later doesn't load it all again.
         delay(60_000)
-        preload = false
+        preloadStage = 0
     }
-    LaunchedEffect(osdVisible, preload) {
-        if (!osdVisible && !preload) return@LaunchedEffect
+    // 1: libraries and the pages' rows (row and network shortcuts come from them: Plex rows, AIOMetadata's networks).
+    val preloadRows = preloadStage >= 1
+    LaunchedEffect(osdVisible, preloadRows) {
+        if (!osdVisible && !preloadRows) return@LaunchedEffect
         moviesVm.loadLibraries(MediaType.Movie); showsVm.loadLibraries(MediaType.Show)
-        // Row and network shortcuts come from the pages' rows (Plex rows, AIOMetadata's networks): load them too.
         moviesVm.load(MediaType.Movie); showsVm.load(MediaType.Show)
-        if (postersOn) {
-            moviesVm.loadContinue(MediaType.Movie); showsVm.loadContinue(MediaType.Show)
-            moviesVm.loadRecent(MediaType.Movie); showsVm.loadRecent(MediaType.Show)
-        }
     }
+    // 2: Continue watching and Recently added (the poster rows under the shortcuts).
+    val preloadPosters = preloadStage >= 2
+    LaunchedEffect(osdVisible, preloadPosters) {
+        if ((!osdVisible && !preloadPosters) || !postersOn) return@LaunchedEffect
+        moviesVm.loadContinue(MediaType.Movie); showsVm.loadContinue(MediaType.Show)
+        moviesVm.loadRecent(MediaType.Movie); showsVm.loadRecent(MediaType.Show)
+    }
+    val preloadEvents = preloadStage >= 3
+    val preloadExtras = preloadStage >= 4
+    val preloadMusic = preloadStage >= 5
     // The music service in use (its logo on the music shortcuts).
     val musicSources by musicVm.sources.collectAsStateWithLifecycle()
     val musicSourceName = musicSources.firstOrNull { it.on }?.name
@@ -724,8 +886,9 @@ fun HomeScreen(
     // (Also while the film player's controls are up: its shortcuts show the same rows.)
     val rowsWanted = osdVisible || LiveShortcutsBridge.filmMenuOpen
     // (Once at the start; then every minute while the controls are up.)
-    LaunchedEffect(rowsWanted, preload) {
-        if (!rowsWanted && !preload) return@LaunchedEffect
+    // (3)
+    LaunchedEffect(rowsWanted, preloadEvents) {
+        if (!rowsWanted && !preloadEvents) return@LaunchedEffect
         while (true) {
             liveEvents = runCatching { vm.liveEvents() }.getOrNull() ?: liveEvents
             if (!rowsWanted) break
@@ -737,6 +900,16 @@ fun HomeScreen(
         osdVisible = false
         liveEvents?.mainGroup?.let { name -> vm.groups.value.firstOrNull { it.name == name }?.let { g -> vm.selectGroup(g.id) } }
         fullscreen = false
+    }
+    /**
+     * The menu's Live now and Sports: the TV guide on the event channels, or on your sports channels (the first group
+     * named Sports). Moving onto one shows it behind the menu; Right / OK goes into the guide.
+     */
+    fun openLiveEntry(label: String, closeMenu: Boolean) {
+        if (page != Page.Tv) openPage(Page.Tv, closeMenu = closeMenu)
+        val sports = if (label == "Sports") vm.groups.value.firstOrNull { it.name.equals("Sports", true) } ?: vm.groups.value.firstOrNull { it.name.contains("Sport", true) } else null
+        if (sports != null) { osdVisible = false; vm.selectGroup(sports.id); fullscreen = false } else openLiveEvents()
+        if (closeMenu) menuOpen = false
     }
 
     /**
@@ -765,8 +938,9 @@ fun HomeScreen(
             watch = { ch -> osdVisible = false; playback.play(ch, sessionRef.value); vm.selectChannel(ch.id); fullscreen = true; showBanner() },
             toast = { toast(it) })
     }
-    LaunchedEffect(rowsWanted, preload, sportFollows) {
-        if (!rowsWanted && !preload) return@LaunchedEffect
+    // (4)
+    LaunchedEffect(rowsWanted, preloadExtras, sportFollows) {
+        if (!rowsWanted && !preloadExtras) return@LaunchedEffect
         sportsHub.load(sportFollows)
     }
 
@@ -833,8 +1007,8 @@ fun HomeScreen(
     }
 
     // Network / service shortcuts: their logos (TMDB), looked up at the start (and for any shortcut added since).
-    LaunchedEffect(osdVisible, preload, liveShortcuts.map { it.first.id }) {
-        if (!osdVisible && !preload) return@LaunchedEffect
+    LaunchedEffect(osdVisible, preloadExtras, liveShortcuts.map { it.first.id }) {
+        if (!osdVisible && !preloadExtras) return@LaunchedEffect
         val names = liveShortcuts.mapNotNull { (sc, _) -> sc.logoName?.takeIf { !it.startsWith("sport:") }?.let { n -> n to sc } }
             .filter { (n, _) -> n !in ShortcutLogos.map }
         if (names.isEmpty()) return@LaunchedEffect
@@ -965,7 +1139,7 @@ fun HomeScreen(
     val showHomeRows by showsVm.homeRows.collectAsStateWithLifecycle()
     // Music and Recordings preview their own: your music's home rows, your recordings.
     val musicHome by musicVm.home.collectAsStateWithLifecycle()
-    LaunchedEffect(osdVisible, preload, musicOnNow) { if ((osdVisible || preload) && musicOnNow && musicHome.rows.isEmpty()) musicVm.load() }
+    LaunchedEffect(osdVisible, preloadMusic, musicOnNow) { if ((osdVisible || preloadMusic) && musicOnNow && musicHome.rows.isEmpty()) musicVm.load() }
     // Live now's rows: On now (the event, its channel, until when, how far through) and Starting soon.
     fun liveEventRows(): List<OsdRow> {
         val ev = liveEvents ?: return emptyList()
@@ -1200,6 +1374,15 @@ fun HomeScreen(
                     if (e.type == KeyEventType.KeyUp) searchHeld = false
                     return@onPreviewKeyEvent true
                 }
+                // Long Menu (Settings → Remote buttons), when it isn't search there.
+                if (e.type == KeyEventType.KeyDown && e.key == Key.Menu && e.nativeKeyEvent.repeatCount == 1 && !quickSearch) {
+                    tableScreen()?.let { sc -> ButtonMap.changed(remote, sc, BtnPress.MenuHold) }?.let { a ->
+                        tableHeld = null
+                        searchHeld = true // swallow the rest of this press
+                        doButton(tableScreen()!!, a)
+                        return@onPreviewKeyEvent true
+                    }
+                }
                 // (Watching a film or show too: it goes to the corner and carries on while you search.)
                 if (!quickSearch && !showAccounts && page != Page.Search && e.type == KeyEventType.KeyDown) {
                     val hit = SearchKey.hit(e, remote)
@@ -1210,21 +1393,62 @@ fun HomeScreen(
                         searchStart = null
                         quickSearch = true
                         searchHeld = true // swallow the rest of this press
+                        tableHeld = null
                         return@onPreviewKeyEvent true
                     }
                 }
-                // Settings → Remote → Buttons: colour buttons, Record and Info on the guide and full-screen live TV.
-                if (e.type == KeyEventType.KeyDown && e.nativeKeyEvent.repeatCount == 0 && page == Page.Tv && !menuOpen && !showAccounts &&
-                    !quickSearch && recordTarget == null && infoTarget == null && !VodHost.covering &&
-                    !transparencyOpen && ((!channelListOpen && !osdVisible && !(fullscreen && multiView)) ||
-                        ButtonMap.pressOf(e) == BtnPress.Stop)
-                ) {
-                    // (Stop works with the controls, the channel list or multi-view open too.)
-                    val press = ButtonMap.pressOf(e)
-                    val screen = if (fullscreen) BtnScreen.Live else BtnScreen.Guide
-                    if (press != null && press in ButtonMap.presses[screen].orEmpty()) {
-                        doButton(screen, ButtonMap.action(remote, screen, press))
+                // Settings → Remote buttons: the rest of a changed button's press.
+                tableHeld?.let { held ->
+                    if (ButtonMap.pressOf(e) == held) {
+                        // Held: channels and skips keep going, as their own buttons do.
+                        if (e.type == KeyEventType.KeyDown && holdTap == null) tableScreen()?.let { sc -> ButtonMap.changed(remote, sc, held) }
+                            ?.takeIf { it in setOf(BtnAction.NextChannel, BtnAction.PrevChannel, BtnAction.SkipBack, BtnAction.SkipForward, BtnAction.PageUp, BtnAction.PageDown, BtnAction.Earlier, BtnAction.Later) }
+                            ?.let { doButton(tableScreen()!!, it) }
+                        if (e.type == KeyEventType.KeyUp) {
+                            tableHeld = null
+                            // Let go before the long press: the tap (its usual job too, as it was held back).
+                            if (holdTap == held) {
+                                holdJob[0]?.cancel()
+                                holdTap = null
+                                tableScreen()?.let { sc -> doButton(sc, ButtonMap.action(remote, sc, held)) }
+                            }
+                            // Menu acts when it's let go (holding it is search, above).
+                            if (held == BtnPress.Menu) tableScreen()?.let { sc -> ButtonMap.changed(remote, sc, held)?.let { doButton(sc, it) } }
+                        }
                         return@onPreviewKeyEvent true
+                    }
+                    tableHeld = null
+                }
+                // Settings → Remote buttons on the guide, full-screen live TV and the pages: buttons changed from standard
+                // (colours, Record, Info, the media and channel buttons, Menu). OK, Back and their holds are taken
+                // where they're handled (the guide's onSelect / onLongSelect, the Back handlers, holdBack()).
+                if (e.type == KeyEventType.KeyDown && e.nativeKeyEvent.repeatCount == 0) {
+                    val press = ButtonMap.pressOf(e)
+                    val screen = tableScreen()
+                    // (Stop works with the controls, the channel list or multi-view open too.)
+                    val free = !channelListOpen && !osdVisible && !(fullscreen && multiView)
+                    if (press != null && screen != null && press !in setOf(BtnPress.OkHold, BtnPress.Back, BtnPress.BackHold) &&
+                        (free || press == BtnPress.Stop)
+                    ) {
+                        // With a long press too: wait to see which (OK in the guide times its own hold).
+                        val long = ButtonMap.longOf[press]?.takeIf { !(screen == BtnScreen.Guide && press == BtnPress.Ok) }?.let { ButtonMap.changed(remote, screen, it) }
+                        if (long != null) {
+                            tableHeld = press
+                            holdTap = press
+                            holdJob[0]?.cancel()
+                            holdJob[0] = fromStartScope.launch {
+                                delay(450)
+                                holdTap = null
+                                tableScreen()?.let { doButton(it, long) }
+                            }
+                            return@onPreviewKeyEvent true
+                        }
+                        val act = ButtonMap.changed(remote, screen, press)
+                        if (act != null) {
+                            tableHeld = press
+                            if (press != BtnPress.Menu) doButton(screen, act)
+                            return@onPreviewKeyEvent true
+                        }
                     }
                 }
                 // Remotes with Guide / Record buttons (e.g. Formuler): the TV guide from anywhere, and recording what's on.
@@ -1309,6 +1533,15 @@ fun HomeScreen(
                 }
             },
     ) {
+        // The menu over a page (as TiviMate): the page and the preview pushed right beside the see-through strip,
+        // sliding along together as it opens and grows (Left: the main list too).
+        val guidePush = animateIntAsState(
+            if (menuOpen && !fullscreen && !liveBehind && !menuFullPage && !VodHost.behind) menuWidth else 0,
+            tween(160, easing = FastOutSlowInEasing),
+            label = "guidePush",
+        )
+        // (The menu over a full-screen film: only the menu shows, the page stays out of sight underneath.)
+        Box(Modifier.fillMaxSize().offset { IntOffset(guidePush.value, 0) }.graphicsLayer { alpha = if (VodHost.behind) 0f else 1f }) {
         if (page == Page.Search) {
             SearchPage(
                 guide = vm,
@@ -1353,6 +1586,10 @@ fun HomeScreen(
                     if (VodHost.active && VodHost.mini) { VodHost.expand(); return@MediaScreen }
                     // The channel in the corner: back to it. Otherwise your Back setting (not always back to live TV).
                     if (liveCorner && playing != null && goLive()) return@MediaScreen
+                    // Over live TV: back to the channel full screen.
+                    if (liveBehind && playing != null) { backOnPage(); return@MediaScreen }
+                    // The channel in the preview place: back to the guide.
+                    if (livePreview && playing != null) { backOnPage(); return@MediaScreen }
                     when (remote.mediaBack) {
                         MediaBack.Exit -> backOnPage()
                         MediaBack.Menu -> menuOpen = true
@@ -1386,6 +1623,10 @@ fun HomeScreen(
                 focusEnabled = !menuOpen && !cornerFocused && !fullscreen && !showAccounts && !quickSearch,
                 onOpenMenu = { menuOpen = true },
                 onSelect = { channel, program ->
+                    // Settings → Remote buttons → TV guide → OK: "Watch in the preview" stays in the guide (OK again on
+                    // what's playing: full screen).
+                    val inGuide = ButtonMap.action(remote, BtnScreen.Guide, BtnPress.Ok) == BtnAction.WatchInGuide
+                    if (!inGuide) ButtonMap.changed(remote, BtnScreen.Guide, BtnPress.Ok)?.let { doButton(BtnScreen.Guide, it); return@GuideScreen }
                     val t = System.currentTimeMillis()
                     val live = program == null || (program.startTime <= t && program.endTime > t)
                     val replayable = program != null && program.endTime <= t && channel.catchupDays > 0 &&
@@ -1394,13 +1635,12 @@ fun HomeScreen(
                         live -> {
                             val alreadyLive = playing?.id == channel.id && catchup == null && playState !is PlaybackState.Error
                             if (!alreadyLive) playback.play(channel, session)
-                            fullscreen = true
-                            showBanner()
+                            if (!inGuide || alreadyLive) { fullscreen = true; showBanner() }
                         }
                         replayable -> {
-                            if (catchup?.rowId != program!!.rowId || playing?.id != channel.id) playback.playCatchup(channel, program, session)
-                            fullscreen = true
-                            showBanner()
+                            val already = catchup?.rowId == program!!.rowId && playing?.id == channel.id
+                            if (!already) playback.playCatchup(channel, program, session)
+                            if (!inGuide || already) { fullscreen = true; showBanner() }
                         }
                         // A programme still to come: show its details (Record options from there).
                         program != null && program.startTime > t ->
@@ -1412,32 +1652,60 @@ fun HomeScreen(
                 // Holding OK: the programme's options (record / remind, watch it from your library or addons), whether
                 // it's on now, still to come or already aired.
                 onLongSelect = { channel, program ->
+                    ButtonMap.changed(remote, BtnScreen.Guide, BtnPress.OkHold)?.let { doButton(BtnScreen.Guide, it); return@GuideScreen }
                     if (program != null) recordTarget = channel to program
                 },
             )
+        }
         }
 
         // Live TV into the guide's preview and back: a glide (the window's real place and size; the picture is a
         // SurfaceView, scaled by the box's display hardware). Settings → Playback → Picture-in-picture → Live TV animation.
         val liveShrink = animateFloatAsState(
-            if (fullscreen) 0f else 1f,
-            if (AppColors.palette.opt(UiOpts.ANIM_LIVE) == 0)
-                tween(300, easing = FastOutSlowInEasing)
-            else snap(),
+            if (fullscreen || liveBehind) 0f else 1f,
+            tween(300, easing = FastOutSlowInEasing),
             label = "live",
         )
         // Over another page (a shortcut, the Live TV hub): from the guide's preview place to the chosen corner.
         val inCorner = liveCorner && page != Page.Tv
         val liveSide = animateFloatAsState(
             if (inCorner) 1f else 0f,
-            if (AppColors.palette.opt(UiOpts.ANIM_LIVE) == 0)
-                tween(300, easing = FastOutSlowInEasing)
-            else snap(),
+            tween(300, easing = FastOutSlowInEasing),
             label = "liveCorner",
         )
         val cornerSize = CornerPicture.size()
         val cornerAt = AppColors.palette.opt(UiOpts.MINI_CORNER) // 0 BR, 1 BL, 2 TR, 3 TL
-        val channel = playing.takeIf { page == Page.Tv || inCorner }
+        val channel = playing.takeIf { page == Page.Tv || inCorner || liveBehind || livePreview }
+        // The live channel list: on its own over full-screen live TV, or as the menu strip's last column.
+        val channelPanel: @Composable (Boolean, () -> Unit) -> Unit = { embedded, onLeft ->
+            channel?.let { ch0 ->
+                ChannelListOverlay(
+                    vm = vm,
+                    serverUrl = session?.serverUrl.orEmpty(),
+                    current = ch0,
+                    now = now,
+                    onPick = { ch ->
+                        channelListOpen = false; menuOpen = false
+                        // Another channel, or the same number on another source (after switching source).
+                        if (ch.id != ch0.id || ch.uuid != ch0.uuid) {
+                            playback.play(ch, session)
+                            vm.selectChannel(ch.id)
+                        }
+                        showBanner()
+                    },
+                    onClose = { channelListOpen = false },
+                    onCatchup = { ch, prog ->
+                        channelListOpen = false; menuOpen = false
+                        playback.playCatchup(ch, prog, session)
+                        vm.selectChannel(ch.id)
+                        showBanner()
+                    },
+                    onFuture = { ch, prog -> channelListOpen = false; menuOpen = false; recordTarget = ch to prog },
+                    onLeft = onLeft,
+                    embedded = embedded,
+                )
+            }
+        }
         val list = channel?.let { programsOf(it) }.orEmpty()
         val current = catchup ?: GuideViewModel.programAt(list, now)
         if (channel != null && !(multiView && fullscreen)) {
@@ -1445,13 +1713,14 @@ fun HomeScreen(
             PlayerLayer(
                 vm = playback,
                 fullscreen = fullscreen,
-                bannerVisible = bannerVisible && !osdVisible && !inCorner,
+                bannerVisible = bannerVisible && !osdVisible && !inCorner && !liveBehind && !livePreview,
                 current = current,
                 next = next,
                 now = now,
                 serverUrl = session?.serverUrl.orEmpty(),
                 // Read in the layout and draw steps only, so the glide doesn't rebuild the screen every frame.
-                modifier = Modifier.fillMaxSize()
+                // (A library over live TV: the picture drawn first, under the page, so the see-through page is on top.)
+                modifier = Modifier.zIndex(if (liveBehind) -1f else 0f).fillMaxSize()
                     .layout { measurable, constraints ->
                         val p = liveShrink.value
                         val q = liveSide.value
@@ -1468,7 +1737,7 @@ fun HomeScreen(
                         val cw = (fw + (sw - fw) * p).toInt().coerceAtLeast(1)
                         val ch = (fh + (sh - fh) * p).toInt().coerceAtLeast(1)
                         val placeable = measurable.measure(Constraints.fixed(cw, ch))
-                        layout(fw, fh) { placeable.place((sx * p).toInt(), (sy * p).toInt()) }
+                        layout(fw, fh) { placeable.place((sx * p).toInt() + (guidePush.value * p * (1 - q)).toInt(), (sy * p).toInt()) }
                     }
                     .graphicsLayer { clip = liveShrink.value > 0.99f; shape = RoundedCornerShape(8.dp) },
             )
@@ -1488,7 +1757,7 @@ fun HomeScreen(
                     showBanner()
                 },
                 channelPicker = { cur, onPick, onClose ->
-                    Box(Modifier.fillMaxSize().slideInFromLeft()) {
+                    Box(Modifier.fillMaxSize()) {
                         ChannelListOverlay(
                             vm = vm,
                             serverUrl = session?.serverUrl.orEmpty(),
@@ -1532,16 +1801,7 @@ fun HomeScreen(
                                 return@onPreviewKeyEvent true
                             }
                             if (action == RemoteAction.Right) {
-                                val before = remote.recentChannels.firstOrNull { it != playing?.id }
-                                if (e.nativeKeyEvent.repeatCount == 0) {
-                                    if (before == null) { toast("No channel watched before this one yet") }
-                                    else fromStartScope.launch {
-                                        val ch = vm.channelById(before) ?: return@launch
-                                        playback.play(ch, session)
-                                        vm.selectChannel(ch.id)
-                                        showBanner()
-                                    }
-                                }
+                                if (e.nativeKeyEvent.repeatCount == 0) lastChannel()
                                 return@onPreviewKeyEvent true
                             }
                         }
@@ -1598,30 +1858,9 @@ fun HomeScreen(
                         true
                     },
             )
-            if (channelListOpen && channel != null) Box(Modifier.fillMaxSize().slideInFromLeft()) {
-                ChannelListOverlay(
-                    vm = vm,
-                    serverUrl = session?.serverUrl.orEmpty(),
-                    current = channel,
-                    now = now,
-                    onPick = { ch ->
-                        channelListOpen = false
-                        // Another channel, or the same number on another source (after switching source).
-                        if (ch.id != channel.id || ch.uuid != channel.uuid) {
-                            playback.play(ch, session)
-                            vm.selectChannel(ch.id)
-                        }
-                        showBanner()
-                    },
-                    onClose = { channelListOpen = false },
-                    onCatchup = { ch, prog ->
-                        channelListOpen = false
-                        playback.playCatchup(ch, prog, session)
-                        vm.selectChannel(ch.id)
-                        showBanner()
-                    },
-                    onFuture = { ch, prog -> channelListOpen = false; recordTarget = ch to prog },
-                )
+            // The channel list on its own; Left opens the menu strip beside it (groups, then the main list).
+            if (channelListOpen && channel != null && !menuOpen) Box(Modifier.fillMaxSize()) {
+                channelPanel(false) { menuOpen = true; menuOnMain = false }
             }
             if (osdVisible && channel != null) {
                 PlayerOsd(
@@ -1640,13 +1879,14 @@ fun HomeScreen(
                     // Settings over live TV: the menu opens on Settings; Back closes it, back to the channel.
                     onSettings = { osdVisible = false; menuOnSettings = true; menuOpen = true },
                     onTransparency = { osdVisible = false; transparencyOpen = true },
-                    // The shortcut row and its rows are part of the Live TV hub.
-                    shortcuts = liveShortcuts,
-                    posterRows = posterRows,
+                    // No shortcut row under the buttons any more: every library and service is in the menu on the left.
+                    shortcuts = emptyList(),
+                    posterRows = emptyList(),
                     previewFor = previewFor,
                     onHideShortcut = { sc -> hideShortcut(sc) },
                     onMoveShortcut = { sc, d -> moveShortcut(sc, d) },
                     onRefreshShortcut = { sc -> refreshOne(sc) },
+                    onStop = { doButton(BtnScreen.Live, BtnAction.Stop) },
                     onMultiView = if (!AppColors.palette.heavyExtras) null else ({
                         osdVisible = false
                         if (catchup != null) playback.goLive()
@@ -1671,7 +1911,7 @@ fun HomeScreen(
         AnimatedVisibility(
             rewindAsk != 0L && fullscreen && page == Page.Tv,
             modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 64.dp),
-            enter = fadeIn(), exit = fadeOut(),
+            enter = androidx.compose.animation.EnterTransition.None, exit = androidx.compose.animation.ExitTransition.None,
         ) {
             Row(
                 Modifier.background(AppColors.Panel.copy(alpha = 0.94f), RoundedCornerShape(20.dp)).padding(horizontal = 20.dp, vertical = 10.dp),
@@ -1687,7 +1927,7 @@ fun HomeScreen(
             val holdBackGuide = ButtonMap.action(remote, BtnScreen.Guide, BtnPress.BackHold).label.lowercase()
             when {
                 page == Page.Tv && fullscreen && !osdVisible && !channelListOpen && !multiView -> ButtonHint(
-                    "live", "OK, then ▼: shortcuts  ·  ▲ ▼ channels  ·  Back: guide  ·  hold Back: " + ButtonMap.action(remote, BtnScreen.Live, BtnPress.BackHold).label.lowercase())
+                    "live", "OK: controls  ·  ▲ ▼ channels  ·  Back: guide  ·  hold Back: " + ButtonMap.action(remote, BtnScreen.Live, BtnPress.BackHold).label.lowercase())
                 page == Page.Tv && !fullscreen && session != null -> ButtonHint(
                     "guide", "OK: watch  ·  ◀ ▶ earlier / later  ·  Back: " + (when { guideBack == GuideBack.Menu -> "menu"; guideBack == GuideBack.FullScreen && playing != null -> "full screen"; else -> "exit" }) + "  ·  hold Back: $holdBackGuide")
                 page == Page.Movies || page == Page.Shows -> ButtonHint(
@@ -1700,11 +1940,19 @@ fun HomeScreen(
             onClose = { transparencyOpen = false; if (playing != null) fullscreen = true },
             onRow = { r -> if (playing != null) fullscreen = r == 0 },
         )
-        if (menuOpen) Box(Modifier.fillMaxSize().slideInFromLeft()) {
+        // Going right into a page (a library, a service, a channel group's guide): the menu's glass slides back out to the
+        // left with the page and the preview moving back, rather than vanishing while they move.
+        if (!menuOpen && guidePush.value > 0 && !fullscreen && !liveBehind) Box(
+            Modifier.fillMaxHeight()
+                .offset { IntOffset(guidePush.value - menuWidth, 0) }
+                .layout { m, c -> val pl = m.measure(Constraints.fixed(menuWidth, c.maxHeight)); layout(menuWidth, c.maxHeight) { pl.place(0, 0) } }
+                .background(AppColors.MenuPanel),
+        )
+        if (menuOpen) Box(Modifier.fillMaxSize().offset { IntOffset(if (!fullscreen && !liveBehind && !menuFullPage && !VodHost.behind) guidePush.value - menuWidth else 0, 0) }) {
             MenuOverlay(
                 onPlayRecording = { menuOpen = false; recordingPlayback = it },
-                // See-through only over full-screen video; over the guide and other pages it's solid (tidier).
-                seeThrough = fullscreen,
+                // See-through everywhere: the page is pushed aside beside it (or video shows through).
+                seeThrough = true,
                 vm = vm,
                 session = session,
                 page = page,
@@ -1728,6 +1976,27 @@ fun HomeScreen(
                     playback.stop()
                     onSignOut()
                 },
+                channelsPanel = if (fullscreen && channelListOpen && channel != null) ({ onLeft -> channelPanel(true, onLeft) }) else null,
+                // A group picked: back to its channels, the channel list on its own.
+                onGroupPicked = { menuOpen = false; menuOnMain = false },
+                onWidth = { menuWidth = it },
+                previewOn = playing != null && !fullscreen && !liveBehind && (page == Page.Tv || livePreview),
+                onFullPage = { menuFullPage = it },
+                // Live TV, Movies, Shows, Music, Recordings: the page behind changes as you move onto it (not from over
+                // full-screen video).
+                onHoverPage = { p ->
+                    if (!fullscreen && !liveBehind && !VodHost.active) {
+                        // Back on Movies / Shows from a service: the page's own rows again, not the service's.
+                        if (p == Page.Movies && moviesVm.currentRowSet.value != null) { moviesVm.openLibrary(null, MediaType.Movie); moviesVm.jumpTo(null) }
+                        if (p == Page.Shows && showsVm.currentRowSet.value != null) { showsVm.openLibrary(null, MediaType.Show); showsVm.jumpTo(null) }
+                        if (p != page) openPage(p, closeMenu = false)
+                    }
+                },
+                services = menuServices,
+                liveEntries = listOf("Live now", "Sports"),
+                onLiveEntry = { label, into -> if (into || (!fullscreen && !liveBehind && !VodHost.active)) openLiveEntry(label, closeMenu = into) },
+                // Moving onto a service: its page behind (not over full-screen video); Right / OK: into it.
+                onService = { name, rowId, into -> if (into || (!fullscreen && !liveBehind && !VodHost.active)) openService(name, closeMenu = into, rowId = rowId) },
             )
         }
 
@@ -1747,7 +2016,7 @@ fun HomeScreen(
             // Live TV in the corner: a window cut in search where its picture is, so it shows (the video's drawn
             // behind the app; a film's picture is drawn over everything anyway).
             val liveHole = cornerNow && !filmInCorner
-            Box(Modifier.fillMaxSize().then(if (liveHole) Modifier.cornerWindow() else Modifier).appBackground().slideInFromLeft(60.dp, 150).then(if (infoTarget == null && recordTarget == null) Modifier.trapFocus() else Modifier)) {
+            Box(Modifier.fillMaxSize().then(if (liveHole) Modifier.cornerWindow() else Modifier).appBackground().then(if (infoTarget == null && recordTarget == null) Modifier.trapFocus() else Modifier)) {
                 SearchPage(
                     guide = vm,
                     serverUrl = session?.serverUrl.orEmpty(),
@@ -1799,8 +2068,7 @@ fun HomeScreen(
             Text(
                 text, fontSize = 15.sp, color = AppColors.TextPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.align(Alignment.BottomEnd).padding(28.dp).width(420.dp)
-                    .background(AppColors.Panel, RoundedCornerShape(10.dp))
-                    .border(1.dp, if (text.startsWith("⚠")) Color(0xFFE5534B) else AppColors.Accent, RoundedCornerShape(10.dp))
+                    .glass(10.dp, if (text.startsWith("⚠")) Color(0xFFE5534B) else null)
                     .padding(horizontal = 16.dp, vertical = 12.dp),
             )
         }
@@ -1809,8 +2077,7 @@ fun HomeScreen(
             val recordingNow = dvrRecordings.firstOrNull { it.state == DvrState.Recording }
             Column(
                 Modifier.align(Alignment.TopCenter).padding(top = 28.dp).width(640.dp)
-                    .background(AppColors.Panel.copy(alpha = 0.95f), RoundedCornerShape(10.dp))
-                    .border(1.dp, Color(0xFFE5A23B), RoundedCornerShape(10.dp))
+                    .glass(10.dp, Color(0xFFE5A23B))
                     .padding(horizontal = 18.dp, vertical = 12.dp),
             ) {
                 Text("All connections in use", fontSize = 13.sp, color = Color(0xFFE5A23B))
@@ -1821,8 +2088,7 @@ fun HomeScreen(
         dueReminder?.let { r ->
             Column(
                 Modifier.align(Alignment.TopEnd).padding(28.dp).width(380.dp)
-                    .background(AppColors.Panel, RoundedCornerShape(12.dp))
-                    .border(2.dp, AppColors.Accent, RoundedCornerShape(12.dp))
+                    .glass(12.dp)
                     .padding(horizontal = 18.dp, vertical = 14.dp),
             ) {
                 Text("⏰  Starting now", fontSize = 13.sp, color = AppColors.Accent)
@@ -1871,7 +2137,7 @@ fun HomeScreen(
 
         if (stillAsk) Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.55f)), contentAlignment = Alignment.Center) {
             Column(
-                Modifier.width(560.dp).background(AppColors.Panel, RoundedCornerShape(14.dp)).padding(28.dp),
+                Modifier.width(560.dp).glass(14.dp).padding(28.dp),
                 horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Text("Still watching?", fontSize = 24.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary)
@@ -1887,7 +2153,7 @@ fun HomeScreen(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .padding(bottom = 40.dp)
-                    .background(AppColors.Panel.copy(alpha = 0.95f), RoundedCornerShape(24.dp))
+                    .glass(24.dp)
                     .padding(horizontal = 26.dp, vertical = 12.dp),
             )
         }
@@ -1900,7 +2166,7 @@ fun HomeScreen(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .padding(top = 28.dp, end = 40.dp)
-                    .background(AppColors.Panel.copy(alpha = 0.92f), RoundedCornerShape(10.dp))
+                    .glass(10.dp)
                     .padding(horizontal = 22.dp, vertical = 8.dp),
             )
         }

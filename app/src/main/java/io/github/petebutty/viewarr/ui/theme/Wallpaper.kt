@@ -1,13 +1,10 @@
 package io.github.petebutty.viewarr.ui.theme
 
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
@@ -103,9 +100,8 @@ fun WallpaperLoader() {
         val bmp = runCatching { result.drawable.toBitmap().asImageBitmap() }.getOrNull() ?: return
         layer.previous = layer.image
         layer.image = bmp
-        val fade = Animatable(0f)
-        layer.fade = 0f
-        fade.animateTo(1f, tween(900)) { layer.fade = value }
+        // Straight in (a fade cost frames while moving through the guide).
+        layer.fade = 1f
     }
     LaunchedEffect(Unit) {
         snapshotFlow { AppColors.palette.wallpaperMode to Wallpaper.selected }.collectLatest { (mode, selected) ->
