@@ -1,7 +1,6 @@
 package io.github.petebutty.viewarr.ui.settings
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,7 +15,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -24,6 +22,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import io.github.petebutty.viewarr.ui.common.glass
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -213,8 +212,8 @@ fun SportsSettingsScreen(onBack: () -> Unit, vm: SportsViewModel = hiltViewModel
                 Text("Settings", fontSize = 14.sp, color = AppColors.Accent)
                 Text("Sports", fontSize = 30.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, modifier = Modifier.padding(bottom = 16.dp))
                 Text(
-                    "Follow your teams and leagues: type a name or a sport, or press Down for the sport buttons and browse a sport's leagues, then a league's teams. On live TV (Live TV hub), highlight the Sports shortcut and press Down: what's on now across them all, then a row for each, with its next games and recent results and which of your channels shows them (from your TV guide). " +
-                        "Pin a team or league to give it its own shortcut in the row too.\n\nFixtures come from ESPN's public sports data (only the team or league is asked about). Saved for this profile.",
+                    "Follow your teams and leagues: type a name or a sport, or press Down for the sport buttons and browse a sport's leagues, then a league's teams. Sports in the menu shows them as panels: what's on now across them all, then a row for each with its next games and recent results; OK on a game goes to the channel showing it (from your TV guide, the UK Sport on TV plugin or the event channels). " +
+                        "\n\nFixtures come from ESPN's public sports data (only the team or league is asked about). Saved for this profile.",
                     fontSize = 13.sp, color = AppColors.TextSecondary,
                 )
             }
@@ -257,7 +256,7 @@ fun SportsSettingsScreen(onBack: () -> Unit, vm: SportsViewModel = hiltViewModel
                     }
                     item(key = "h-fol") { Header(if (follows.isEmpty()) "Following: none yet" else "Following") }
                     items(follows, key = { "f-" + it.shortcutId }) { f ->
-                        SportRow(f, trailing = if (f.pinned) "Own shortcut too" else "Under Sports", modifier = Modifier.focusRequester(rowReq("f-" + f.shortcutId))
+                        SportRow(f, trailing = "Following · OK: stop", modifier = Modifier.focusRequester(rowReq("f-" + f.shortcutId))
                             .onFocusChanged { if (it.isFocused) rowFocused = "f-" + f.shortcutId else if (rowFocused == "f-" + f.shortcutId) rowFocused = null }) { picked = f }
                     }
                 }
@@ -270,7 +269,7 @@ fun SportsSettingsScreen(onBack: () -> Unit, vm: SportsViewModel = hiltViewModel
                 LaunchedEffect(Unit) { awaitFrame(); runCatching { first.requestFocus() } }
                 val following = follows.any { it.shortcutId == f.shortcutId }
                 Column(
-                    Modifier.width(420.dp).background(AppColors.Panel, RoundedCornerShape(14.dp)).padding(24.dp),
+                    Modifier.width(420.dp).glass(18.dp).padding(24.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     Text(f.name, fontSize = 18.sp, color = AppColors.TextPrimary)
@@ -280,19 +279,18 @@ fun SportsSettingsScreen(onBack: () -> Unit, vm: SportsViewModel = hiltViewModel
                 }
             }
         }
-        // A followed team / league: pin to the main row, or stop following it.
+        // A followed team / league: stop following it. (No pinning: the shortcut row it pinned to is gone; its games
+        // are on the Sports page.)
         picked?.let { f ->
             androidx.compose.ui.window.Dialog(onDismissRequest = { picked = null }) {
                 val first = remember { FocusRequester() }
                 LaunchedEffect(Unit) { awaitFrame(); runCatching { first.requestFocus() } }
                 Column(
-                    Modifier.width(420.dp).background(AppColors.Panel, RoundedCornerShape(14.dp)).padding(24.dp),
+                    Modifier.width(420.dp).glass(18.dp).padding(24.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     Text(f.name, fontSize = 18.sp, color = AppColors.TextPrimary)
-                    MenuItem(text = if (f.pinned) "Unpin: just under Sports" else "Pin: its own shortcut in the row", selected = false,
-                        modifier = Modifier.focusRequester(first), onClick = { vm.setPinned(f, !f.pinned); picked = null })
-                    MenuItem(text = "Stop following", selected = false, onClick = { removing = f.shortcutId; vm.unfollow(f); picked = null })
+                    MenuItem(text = "Stop following", selected = false, modifier = Modifier.focusRequester(first), onClick = { removing = f.shortcutId; vm.unfollow(f); picked = null })
                     MenuItem(text = "Cancel", selected = false, onClick = { picked = null })
                 }
             }

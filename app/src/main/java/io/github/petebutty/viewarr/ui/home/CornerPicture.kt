@@ -74,8 +74,8 @@ internal fun BoxScope.CornerHighlight(
     val left = at == 1 || at == 3
     val top = at >= 2
     // (Where each window sits: the film's 40 dp from the side, 56 / 32 from top / bottom; live TV's 32 all round.)
-    val side = if (film) 40.dp else 32.dp
-    val edge = if (film) (if (top) 56.dp else 32.dp) else 32.dp
+    val side = CornerPicture.inset.first
+    val edge = CornerPicture.inset.second
     var button by remember { mutableIntStateOf(0) }
     var okDown by remember { mutableStateOf(false) }
     // Off the picture, onto the page just above it (below it, in a top corner): on screen, so the highlight can be seen.
@@ -175,10 +175,10 @@ internal fun Modifier.cornerWindow(): Modifier = this
         drawContent()
         val (w, h) = CornerPicture.size()
         val at = CornerPicture.corner()
-        val m = 32.dp.toPx()
         val ww = w.toPx(); val hh = h.toPx()
-        val x = if (at == 1 || at == 3) m else size.width - m - ww
-        val y = if (at >= 2) m else size.height - m - hh
+        // (The top-left window: the guide's preview place.)
+        val x = CornerPicture.inset.first.toPx()
+        val y = CornerPicture.inset.second.toPx()
         drawRoundRect(
             Color.Transparent, topLeft = androidx.compose.ui.geometry.Offset(x, y), size = androidx.compose.ui.geometry.Size(ww, hh),
             cornerRadius = androidx.compose.ui.geometry.CornerRadius(8.dp.toPx()), blendMode = BlendMode.Clear,

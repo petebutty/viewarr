@@ -91,6 +91,11 @@ object Locks {
 }
 
 /** [header]: drawn above the items (e.g. Remote & navigation's remote picture); not focusable. */
+/** Settings pages over live TV in the top-left window: their list of sections starts below it (the menu sets it). */
+object SettingsLayout {
+    var belowPreview by androidx.compose.runtime.mutableStateOf(false)
+}
+
 class SettingCategory(val name: String, val blurb: String, val items: List<SettingItem>, val header: (@Composable () -> Unit)? = null)
 
 /**
@@ -184,7 +189,8 @@ fun SettingsPage(
     }
     Box(Modifier.fillMaxSize().appBackground(readable = true).onFocusChanged { pageHasFocus = it.hasFocus }.trapFocus()) {
         Row(Modifier.fillMaxSize().padding(horizontal = 56.dp, vertical = 40.dp)) {
-            Column(Modifier.width(300.dp).fillMaxHeight()) {
+            // (Below the live TV window when one is up: it sits where this column starts.)
+            Column(Modifier.width(300.dp).fillMaxHeight().padding(top = if (SettingsLayout.belowPreview) 170.dp else 0.dp)) {
                 Text("Settings", fontSize = 14.sp, color = AppColors.Accent)
                 Text(title, fontSize = 30.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, modifier = Modifier.padding(bottom = 20.dp))
                 categories.forEachIndexed { i, c ->

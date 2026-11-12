@@ -1,8 +1,8 @@
 # Shown once, the first time a new version opens (not on a fresh install). Keep it to the few things worth knowing.
 # Lines starting with "- " are the points; the first line without "#" or "-" is the heading.
-A new look: one glass menu, one player bar
-- The menu on the left is see-through glass on every page and slides the page aside; moving over Live TV, Movies, Shows, your streaming services (Netflix, Disney+…), Music or Recordings shows that page straight away
-- Live TV keeps playing in the top-left window while you browse, with the details of what you're on beside it; with nothing on, trailers play there
-- One info bar for live TV and films, with the controls inside it; every pop-up uses the same glass
-- Edit menus (top of the menu): show, hide and reorder everything in the menu, a service's rows and your libraries, right there
-- Live now and Sports are in the menu; the shortcut row is gone. Remote buttons is now one list of every button, each set per place; and a new Viewarr theme
+Sports, next episodes and the film mini player
+- Sports in the menu: your teams' games as panels with both badges; OK goes to the channel showing it (your guide, the UK Sport on TV plugin or the event channels)
+- Watching a show, press Down for the next episodes; Back from a film or episode keeps it playing top left while you browse (Stop ends it)
+- Where it's playing from on the info bar, a Pop-up glass slider, Glass colours, more fonts and softer highlight colours
+- Episode numbers can be turned off in the guide; the guide refreshes on a schedule you choose; ratings can be put in your order
+- OK on a recorded programme in the guide plays the recording; settings pages make room for the mini player, the guide keeps your channel in the middle, and many fixes

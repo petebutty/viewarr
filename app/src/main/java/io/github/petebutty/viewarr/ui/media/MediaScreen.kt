@@ -323,6 +323,7 @@ fun MediaScreen(
                 onOpen = { vm.open(it) },
                 onLong = { quick = it },
                 onLeftEdge = onOpenMenu,
+                withHero = !io.github.petebutty.viewarr.ui.common.LiveBehind.on,
             )
             }
         } }
@@ -543,6 +544,8 @@ private fun LibraryGrid(
     onOpen: (MediaItem) -> Unit,
     onLong: (MediaItem) -> Unit,
     onLeftEdge: () -> Unit,
+    /** The page's header above it (the highlighted title's details): no copy of them here, and less room on top. */
+    withHero: Boolean = false,
 ) {
     val gridState = remember(b.library.key, b.version) { androidx.compose.foundation.lazy.grid.LazyGridState() }
     val cells = remember(b.library.key, b.version) { HashMap<Int, FocusRequester>() }
@@ -589,7 +592,7 @@ private fun LibraryGrid(
     }
 
     Box(Modifier.fillMaxSize()) {
-        Column(Modifier.fillMaxSize().padding(top = 24.dp)) {
+        Column(Modifier.fillMaxSize().padding(top = if (withHero) 0.dp else 24.dp)) {
             Row(Modifier.padding(horizontal = 48.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text(b.library.title, fontSize = 24.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -634,7 +637,7 @@ private fun LibraryGrid(
                 }
                 item(key = "clear") { FilterChip("Clear all", clear = true) { vm.clearFilters() } }
             }
-            Text(
+            if (withHero) Spacer(Modifier.height(8.dp)) else Text(
                 focused?.takeIf { f -> b.items.any { it.key == f.key } }?.let { "${it.title}   ${metaLine(it)}" } ?: " ",
                 fontSize = 15.sp, color = AppColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(start = 48.dp, end = 48.dp, top = 10.dp, bottom = 6.dp),
@@ -1777,7 +1780,7 @@ private fun RatingsLine(tmdb: Double?, votes: Int?, more: List<io.github.petebut
         val p = AppColors.palette
         tmdb?.takeIf { it > 0 && p.shows(io.github.petebutty.viewarr.ui.theme.TitleParts.rating("TMDB")) }?.let { add("TMDB" to "%.1f".format(it)) }
         more.filter { p.shows(io.github.petebutty.viewarr.ui.theme.TitleParts.rating(it.source)) }.forEach { add(it.source to it.value) }
-    }
+    }.sortedBy { AppColors.palette.ratingRank(it.first) }
     if (all.isEmpty()) return
     // Wraps onto a second line rather than running past its column (e.g. under the trailer on the Movies page).
     @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)

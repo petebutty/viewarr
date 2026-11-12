@@ -123,6 +123,8 @@ class VodKeys(private val scrub: Scrubber, private val menu: PlayerMenu) {
                 // Up from the seek bar: pause, with what's playing (its synopsis) on screen.
                 upFromBar = { p.pause(); h.showDetails(); menu.open = false },
                 leftFromFirst = { VodHost.openMenu() },
+                episodeCount = NextUp.upcoming.size,
+                pickEpisode = { i -> NextUp.upcoming.getOrNull(i)?.let { NextUp.playEpisode(it) } },
                 shortcutCount = h.shortcutCount(), pickShortcut = h.pickShortcut,
                 rowSizes = h.rowSizes, pickCard = h.pickCard, holdCard = h.holdCard,
                 moveShortcut = h.moveShortcut, canHold = h.canHoldShortcut,
@@ -188,6 +190,10 @@ class VodKeys(private val scrub: Scrubber, private val menu: PlayerMenu) {
             io.github.petebutty.viewarr.data.settings.BtnAction.Settings -> h.press(PlayerButton.Settings)
             io.github.petebutty.viewarr.data.settings.BtnAction.TimeTitle -> h.showOsd()
             io.github.petebutty.viewarr.data.settings.BtnAction.SeekBar -> { scrub.begin(p.positionMs); h.showOsd() }
+            // An episode with more after it: the bar with the next episodes; otherwise (a film) the seek bar.
+            io.github.petebutty.viewarr.data.settings.BtnAction.Episodes ->
+                if (NextUp.upcoming.isNotEmpty()) { menu.show(); menu.onBar = false; menu.onEpisodes = true; menu.episodesOnly = true; menu.episode = 0; h.showOsd() }
+                else { scrub.begin(p.positionMs); h.showOsd() }
             else -> Unit
         }
     }

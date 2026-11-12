@@ -117,10 +117,12 @@ fun GuideScreen(
         val visible = listState.layoutInfo.visibleItemsInfo
         val first = visible.firstOrNull()?.index ?: 0
         val shown = maxOf(visible.size, 1)
-        when {
-            visible.isEmpty() || target < first + 1 -> listState.scrollToItem(maxOf(0, target - 1))
-            target > first + shown - 2 -> listState.scrollToItem(maxOf(0, target - shown + 2))
-        }
+        // The highlighted channel kept in the middle of the list (as TiviMate), the list moving under it, rather than
+        // only once it reaches the bottom; near the top and the end the list stops and the highlight moves instead.
+        // (The last row is usually only partly on screen, so it isn't counted.)
+        val whole = maxOf(shown - 1, 1)
+        val top = maxOf(0, target - whole / 2)
+        if (visible.isEmpty() || top != first) listState.scrollToItem(top)
     }
 
     Column(
@@ -333,7 +335,7 @@ private fun InfoPanel(channel: ChannelListItem?, program: GuideProgram?, now: Lo
         Column(Modifier.weight(1f).padding(start = 24.dp, top = 4.dp)) {
             Row(verticalAlignment = Alignment.Top) {
                 Text(
-                    program?.let(::displayTitle) ?: channel?.name.orEmpty(),
+                    program?.let(::guideTitle) ?: channel?.name.orEmpty(),
                     fontSize = 22.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = AppColors.TextPrimary,
@@ -466,7 +468,8 @@ private fun GuideRow(
                 modifier = Modifier.width(44.dp).padding(start = 6.dp),
                 maxLines = 1,
             )
-            Box(Modifier.width(52.dp).fillMaxHeight().padding(vertical = 4.dp), contentAlignment = Alignment.Center) {
+            // (In from the tile's rounded edge, numbers or not: flush against it, wide logos looked cut off on the left.)
+            Box(Modifier.padding(start = if (io.github.petebutty.viewarr.ui.theme.AppColors.palette.showNumbers) 0.dp else 8.dp).width(56.dp).fillMaxHeight().padding(vertical = 5.dp).clipToBounds(), contentAlignment = Alignment.Center) {
                 if ((channel.logoId != null || channel.logoUrl != null) && io.github.petebutty.viewarr.ui.theme.AppColors.palette.channelLogos) {
                     AsyncImage(
                         model = channelLogo(serverUrl, channel),
@@ -554,7 +557,7 @@ private fun GuideRow(
                 val textWidth = (x1 - textX - pad).toInt()
                 if (textWidth > 12) {
                     val layout = textMeasurer.measure(
-                        text = displayTitle(p),
+                        text = guideTitle(p),
                         style = if (isFocused) CellTextFocused.copy(color = AppColors.OnAccent) else CellText,
                         overflow = TextOverflow.Ellipsis,
                         maxLines = 1,
@@ -609,6 +612,10 @@ private fun DrawScope.drawCatchupIcon(topLeft: Offset, side: Float, color: Color
 
 private fun xOf(t: Long, windowStart: Long, gridWidth: Dp): Dp =
     gridWidth * ((t - windowStart).toFloat() / GuideViewModel.VISIBLE_MS)
+
+/** A programme's name in the guide and the channel list: with its series / episode or not (Appearance → Live TV). */
+fun guideTitle(p: GuideProgram): String =
+    if (io.github.petebutty.viewarr.ui.theme.AppColors.palette.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.GUIDE_EPISODE) == 0) displayTitle(p) else p.title
 
 fun displayTitle(p: GuideProgram): String {
     val se = when {

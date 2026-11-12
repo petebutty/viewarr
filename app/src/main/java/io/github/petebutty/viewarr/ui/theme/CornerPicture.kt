@@ -9,7 +9,12 @@ import androidx.compose.ui.unit.dp
  */
 object CornerPicture {
     /** Width and height: Medium, Small or Large. */
-    fun size(): Pair<Dp, Dp> = when (AppColors.palette.opt(UiOpts.MINI_SIZE)) { 1 -> 320.dp to 180.dp; 2 -> 512.dp to 288.dp; else -> 400.dp to 225.dp }
+    // The mini player is always the top-left window now (the guide's preview place), for live TV and films alike.
+    fun size(): Pair<Dp, Dp> = 320.dp to 180.dp
     /** Which corner: 0 bottom right, 1 bottom left, 2 top right, 3 top left. */
-    fun corner(): Int = AppColors.palette.opt(UiOpts.MINI_CORNER)
+    fun corner(): Int = 3
+    /** Where it sits: from the left and from the top. */
+    val inset: Pair<Dp, Dp> get() = 12.dp to 20.dp
+    /** The menu's glass pushing the page right: the window goes along with it (px; the home screen sets it). */
+    var pushPx: () -> Int = { 0 }
 }

@@ -26,6 +26,21 @@ object NextUp {
     /** For which stream (its address), so a late answer for the previous episode is ignored. */
     var forUrl: String? = null
     var play: () -> Unit = {}
+    /** The episodes after the one playing (the rest of its season, then the start of the next): Down in the player. */
+    var upcoming by mutableStateOf<List<io.github.petebutty.viewarr.data.media.EpisodeInfo>>(emptyList())
+    var playEpisode: (io.github.petebutty.viewarr.data.media.EpisodeInfo) -> Unit = {}
+    /** [upcoming] as the info bar's cards (the show's picture where an episode has none). */
+    fun cards(): List<io.github.petebutty.viewarr.ui.player.OsdPoster> = upcoming.map { ep ->
+        io.github.petebutty.viewarr.ui.player.OsdPoster(
+            key = "ep-${ep.season}-${ep.number}",
+            title = "${ep.number}. ${ep.name}",
+            subtitle = listOfNotNull("S${ep.season} · E${ep.number}", ep.runtimeMin?.takeIf { it > 0 }?.let { "${it}m" }).joinToString("  ·  "),
+            image = ep.still ?: fallbackArt,
+            fallbackImage = fallbackArt,
+            onClick = { playEpisode(ep) },
+        )
+    }
+    var fallbackArt: String? = null
 }
 
 /**

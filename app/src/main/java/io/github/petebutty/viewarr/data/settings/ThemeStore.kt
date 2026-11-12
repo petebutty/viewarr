@@ -47,7 +47,7 @@ class ThemeStore @Inject constructor(@ApplicationContext private val context: Co
     val palette: Flow<Palette> = context.appearanceStore.data.map { prefs ->
         Palette(
             main = prefs[MAIN]?.let { Color(it) } ?: ThemePresets[0].main,
-            highlight = prefs[HIGHLIGHT]?.let { Color(it) } ?: ThemePresets[0].highlight,
+            highlight = prefs[HIGHLIGHT]?.let { io.github.petebutty.viewarr.ui.theme.OldHighlights[it] ?: Color(it) } ?: ThemePresets[0].highlight,
             transparency = prefs[TRANSPARENCY] ?: 0f,
             guideTransparency = prefs[GUIDE_TRANSPARENCY] ?: 0f,
             showNumbers = prefs[NUMBERS] ?: true,
@@ -61,6 +61,7 @@ class ThemeStore @Inject constructor(@ApplicationContext private val context: Co
             wallpaperDim = prefs[WALLPAPER_DIM] ?: 0.6f,
             titleHidden = prefs[TITLE_HIDDEN] ?: emptySet(),
             menuOrder = prefs[MENU_ORDER]?.split('\u001F')?.filter { it.isNotEmpty() }.orEmpty(),
+            ratingsOrder = prefs[RATINGS_ORDER]?.split('\u001F')?.filter { it.isNotEmpty() }.orEmpty(),
             opts = prefs.asMap().entries.mapNotNull { (k, v) -> if (k.name.startsWith("opt_") && v is Int) k.name.removePrefix("opt_") to v else null }.toMap(),
         )
     }
@@ -78,6 +79,11 @@ class ThemeStore @Inject constructor(@ApplicationContext private val context: Co
 
     suspend fun saveGuideTransparency(value: Float) {
         context.appearanceStore.edit { it[GUIDE_TRANSPARENCY] = value }
+    }
+
+    /** The ratings' order on title pages. */
+    suspend fun saveRatingsOrder(ids: List<String>) {
+        context.appearanceStore.edit { it[RATINGS_ORDER] = ids.joinToString("\u001F") }
     }
 
     /** The main menu's order (hold OK in the menu → move). */
@@ -149,5 +155,6 @@ class ThemeStore @Inject constructor(@ApplicationContext private val context: Co
         val WALLPAPER_DIM = floatPreferencesKey("wallpaper_dim")
         val TITLE_HIDDEN = androidx.datastore.preferences.core.stringSetPreferencesKey("title_hidden")
         val MENU_ORDER = androidx.datastore.preferences.core.stringPreferencesKey("menu_order")
+        val RATINGS_ORDER = androidx.datastore.preferences.core.stringPreferencesKey("ratings_order")
     }
 }

@@ -19,7 +19,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.type
 import io.github.petebutty.viewarr.data.media.PlayerArt
@@ -160,8 +159,9 @@ fun VodHostLayer() {
     androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize()) {
         val fullW = maxWidth
         val fullH = maxHeight
-        val tx = if (left) 40.dp else fullW - 40.dp - w
-        val ty = if (top) 56.dp else fullH - 32.dp - h
+        // The top-left window (the guide's preview place), moving with the menu's glass.
+        val tx = io.github.petebutty.viewarr.ui.theme.CornerPicture.inset.first
+        val ty = io.github.petebutty.viewarr.ui.theme.CornerPicture.inset.second
         // The same player either way, so it carries on without a pause. Compatible: the frame is only ever scaled,
         // in the corner too (resizing a TextureView made the players resize their video surface, which jolted).
         // No border: one less thing to draw while it moves.
@@ -181,7 +181,7 @@ fun VodHostLayer() {
                     val cw = (fw + (wPx - fw) * p).toInt().coerceAtLeast(1)
                     val ch = (fh + (hPx - fh) * p).toInt().coerceAtLeast(1)
                     val placeable = measurable.measure(androidx.compose.ui.unit.Constraints.fixed(cw, ch))
-                    layout(fw, fh) { placeable.place((txPx * p).toInt(), (tyPx * p).toInt()) }
+                    layout(fw, fh) { placeable.place(((txPx + io.github.petebutty.viewarr.ui.theme.CornerPicture.pushPx()) * p).toInt(), (tyPx * p).toInt()) }
                 }
                 .background(Color.Black)
             else Modifier
@@ -192,7 +192,7 @@ fun VodHostLayer() {
                     val k = 1f + (scale - 1f) * shrink
                     scaleX = k
                     scaleY = k
-                    translationX = with(density) { tx.toPx() } * shrink
+                    translationX = (with(density) { tx.toPx() } + io.github.petebutty.viewarr.ui.theme.CornerPicture.pushPx()) * shrink
                     translationY = with(density) { ty.toPx() } * shrink
                 }
                 .background(Color.Black),

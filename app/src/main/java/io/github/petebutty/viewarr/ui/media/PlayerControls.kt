@@ -111,6 +111,11 @@ class PlayerMenu {
     var onBar by mutableStateOf(true)
     var button by androidx.compose.runtime.mutableIntStateOf(0)
     var infoOn by mutableStateOf(false)
+    /** An episode playing: Down shows the next episodes in the bar, [episode] highlighted. */
+    var onEpisodes by mutableStateOf(false)
+    var episode by androidx.compose.runtime.mutableIntStateOf(0)
+    /** The row was opened straight from playback (Down): Up / Back closes the bar too, not back to its buttons. */
+    var episodesOnly = false
     /** Down from the buttons: the live TV shortcuts, [shortcut] highlighted. */
     var onShortcuts by mutableStateOf(false)
     var shortcut by androidx.compose.runtime.mutableIntStateOf(0)
@@ -138,7 +143,7 @@ class PlayerMenu {
      * Opens on the TV guide button, as live TV's controls do (no TV guide button: on the seek bar, with Play / Pause
      * highlighted below it); not the button used last time.
      */
-    fun show() { cardOkDown = false; scOkDown = false; open = true; onBar = guideAt < 0; button = if (guideAt >= 0) guideAt else home; onShortcuts = false; onRows = false; scMoving = false; scOptions = null; scRows = null; touch() }
+    fun show() { onEpisodes = false; episodesOnly = false; cardOkDown = false; scOkDown = false; open = true; onBar = guideAt < 0; button = if (guideAt >= 0) guideAt else home; onShortcuts = false; onRows = false; scMoving = false; scOptions = null; scRows = null; touch() }
     fun touch() { lastKey = System.currentTimeMillis() }
 
     /**
@@ -155,11 +160,28 @@ class PlayerMenu {
         moveShortcut: (Int, Int) -> Unit = { _, _ -> }, canHold: (Int) -> Boolean = { true },
         /** Left from the first button: the menu, over the film (it plays on full screen behind it). */
         leftFromFirst: () -> Unit = {},
+        /** The next episodes (an episode playing): how many, and playing one. */
+        episodeCount: Int = 0,
+        pickEpisode: (Int) -> Unit = {},
     ): Boolean {
         val down = e.type == androidx.compose.ui.input.key.KeyEventType.KeyDown
         val a = io.github.petebutty.viewarr.ui.common.RemoteKeys.action(e)
         val repeat = e.nativeKeyEvent.repeatCount
         if (down) touch()
+        // The next episodes: Left / Right along them, OK plays one, Up (or Back) leaves the row.
+        if (onEpisodes) {
+            if (episodeCount == 0) { onEpisodes = false; if (episodesOnly) open = false; return true }
+            when (a) {
+                io.github.petebutty.viewarr.ui.common.RemoteAction.Left -> if (down) episode = (episode - 1).coerceAtLeast(0)
+                io.github.petebutty.viewarr.ui.common.RemoteAction.Right -> if (down) episode = (episode + 1).coerceAtMost(episodeCount - 1)
+                io.github.petebutty.viewarr.ui.common.RemoteAction.Ok -> if (down && repeat == 0) { open = false; onEpisodes = false; pickEpisode(episode) }
+                io.github.petebutty.viewarr.ui.common.RemoteAction.Up, io.github.petebutty.viewarr.ui.common.RemoteAction.Back ->
+                    if (down) { onEpisodes = false; if (episodesOnly) open = false }
+                io.github.petebutty.viewarr.ui.common.RemoteAction.Down -> Unit
+                else -> return false
+            }
+            return true
+        }
         // The shortcuts (as on live TV): Left / Right move along, OK opens one (the film goes to the corner), Up back.
         // The rows under a shortcut: Left / Right along a row, Down / Up between rows (Up from the first: shortcuts).
         if (onRows) {
@@ -217,7 +239,10 @@ class PlayerMenu {
             !onBar && a == io.github.petebutty.viewarr.ui.common.RemoteAction.Left -> if (down) { if (button == 0) { if (repeat == 0) { open = false; leftFromFirst() } } else button -= 1 }
             !onBar && a == io.github.petebutty.viewarr.ui.common.RemoteAction.Right -> if (down) button = (button + 1).coerceAtMost(buttons.lastIndex)
             !onBar && a == io.github.petebutty.viewarr.ui.common.RemoteAction.Up -> if (down) onBar = true
-            !onBar && a == io.github.petebutty.viewarr.ui.common.RemoteAction.Down -> if (down && shortcutCount > 0) { onShortcuts = true; shortcut = shortcut.coerceAtMost(shortcutCount - 1) }
+            !onBar && a == io.github.petebutty.viewarr.ui.common.RemoteAction.Down -> if (down) {
+                if (episodeCount > 0) { onEpisodes = true; episodesOnly = false; episode = 0 }
+                else if (shortcutCount > 0) { onShortcuts = true; shortcut = shortcut.coerceAtMost(shortcutCount - 1) }
+            }
             !onBar && a == io.github.petebutty.viewarr.ui.common.RemoteAction.Ok -> if (down && repeat == 0) buttons.getOrNull(button)?.let(press)
             else -> return false
         }
@@ -266,6 +291,11 @@ fun PlayerOsd(
     shortcutMoving: Boolean = false,
     /** Whether the shortcuts are there (Live TV hub), for the hint line. */
     shortcutsHint: Boolean = false,
+    /** The next episodes (Down while an episode plays), [episodeFocus] highlighted; null: not showing. */
+    episodes: List<io.github.petebutty.viewarr.ui.player.OsdPoster>? = null,
+    episodeFocus: Int = 0,
+    /** Where it's playing from ("Plex · Living room", "AIOStreams", "IPTV"), on the bar's small line. */
+    from: String? = null,
 ) {
     val scrubbing = scrubMs != null
     // Settings → Playback → Player controls size.
@@ -299,7 +329,7 @@ fun PlayerOsd(
             },
             smallLine = {
                 // The show's name (episodes) or "Film", and the play state.
-                Text(if (title.contains(" · ")) title.substringBefore(" · ") else "Film", fontSize = 14.sp, color = AppColors.TextSecondary, maxLines = 1)
+                Text((if (title.contains(" · ")) title.substringBefore(" · ") else "Film") + (from?.let { "  ·  from $it" } ?: ""), fontSize = 14.sp, color = AppColors.TextSecondary, maxLines = 1)
                 val state = if (buffering) "LOADING" else if (paused) "PAUSED" else null
                 if (state != null) {
                     Spacer(Modifier.width(10.dp))
@@ -357,6 +387,7 @@ fun PlayerOsd(
                         val pip = "" // Picture-in-picture for films is off for now.
                         Text(
                             when {
+                                episodes != null -> "◀ ▶ episodes  ·  OK: play it  ·  ▲ back"
                                 scrubbing -> "◀ ▶ move  ·  OK: jump here  ·  Back: cancel"
                                 buttons != null && barFocused -> "◀ ▶ seek  ·  ▼ options  ·  ▲ pause + details$pip"
                                 rows != null -> "◀ ▶ move  ·  ▲ ▼ rows  ·  OK: open (the film carries on in a corner)"
@@ -412,6 +443,28 @@ fun PlayerOsd(
                         )
                     }
                 }
+            }
+        }
+        // The next episodes, drawn with the same cards as live TV's rows.
+        // Every card's picture asked for as the row opens, not only the few in view (the rest arrived blank).
+        val ctx = androidx.compose.ui.platform.LocalContext.current
+        androidx.compose.runtime.LaunchedEffect(episodes?.map { it.key }) {
+            episodes?.forEach { e ->
+                (e.image ?: e.fallbackImage)?.let { coil.Coil.imageLoader(ctx).enqueue(coil.request.ImageRequest.Builder(ctx).data(it).size(256, 144).build()) }
+            }
+        }
+        if (episodes != null) androidx.compose.foundation.layout.Column(Modifier.padding(top = 6.dp)) {
+            io.github.petebutty.viewarr.ui.player.OsdRowHeading("Next episodes", null)
+            val epState = androidx.compose.foundation.lazy.rememberLazyListState()
+            androidx.compose.runtime.LaunchedEffect(episodeFocus) { runCatching { epState.scrollToItem((episodeFocus - 1).coerceAtLeast(0)) } }
+            androidx.compose.foundation.lazy.LazyRow(
+                state = epState,
+                modifier = Modifier.padding(top = 2.dp).offset(x = (-12).dp),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp), userScrollEnabled = false,
+            ) {
+                // (Smaller than live TV's row cards: the bar stays low over the picture.)
+                items(episodes.size) { i -> io.github.petebutty.viewarr.ui.player.OsdCardStatic(episodes[i], highlighted = i == episodeFocus, widthDp = 128) }
             }
         }
         // The rows under the highlighted shortcut, one at a time: drawn with live TV's own pieces (same cards, sizes

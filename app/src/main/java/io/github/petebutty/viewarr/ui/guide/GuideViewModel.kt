@@ -154,7 +154,14 @@ class GuideViewModel @Inject constructor(
         viewModelScope.launch {
             // collectLatest: a new source (another server, a playlist) cancels the old one's sync, which otherwise
             // held the guide until it finished (its 45 MB guide) and the new one never showed until a rescan.
-            sessions.session.filterNotNull().distinctUntilChanged().collectLatest { repo.syncIfStale(it) }
+            // Then checked every 15 minutes while Viewarr is open, so a guide left running is fetched again on time
+            // (Settings → Playback → TV guide refresh).
+            sessions.session.filterNotNull().distinctUntilChanged().collectLatest { s ->
+                while (true) {
+                    repo.syncIfStale(s, io.github.petebutty.viewarr.ui.theme.AppColors.palette.guideRefreshMs)
+                    kotlinx.coroutines.delay(15 * 60_000L)
+                }
+            }
         }
         viewModelScope.launch {
             repo.generation.collect {

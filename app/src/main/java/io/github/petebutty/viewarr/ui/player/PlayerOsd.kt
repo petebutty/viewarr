@@ -191,7 +191,7 @@ fun PlayerOsd(
                 else if (paused) Badge("PAUSED · PLAY CARRIES ON FROM HERE")
                 QualityBadges(LiveQuality.now)
             },
-            title = current?.let(::displayTitle) ?: "No guide information",
+            title = current?.let { if (AppColors.palette.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.BANNER_EPISODE) == 0) displayTitle(it) else it.title } ?: "No guide information",
             progress = {
                 if (catchup != null) {
                     SeekBar(
@@ -625,6 +625,7 @@ fun OsdCardContent(p: OsdPoster) {
             Text(p.emoji, fontSize = 44.sp, modifier = Modifier.align(Alignment.Center))
         } else if (p.image != null) AsyncImage(
             p.image, null,
+            error = p.fallbackImage?.let { coil.compose.rememberAsyncImagePainter(it) },
             contentScale = if (p.logo) ContentScale.Fit else ContentScale.Crop,
             modifier = if (p.logo) Modifier.fillMaxSize().padding(horizontal = 28.dp, vertical = 18.dp) else Modifier.fillMaxSize(),
         ) else Text(p.title, fontSize = 13.sp, color = Color.White, maxLines = 2, modifier = Modifier.align(Alignment.Center).padding(8.dp))
@@ -662,12 +663,12 @@ const val OSD_CARD_H = 99
 
 /** The film player's card: drawn exactly as live TV's, highlighted by the player (it has no focus of its own). */
 @Composable
-fun OsdCardStatic(p: OsdPoster, highlighted: Boolean) {
+fun OsdCardStatic(p: OsdPoster, highlighted: Boolean, widthDp: Int = OSD_CARD_W) {
     // The same gentle grow as live TV's focused card (the TV Surface's own animation), not a jump.
     val grow by androidx.compose.animation.core.animateFloatAsState(if (highlighted) 1.05f else 1f, label = "card")
-    Column(Modifier.width(OSD_CARD_W.dp)) {
+    Column(Modifier.width(widthDp.dp)) {
         Box(
-            Modifier.size(OSD_CARD_W.dp, OSD_CARD_H.dp)
+            Modifier.size(widthDp.dp, (widthDp * OSD_CARD_H / OSD_CARD_W).dp)
                 .graphicsLayer { scaleX = grow; scaleY = grow }
                 .clip(RoundedCornerShape(8.dp))
                 .background(Color.White.copy(alpha = if (highlighted) 0.18f else 0.10f))

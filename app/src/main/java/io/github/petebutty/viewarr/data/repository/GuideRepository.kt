@@ -215,12 +215,13 @@ class GuideRepository @Inject constructor(
         channelIds.chunked(900).flatMap { dao.programsForChannels(it, from, to) }
     suspend fun searchProgramsEnding(q: String, endFrom: Long, endTo: Long) = dao.searchProgramsEnding(q, endFrom, endTo)
 
-    suspend fun syncIfStale(session: Session) {
+    /** [maxAgeMs]: how old the guide may be (Settings → Playback → TV guide refresh); null: only if it's empty. */
+    suspend fun syncIfStale(session: Session, maxAgeMs: Long? = STALE_MS) {
         activate(session)
         val age = System.currentTimeMillis() - prefs.getLong(k(KEY_LAST_SYNC), 0)
         val count = dao.programCount()
         android.util.Log.i("Guide", "source ${activeSource.hashCode()}: guide ${age / 60_000} min old, $count programmes")
-        if (age > STALE_MS || count == 0) sync(session)
+        if ((maxAgeMs != null && age > maxAgeMs) || count == 0) sync(session)
     }
 
     private fun sourceId(s: Session) = "${s.serverUrl}|${s.username}|${s.isXc}|${s.isM3u}|${s.m3uEpg}"

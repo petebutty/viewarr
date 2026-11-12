@@ -220,6 +220,13 @@ private fun appFont(): androidx.compose.ui.text.font.FontFamily? {
             2 -> androidx.compose.ui.text.font.FontFamily(android.graphics.Typeface.create("sans-serif-light", android.graphics.Typeface.NORMAL))
             3 -> androidx.compose.ui.text.font.FontFamily(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL))
             4 -> androidx.compose.ui.text.font.FontFamily.Serif
+            5 -> androidx.compose.ui.text.font.FontFamily(android.graphics.Typeface.create("sans-serif-thin", android.graphics.Typeface.NORMAL))
+            6 -> androidx.compose.ui.text.font.FontFamily(android.graphics.Typeface.create("sans-serif-black", android.graphics.Typeface.NORMAL))
+            7 -> androidx.compose.ui.text.font.FontFamily(android.graphics.Typeface.create("sans-serif-condensed-light", android.graphics.Typeface.NORMAL))
+            8 -> androidx.compose.ui.text.font.FontFamily(android.graphics.Typeface.create("casual", android.graphics.Typeface.NORMAL))
+            9 -> androidx.compose.ui.text.font.FontFamily.Monospace
+            10 -> androidx.compose.ui.text.font.FontFamily(android.graphics.Typeface.create("sans-serif-smallcaps", android.graphics.Typeface.NORMAL))
+            11 -> androidx.compose.ui.text.font.FontFamily.Cursive
             else -> null
         }
     }

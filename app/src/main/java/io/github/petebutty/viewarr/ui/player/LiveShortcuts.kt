@@ -36,6 +36,8 @@ data class OsdPoster(
     val options: List<CardOption> = emptyList(),
     /** OK plays it (Continue watching): the film playing makes way for it rather than going to the corner. */
     val plays: Boolean = false,
+    /** Shown instead when [image] can't be loaded (an episode's still missing: the show's picture). */
+    val fallbackImage: String? = null,
     val onClick: () -> Unit,
 )
 

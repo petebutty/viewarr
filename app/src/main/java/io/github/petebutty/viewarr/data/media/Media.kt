@@ -111,6 +111,8 @@ data class VodStream(
     val subtitleTrack: Int? = null,
     /** Where the intro and credits are (Plex markers, Jellyfin media segments, Emby chapter markers), for skipping. */
     val markers: List<SkipMarker> = emptyList(),
+    /** Where it's playing from, for the info bar: "Plex · Living room", "Jellyfin", "AIOStreams", "IPTV". */
+    val from: String? = null,
 )
 
 /** An intro or the credits in a film or episode ([startMs] up to [endMs]; [endMs] 0: to the end of the file). */

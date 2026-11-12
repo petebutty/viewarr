@@ -281,7 +281,11 @@ fun HomeScreen(
     // Movies or Shows opened from the menu over the guide: the channel carries on in the guide's preview place, the
     // page's content starting where the guide's did.
     var livePreview by remember { mutableStateOf(false) }
-    SideEffect { io.github.petebutty.viewarr.ui.common.LiveBehind.preview = livePreview }
+    // The Sports page (Sports in the menu): over whatever page is open, live TV staying in the top-left window.
+    var sportsOpen by remember { mutableStateOf(false) }
+    val sportsFocus = remember { FocusRequester() }
+    // (A film as the mini player counts too: the pages make room for it the same way.)
+    SideEffect { io.github.petebutty.viewarr.ui.common.LiveBehind.preview = livePreview || (VodHost.active && VodHost.mini) }
     // Movies / Shows opened from the menu over full-screen live TV: the channel carries on full screen behind the page.
     var liveBehind by remember { mutableStateOf(false) }
     SideEffect { io.github.petebutty.viewarr.ui.common.LiveBehind.on = liveBehind }
@@ -423,7 +427,7 @@ fun HomeScreen(
     fun doButton(screen: BtnScreen, act: BtnAction) {
         val ch = playing
         when (act) {
-            BtnAction.Nothing, BtnAction.TimeTitle, BtnAction.SeekBar, BtnAction.MediaInfo, BtnAction.SwitchPlayer -> Unit
+            BtnAction.Nothing, BtnAction.TimeTitle, BtnAction.SeekBar, BtnAction.Episodes, BtnAction.MediaInfo, BtnAction.SwitchPlayer -> Unit
             BtnAction.Movies, BtnAction.Shows, BtnAction.Recordings, BtnAction.Music, BtnAction.Exit -> buttonRequest = act
             BtnAction.Settings -> { fullscreen = false; channelListOpen = false; menuOnSettings = true; menuOpen = true }
             BtnAction.WatchInGuide -> vm.channels.value.getOrNull(vm.cursor.value.row)?.let { c ->
@@ -584,7 +588,7 @@ fun HomeScreen(
             }
         }
     }
-    LaunchedEffect(menuOpen, fullscreen, osdVisible, transparencyOpen, showAccounts, page, recordTarget == null, seasonPick == null, VodHost.covering, VodHost.gliding, infoTarget == null, channelListOpen, quickSearch, MusicPlayer.nowPlayingOpen) {
+    LaunchedEffect(sportsOpen, menuOpen, fullscreen, osdVisible, transparencyOpen, showAccounts, page, recordTarget == null, seasonPick == null, VodHost.covering, VodHost.gliding, infoTarget == null, channelListOpen, quickSearch, MusicPlayer.nowPlayingOpen) {
         if (channelListOpen || quickSearch || transparencyOpen || MusicPlayer.nowPlayingOpen) return@LaunchedEffect
         if (recordTarget != null || seasonPick != null || VodHost.covering || infoTarget != null) return@LaunchedEffect
         // A film gliding into the corner: the page takes the remote once it's there (its highlight starting mid-glide
@@ -597,7 +601,7 @@ fun HomeScreen(
         runCatching {
             when {
                 fullscreen && !osdVisible -> playerFocus.requestFocus()
-                !fullscreen && !menuOpen && !showAccounts && !quickSearch -> if (page == Page.Tv) guideFocus.requestFocus() else mediaFocus.requestFocus()
+                !fullscreen && !menuOpen && !showAccounts && !quickSearch -> if (sportsOpen) sportsFocus.requestFocus() else if (page == Page.Tv) guideFocus.requestFocus() else mediaFocus.requestFocus()
             }
         }
     }
@@ -765,6 +769,7 @@ fun HomeScreen(
      * controls, or any page in the Live TV hub style), unless that's switched off or the box is short of memory.
      */
     fun openPage(p: Page, keepLive: Boolean = false, closeMenu: Boolean = true) {
+        sportsOpen = false
         // From the menu over a full-screen film: the film carries on in the corner, the page opens.
         if (VodHost.behind) { VodHost.behind = false; VodHost.minimise() }
         // Search never replaces what's on screen: it slides over it, and Back returns you there.
@@ -906,6 +911,14 @@ fun HomeScreen(
      * named Sports). Moving onto one shows it behind the menu; Right / OK goes into the guide.
      */
     fun openLiveEntry(label: String, closeMenu: Boolean) {
+        // Sports: its own page of game panels (live TV carries on in the top-left window).
+        if (label == "Sports") {
+            if (fullscreen) { fullscreen = false; osdVisible = false }
+            sportsOpen = true
+            if (closeMenu) menuOpen = false
+            return
+        }
+        sportsOpen = false
         if (page != Page.Tv) openPage(Page.Tv, closeMenu = closeMenu)
         val sports = if (label == "Sports") vm.groups.value.firstOrNull { it.name.equals("Sports", true) } ?: vm.groups.value.firstOrNull { it.name.contains("Sport", true) } else null
         if (sports != null) { osdVisible = false; vm.selectGroup(sports.id); fullscreen = false } else openLiveEvents()
@@ -943,6 +956,9 @@ fun HomeScreen(
         if (!rowsWanted && !preloadExtras) return@LaunchedEffect
         sportsHub.load(sportFollows)
     }
+    // The Sports page: its games and channels carry on loading after you leave it (a quick look and back used to
+    // stop it part-way, and the channels never came).
+    LaunchedEffect(sportsOpen, sportFollows) { if (sportsOpen) fromStartScope.launch { sportsHub.load(sportFollows) } }
 
     // (Built again only when what it's made from changes: it was rebuilt on every redraw of this screen. What each
     // shortcut does reads the rest when it's pressed.)
@@ -1542,6 +1558,7 @@ fun HomeScreen(
         )
         // (The menu over a full-screen film: only the menu shows, the page stays out of sight underneath.)
         Box(Modifier.fillMaxSize().offset { IntOffset(guidePush.value, 0) }.graphicsLayer { alpha = if (VodHost.behind) 0f else 1f }) {
+        SideEffect { io.github.petebutty.viewarr.ui.theme.CornerPicture.pushPx = { guidePush.value } }
         if (page == Page.Search) {
             SearchPage(
                 guide = vm,
@@ -1620,13 +1637,19 @@ fun HomeScreen(
                 playingCatchupRowId = catchup?.rowId,
                 serverUrl = session?.serverUrl.orEmpty(),
                 focusRequester = guideFocus,
-                focusEnabled = !menuOpen && !cornerFocused && !fullscreen && !showAccounts && !quickSearch,
+                focusEnabled = !menuOpen && !cornerFocused && !fullscreen && !showAccounts && !quickSearch && !sportsOpen,
                 onOpenMenu = { menuOpen = true },
                 onSelect = { channel, program ->
                     // Settings → Remote buttons → TV guide → OK: "Watch in the preview" stays in the guide (OK again on
                     // what's playing: full screen).
                     val inGuide = ButtonMap.action(remote, BtnScreen.Guide, BtnPress.Ok) == BtnAction.WatchInGuide
                     if (!inGuide) ButtonMap.changed(remote, BtnScreen.Guide, BtnPress.Ok)?.let { doButton(BtnScreen.Guide, it); return@GuideScreen }
+                    // Recorded on Dispatcharr (the guide shows it as recorded): OK plays the recording.
+                    val rec = program?.let { dvr.recordingFor(channel.id, it) }
+                    if (rec != null && rec.state == DvrState.Recorded && rec.hasFile) {
+                        fromStartScope.launch { dvr.playback(rec)?.let { recordingPlayback = it } ?: toast("That recording couldn't be played") }
+                        return@GuideScreen
+                    }
                     val t = System.currentTimeMillis()
                     val live = program == null || (program.startTime <= t && program.endTime > t)
                     val replayable = program != null && program.endTime <= t && channel.catchupDays > 0 &&
@@ -1657,6 +1680,19 @@ fun HomeScreen(
                 },
             )
         }
+        if (sportsOpen) SportsPage(
+            hub = sportsHub,
+            follows = sportFollows,
+            // (Every channel, not just the guide's group on show: the plugin may name one in another group.)
+            channels = dvr.channels.collectAsStateWithLifecycle().value.values.toList(),
+            besidePreview = playing != null && !fullscreen,
+            focusRequester = sportsFocus,
+            focusEnabled = !menuOpen && !showAccounts && !quickSearch && !fullscreen && infoTarget == null && recordTarget == null,
+            onWatch = { ch -> sportsOpen = false; watchChannel(ch) },
+            onToast = { toast(it) },
+            onOpenMenu = { menuOpen = true },
+            onBack = { sportsOpen = false },
+        )
         }
 
         // Live TV into the guide's preview and back: a glide (the window's real place and size; the picture is a
@@ -1980,12 +2016,14 @@ fun HomeScreen(
                 // A group picked: back to its channels, the channel list on its own.
                 onGroupPicked = { menuOpen = false; menuOnMain = false },
                 onWidth = { menuWidth = it },
-                previewOn = playing != null && !fullscreen && !liveBehind && (page == Page.Tv || livePreview),
+                // (A film in the mini player counts too: it's drawn over everything, so a settings page must leave its place.)
+                previewOn = (playing != null && !fullscreen && !liveBehind && (page == Page.Tv || livePreview)) || (VodHost.active && VodHost.mini),
                 onFullPage = { menuFullPage = it },
                 // Live TV, Movies, Shows, Music, Recordings: the page behind changes as you move onto it (not from over
                 // full-screen video).
                 onHoverPage = { p ->
                     if (!fullscreen && !liveBehind && !VodHost.active) {
+                        sportsOpen = false
                         // Back on Movies / Shows from a service: the page's own rows again, not the service's.
                         if (p == Page.Movies && moviesVm.currentRowSet.value != null) { moviesVm.openLibrary(null, MediaType.Movie); moviesVm.jumpTo(null) }
                         if (p == Page.Shows && showsVm.currentRowSet.value != null) { showsVm.openLibrary(null, MediaType.Show); showsVm.jumpTo(null) }
@@ -1996,7 +2034,7 @@ fun HomeScreen(
                 liveEntries = listOf("Live now", "Sports"),
                 onLiveEntry = { label, into -> if (into || (!fullscreen && !liveBehind && !VodHost.active)) openLiveEntry(label, closeMenu = into) },
                 // Moving onto a service: its page behind (not over full-screen video); Right / OK: into it.
-                onService = { name, rowId, into -> if (into || (!fullscreen && !liveBehind && !VodHost.active)) openService(name, closeMenu = into, rowId = rowId) },
+                onService = { name, rowId, into -> if (into || (!fullscreen && !liveBehind && !VodHost.active)) { sportsOpen = false; openService(name, closeMenu = into, rowId = rowId) } },
             )
         }
 
@@ -2047,8 +2085,10 @@ fun HomeScreen(
         }
 
         // The picture in the corner: its highlight (Full screen / Close) and, holding Back, its menu (CornerPicture.kt).
-        fun cornerFull() { if (filmInCorner) VodHost.expand() else goLive() }
-        fun cornerClose() { if (filmInCorner) VodHost.close() else { liveCorner = false; playback.stop() } }
+        // A film playing at all (not only while it's in the mini player): a held Back can bring it full screen just before
+        // the pop-up's answer, and live TV then started in its place.
+        fun cornerFull() { if (VodHost.active) VodHost.expand() else goLive() }
+        fun cornerClose() { if (VodHost.active) VodHost.close() else { liveCorner = false; playback.stop() } }
         if (pictureInCorner && (page != Page.Tv || filmInCorner)) CornerHighlight(
             film = filmInCorner, focusRequester = cornerFocus, arm = cornerArm, reachable = cornerReachable, focused = cornerFocused,
             onFocused = { cornerFocused = it }, onFullScreen = ::cornerFull, onClose = ::cornerClose,
@@ -2056,7 +2096,7 @@ fun HomeScreen(
             onLeave = { runCatching { if (page == Page.Tv) guideFocus.requestFocus() else mediaFocus.requestFocus() } },
         )
         if (pipMenu) CornerPictureMenu(
-            film = filmInCorner, onFullScreen = { pipMenu = false; cornerFull() }, onClosePicture = { pipMenu = false; cornerClose() },
+            film = VodHost.active, onFullScreen = { pipMenu = false; cornerFull() }, onClosePicture = { pipMenu = false; cornerClose() },
             onDismiss = { pipMenu = false },
         )
 

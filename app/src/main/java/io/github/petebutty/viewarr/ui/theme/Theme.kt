@@ -19,6 +19,7 @@ data class Palette(val main: Color, val highlight: Color, val transparency: Floa
     /** How much the background colour covers the wallpaper (0.3 light … 0.9 dark). */ val wallpaperDim: Float = 0.6f,
     /** Title pages: the parts switched off in Settings → Appearance (TitleParts ids). */ val titleHidden: Set<String> = emptySet(),
     /** The main menu's order (between Live TV and Settings): "Movies", "svc:Netflix", "Live now"… (hold OK in the menu to edit). */ val menuOrder: List<String> = emptyList(),
+    /** The ratings' order on title pages ("IMDb", "RT", "Trakt"…; Settings → Appearance → Ratings). */ val ratingsOrder: List<String> = emptyList(),
     /** Small display / behaviour options (UiOpts names → chosen index; 0 = the default). */ val opts: Map<String, Int> = emptyMap()) {
     fun shows(part: String) = part !in titleHidden
     fun opt(name: String) = opts[name] ?: UiOpts.defaults[name] ?: 0
@@ -42,6 +43,12 @@ data class Palette(val main: Color, val highlight: Color, val transparency: Floa
     val zapDelayMs get() = opt(UiOpts.ZAP_DELAY).coerceIn(0, 20) * 100L
         val upNextSeconds get() = (opts[UiOpts.UP_NEXT_S] ?: opts[UiOpts.UP_NEXT]?.let { intArrayOf(20, 10, 30, 60)[it.coerceIn(0, 3)] / 5 } ?: 4).coerceIn(0, 36) * 5
     val textScale get() = floatArrayOf(1f, 0.9f, 1.12f, 1.25f)[opt(UiOpts.TEXT_SIZE).coerceIn(0, 3)]
+    /** Settings → Playback → TV guide refresh: how old the guide may get (null: only Refresh channels & guide). */
+    val guideRefreshMs: Long? get() = longArrayOf(4, 2, 8, 12, 24, 0)[opt(UiOpts.GUIDE_REFRESH).coerceIn(0, 5)].takeIf { it > 0 }?.times(3_600_000L)
+    /** Title pages: the ratings in the order chosen (Settings → Appearance → Ratings). */
+    fun ratingRank(source: String): Int = ratingsOrder.indexOf(source).let { if (it < 0) 100 + TitleParts.ratings.indexOfFirst { r -> r.first == source }.coerceAtLeast(0) else it }
+    /** Settings → Appearance → Glass colour: a pastel the glass is tinted with (null: plain). */
+    val glassTint: Color? get() = GlassTints.getOrNull(opt(UiOpts.GLASS_TINT))?.second
     /** Hours of no button presses on Live TV before "Still watching?" (0 = never). */
     val stillWatchingHours get() = intArrayOf(0, 2, 3, 4, 6)[opt(UiOpts.STILL_WATCHING).coerceIn(0, 4)]
     // The sliders' percentages as they look over a TV picture: a straight 1 - t left a dark panel looking all but
@@ -61,6 +68,20 @@ data class Palette(val main: Color, val highlight: Color, val transparency: Floa
 
 data class ThemePreset(val name: String, val main: Color, val highlight: Color)
 
+/** Pastel tints for the glass (Settings → Appearance → Glass colour); the first is plain. */
+val GlassTints: List<Pair<String, Color?>> = listOf(
+    "Plain" to null,
+    "Lavender" to Color(0xFFC8B6FF),
+    "Lilac" to Color(0xFFE2C2FF),
+    "Sky" to Color(0xFFA2D2FF),
+    "Aqua" to Color(0xFFA0E7E5),
+    "Mint" to Color(0xFFB5EAD7),
+    "Lemon" to Color(0xFFFFF5BA),
+    "Peach" to Color(0xFFFFDAC1),
+    "Coral" to Color(0xFFFFADAD),
+    "Rose" to Color(0xFFFFB7C5),
+)
+
 val ThemePresets = listOf(
     // The one theme for now: Viewarr's charcoal glass with the orange highlight (the rest of the look is set with it:
     // ThemeStore's VIEWARR_LOOK).
@@ -72,10 +93,16 @@ val MainColourChoices = listOf(
     Color(0xFF2B1515), Color(0xFF10301F), Color(0xFF2E2E36), Color(0xFF3A1D33), Color(0xFF000000),
 )
 
+// Softer than the first set (the brightest glared on the glass); Orange, the Viewarr highlight, stays as it was.
 val HighlightChoices = listOf(
-    Color(0xFF00E5FF), Color(0xFFFF3366), Color(0xFF22C7E8), Color(0xFF3D8BFD), Color(0xFF2DD4BF), Color(0xFFC084FC),
-    Color(0xFFF97316), Color(0xFF22C55E), Color(0xFFFACC15), Color(0xFFF43F5E),
+    Color(0xFF2AAFC4), Color(0xFFE0577A), Color(0xFF4A9FD4), Color(0xFF5B82D6), Color(0xFF2E9E91), Color(0xFFA47ED8),
+    Color(0xFFF97316), Color(0xFF3E9E66), Color(0xFFD9A93A), Color(0xFFD9566C),
 )
+
+/** The first set's brighter highlights, each to its softer one (a highlight picked before still counts as chosen). */
+val OldHighlights: Map<Int, Color> = listOf(
+    0xFF00E5FF, 0xFFFF3366, 0xFF22C7E8, 0xFF3D8BFD, 0xFF2DD4BF, 0xFFC084FC, 0xFFF97316, 0xFF22C55E, 0xFFFACC15, 0xFFF43F5E,
+).withIndex().associate { (i, v) -> v.toInt() to HighlightChoices[i] }
 
 object AppColors {
     var palette by mutableStateOf(Palette(ThemePresets[0].main, ThemePresets[0].highlight))
@@ -92,7 +119,9 @@ object AppColors {
     val CellCurrent get() = palette.cellCurrent
     val RowSelected get() = palette.rowSelected
     val PreviewBox get() = palette.previewBox
-    val MenuPanel get() = palette.panel.copy(alpha = palette.menuAlpha)
+    val MenuPanel get() = tinted(palette.panel).copy(alpha = palette.menuAlpha)
+    /** A glass colour with Settings → Appearance → Glass colour's pastel mixed in. */
+    fun tinted(c: Color): Color = palette.glassTint?.let { androidx.compose.ui.graphics.lerp(c, it, 0.3f) } ?: c
     val MenuPanelAlt get() = palette.panelAlt.copy(alpha = palette.menuAlpha)
     val TextPrimary = Color(0xFFFFFFFF)
     val TextSecondary = Color(0xFFBFC6DA)
@@ -164,7 +193,14 @@ object UiOpts {
     /** Settings → Appearance → Font: one of the box's own fonts for all text. */
     const val FONT = "font"
     /** The info bar's glass (and every pop-up's): how dark, and its thin border. */
+    const val GLASS_TINT = "glass_tint"
+    /** How often the TV guide is fetched again while Viewarr is open (and on starting). */
+    const val GUIDE_REFRESH = "guide_refresh"
+    /** The guide and channel list: "S15E4" after programme names, or not. */
+    const val GUIDE_EPISODE = "guide_episode"
     const val BANNER_GLASS = "banner_glass"
+    /** The glass's strength for the info bar and every pop-up, as a slider: 0 the clearest … 10 solid. */
+    const val POPUP_GLASS = "popup_glass"
     const val BANNER_BORDER = "banner_border"
     const val CLOCK = "clock"
     const val BADGE_SOURCE = "badge_source"
@@ -220,6 +256,8 @@ object UiOpts {
     const val TIME_FORMAT = "time_format"
     /** Defaults other than the first choice (anyone who never chose). Stored choices are kept as they are. */
     val defaults = mapOf(
+        // (The Viewarr look: light glass, as "Info bar: glass" Light was.)
+        POPUP_GLASS to 2,
         UP_NEXT_S to 4,
         ZAP_DELAY to 5,
         // Back closes the film, holding Back puts it in the corner (since 0.23; was: Back = corner).
@@ -227,8 +265,12 @@ object UiOpts {
     )
     val choices = mapOf(
         TEXT_SIZE to listOf("Normal", "Small", "Large", "Extra large"),
-        FONT to listOf("Standard", "Condensed", "Light", "Medium", "Serif"),
+        FONT to listOf("Standard", "Condensed", "Light", "Medium", "Serif", "Thin", "Bold", "Condensed light", "Casual", "Typewriter", "Small caps", "Handwritten"),
+        GLASS_TINT to GlassTints.map { it.first },
+        GUIDE_EPISODE to listOf("On", "Off"),
+        GUIDE_REFRESH to listOf("Every 4 hours", "Every 2 hours", "Every 8 hours", "Every 12 hours", "Once a day", "Only when I ask"),
         BANNER_GLASS to listOf("Medium", "Light", "Dark"),
+        POPUP_GLASS to (0..10).map { if (it == 10) "Solid" else "${100 - (30 + it * 7)}% see-through" },
         BANNER_BORDER to listOf("On", "Off"),
         CLOCK to listOf("Off", "On"),
         BADGE_SOURCE to listOf("On", "Off"),
@@ -258,7 +300,7 @@ object UiOpts {
         LIVE_CORNER to listOf("On", "Off (browsing stops the channel)"),
         BUTTON_HINTS to listOf("First few times", "Always", "Off"),
         AGE_RATING to listOf("UK (BBFC: U, PG, 12A, 15, 18)", "US (MPA: G, PG, PG-13, R · TV-14, TV-MA)"),
-        PLAYER_BACK to listOf("Press Back", "Off (Back stops the film)", "Hold Back (recommended; Back stops the film)"),
+        PLAYER_BACK to listOf("Back: mini player", "Off (Back stops it)", "Hold Back: mini player (Back stops it)"),
         SEEK_PREVIEWS to listOf("Server's, else the box makes them", "Server's only", "Off"),
         CONTROLS_TIME to listOf("4 seconds", "3 seconds", "6 seconds", "10 seconds"),
         CONTROLS_SIZE to listOf("Medium", "Small", "Large"),

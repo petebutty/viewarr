@@ -359,11 +359,20 @@ class MediaViewModel @Inject constructor(
                 val w = stream?.watch
                 val s = w?.season; val e = w?.episode
                 if (stream == null || w?.type != MediaType.Show || s == null || e == null) {
-                    if (stream == null || io.github.petebutty.viewarr.ui.media.NextUp.forUrl != stream.url) { io.github.petebutty.viewarr.ui.media.NextUp.episode = null; io.github.petebutty.viewarr.ui.media.NextUp.forUrl = stream?.url }
+                    if (stream == null || io.github.petebutty.viewarr.ui.media.NextUp.forUrl != stream.url) { io.github.petebutty.viewarr.ui.media.NextUp.episode = null; io.github.petebutty.viewarr.ui.media.NextUp.upcoming = emptyList(); io.github.petebutty.viewarr.ui.media.NextUp.forUrl = stream?.url }
                     return@collect
                 }
                 io.github.petebutty.viewarr.ui.media.NextUp.forUrl = stream.url
                 io.github.petebutty.viewarr.ui.media.NextUp.episode = null
+                io.github.petebutty.viewarr.ui.media.NextUp.upcoming = emptyList()
+                // The row of what's next (Down in the player): found alongside the next episode.
+                viewModelScope.launch {
+                    val list = runCatching { findUpcoming(s, e) }.getOrDefault(emptyList())
+                    if (io.github.petebutty.viewarr.ui.media.NextUp.forUrl != stream.url) return@launch
+                    io.github.petebutty.viewarr.ui.media.NextUp.fallbackArt = _detail.value?.detail?.item?.backdrop
+                    io.github.petebutty.viewarr.ui.media.NextUp.playEpisode = { ep -> playNextEpisode(ep) }
+                    io.github.petebutty.viewarr.ui.media.NextUp.upcoming = list
+                }
                 val next = runCatching { findNext(s, e) }.getOrNull() ?: return@collect
                 if (io.github.petebutty.viewarr.ui.media.NextUp.forUrl != stream.url) return@collect
                 io.github.petebutty.viewarr.ui.media.NextUp.play = { playNextEpisode(next) }
@@ -1177,7 +1186,7 @@ class MediaViewModel @Inject constructor(
         _detail.update { it?.copy(message = null, episode = null) }
         _playing.value = io.github.petebutty.viewarr.data.media.VodStream(
             url = url, title = "${d.detail.item.title} · S$season · E$episode", watch = watchTarget(d.detail.item, season, episode),
-            boxPreviews = false,
+            boxPreviews = false, from = "IPTV",
         )
     }
 
@@ -1233,7 +1242,7 @@ class MediaViewModel @Inject constructor(
                 if (found.isNotEmpty()) {
                     val opt = found.first()
                     _detail.update { it?.copy(message = null, episode = null) }
-                    _playing.value = io.github.petebutty.viewarr.data.media.VodStream(opt.url, title, opt.headers, watch = watch, boxPreviews = false)
+                    _playing.value = io.github.petebutty.viewarr.data.media.VodStream(opt.url, title, opt.headers, watch = watch, boxPreviews = false, from = opt.addon)
                     return@launch
                 }
             }
@@ -1371,7 +1380,7 @@ class MediaViewModel @Inject constructor(
         val title = listOfNotNull(d?.detail?.item?.title, d?.episode?.let { "S${it.season} · E${it.number}" }).joinToString(" · ").ifEmpty { option.name }
         val ep = d?.episode
         _playing.value = io.github.petebutty.viewarr.data.media.VodStream(
-            option.url, title, option.headers,
+            option.url, title, option.headers, from = option.addon,
             watch = d?.detail?.item?.let { watchTarget(it, ep?.season, ep?.number) },
             // Addon links (debrid, AIOStreams) often allow one connection: a second one for seek previews can get the
             // stream refused mid-film.
@@ -1403,6 +1412,19 @@ class MediaViewModel @Inject constructor(
             ?: d.seasons.map { it.number }.filter { it > season }.minOrNull()?.let { ns ->
                 runCatching { repo.seasonEpisodes(d.detail.item, ns, d.plexShowKey) }.getOrDefault(emptyList()).firstOrNull()
             }
+    }
+
+    /** The episodes after S/E: the rest of its season, then the start of the next (a dozen at most). */
+    private suspend fun findUpcoming(season: Int, episode: Int): List<io.github.petebutty.viewarr.data.media.EpisodeInfo> {
+        val d = _detail.value ?: return emptyList()
+        val inSeason = ((if (d.season == season) d.episodes else null)
+            ?: runCatching { repo.seasonEpisodes(d.detail.item, season, d.plexShowKey) }.getOrDefault(emptyList()))
+            .filter { it.number > episode }.sortedBy { it.number }
+        if (inSeason.size >= 6) return inSeason.take(12)
+        val next = d.seasons.map { it.number }.filter { it > season }.minOrNull()?.let { ns ->
+            runCatching { repo.seasonEpisodes(d.detail.item, ns, d.plexShowKey) }.getOrDefault(emptyList()).sortedBy { it.number }
+        }.orEmpty()
+        return (inSeason + next).take(12)
     }
 
     /** Plays [next] straight away (Skip credits → Next episode, or the countdown over the credits ran out). */

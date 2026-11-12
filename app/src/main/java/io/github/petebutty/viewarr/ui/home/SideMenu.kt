@@ -23,6 +23,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -662,12 +663,12 @@ internal fun MenuOverlay(
     }
         Box(Modifier.weight(1f).fillMaxHeight().background(Color.Black.copy(alpha = 0.4f * (if (seeThrough) AppColors.palette.menuAlpha else 1f))))
     }
-    // Beside the preview: glass under it, the page to its right.
-    if (besidePreview) Column(Modifier.width(344.dp).fillMaxHeight()) {
-        Spacer(Modifier.height(212.dp))
-        Box(Modifier.fillMaxSize().background(AppColors.MenuPanel))
-    }
-    Box(Modifier.fillMaxSize().padding(start = if (besidePreview) 344.dp else 0.dp)) {
+    // With the preview up: the page full width, a clear window where the picture is, and its list of sections
+    // starting below it (SettingsPage).
+    SideEffect { io.github.petebutty.viewarr.ui.settings.SettingsLayout.belowPreview = besidePreview }
+    // (The menu closing with a page open beside the picture: settings pages elsewhere go back to their own layout.)
+    androidx.compose.runtime.DisposableEffect(Unit) { onDispose { io.github.petebutty.viewarr.ui.settings.SettingsLayout.belowPreview = false } }
+    Box(Modifier.fillMaxSize().then(if (besidePreview) Modifier.cornerWindow() else Modifier)) {
     // Settings → Playback is a full page of its own, over the menu.
     if (showPlayback) {
         io.github.petebutty.viewarr.ui.settings.PlaybackSettingsScreen(onBack = {
@@ -848,13 +849,13 @@ internal fun SettingsPanel(playbackItem: FocusRequester, onPlayback: () -> Unit,
         if (canSettings) {
         SettingsGroup("Look & controls")
         // Accounts & sources locked: Appearance is the first row (Right / OK from the menu land here).
-        MenuItem(text = "Appearance", selected = false, onClick = onAppearance, modifier = Modifier.hint("How Viewarr looks: theme and wallpaper, the guide, title pages, posters and how the player looks.").focusRequester(appearanceItem).then(if (!canAccounts) Modifier.focusRequester(firstItem) else Modifier).rightDoes(onAppearance))
+        MenuItem(text = "Appearance", selected = false, onClick = onAppearance, modifier = Modifier.hint("How Viewarr looks: highlight colour, fonts and text size, the glass and wallpaper, the guide, the info bar, posters, title pages and the main menu.").focusRequester(appearanceItem).then(if (!canAccounts) Modifier.focusRequester(firstItem) else Modifier).rightDoes(onAppearance))
         MenuItem(text = "Home page & menu", selected = false, onClick = onHomeRows, modifier = Modifier.hint("Which rows show on the Movies and Shows pages, in what order, and what the side menu lists.").focusRequester(homeRowsItem).rightDoes(onHomeRows))
-        MenuItem(text = "Remote buttons", selected = false, onClick = onRemote, modifier = Modifier.hint("What each button on your remote does: in the guide, on live TV, in films and on Movies & Shows. The search button and extra buttons.").focusRequester(remoteItem).rightDoes(onRemote))
-        MenuItem(text = "Navigation", selected = false, onClick = onNavigation, modifier = Modifier.hint("How you get around: Classic menus or the Live TV hub (and its shortcuts), what the app opens on, the side menu and poster rows.").focusRequester(navigationItem).rightDoes(onNavigation))
+        MenuItem(text = "Remote buttons", selected = false, onClick = onRemote, modifier = Modifier.hint("Every button on your remote, and what it does in the guide, on live TV, in films and shows and in the menus. Presets, the search button and extra buttons.").focusRequester(remoteItem).rightDoes(onRemote))
+        MenuItem(text = "Navigation", selected = false, onClick = onNavigation, modifier = Modifier.hint("How you get around: what the app opens on, the menu, poster rows and the end of a list.").focusRequester(navigationItem).rightDoes(onNavigation))
         SettingsGroup("Watching")
-        MenuItem(text = "Playback", selected = false, onClick = onPlayback, modifier = Modifier.hint("Players and streams: built-in player or mpv, quality, subtitles, audio, skipping, catch-up and the corner player.").focusRequester(playbackItem).rightDoes(onPlayback))
-        MenuItem(text = "Sports", selected = false, onClick = onSports, modifier = Modifier.hint("Your teams and leagues: their games under the Live TV hub's Sports shortcut (Down), and where to watch them. Pin one for its own shortcut.").focusRequester(sportsItem).rightDoes(onSports))
+        MenuItem(text = "Playback", selected = false, onClick = onPlayback, modifier = Modifier.hint("Players and streams: built-in player or mpv, quality, subtitles, audio, skipping intros, the next episode, trailers and live TV.").focusRequester(playbackItem).rightDoes(onPlayback))
+        MenuItem(text = "Sports", selected = false, onClick = onSports, modifier = Modifier.hint("Your teams and leagues: their games on the Sports page in the menu, and the channel showing each.").focusRequester(sportsItem).rightDoes(onSports))
         // Which watchlist Add / Remove and "Your watchlist" use (Trakt, Plex, Jellyfin or Emby favourites).
         io.github.petebutty.viewarr.ui.settings.WatchlistItem(Modifier.rightIgnored())
         }

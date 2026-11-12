@@ -70,6 +70,7 @@ enum class BtnAction(val label: String) {
     SkipForward("Skip forward"),
     TimeTitle("Time and title"),
     SeekBar("The seek bar"),
+    Episodes("Next episodes row (shows; films: the seek bar)"),
     PlayPause("Play / pause"),
     GoLive("Go live"),
     StartOver("Start over / watch from the start"),
@@ -127,7 +128,7 @@ object ButtonMap {
             BtnAction.RecordOptions, BtnAction.MultiView, BtnAction.Transparency, BtnAction.Stop) + pages,
         BtnScreen.Film to listOf(BtnAction.Nothing, BtnAction.Controls, BtnAction.TimeTitle, BtnAction.SeekBar, BtnAction.SkipBack, BtnAction.SkipForward,
             BtnAction.PlayPause, BtnAction.AudioSubs, BtnAction.Details, BtnAction.MediaInfo, BtnAction.SwitchPlayer, BtnAction.Stop, BtnAction.Guide,
-            BtnAction.MainMenu, BtnAction.Search, BtnAction.Settings),
+            BtnAction.MainMenu, BtnAction.Search, BtnAction.Settings, BtnAction.Episodes),
         BtnScreen.Pages to listOf(BtnAction.Nothing, BtnAction.MainMenu, BtnAction.Guide) + pages,
     )
 
@@ -209,6 +210,8 @@ object ButtonMap {
         (BtnScreen.Live to BtnPress.Blue) to BtnAction.Banner,
         (BtnScreen.Live to BtnPress.Info) to BtnAction.Banner,
         (BtnScreen.Film to BtnPress.Green) to BtnAction.AudioSubs,
+        // Down while an episode plays: the next episodes (a film: the seek bar, as before).
+        (BtnScreen.Film to BtnPress.Down) to BtnAction.Episodes,
         (BtnScreen.Film to BtnPress.Blue) to BtnAction.Details,
         (BtnScreen.Film to BtnPress.Info) to BtnAction.Details,
         (BtnScreen.Pages to BtnPress.BackHold) to BtnAction.MainMenu,

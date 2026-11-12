@@ -18,7 +18,7 @@ import io.github.petebutty.viewarr.ui.player.ShortcutLogos
 import io.github.petebutty.viewarr.ui.settings.SportsViewModel
 import io.github.petebutty.viewarr.ui.theme.Dates
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.async
 
 /**
  * The Sports hub (Settings → Sports) on live TV: your teams' and leagues' games, which of your channels shows each
@@ -38,25 +38,61 @@ internal class SportsHub(
     /** Games your guide doesn't reach yet: the channels showing them (the UK Sport on TV plugin, else TheSportsDB). */
     val tv = mutableStateMapOf<String, List<String>>()
 
-    /** Fetches every followed team's / league's games and where they're on. */
-    suspend fun load(follows: List<SportFollow>) = coroutineScope {
-        val t0 = System.currentTimeMillis()
-        follows.forEach { f ->
-            f.logo?.let { ShortcutLogos.map["sport:${f.shortcutId}"] = ServiceLogo(it, square = true) }
-            launch {
-                val all = sportsVm.games(f)
-                // On now, the next few (two months), the last few results; channels looked for in the coming week.
-                val shown = all.filter { it.state == "in" } + all.filter { it.state == "pre" && it.start < t0 + 60 * DAY }.take(10) +
-                    all.filter { it.state == "post" }.takeLast(5)
-                val withCh = shown.map { g ->
-                    g to (if (g.state != "post" && g.start < t0 + 7 * DAY) runCatching { guide.channelForGame(g) }.getOrNull() else null)
-                }
-                games[f.shortcutId] = withCh
-                // Not in the guide yet (the next two months): who's showing it. (No answer yet, e.g. TheSportsDB busy:
-                // left out, asked again next time.)
-                withCh.filter { (g, ch) -> ch == null && g.state == "pre" && g.start < t0 + 60 * DAY && g.id !in tv }
-                    .forEach { (g, _) -> guide.ukChannels(g)?.let { tv[g.id] = it } }
+    /** When each team / league was last fetched (opening Sports again within a few minutes uses what's there). */
+    private val loadedAt = HashMap<String, Long>()
+
+    /**
+     * Fetches every followed team's / league's games and where they're on. The games show as soon as they arrive;
+     * their channels (a guide search each, and the UK listings) fill in one by one after.
+     */
+    /** Games already looked for in the guide / the listings (so going back to Sports carries on, not starts again). */
+    private val lookedUp = HashSet<String>()
+    private var running = false
+
+    suspend fun load(follows: List<SportFollow>) {
+        if (running) return
+        running = true
+        try {
+            val t0 = System.currentTimeMillis()
+            // 1: every team's / league's games (small requests to ESPN), shown as soon as they're in.
+            coroutineScope {
+                follows.map { f ->
+                    f.logo?.let { ShortcutLogos.map["sport:${f.shortcutId}"] = ServiceLogo(it, square = true) }
+                    async {
+                        if (t0 - (loadedAt[f.shortcutId] ?: 0L) < 5 * 60_000L && games.containsKey(f.shortcutId)) return@async
+                        val all = runCatching { sportsVm.games(f) }.getOrDefault(emptyList())
+                        // On now, the next few (two months), the last few results; one of each game.
+                        val shown = (all.filter { it.state == "in" } + all.filter { it.state == "pre" && it.start < t0 + 60 * DAY }.take(10) +
+                            all.filter { it.state == "post" }.takeLast(5)).distinctBy { it.id }
+                        val before = games[f.shortcutId].orEmpty().associate { it.first.id to it.second }
+                        games[f.shortcutId] = shown.map { g -> g to before[g.id] }
+                        loadedAt[f.shortcutId] = t0
+                    }
+                }.forEach { it.await() }
             }
+            // 2: where each is on, one game at a time with a pause between (a guide search each, and the UK listings, all
+            // at once made a small box stop responding). Soonest first; games already looked for skipped.
+            val todo = follows.flatMap { games[it.shortcutId].orEmpty() }
+                .filter { (g, ch) -> ch == null && g.state != "post" && g.id !in lookedUp }
+                .map { it.first }.distinctBy { it.id }.sortedBy { it.start }
+            for (g in todo) {
+                lookedUp += g.id
+                if (g.start < t0 + 7 * DAY) {
+                    val ch = runCatching { guide.channelForGame(g) }.getOrNull()
+                    if (ch != null) {
+                        games.keys.toList().forEach { k ->
+                            if (games[k].orEmpty().any { it.first.id == g.id }) games[k] = games[k].orEmpty().map { if (it.first.id == g.id) g to ch else it }
+                        }
+                        kotlinx.coroutines.delay(150)
+                        continue
+                    }
+                }
+                // Not in the guide (yet): who's showing it (the UK Sport on TV plugin, else TheSportsDB).
+                if (g.state == "pre" && g.start < t0 + 60 * DAY && g.id !in tv) runCatching { guide.ukChannels(g) }.getOrNull()?.let { tv[g.id] = it }
+                kotlinx.coroutines.delay(150)
+            }
+        } finally {
+            running = false
         }
     }
 

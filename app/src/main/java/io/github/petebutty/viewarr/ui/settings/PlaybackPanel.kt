@@ -101,17 +101,15 @@ fun PlaybackSettingsScreen(onBack: () -> Unit, vm: PlaybackSettingsViewModel = h
                 item("Skip intros", "A Skip intro button (OK skips it), skipped by itself (with a moment to go back), or off. Where the intro is comes from Plex, Jellyfin or Emby when they marked it, otherwise from the community databases TheIntroDB and IntroDB (addons, IPTV…; only the title's id and episode are sent).", k.SKIP_INTRO, choices<io.github.petebutty.viewarr.data.settings.SkipMode>(), s.skipIntro),
                 item("Skip credits", "During the credits: a Next episode button (OK plays it straight away; a film just ends), moved on by itself, or off. From the same places as the intros.", k.SKIP_CREDITS, choices<io.github.petebutty.viewarr.data.settings.SkipMode>(), s.skipCredits),
                 item("Play next episode automatically", "When an episode ends, the next one plays. Near the end (as the credits start, if they're marked) a countdown card shows it: OK plays it now, Back hides the card.", k.AUTO_NEXT, choices<io.github.petebutty.viewarr.data.settings.AutoNext>(), s.autoNext),
-                optItem(opts, "After a film or episode", "When it ends, or you stop it (Stop, or Back): stay where you were (its page, or wherever you started it), or back to live TV on the channel you were watching. (Leaving it for a shortcut goes there instead.)", io.github.petebutty.viewarr.ui.theme.UiOpts.AFTER_FILM),
+                optItem(opts, "After a film or episode", "When it ends, or you stop it (Stop): stay where you were (its page, or wherever you started it), or back to live TV on the channel you were watching. (Back makes it the mini player instead.)", io.github.petebutty.viewarr.ui.theme.UiOpts.AFTER_FILM),
                 optSlider(opts, "Next episode countdown", "How long the countdown runs before the next episode plays (Left / Right, 5 seconds at a time). It starts with the credits, or that long before the end, and always finishes before the episode does. No wait: straight on.", io.github.petebutty.viewarr.ui.theme.UiOpts.UP_NEXT_S, io.github.petebutty.viewarr.ui.theme.AppColors.palette.upNextSeconds / 5),
             ),
         ),
-        // (Picture-in-picture for films is off for now: Back stops a film. Its code stays, switched off.)
         SettingCategory(
             "Live TV", "Watching live channels.",
             listOf(
-                optItem(opts, "Corner size", "A film's window in the corner while you browse (the live channel stays in the guide's preview place).", io.github.petebutty.viewarr.ui.theme.UiOpts.MINI_SIZE).locked(cornerLock),
-                optItem(opts, "Corner", "Where a film's corner window sits.", io.github.petebutty.viewarr.ui.theme.UiOpts.MINI_CORNER).locked(cornerLock),
                 optItem(opts, "Highlight the corner picture", "At the edge of a page, pressing towards the picture in the corner (live TV or a film) highlights it: Full screen or Close. Holding Back gives the same choice anywhere. Off: only hold Back.", io.github.petebutty.viewarr.ui.theme.UiOpts.CORNER_FOCUS).locked(cornerLock),
+                optItem(opts, "TV guide refresh", "How often the TV guide is fetched again from your server while Viewarr is open (and when it starts). Only when I ask: Settings → Refresh channels & guide.", io.github.petebutty.viewarr.ui.theme.UiOpts.GUIDE_REFRESH),
                 optItem(opts, "Still watching?", "After this long without a button press, live TV asks whether you're still there and stops if nobody answers within a minute (frees a provider connection when the TV's left on).", io.github.petebutty.viewarr.ui.theme.UiOpts.STILL_WATCHING),
             ),
         ),

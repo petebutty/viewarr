@@ -18,9 +18,10 @@ import io.github.petebutty.viewarr.ui.theme.UiOpts
 fun Modifier.glass(radius: Dp = 18.dp, edge: Color? = null): Modifier {
     val p = AppColors.palette
     val shape = RoundedCornerShape(radius)
-    val alpha = floatArrayOf(0.62f, 0.45f, 0.8f)[p.opt(UiOpts.BANNER_GLASS).coerceIn(0, 2)]
+    // Settings → Appearance → Pop-up glass: 30% to fully solid.
+    val alpha = 0.3f + 0.07f * p.opt(UiOpts.POPUP_GLASS).coerceIn(0, 10)
     val border = p.opt(UiOpts.BANNER_BORDER) == 0
     return this
-        .background(AppColors.Background.copy(alpha = alpha), shape)
+        .background(AppColors.tinted(AppColors.Background).copy(alpha = alpha), shape)
         .then(if (edge != null || border) Modifier.border(1.dp, edge ?: Color.White.copy(alpha = 0.28f), shape) else Modifier)
 }

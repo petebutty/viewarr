@@ -265,7 +265,7 @@ internal fun ChannelPrograms(
                             Row(Modifier.padding(horizontal = 10.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Text(time, fontSize = 13.sp, modifier = Modifier.width(if (start.toLocalDate() != today) 92.dp else 52.dp))
                                 Column(Modifier.weight(1f)) {
-                                    Text(io.github.petebutty.viewarr.ui.guide.displayTitle(p), fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text(io.github.petebutty.viewarr.ui.guide.guideTitle(p), fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                     val tag = when { live -> "● On now"; canCatchup -> "⟲ Catch-up: OK to play"; else -> null }
                                     tag?.let { Text(it, fontSize = 11.sp, maxLines = 1) }
                                 }

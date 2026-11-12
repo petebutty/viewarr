@@ -1626,10 +1626,10 @@ class CatalogRepository @Inject constructor(
         val resume = m.long("viewOffset") ?: 0
         val target = (watch ?: WatchTarget(MediaType.Movie)).copy(plexRatingKey = ref)
         val quality = playbackStore.current().plexQuality
-        val transcode = VodStream(plexTranscodeUrl(a, p, ratingKey, quality.maxKbps ?: 20_000), "$title (converted by Plex)", headers, resume, watch = target, thumbs = thumbs, markers = markers)
+        val transcode = VodStream(plexTranscodeUrl(a, p, ratingKey, quality.maxKbps ?: 20_000), "$title (converted by Plex)", headers, resume, watch = target, thumbs = thumbs, markers = markers, from = "Plex · ${p.serverName}")
         // Settings → Playback → Plex quality: anything but Original always converts at that bitrate.
         if (quality.maxKbps != null) return transcode
-        val direct = VodStream("${p.serverUrl}$part?X-Plex-Token=${enc(p.token)}", title, headers, resume, fallback = transcode, watch = target, thumbs = thumbs, markers = markers)
+        val direct = VodStream("${p.serverUrl}$part?X-Plex-Token=${enc(p.token)}", title, headers, resume, fallback = transcode, watch = target, thumbs = thumbs, markers = markers, from = "Plex · ${p.serverName}")
         val playable = DeviceCodecs.canPlay(media.str("videoCodec"), media.str("container"))
         Log.i(TAG, "plex $ratingKey video=${media.str("videoCodec")} container=${media.str("container")} direct=$playable")
         return if (playable) direct else transcode
@@ -1845,6 +1845,7 @@ class CatalogRepository @Inject constructor(
             .getOrNull()?.takeIf { it.ok }?.body
         val resumeMs = (info.child("UserData").long("PlaybackPositionTicks") ?: 0L) / 10_000
         return VodStream(
+            from = if (emby) "Emby" else "Jellyfin",
             markers = serverMarkers(s, emby, itemId, info),
             thumbs = serverThumbs(s, emby, itemId, info),
             url = "${s.serverUrl}/Videos/$itemId/stream?static=true&api_key=${enc(s.token)}",
@@ -2738,7 +2739,7 @@ class CatalogRepository @Inject constructor(
         val s = xcSession() ?: return null
         val parts = ref.split(':')
         val id = parts.getOrNull(1)?.toIntOrNull() ?: return null
-        return VodStream(url = xtream.movieUrl(s, id, parts.getOrNull(2) ?: "mp4"), title = title, watch = watch, boxPreviews = false)
+        return VodStream(url = xtream.movieUrl(s, id, parts.getOrNull(2) ?: "mp4"), title = title, watch = watch, boxPreviews = false, from = "IPTV")
     }
 
     /** A provider series' episodes as (season, episode) → stream address, from its library copy ("series:<id>"). */

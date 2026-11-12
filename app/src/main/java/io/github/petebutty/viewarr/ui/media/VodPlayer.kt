@@ -306,8 +306,9 @@ fun VodPlayer(
             // Back again: into the corner, still playing (hold Back to bring it back).
             // (Settings → Remote → Picture-in-picture: or stop.)
             // Back again: stops (resume point saved). Picture-in-picture for films is off for now (VodHost keeps it).
-            // Back's last step: the film stops (its place kept), not to the corner.
-            else -> onClose()
+            // Back's last step: the mini player in the top-left window, as live TV's Back into the guide's preview.
+            // (Stop ends it, its place kept.)
+            else -> { VodHost.minimise(); if (!VodHost.active) onClose() }
         }
     }
     BackHandler(enabled = !mini) { backStep() }
@@ -355,7 +356,8 @@ fun VodPlayer(
         buttons = buttons, press = ::press, seekMs = seekMs, showOsd = ::showOsd,
         openTracks = { subs -> subs?.let { tracksSubs = it }; tracksOpen = true },
         toggleDetails = { detailsOn = !detailsOn }, showDetails = { detailsOn = true }, stop = onClose,
-        backMode = 1, // Back stops: no hold-Back corner while picture-in-picture for films is off.
+        // Back makes it the mini player (its last step below); Stop ends it.
+        backMode = 0,
         atTop = { !tracksOpen && !scrub.active && !detailsOn && !menu.open && !(System.currentTimeMillis() < osdUntil && player.isPlaying) },
         minimise = { VodHost.minimise(); if (!VodHost.active) onClose() },
         stepBack = ::backStep,
@@ -459,12 +461,15 @@ fun VodPlayer(
         if (!mini && started && (detailsOn || (paused && pausedLong && !tracksOpen && !scrub.active && !menu.open))) PlayerDetails(stream.title, art)
         if (!mini && started && (paused || buffering || now < osdUntil || scrub.active || menu.open)) PlayerOsd(
             stream.title, positionMs, durationMs, paused, buffering, scrub.targetMs, thumbs, Modifier.align(Alignment.BottomCenter), logo = art?.logo,
+            from = stream.from,
             buttons = if (menu.open) buttons.map { it.osd(paused, menu.infoOn, "mpv") } else null,
-            buttonFocus = if (menu.open && !menu.onBar && !menu.onShortcuts) menu.button else -1,
+            buttonFocus = if (menu.open && !menu.onBar && !menu.onShortcuts && !menu.onEpisodes) menu.button else -1,
             barFocused = menu.open && menu.onBar,
             shortcuts = if (menu.open && menu.onShortcuts) io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.items.map { it.first } else null,
             shortcutFocus = menu.shortcut, shortcutMoving = menu.scMoving,
             shortcutsHint = false,
+            episodes = if (menu.open && menu.onEpisodes) NextUp.cards() else null,
+            episodeFocus = menu.episode,
             rows = if (menu.open && menu.onRows) io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.rowsFor(menu.shortcut) else null,
             rowFocus = menu.row, cardFocus = menu.card,
         )
