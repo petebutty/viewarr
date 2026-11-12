@@ -9,10 +9,12 @@ Viewarr is an Android TV app that brings your live TV and your films and shows t
 Viewarr doesn't provide any content. It plays only what your own servers and accounts give it.
 
 <p align="center">
-  <img src="docs/screenshots/guide.png" alt="TV guide" width="49%">
-  <img src="docs/screenshots/search.png" alt="Search" width="49%">
-  <img src="docs/screenshots/menu.png" alt="Menu with your libraries" width="49%">
-  <img src="docs/screenshots/library.png" alt="A library, with sorting, filters and search" width="49%">
+  <img src="docs/screenshots/menu.png" alt="The glass menu with your streaming services" width="49%">
+  <img src="docs/screenshots/guide.png" alt="The TV guide with its channel groups" width="49%">
+  <img src="docs/screenshots/movies.png" alt="Movies, with the top-left window and the details beside it" width="49%">
+  <img src="docs/screenshots/service.png" alt="A streaming service's page, its trailer playing top left" width="49%">
+  <img src="docs/screenshots/title.png" alt="A show's page with seasons, episodes and cast" width="49%">
+  <img src="docs/screenshots/epg.png" alt="The TV guide" width="49%">
 </p>
 <p align="center"><sub>Artwork in the screenshots is blurred: posters, programme pictures and channel logos belong to their owners.</sub></p>
 
