@@ -20,7 +20,6 @@ import io.github.petebutty.viewarr.ui.library.SortPanel
 import io.github.petebutty.viewarr.ui.library.ToolButton
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.lazy.grid.itemsIndexed as gridItemsIndexed
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -80,7 +79,6 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.foundation.shape.CircleShape
@@ -112,6 +110,11 @@ fun MediaScreen(
     type: MediaType,
     focusRequester: FocusRequester,
     focusEnabled: Boolean,
+    /**
+     * The picture in the corner has the highlight (Settings → Playback → Highlight the corner picture): the rows stand
+     * aside (they'd take it back), a title page stays as it is (it put the highlight back on Play on its return).
+     */
+    cornerHasFocus: Boolean = false,
     onOpenMenu: () -> Unit,
     onBack: () -> Unit = onOpenMenu,
     /** Search: shown instead of the hero, and the rows are search results (no automatic loading or focus grab). */
@@ -370,7 +373,7 @@ fun MediaScreen(
                 vm = vm,
                 // Not while the menu (hold Back), search or Accounts is over it: its focus trap kept the remote
                 // here, under the menu. Focus comes back to Play when they close.
-                active = playing == null && focusEnabled,
+                active = playing == null && (focusEnabled || cornerHasFocus),
                 onPlayPlex = vm::playPlex,
                 onSearch = vm::searchAddons,
                 onPickStream = vm::playStream,
@@ -1300,7 +1303,8 @@ private fun EpisodesPanel(ui: DetailUi, vm: MediaViewModel, onPlex: Boolean) {
                                 modifier = (if (i == target) Modifier.focusRequester(episodeFocus) else Modifier)
                                     // Not while the next season loads (that's the last season's list); Up from the top
                                     // episode goes to the season being viewed.
-                                    .focusProperties { canFocus = panelFree && !loading; if (i == 0) up = seasonFocus }
+                                    .focusProperties { canFocus = panelFree && !loading }
+                                    .then(if (i == 0) Modifier.safeMove(Key.DirectionUp) { seasonFocus } else Modifier)
                                     .onFocusChanged { if (it.isFocused) highlighted = ep }
                                     .fillMaxWidth(),
                                 scale = ClickableSurfaceDefaults.scale(scale = 1f, focusedScale = 1f, pressedScale = 1f),
@@ -1466,7 +1470,8 @@ private fun InlineEpisodes(ui: DetailUi, vm: MediaViewModel, free: Boolean, entr
                 Surface(
                     onClick = { pendingSeason = null; vm.selectSeason(season.number) },
                     modifier = (if (selected) Modifier.focusRequester(seasonFocus) else Modifier)
-                        .focusProperties { canFocus = free; this.up = up }
+                        .focusProperties { canFocus = free }
+                        .safeMove(Key.DirectionUp) { up }
                         .onFocusChanged { if (it.isFocused && free) pendingSeason = season.number },
                     scale = ClickableSurfaceDefaults.scale(scale = 1f, focusedScale = 1f, pressedScale = 1f),
                     shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(18.dp)),
@@ -1502,7 +1507,8 @@ private fun InlineEpisodes(ui: DetailUi, vm: MediaViewModel, free: Boolean, entr
                             onClick = { vm.playBestEpisode(ep.season, ep.number) },
                             onLongClick = { vm.pickEpisode(ep) },
                             modifier = (if (i == target.coerceAtLeast(0)) Modifier.focusRequester(entry) else Modifier)
-                                .focusProperties { canFocus = free && !loading; this.up = seasonFocus; this.down = down }
+                                .focusProperties { canFocus = free && !loading }
+                                .safeMove(Key.DirectionUp) { seasonFocus }.safeMove(Key.DirectionDown) { down }
                                 .onFocusChanged { focused = it.isFocused }
                                 .size(width = 192.dp, height = 108.dp),
                             scale = ClickableSurfaceDefaults.scale(scale = 1f, focusedScale = 1f, pressedScale = 1f),
@@ -2025,4 +2031,14 @@ private fun IconAction(icon: androidx.compose.ui.graphics.vector.ImageVector, la
             modifier = Modifier.padding(top = 4.dp).wrapContentWidth(unbounded = true),
         )
     }
+}
+
+/**
+ * [key] moves the highlight to [target] when it's on screen, else wherever that key normally goes. (A fixed Up / Down
+ * target that wasn't drawn, e.g. a season scrolled out of view or tabs switched off, crashed the app.)
+ */
+private fun Modifier.safeMove(key: Key, target: () -> FocusRequester?): Modifier = onPreviewKeyEvent { e ->
+    if (e.type != KeyEventType.KeyDown || e.key != key) return@onPreviewKeyEvent false
+    val t = target() ?: return@onPreviewKeyEvent false
+    runCatching { t.requestFocus() }.isSuccess
 }

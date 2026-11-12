@@ -183,6 +183,12 @@ object UiOpts {
     const val CHANNEL_LOGOS = "channel_logos"
     const val MINI_SIZE = "mini_size"
     const val MINI_CORNER = "mini_corner"
+    /** Pressing towards the corner picture from the page's edge highlights it (Full screen / Close). */
+    const val CORNER_FOCUS = "corner_focus"
+    /** The TV guide, channel list and group list at their last / first entry: loop on round, jump to the other end, or stop. */
+    const val LIST_ENDS = "list_ends2"
+    /** A film or episode ending or stopped: stay where you were, or back to live TV. */
+    const val AFTER_FILM = "after_film"
     const val PLAYER_BACK = "player_back"
     const val AGE_RATING = "age_rating"
     const val BUTTON_HINTS = "button_hints"
@@ -238,6 +244,9 @@ object UiOpts {
         CHANNEL_LOGOS to listOf("On", "Off"),
         MINI_SIZE to listOf("Medium", "Small", "Large"),
         MINI_CORNER to listOf("Bottom right", "Bottom left", "Top right", "Top left"),
+        CORNER_FOCUS to listOf("On", "Off"),
+        LIST_ENDS to listOf("Jump to the other end", "Stop"),
+        AFTER_FILM to listOf("Stay where you were", "Back to live TV"),
         ANIM_FILM to listOf("On", "Off"),
         ANIM_LIVE to listOf("On", "Off"),
         SHORTCUT_STYLE to listOf("Round", "Rounded squares", "Wide tiles"),

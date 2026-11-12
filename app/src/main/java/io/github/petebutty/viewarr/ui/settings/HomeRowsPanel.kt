@@ -188,42 +188,13 @@ private fun RowsEditor(type: MediaType, menu: Boolean, moving: String?, onMoving
                     ids.add(j, ids.removeAt(i))
                     media.setRowOrder(ids)
                 }
-                Surface(
+                OrderedToggle(
+                    marker = if (carried) "↕" else if (hidden) "" else "${i + 1}",
+                    title = row.title, subtitle = if (hidden) "Not on the page" else "On the page  ·  ${row.items.size} titles",
+                    on = !hidden, carried = carried, moving = moving != null, focusRequester = fr,
+                    onPickUp = { if (!hidden) onMoving(row.id) }, onPutDown = { onMoving(null) }, onMove = ::move,
                     onClick = { if (moving != null) onMoving(null) else toggleRow(i) },
-                    modifier = Modifier.fillMaxWidth().focusRequester(fr).onPreviewKeyEvent { e ->
-                        if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                        when {
-                            moving == null && e.key == Key.DirectionRight -> { if (!hidden) onMoving(row.id); true }
-                            carried && (e.key == Key.DirectionRight || e.key == Key.DirectionLeft) -> { onMoving(null); true }
-                            carried && e.key == Key.DirectionUp -> { move(-1); true }
-                            carried && e.key == Key.DirectionDown -> { move(1); true }
-                            moving != null && !carried -> true
-                            else -> false
-                        }
-                    },
-                    scale = ClickableSurfaceDefaults.scale(scale = 1f, focusedScale = 1f, pressedScale = 1f),
-                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
-                    colors = ClickableSurfaceDefaults.colors(
-                        containerColor = AppColors.Panel,
-                        contentColor = if (hidden) AppColors.TextSecondary else AppColors.TextPrimary,
-                        focusedContainerColor = AppColors.Accent,
-                        focusedContentColor = AppColors.OnAccent,
-                    ),
-                ) {
-                    Row(Modifier.padding(horizontal = 18.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text(if (carried) "↕" else if (hidden) "" else "${i + 1}", fontSize = 14.sp, modifier = Modifier.width(36.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text(row.title, fontSize = 16.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(if (hidden) "Not on the page" else "On the page  ·  ${row.items.size} titles", fontSize = 12.sp)
-                        }
-                        Box(
-                            Modifier.size(width = 48.dp, height = 26.dp)
-                                .background(if (!hidden) Color(0xFF2EBD5A) else Color(0xFF6B6F7A), RoundedCornerShape(13.dp))
-                                .padding(3.dp),
-                            contentAlignment = if (!hidden) Alignment.CenterEnd else Alignment.CenterStart,
-                        ) { Box(Modifier.size(20.dp).background(Color.White, CircleShape)) }
-                    }
-                }
+                )
             }
             if (!done && !menu) item(key = "loading") {
                 Text("Loading rows…", fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(12.dp))
@@ -245,43 +216,14 @@ private fun RowsEditor(type: MediaType, menu: Boolean, moving: String?, onMoving
                     keys.add(j, keys.removeAt(i))
                     media.setLibraryOrder(keys)
                 }
-                Surface(
+                OrderedToggle(
+                    marker = if (carried) "↕" else "▤",
+                    title = lib.title, subtitle = lib.source + "  ·  " + if (hidden) "Not in the menu" else "In the menu",
+                    on = !hidden, carried = carried, moving = moving != null, focusRequester = fr,
+                    onPickUp = { if (!hidden) onMoving(id) }, onPutDown = { onMoving(null) }, onMove = ::move,
                     onClick = { if (moving != null) onMoving(null) else toggleLib(i) },
                     onLongClick = { if (moving == null) renaming = true },
-                    modifier = Modifier.fillMaxWidth().focusRequester(fr).onPreviewKeyEvent { e ->
-                        if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                        when {
-                            moving == null && e.key == Key.DirectionRight -> { if (!hidden) onMoving(id); true }
-                            carried && (e.key == Key.DirectionRight || e.key == Key.DirectionLeft) -> { onMoving(null); true }
-                            carried && e.key == Key.DirectionUp -> { move(-1); true }
-                            carried && e.key == Key.DirectionDown -> { move(1); true }
-                            moving != null && !carried -> true
-                            else -> false
-                        }
-                    },
-                    scale = ClickableSurfaceDefaults.scale(scale = 1f, focusedScale = 1f, pressedScale = 1f),
-                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
-                    colors = ClickableSurfaceDefaults.colors(
-                        containerColor = AppColors.Panel,
-                        contentColor = if (hidden) AppColors.TextSecondary else AppColors.TextPrimary,
-                        focusedContainerColor = AppColors.Accent,
-                        focusedContentColor = AppColors.OnAccent,
-                    ),
-                ) {
-                    Row(Modifier.padding(horizontal = 18.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text(if (carried) "↕" else "▤", fontSize = 14.sp, modifier = Modifier.width(36.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text(lib.title, fontSize = 16.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(lib.source + "  ·  " + if (hidden) "Not in the menu" else "In the menu", fontSize = 12.sp)
-                        }
-                        Box(
-                            Modifier.size(width = 48.dp, height = 26.dp)
-                                .background(if (!hidden) Color(0xFF2EBD5A) else Color(0xFF6B6F7A), RoundedCornerShape(13.dp))
-                                .padding(3.dp),
-                            contentAlignment = if (!hidden) Alignment.CenterEnd else Alignment.CenterStart,
-                        ) { Box(Modifier.size(20.dp).background(Color.White, CircleShape)) }
-                    }
-                }
+                )
             }
             // The menu's Catalogues: on / off only; they follow the page's order.
             if (menu && menuRows.isNotEmpty()) item(key = "cat-head") {
@@ -306,12 +248,7 @@ private fun RowsEditor(type: MediaType, menu: Boolean, moving: String?, onMoving
                             Text(row.title, fontSize = 16.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             Text(if (off) "Not in the menu" else "In the menu", fontSize = 12.sp)
                         }
-                        Box(
-                            Modifier.size(width = 48.dp, height = 26.dp)
-                                .background(if (!off) Color(0xFF2EBD5A) else Color(0xFF6B6F7A), RoundedCornerShape(13.dp))
-                                .padding(3.dp),
-                            contentAlignment = if (!off) Alignment.CenterEnd else Alignment.CenterStart,
-                        ) { Box(Modifier.size(20.dp).background(Color.White, CircleShape)) }
+                        OnOffSwitch(!off)
                     }
                 }
             }
@@ -350,4 +287,58 @@ private fun RenameLibraryDialog(current: String, onDone: (String?) -> Unit, onCa
             MenuItem(text = "Cancel", selected = false, onClick = onCancel)
         }
     }
+}
+
+/**
+ * A row or library in these lists: its place (or ↕ while carried), name and what it is, and an on / off switch. OK turns
+ * it on / off; Right picks it up, Up / Down move it, Right / Left (or OK) put it down.
+ */
+@Composable
+private fun OrderedToggle(
+    marker: String, title: String, subtitle: String, on: Boolean, carried: Boolean, moving: Boolean,
+    focusRequester: FocusRequester, onPickUp: () -> Unit, onPutDown: () -> Unit, onMove: (Int) -> Unit,
+    onClick: () -> Unit, onLongClick: (() -> Unit)? = null,
+) {
+    Surface(
+        onClick = onClick, onLongClick = onLongClick,
+        modifier = Modifier.fillMaxWidth().focusRequester(focusRequester).onPreviewKeyEvent { e ->
+            if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+            when {
+                !moving && e.key == Key.DirectionRight -> { onPickUp(); true }
+                carried && (e.key == Key.DirectionRight || e.key == Key.DirectionLeft) -> { onPutDown(); true }
+                carried && e.key == Key.DirectionUp -> { onMove(-1); true }
+                carried && e.key == Key.DirectionDown -> { onMove(1); true }
+                moving && !carried -> true
+                else -> false
+            }
+        },
+        scale = ClickableSurfaceDefaults.scale(scale = 1f, focusedScale = 1f, pressedScale = 1f),
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = AppColors.Panel,
+            contentColor = if (on) AppColors.TextPrimary else AppColors.TextSecondary,
+            focusedContainerColor = AppColors.Accent,
+            focusedContentColor = AppColors.OnAccent,
+        ),
+    ) {
+        Row(Modifier.padding(horizontal = 18.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(marker, fontSize = 14.sp, modifier = Modifier.width(36.dp))
+            Column(Modifier.weight(1f)) {
+                Text(title, fontSize = 16.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(subtitle, fontSize = 12.sp)
+            }
+            OnOffSwitch(on)
+        }
+    }
+}
+
+/** The green / grey switch at the end of a row. */
+@Composable
+private fun OnOffSwitch(on: Boolean) {
+    Box(
+        Modifier.size(width = 48.dp, height = 26.dp)
+            .background(if (on) Color(0xFF2EBD5A) else Color(0xFF6B6F7A), RoundedCornerShape(13.dp))
+            .padding(3.dp),
+        contentAlignment = if (on) Alignment.CenterEnd else Alignment.CenterStart,
+    ) { Box(Modifier.size(20.dp).background(Color.White, CircleShape)) }
 }

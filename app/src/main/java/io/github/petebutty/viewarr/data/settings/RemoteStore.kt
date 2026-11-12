@@ -159,6 +159,8 @@ data class RemoteSettings(
     /** The preset last chosen (Settings → Remote buttons → Presets), for "Custom (from …)"; null: never chosen. */
     val presetBase: ControlPreset? = null,
     val liveSides: LiveSides = LiveSides.entries.first(),
+    /** Hold OK on a shortcut → Choose rows: the rows it shows (by name, in order). Not in here: its usual rows. */
+    val shortcutRows: Map<String, List<String>> = emptyMap(),
     val startPage: StartPage = StartPage.entries.first(),
     val searchButton: SearchButton = SearchButton.entries.first(),
     val navStyle: NavStyle = NavStyle.entries.first(),
@@ -205,6 +207,9 @@ class RemoteStore @Inject constructor(@ApplicationContext private val context: C
             menuBack = p.read(MENU_BACK),
             menuLibraryRight = p.read(MENU_LIBRARY_RIGHT),
             liveSides = p.read(LIVE_SIDES),
+            shortcutRows = p[stringPreferencesKey(SHORTCUT_ROWS)].orEmpty().split('\u001D').mapNotNull { r ->
+                val parts = r.split('\u001E'); if (parts.size != 2 || parts[0].isBlank()) null else parts[0] to parts[1].split('\u001F').filter { it.isNotBlank() }
+            }.toMap(),
             presetBase = p[stringPreferencesKey(PRESET_BASE)]?.let { n -> ControlPreset.entries.firstOrNull { it.name == n } },
             startPage = p.read(START_PAGE),
             searchButton = p.read(SEARCH_BUTTON),
@@ -238,6 +243,15 @@ class RemoteStore @Inject constructor(@ApplicationContext private val context: C
             }.toMap().filter { (name, c) -> name != action && c != code }
             val next = if (code == null) now else now + (action to code)
             prefs[stringPreferencesKey(BUTTONS)] = next.entries.joinToString(",") { "${it.key}=${it.value}" }
+        }
+    }
+
+    /** One shortcut's chosen rows ([rows] null: back to its usual ones). */
+    suspend fun setShortcutRows(id: String, rows: List<String>?) {
+        context.remoteStore.edit { prefs ->
+            val now = prefs[stringPreferencesKey(SHORTCUT_ROWS)].orEmpty().split('\u001D').filter { it.isNotBlank() && it.substringBefore('\u001E') != id }
+            val next = if (rows == null) now else now + (id + '\u001E' + rows.joinToString("\u001F"))
+            if (next.isEmpty()) prefs.remove(stringPreferencesKey(SHORTCUT_ROWS)) else prefs[stringPreferencesKey(SHORTCUT_ROWS)] = next.joinToString("\u001D")
         }
     }
 
@@ -347,6 +361,7 @@ class RemoteStore @Inject constructor(@ApplicationContext private val context: C
         const val MENU_LIBRARY_RIGHT = "menu_library_right"
         const val PRESET_BASE = "preset_base"
         const val LIVE_SIDES = "live_sides"
+        const val SHORTCUT_ROWS = "shortcut_rows"
         const val START_PAGE = "start_page"
         const val SEARCH_BUTTON = "search_button"
         const val SEARCH_KEYCODE = "search_keycode"

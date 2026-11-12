@@ -3,6 +3,7 @@ package io.github.petebutty.viewarr.data.guide
 import io.github.petebutty.viewarr.data.remote.services.HttpJson
 import io.github.petebutty.viewarr.data.remote.services.array
 import io.github.petebutty.viewarr.data.remote.services.str
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
@@ -25,8 +26,6 @@ class SportsEvents @Inject constructor(private val http: HttpJson) {
         var t = title.trim()
         if (t.isEmpty()) return null
         if (PLACEHOLDER.containsMatchIn(t)) return null
-        // Ranked Matchups' names ("EPL ★6.0 · Leeds United at Chelsea · title race"): the game itself.
-        if ('★' in t) t = t.substringAfter(" · ", t).substringBefore(" · ")
         // A start time at the front ("16:55 ATP Tour …"), already shown on the card.
         t = t.replace(Regex("^\\d{1,2}[:.]\\d{2}\\s*(am|pm)?\\s*[-–:|]?\\s*", RegexOption.IGNORE_CASE), "")
         // A competition named twice ("EFL EFL Trophy", "ATP Tour ATP Tennis"): its second, fuller name.
@@ -36,12 +35,37 @@ class SportsEvents @Inject constructor(private val http: HttpJson) {
 
     fun sport(text: String): Sport? = SPORTS.firstOrNull { (re, _) -> re.containsMatchIn(text) }?.second
 
+    // ---- TheSportsDB (its free service): very few requests a minute before it refuses for a while, so they're paced,
+    // a refusal pauses them all, and a failed or refused one is never remembered as "nothing found".
+
+    private val tsdbLock = kotlinx.coroutines.sync.Mutex()
+    @Volatile private var lastAsk = 0L
+    @Volatile private var pausedUntil = 0L
+    /** Channel lookups (a team's next games) waiting: pictures stand aside for them. */
+    private val channelAsks = java.util.concurrent.atomic.AtomicInteger(0)
+
+    /** One request, in turn (one every few seconds). Null: refused, failed or paused (try again later). */
+    private suspend fun tsdb(path: String, picture: Boolean = false): kotlinx.serialization.json.JsonElement? {
+        if (System.currentTimeMillis() < pausedUntil || (picture && channelAsks.get() > 0)) return null
+        return tsdbLock.withLock {
+            if (System.currentTimeMillis() < pausedUntil || (picture && channelAsks.get() > 0)) return@withLock null
+            val wait = lastAsk + GAP_MS - System.currentTimeMillis()
+            if (wait > 0) kotlinx.coroutines.delay(wait)
+            lastAsk = System.currentTimeMillis()
+            val r = withTimeoutOrNull(6_000) { runCatching { http.get("https://www.thesportsdb.com/api/v1/json/123/$path") }.getOrNull() }
+            when {
+                r == null -> null
+                r.code == 429 -> { pausedUntil = System.currentTimeMillis() + PAUSE_MS; null }
+                !r.ok -> null
+                else -> r.body ?: kotlinx.serialization.json.JsonObject(emptyMap())
+            }
+        }
+    }
+
     private val thumbs = ConcurrentHashMap<String, String>()
 
     /** A match's picture ("Barnsley vs Sheffield Wednesday"): the fixture's thumbnail, else the league's badge. */
     suspend fun picture(title: String): String? {
-        // "Leeds United at Chelsea" (Ranked Matchups: away at home) is Chelsea vs Leeds United.
-        AWAY_AT_HOME.matchEntire(title.trim())?.let { a -> return picture("${a.groupValues[2]} vs ${a.groupValues[1]}") }
         val m = MATCH.find(title) ?: return null
         // The teams: the words either side of "vs", without the competition in front (its last few words).
         val home = m.groupValues[1].trim().split(Regex("\\s+")).takeLast(3).joinToString(" ").trim()
@@ -53,9 +77,8 @@ class SportsEvents @Inject constructor(private val http: HttpJson) {
         var found: String? = null
         for ((h, a) in listOf(home to away, home.split(" ").last() to away.split(" ").first())) {
             val q = "${h.replace(' ', '_')}_vs_${a.replace(' ', '_')}"
-            val events = withTimeoutOrNull(6_000) {
-                runCatching { http.get("https://www.thesportsdb.com/api/v1/json/123/searchevents.php?e=${java.net.URLEncoder.encode(q, "UTF-8")}") }.getOrNull()
-            }?.takeIf { it.ok }?.body.array("event")
+            // (Not answered: not remembered, asked again next time.)
+            val events = tsdb("searchevents.php?e=${java.net.URLEncoder.encode(q, "UTF-8")}", picture = true)?.array("event") ?: return null
             // The fixture nearest today (the same two teams meet again in other seasons).
             val today = java.time.LocalDate.now()
             val best = events.minByOrNull { e ->
@@ -68,9 +91,51 @@ class SportsEvents @Inject constructor(private val http: HttpJson) {
         return found
     }
 
+    private val tvCache = ConcurrentHashMap<String, Pair<Long, List<String>>>()
+
+    /**
+     * Which UK channels show a game (TheSportsDB's TV listings: "Sky Sports Main Event", "Celtic TV"…), for games your
+     * TV guide doesn't reach yet. Only the two team names and the date are sent; an answer is remembered for 12 hours.
+     * Null: no answer yet (asked again next time).
+     */
+    suspend fun ukChannels(home: String, away: String, start: Long): List<String>? {
+        val day = java.time.Instant.ofEpochMilli(start).atZone(java.time.ZoneOffset.UTC).toLocalDate()
+        val key = "$home|$away|$day".lowercase()
+        tvCache[key]?.takeIf { System.currentTimeMillis() - it.first < 12 * 3_600_000L }?.let { return it.second }
+        channelAsks.incrementAndGet()
+        try {
+            val (answered, id) = eventOn(home, away, day)
+            if (!answered) return null
+            val found = if (id == null) emptyList() else
+                (tsdb("lookuptv.php?id=$id") ?: return null).array("tvevent")
+                    .filter { it.str("strCountry") == "United Kingdom" }.mapNotNull { it.str("strChannel") }.distinct()
+            tvCache[key] = System.currentTimeMillis() to found
+            return found
+        } finally {
+            channelAsks.decrementAndGet()
+        }
+    }
+
+    /**
+     * TheSportsDB's id for the game between [home] and [away] on [day] (full names first, then shorter ones).
+     * First: whether it answered at all.
+     */
+    private suspend fun eventOn(home: String, away: String, day: java.time.LocalDate): Pair<Boolean, String?> {
+        fun short(n: String) = n.split(" ").filter { it.lowercase() !in setOf("fc", "afc", "cf", "sc") }.joinToString(" ")
+        for ((h, a) in listOf(home to away, short(home) to short(away)).distinct()) {
+            val q = "${h.replace(' ', '_')}_vs_${a.replace(' ', '_')}"
+            val events = tsdb("searchevents.php?e=${java.net.URLEncoder.encode(q, "UTF-8")}")?.array("event") ?: return false to null
+            events.firstOrNull { e -> e.str("dateEvent")?.let { runCatching { kotlin.math.abs(java.time.LocalDate.parse(it).toEpochDay() - day.toEpochDay()) <= 1 }.getOrNull() } == true }
+                ?.str("idEvent")?.let { return true to it }
+        }
+        return true to null
+    }
+
     private companion object {
+        /** Between TheSportsDB requests; and how long they all stop after it refuses one. */
+        const val GAP_MS = 3_000L
+        const val PAUSE_MS = 3 * 60_000L
         val PLACEHOLDER = Regex("^(ended|finished|full time|ft)\\b|^no (event|events|programme|program|game|match)\\b|^(tba|tbc|to be announced|off air|closedown|stand ?by)\\b|^event (ended|finished)", RegexOption.IGNORE_CASE)
-        val AWAY_AT_HOME = Regex("([A-Z][\\w&.' -]{2,40}?) at ([A-Z][\\w&.' -]{2,40})")
         val MATCH = Regex("(.+?)\\s+(?:vs?\\.?|@|-v-)\\s+(.+)", RegexOption.IGNORE_CASE)
         fun r(words: String) = Regex("\\b($words)\\b", RegexOption.IGNORE_CASE)
         val SPORTS = listOf(

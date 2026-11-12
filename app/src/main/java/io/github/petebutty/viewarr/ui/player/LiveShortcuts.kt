@@ -1,5 +1,6 @@
 package io.github.petebutty.viewarr.ui.player
 
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.size
@@ -31,8 +32,23 @@ data class OsdPoster(
     /** No picture: this instead, big, on a [tint] gradient (Live now's sport icon). */
     val emoji: String? = null,
     val tint: List<Long>? = null,
+    /** Hold OK: a menu of these (Continue watching: Go to show, Go to season, Play from the start). */
+    val options: List<CardOption> = emptyList(),
+    /** OK plays it (Continue watching): the film playing makes way for it rather than going to the corner. */
+    val plays: Boolean = false,
     val onClick: () -> Unit,
 )
+
+/** One choice in a row card's hold-OK menu. [plays]: it starts playback (the film playing isn't sent to the corner). */
+data class CardOption(val label: String, val plays: Boolean = false, val run: () -> Unit)
+
+/** The row card whose hold-OK menu is open (live TV's rows and the film player's share it). */
+object CardMenu {
+    private val state = androidx.compose.runtime.mutableStateOf<OsdPoster?>(null)
+    var open: OsdPoster?
+        get() = state.value
+        set(v) { state.value = v }
+}
 
 data class OsdRow(val title: String, val items: List<OsdPoster>)
 
@@ -53,6 +69,7 @@ object ShortcutColours {
     val search = listOf(0xFF2ED6A3, 0xFF14A0B8)
     val settings = listOf(0xFF8A97AD, 0xFF4E5A70)
     val live = listOf(0xFFFF4D4D, 0xFFB3122E)
+    val sports = listOf(0xFF34C759, 0xFF0B6E3A)
     val library = listOf(0xFFFFB347, 0xFFFF7043)
     val row = listOf(0xFF5EC8F2, 0xFF6A5CFF)
 }
@@ -80,11 +97,42 @@ object LiveShortcutsBridge {
     /** A shortcut's rows (as on live TV), else the default ones (Continue watching…). */
     var previewFor: (String) -> List<OsdRow>? = { null }
     var defaultRows: List<OsdRow> = emptyList()
-    /** The rows Down reaches under the shortcut at [i] (Settings → Rows under the shortcuts). */
-    fun rowsFor(i: Int): List<OsdRow> {
+    /** Hold OK → Choose rows: each shortcut's chosen rows by name, in order (set by the home screen). */
+    private val chosenState = androidx.compose.runtime.mutableStateOf<Map<String, List<String>>>(emptyMap())
+    var chosen: Map<String, List<String>>
+        get() = chosenState.value
+        set(v) { if (chosenState.value != v) chosenState.value = v }
+    var setRows: (String, List<String>?) -> Unit = { _, _ -> }
+
+    /** The film player's controls are up: the rows that load while live TV's are (Sports, Live now) load for it too. */
+    private val filmMenuState = androidx.compose.runtime.mutableStateOf(false)
+    var filmMenuOpen: Boolean
+        get() = filmMenuState.value
+        set(v) { if (filmMenuState.value != v) filmMenuState.value = v }
+
+    /** Choose rows saved: shown straight away, then kept (null: back to its usual rows). */
+    fun chooseRows(id: String, rows: List<String>?) {
+        chosen = if (rows == null) chosen - id else chosen + (id to rows)
+        setRows(id, rows)
+    }
+
+    /** Every row the shortcut [id] can show (Choose rows lists them), before any choice or limit. */
+    fun allRowsFor(id: String): List<OsdRow> = (previewFor(id)?.takeIf { it.isNotEmpty() } ?: defaultRows).filter { it.items.isNotEmpty() }
+
+    /**
+     * The rows Down reaches under the shortcut at [i]: the ones chosen for it (hold OK → Choose rows), in that order,
+     * else its first few (Settings → Rows under the shortcuts).
+     */
+    fun rowsFor(i: Int): List<OsdRow> = items.getOrNull(i)?.first?.id?.let(::rowsForId).orEmpty()
+
+    /** [rowsFor] by the shortcut's id. */
+    fun rowsForId(id: String): List<OsdRow> {
         val max = when (io.github.petebutty.viewarr.ui.theme.AppColors.palette.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.OSD_ROWS)) { 1 -> 2; 2 -> 5; 3 -> Int.MAX_VALUE; else -> 3 }
-        val id = items.getOrNull(i)?.first?.id ?: return emptyList()
-        return (previewFor(id)?.takeIf { it.isNotEmpty() } ?: defaultRows).filter { it.items.isNotEmpty() }.take(max)
+        val all = allRowsFor(id)
+        chosen[id]?.let { picked -> return picked.mapNotNull { t -> all.firstOrNull { it.title == t } } }
+        // Sports: a row for every team and league you follow (they're its whole point, not a preview of a page).
+        val cap = if (id == "page:Sports") maxOf(max, 12) else max
+        return all.take(cap)
     }
 }
 
@@ -144,8 +192,11 @@ fun ShortcutFace(sc: LiveShortcut, style: ShortcutStyle, h: androidx.compose.ui.
 fun ShortcutDisc(sc: LiveShortcut, highlighted: Boolean, size: androidx.compose.ui.unit.Dp) {
     val style = shortcutStyle()
     val (w, h) = shortcutBox(size, style)
+    // The same gentle grow as live TV's highlighted shortcut.
+    val grow = androidx.compose.animation.core.animateFloatAsState(if (highlighted) 1.2f else 1f, label = "shortcut").value
     androidx.compose.foundation.layout.Box(
         androidx.compose.ui.Modifier.size(w, h)
+            .then(androidx.compose.ui.Modifier.scale(grow))
             .background(if (highlighted) io.github.petebutty.viewarr.ui.theme.AppColors.Accent else androidx.compose.ui.graphics.Color.White.copy(alpha = 0.14f), shortcutShape(style))
             .padding(if (highlighted) h / 20 else androidx.compose.ui.unit.Dp(0f)),
         contentAlignment = androidx.compose.ui.Alignment.Center,
@@ -199,7 +250,7 @@ object RowSets {
  * "page:Guide", "home:Movie", "lib:Movie:<library key>", "row:Show:<row id>", "page:Settings"… Unset: [defaults].
  */
 object LiveShortcuts {
-    val defaults = listOf("page:Guide", "page:Live", "home:Movie", "home:Show", "page:Music", "page:Recordings", "page:Search", "page:Settings")
+    val defaults = listOf("page:Guide", "page:Live", "page:Sports", "home:Movie", "home:Show", "page:Music", "page:Recordings", "page:Search", "page:Settings")
 
     /** Everything that can be a shortcut, in the order offered, each with a familiar icon. */
     fun candidates(
@@ -211,6 +262,8 @@ object LiveShortcuts {
         add(LiveShortcut("page:Guide", "TV guide", AppIcons.Guide, colors = ShortcutColours.guide))
         // Live now: what's on the event / sports channels (Event Channel Managarr's groups), with what's starting soon.
         add(LiveShortcut("page:Live", "Live now", AppIcons.LiveTv, colors = ShortcutColours.live))
+        // Sports: your teams and leagues (Settings → Sports), a row of games each under it (Down); OK: the guide.
+        add(LiveShortcut("page:Sports", "Sports", AppIcons.LiveTv, emoji = "🏆", colors = ShortcutColours.sports))
         add(LiveShortcut("home:Movie", "Movies", AppIcons.Movie, colors = ShortcutColours.movies))
         add(LiveShortcut("home:Show", "Shows", AppIcons.Tv, colors = ShortcutColours.shows))
         if (musicOn) add(LiveShortcut("page:Music", "Music", AppIcons.MusicNote, colors = ShortcutColours.music))

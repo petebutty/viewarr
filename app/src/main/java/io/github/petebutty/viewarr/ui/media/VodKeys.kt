@@ -46,6 +46,8 @@ class VodHooks(
     /** The rows under a shortcut (their sizes), and opening a card (row, card). */
     val rowSizes: (Int) -> List<Int> = { emptyList() },
     val pickCard: (Int, Int) -> Unit = { _, _ -> },
+    /** Holding OK on a card (row, card): its quicker action, if it has one. */
+    val holdCard: (Int, Int) -> Unit = { _, _ -> },
     /** Skip intro / credits showing (or an intro just skipped by itself): OK skips it (or goes back). True if used. */
     val skipOk: () -> Boolean = { false },
     /** The shortcuts' Move (index, -1 / 1), and whether one has a hold menu (Viewarr's own Refresh doesn't). */
@@ -119,7 +121,7 @@ class VodKeys(private val scrub: Scrubber, private val menu: PlayerMenu) {
                 // Up from the seek bar: pause, with what's playing (its synopsis) on screen.
                 upFromBar = { p.pause(); h.showDetails(); menu.open = false },
                 shortcutCount = h.shortcutCount(), pickShortcut = h.pickShortcut,
-                rowSizes = h.rowSizes, pickCard = h.pickCard,
+                rowSizes = h.rowSizes, pickCard = h.pickCard, holdCard = h.holdCard,
                 moveShortcut = h.moveShortcut, canHold = h.canHoldShortcut,
             )
         ) return true

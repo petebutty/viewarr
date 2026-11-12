@@ -12,13 +12,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -34,20 +29,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -313,7 +302,8 @@ fun MpvPlayer(
     // The Live TV hub (Settings → Remote & navigation → Style): Back's last step sends the film to the corner (as
     // live TV goes to the guide's preview), and the controls have the live TV shortcuts and their rows. Classic: Back
     // stops the film, no shortcuts.
-    val hubOn = io.github.petebutty.viewarr.data.settings.LocalRemote.current.navStyle == io.github.petebutty.viewarr.data.settings.NavStyle.LiveHub
+    // The TV guide button and the live TV shortcuts: always (they were the Live TV hub style's).
+    val hubOn = true
     fun backStep() {
         when {
             // The next episode's countdown: Back keeps watching this one.
@@ -326,7 +316,8 @@ fun MpvPlayer(
             // Back again: into the corner, still playing (hold Back to bring it back).
             // (Settings → Remote → Picture-in-picture: or stop.)
             // Back again: stops (resume point saved). Picture-in-picture for films is off for now (VodHost keeps it).
-            else -> if (hubOn && VodHost.active) VodHost.minimise() else onClose()
+            // Back's last step: the film stops (its place kept), not to the corner.
+            else -> onClose()
         }
     }
     BackHandler(enabled = !mini) { backStep() }
@@ -347,6 +338,7 @@ fun MpvPlayer(
     // Live TV hub: the TV guide first (live TV comes first there).
     val buttons = listOfNotNull(if (hubOn) PlayerButton.Guide else null, PlayerButton.PlayPause, PlayerButton.Stop, PlayerButton.Details, PlayerButton.Audio, PlayerButton.Subtitles, PlayerButton.Info, if (onSwitchPlayer != null) PlayerButton.SwitchPlayer else null, PlayerButton.Settings)
     menu.home = buttons.indexOf(PlayerButton.PlayPause).coerceAtLeast(0)
+    menu.guideAt = buttons.indexOf(PlayerButton.Guide)
     fun press(b: PlayerButton) {
         when (b) {
             PlayerButton.PlayPause -> mpv.setPropertyBoolean("pause", !paused)
@@ -357,9 +349,9 @@ fun MpvPlayer(
             PlayerButton.SwitchPlayer -> picks().let { (a, t) -> onSwitchPlayer?.invoke((position * 1000).toLong(), a, t) }
             PlayerButton.Stop -> { onClose(); return }
             // As on live TV: Settings over what's playing (the film carries on in the corner; Back brings it back).
-            PlayerButton.Settings -> { menu.open = false; VodHost.minimise(); io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.openSettings(); return }
+            PlayerButton.Settings -> { menu.open = false; VodHost.close(); io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.openSettings(); return }
             // The TV guide (Live TV hub): the film carries on in the corner; Back brings it back.
-            PlayerButton.Guide -> { menu.open = false; VodHost.minimise(); io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.openGuide(); return }
+            PlayerButton.Guide -> { menu.open = false; VodHost.close(); io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.openGuide(); return }
         }
         showOsd()
     }
@@ -385,25 +377,14 @@ fun MpvPlayer(
         skipOk = { skip.ok({ ms -> mpv.command(arrayOf("seek", (ms / 1000.0).toString(), "absolute")) }, onNext = { NextUp.play() }) },
         // The live TV shortcuts, as on live TV: opening one sends the film to the corner (still playing) and opens
         // the page; Back from it brings the film back full screen.
-        shortcutCount = { if (hubOn) io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.items.size else 0 },
-        pickShortcut = { i ->
-            io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.items.getOrNull(i)?.let { (sc, go) ->
-                // Refresh (Viewarr's own, last in the row) works where you are; the rest open with the film in the corner.
-                if (sc.id.startsWith("action:")) go()
-                else { menu.open = false; menu.onShortcuts = false; VodHost.minimise(); go() }
-            }
-        },
-        // Hold OK on a shortcut: the same Move / Refresh / Hide as live TV, on the same row.
-        moveShortcut = { _, d -> io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.items.firstOrNull { it.first.id == menu.scMovingId }?.let { io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.move(it.first, d) } },
-        canHoldShortcut = { i -> io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.items.getOrNull(i)?.first?.id?.startsWith("action:") == false },
-        rowSizes = { i -> io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.rowsFor(i).map { it.items.size } },
-        pickCard = { r, c ->
-            io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.rowsFor(menu.shortcut).getOrNull(r)?.items?.getOrNull(c)?.let { card ->
-                menu.open = false; menu.onShortcuts = false; menu.onRows = false
-                VodHost.minimise()
-                card.onClick()
-            }
-        },
+        // The shortcuts and their rows (FilmShortcuts.kt: shared with the other player).
+        shortcutCount = { FilmShortcuts.count(hubOn) },
+        pickShortcut = { i -> FilmShortcuts.pick(menu, i) },
+        moveShortcut = { _, d -> FilmShortcuts.move(menu, d) },
+        canHoldShortcut = FilmShortcuts::canHold,
+        rowSizes = FilmShortcuts::rowSizes,
+        pickCard = { r, c -> FilmShortcuts.pickCard(menu, r, c) },
+        holdCard = { r, c -> FilmShortcuts.holdCard(menu, r, c) },
         tableAction = { e -> io.github.petebutty.viewarr.data.settings.ButtonMap.pressOf(e)?.takeIf { it in io.github.petebutty.viewarr.data.settings.ButtonMap.presses[io.github.petebutty.viewarr.data.settings.BtnScreen.Film].orEmpty() }
             ?.let { io.github.petebutty.viewarr.data.settings.ButtonMap.action(remoteSettings, io.github.petebutty.viewarr.data.settings.BtnScreen.Film, it) } },
     )
@@ -413,8 +394,8 @@ fun MpvPlayer(
         if (paused) { delay(2_500); pausedLong = true } else detailsOn = false
     }
     // (Not while a shortcut's menu is open or one is being moved: they'd be left behind.)
-    LaunchedEffect(menu.open, menu.lastKey, paused, menu.scOptions, menu.scMoving) {
-        if (menu.scOptions != null || menu.scMoving) return@LaunchedEffect
+    LaunchedEffect(menu.open, menu.lastKey, paused, menu.scOptions, menu.scMoving, menu.scRows, io.github.petebutty.viewarr.ui.player.CardMenu.open) {
+        if (menu.scOptions != null || menu.scMoving || menu.scRows != null || io.github.petebutty.viewarr.ui.player.CardMenu.open != null) return@LaunchedEffect
         if (menu.open && !paused) { delay(maxOf(8_000L, 2 * io.github.petebutty.viewarr.ui.theme.AppColors.palette.controlsMs)); menu.open = false }
     }
 
@@ -515,28 +496,8 @@ fun MpvPlayer(
             rowFocus = menu.row, cardFocus = menu.card,
         )
         if (!mini && started && !menu.open && !scrub.active && !tracksOpen && !osdVisible) IntroSkipPill(skip, Modifier.align(Alignment.BottomEnd).padding(end = 40.dp, bottom = 36.dp))
-        // Holding OK on a shortcut: live TV's own menu for it (the same actions, on the same row).
-        // The one being moved: the highlight follows it as the row is saved in its new order.
-        val scIds = io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.items.map { it.first.id }
-        LaunchedEffect(scIds, menu.scMoving) {
-            if (!menu.scMoving) return@LaunchedEffect
-            scIds.indexOf(menu.scMovingId).takeIf { it >= 0 }?.let { menu.shortcut = it }
-        }
-        if (menu.open) menu.scOptions?.let { i ->
-            io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.items.getOrNull(i)?.first?.let { sc ->
-                io.github.petebutty.viewarr.ui.player.ShortcutOptions(
-                    sc, onActivity = { menu.touch() },
-                    onMove = { menu.scOptions = null; menu.scMovingId = sc.id; menu.scMoving = true; menu.touch() },
-                    onRefresh = { menu.scOptions = null; io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.refresh(sc) },
-                    onHide = {
-                        menu.scOptions = null
-                        io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.hide(sc)
-                        menu.shortcut = menu.shortcut.coerceAtMost((io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.items.size - 2).coerceAtLeast(0))
-                    },
-                    onCancel = { menu.scOptions = null },
-                )
-            } ?: run { menu.scOptions = null }
-        }
+        // Holding OK on a shortcut or a card: their menus (shared with the other player).
+        FilmShortcutDialogs(menu)
         PlayerLoading(stream.title, art, visible = !mini && !started && error == null)
         if (!mini && stats.isNotEmpty()) Text(
             stats, fontSize = 13.sp, color = Color.White,

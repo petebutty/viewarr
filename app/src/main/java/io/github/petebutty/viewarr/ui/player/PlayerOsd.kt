@@ -17,6 +17,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.shape.CircleShape
@@ -57,18 +58,15 @@ import io.github.petebutty.viewarr.data.local.ChannelListItem
 import io.github.petebutty.viewarr.data.local.GuideProgram
 import io.github.petebutty.viewarr.playback.AspectMode
 import io.github.petebutty.viewarr.playback.PlaybackViewModel
-import io.github.petebutty.viewarr.playback.TrackOption
 import io.github.petebutty.viewarr.ui.common.MenuItem
 import io.github.petebutty.viewarr.ui.guide.displayTitle
 import io.github.petebutty.viewarr.ui.guide.formatNumber
-import io.github.petebutty.viewarr.ui.guide.logoUrl
 import io.github.petebutty.viewarr.ui.theme.AppColors
 import coil.compose.AsyncImage
 import kotlinx.coroutines.android.awaitFrame
 import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.ZoneId
-import java.time.format.DateTimeFormatter
 
 private enum class OsdPopup { Audio, Subtitles, Aspect, Source, Info }
 
@@ -295,12 +293,22 @@ fun PlayerOsd(
         var focusedRaw by remember { androidx.compose.runtime.mutableIntStateOf(0) }
         var focusedSc by remember { androidx.compose.runtime.mutableIntStateOf(0) }
         LaunchedEffect(focusedRaw) { kotlinx.coroutines.delay(250); focusedSc = focusedRaw }
-        fun rowsFor(i: Int) = shortcuts.getOrNull(i)?.first?.id?.let(previewFor)?.takeIf { it.isNotEmpty() } ?: posterRows
+        // A shortcut's rows: the ones chosen for it (hold OK → Choose rows), in that order, else all it has.
+        fun rowsFor(i: Int): List<OsdRow> {
+            val id = shortcuts.getOrNull(i)?.first?.id
+            val all = id?.let(previewFor)?.takeIf { it.isNotEmpty() } ?: posterRows
+            val picked = id?.let { LiveShortcutsBridge.chosen[it] } ?: return all
+            return picked.mapNotNull { t -> all.firstOrNull { it.title == t } }
+        }
         val allRows = rowsFor(focusedSc)
-        // Settings → Remote & navigation → Rows under the shortcuts: Down reaches this many; the rest are on the
-        // shortcut's own page.
+        // Settings → Navigation → Rows under the shortcuts: Down reaches this many (the rest are on the shortcut's own
+        // page). Not for one whose rows were chosen (all of those), nor Sports (a row per team / league you follow).
         val maxRows = when (AppColors.palette.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.OSD_ROWS)) { 1 -> 2; 2 -> 5; 3 -> Int.MAX_VALUE; else -> 3 }
-        val shownRows = allRows.take(maxRows)
+        fun capFor(i: Int): Int {
+            val id = shortcuts.getOrNull(i)?.first?.id
+            return if (id != null && LiveShortcutsBridge.chosen.containsKey(id)) Int.MAX_VALUE else if (id == "page:Sports") maxOf(maxRows, 12) else maxRows
+        }
+        val shownRows = allRows.take(capFor(focusedSc))
         val moreRows = allRows.size > shownRows.size
         var browsing by remember { mutableStateOf<List<OsdRow>?>(null) }
         // Hold OK on a shortcut takes it off; focus then goes to the one now in its place.
@@ -308,8 +316,20 @@ fun PlayerOsd(
         var hiddenAt by remember { androidx.compose.runtime.mutableIntStateOf(-1) }
         // Hold OK asks first: "Hide Netflix from your shortcuts?" (Cancel highlighted, so a stray press does nothing).
         var askHide by remember { mutableStateOf<Pair<Int, LiveShortcut>?>(null) }
+        var chooseFor by remember { mutableStateOf<LiveShortcut?>(null) }
         // Move (from that menu): the shortcut picked up; Left / Right slide it along, OK or Back put it down.
         var movingSc by remember { mutableStateOf<String?>(null) }
+        // The row swapped (into Sports, or back out): focus on its first one, no rows from the old row left open.
+        val firstId = shortcuts.firstOrNull()?.first?.id
+        var lastFirst by remember { mutableStateOf(firstId) }
+        LaunchedEffect(firstId) {
+            if (firstId == lastFirst) return@LaunchedEffect
+            lastFirst = firstId
+            if (!showShortcuts || movingSc != null) return@LaunchedEffect
+            browsing = null; posterRow = -1
+            awaitFrame()
+            runCatching { shortcutFocus.requestFocus() }
+        }
         LaunchedEffect(shortcuts.map { it.first.id }) {
             val id = movingSc ?: return@LaunchedEffect
             awaitFrame()
@@ -332,6 +352,20 @@ fun PlayerOsd(
                     askHide = null
                     scope.launch { awaitFrame(); runCatching { scFocus[sc.id]?.requestFocus() } }
                 },
+                onChooseRows = { askHide = null; chooseFor = sc },
+            )
+        }
+        // Hold OK on a Continue watching card: Go to show / Go to season / Play from the start. Closing it (Cancel,
+        // Back) leaves the highlight where it was.
+        CardMenuHost(onActivity = onActivity)
+        chooseFor?.let { sc ->
+            ChooseRowsDialog(
+                sc, onActivity = onActivity,
+                onSave = { LiveShortcutsBridge.chooseRows(sc.id, it) },
+                onClose = {
+                    chooseFor = null
+                    scope.launch { awaitFrame(); runCatching { scFocus[sc.id]?.requestFocus() } }
+                },
             )
         }
         LaunchedEffect(shortcuts.size) {
@@ -342,8 +376,10 @@ fun PlayerOsd(
         }
         if (showShortcuts && shortcuts.isNotEmpty()) {
             LaunchedEffect(Unit) { kotlinx.coroutines.android.awaitFrame(); runCatching { shortcutFocus.requestFocus() } }
+            // (Room at the ends and above / below for the highlighted one to grow into, not cut off; shifted back so
+            // the row lines up as before.)
             androidx.compose.foundation.lazy.LazyRow(
-                Modifier.padding(top = 10.dp).onPreviewKeyEvent { e ->
+                Modifier.padding(top = 2.dp).offset(x = (-14).dp).onPreviewKeyEvent { e ->
                     // Moving one: Left / Right slide it; OK or Back put it down (on letting go, so the release doesn't
                     // also open it or close the controls); nothing else moves.
                     movingSc?.let { id ->
@@ -364,14 +400,15 @@ fun PlayerOsd(
                         // (The highlighted one's rows now, not the preview's, which follows the highlight a moment late.)
                         Key.DirectionDown -> {
                             focusedSc = focusedRaw
-                            val rows = rowsFor(focusedRaw).take(maxRows)
+                            val rows = rowsFor(focusedRaw).take(capFor(focusedRaw))
                             if (rows.isNotEmpty()) { browsing = rows; posterRow = 0 }
                             true
                         }
                         else -> false
                     }
                 },
-                horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(10.dp),
+                horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(14.dp),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp, vertical = 8.dp),
             ) {
                 // Round icons like the buttons above, the highlighted one's name underneath.
                 items(shortcuts.size, key = { shortcuts[it].first.id }) { i ->
@@ -379,7 +416,7 @@ fun PlayerOsd(
                     val fr = scFocus.getOrPut(sc.id) { FocusRequester() }
                     Pill(sc.icon, if (movingSc == sc.id) "◀  ${sc.label}  ▶" else sc.label, (if (i == 0) Modifier.focusRequester(shortcutFocus) else Modifier).focusRequester(fr), emoji = sc.emoji,
                         logo = sc.logoName?.let { ShortcutLogos.map[it] }, big = true, onFocus = { focusedRaw = i }, colors = sc.colors, shortcut = sc,
-                        onLongClick = if (sc.id.startsWith("action:")) null else ({ askHide = i to sc })) { go() }
+                        onLongClick = if (sc.id.startsWith("action:") || sc.id == "sport:back" || (sc.id == "page:Live" && shortcuts.firstOrNull()?.first?.id == "sport:back")) null else ({ askHide = i to sc })) { go() }
                 }
             }
             val rowsNow = browsing ?: shownRows
@@ -392,6 +429,18 @@ fun PlayerOsd(
                 if (r < 0) { browsing = null; runCatching { (shortcuts.getOrNull(focusedRaw)?.first?.id?.let { scFocus[it] } ?: shortcutFocus).requestFocus() } }
             })
         }
+        // What the buttons do where you are (as the film player's line): the shortcuts are found with Down, which
+        // nothing said; in them, Down for their rows and hold OK for Move / Refresh / Hide (Settings → Appearance →
+        // Button hints off: none).
+        if (shortcuts.isNotEmpty() && AppColors.palette.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.BUTTON_HINTS) != 2) Text(
+            when {
+                showShortcuts && posterRow >= 0 -> "◀ ▶ move  ·  ▲ ▼ rows  ·  OK: watch or open  ·  ▲ from the top row: shortcuts"
+                showShortcuts -> "◀ ▶ shortcuts  ·  ▼ their rows  ·  OK: open  ·  hold OK: move, refresh or hide  ·  ▲ buttons"
+                else -> "▼ shortcuts  ·  ◀ ▶ buttons  ·  OK: choose  ·  Back: close"
+            },
+            fontSize = 12.sp, color = Color.White.copy(alpha = 0.7f), maxLines = 1,
+            modifier = Modifier.padding(top = 8.dp),
+        )
     }
 }
 
@@ -454,7 +503,7 @@ private fun PosterRows(rows: List<OsdRow>, current: Int, more: Boolean = false, 
  * rows (shortcuts that have rows), Hide, or Cancel (highlighted, so a stray press does nothing).
  */
 @Composable
-fun ShortcutOptions(sc: LiveShortcut, onMove: () -> Unit, onRefresh: (() -> Unit)?, onHide: () -> Unit, onCancel: () -> Unit, onActivity: () -> Unit = {}) {
+fun ShortcutOptions(sc: LiveShortcut, onMove: () -> Unit, onRefresh: (() -> Unit)?, onHide: () -> Unit, onCancel: () -> Unit, onActivity: () -> Unit = {}, onChooseRows: (() -> Unit)? = null) {
     androidx.compose.ui.window.Dialog(onDismissRequest = onCancel) {
         val cancel = remember { FocusRequester() }
         LaunchedEffect(Unit) { awaitFrame(); runCatching { cancel.requestFocus() } }
@@ -464,14 +513,113 @@ fun ShortcutOptions(sc: LiveShortcut, onMove: () -> Unit, onRefresh: (() -> Unit
             Modifier.width(420.dp).background(AppColors.Panel, RoundedCornerShape(14.dp)).onPreviewKeyEvent { onActivity(); false }.ignoreHeldOk().padding(24.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+            // A pinned team / league (Settings → Sports): Unpin puts it back under the Sports shortcut. (Pinned ones sit
+            // at the end of the row, in the order pinned: no Move.)
+            val sport = sc.id.startsWith("sport:")
             Text(sc.label, fontSize = 18.sp, color = AppColors.TextPrimary)
-            Text("Move it along your row, fetch its rows again, or hide it (add it back in Settings → Navigation → Live TV shortcuts).", fontSize = 13.sp, color = AppColors.TextSecondary)
-            io.github.petebutty.viewarr.ui.common.MenuItem(text = "Move", selected = false, onClick = onMove)
+            Text(if (sport) "Choose the rows under it, or unpin it (it stays under the Sports shortcut)." else "Move it along your row, choose the rows under it, fetch them again, or hide it (add it back in Settings → Navigation → Live TV shortcuts).", fontSize = 13.sp, color = AppColors.TextSecondary)
+            if (!sport) io.github.petebutty.viewarr.ui.common.MenuItem(text = "Move", selected = false, onClick = onMove)
+            // Its rows (Down): which, and in what order, for this shortcut only.
+            if (onChooseRows != null && LiveShortcutsBridge.allRowsFor(sc.id).isNotEmpty())
+                io.github.petebutty.viewarr.ui.common.MenuItem(text = "Choose rows", selected = false, onClick = onChooseRows)
             // Shortcuts with rows of their own (networks, rows, Movies / Shows, libraries): fetch just those again.
             if (onRefresh != null && listOf("set:", "row:", "home:", "lib:").any { sc.id.startsWith(it) })
                 io.github.petebutty.viewarr.ui.common.MenuItem(text = "Refresh", selected = false, onClick = onRefresh)
-            io.github.petebutty.viewarr.ui.common.MenuItem(text = "Hide", selected = false, onClick = onHide)
+            io.github.petebutty.viewarr.ui.common.MenuItem(text = if (sport) "Unpin" else "Hide", selected = false, onClick = onHide)
             io.github.petebutty.viewarr.ui.common.MenuItem(text = "Cancel", selected = false, modifier = Modifier.focusRequester(cancel), onClick = onCancel)
+        }
+    }
+}
+
+/**
+ * Hold OK on a row card with options (Continue watching): its menu. [beforeRun]: called first with whether the choice
+ * plays (the film player sends itself to the corner only when it doesn't).
+ */
+@Composable
+fun CardMenuHost(onActivity: () -> Unit = {}, beforeRun: (plays: Boolean) -> Unit = {}, onClosed: () -> Unit = {}) {
+    val p = CardMenu.open ?: return
+    fun close() { CardMenu.open = null; onClosed() }
+    // The controls closing under it (a channel change, the film going on): the menu goes with them, not left to pop up
+    // the next time they open.
+    androidx.compose.runtime.DisposableEffect(p.key) { onDispose { if (CardMenu.open?.key == p.key) CardMenu.open = null } }
+    androidx.compose.ui.window.Dialog(onDismissRequest = ::close) {
+        val first = remember { FocusRequester() }
+        LaunchedEffect(Unit) { awaitFrame(); runCatching { first.requestFocus() } }
+        Column(
+            Modifier.width(420.dp).background(AppColors.Panel, RoundedCornerShape(14.dp)).onPreviewKeyEvent { onActivity(); false }.ignoreHeldOk().padding(24.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(p.title, fontSize = 18.sp, color = AppColors.TextPrimary, maxLines = 2)
+            p.subtitle?.let { Text(it, fontSize = 13.sp, color = AppColors.TextSecondary, maxLines = 1) }
+            p.options.forEachIndexed { i, o ->
+                io.github.petebutty.viewarr.ui.common.MenuItem(text = o.label, selected = false,
+                    modifier = if (i == 0) Modifier.focusRequester(first) else Modifier,
+                    onClick = { CardMenu.open = null; beforeRun(o.plays); o.run() })
+            }
+            io.github.petebutty.viewarr.ui.common.MenuItem(text = "Cancel", selected = false, onClick = ::close)
+        }
+    }
+}
+
+/**
+ * Hold OK on a shortcut → Choose rows: every row it can show, On / Off, in the order they'll come (Right picks one up,
+ * Up / Down move it, Right or OK puts it down). Back keeps the choice; Reset goes back to its usual rows. For this
+ * shortcut only (the Movies page itself is untouched). [onSave] null: back to its usual rows.
+ */
+@Composable
+fun ChooseRowsDialog(sc: LiveShortcut, onSave: (List<String>?) -> Unit, onClose: () -> Unit, onActivity: () -> Unit = {}) {
+    val all = remember(sc.id) { LiveShortcutsBridge.allRowsFor(sc.id).map { it.title }.distinct() }
+    val current = LiveShortcutsBridge.chosen[sc.id]
+    // On ones first (chosen order, else its usual first few), then the rest.
+    val usual = remember(sc.id) { LiveShortcutsBridge.rowsForId(sc.id).map { it.title } }
+    var on by remember(sc.id) { mutableStateOf((current ?: usual).filter { it in all }) }
+    val order = on + all.filter { it !in on }
+    var carrying by remember { mutableStateOf<String?>(null) }
+    var changed by remember { mutableStateOf(false) }
+    val focus = remember { HashMap<String, FocusRequester>() }
+    val first = remember { FocusRequester() }
+    LaunchedEffect(Unit) { awaitFrame(); runCatching { first.requestFocus() } }
+    LaunchedEffect(on) { val c = carrying ?: return@LaunchedEffect; awaitFrame(); runCatching { focus[c]?.requestFocus() } }
+    fun close() { if (changed) onSave(on); onClose() }
+    androidx.compose.ui.window.Dialog(onDismissRequest = ::close) {
+        Column(
+            Modifier.width(520.dp).background(AppColors.Panel, RoundedCornerShape(14.dp)).onPreviewKeyEvent { onActivity(); false }.ignoreHeldOk().padding(24.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text("Rows under ${sc.label}", fontSize = 18.sp, color = AppColors.TextPrimary)
+            Text(if (carrying != null) "Up / Down to move it, then OK or Right to put it down." else "OK: on / off  ·  Right: move  ·  Back: done", fontSize = 13.sp, color = AppColors.TextSecondary)
+            androidx.compose.foundation.lazy.LazyColumn(Modifier.heightIn(max = 420.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                items(order.size, key = { order[it] }) { i ->
+                    val t = order[i]
+                    val isOn = t in on
+                    val carried = carrying == t
+                    fun move(by: Int) {
+                        val j = i + by
+                        if (j !in on.indices) return
+                        on = on.toMutableList().apply { add(j, removeAt(i)) }; changed = true
+                    }
+                    io.github.petebutty.viewarr.ui.common.MenuItem(
+                        text = (if (carried) "↕ " else "") + t, trailing = if (isOn) "On" else "Off", dim = !isOn, selected = carried,
+                        modifier = (if (i == 0) Modifier.focusRequester(first) else Modifier).focusRequester(focus.getOrPut(t) { FocusRequester() })
+                            .onPreviewKeyEvent { e ->
+                                if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent carrying != null && e.key != Key.Back
+                                when {
+                                    carrying == null && e.key == Key.DirectionRight -> { if (isOn) carrying = t; true }
+                                    carried && e.key == Key.DirectionRight -> { carrying = null; true }
+                                    carried && e.key == Key.DirectionUp -> { move(-1); true }
+                                    carried && e.key == Key.DirectionDown -> { move(1); true }
+                                    carrying != null && e.key != Key.Back -> true
+                                    else -> false
+                                }
+                            },
+                        onClick = {
+                            if (carried) carrying = null
+                            else if (carrying == null) { on = if (isOn) on - t else on + t; changed = true }
+                        },
+                    )
+                }
+            }
+            io.github.petebutty.viewarr.ui.common.MenuItem(text = "Reset to its usual rows", selected = false, onClick = { onSave(null); onClose() })
         }
     }
 }
@@ -489,9 +637,12 @@ fun OsdCardContent(p: OsdPoster) {
             contentScale = if (p.logo) ContentScale.Fit else ContentScale.Crop,
             modifier = if (p.logo) Modifier.fillMaxSize().padding(horizontal = 28.dp, vertical = 18.dp) else Modifier.fillMaxSize(),
         ) else Text(p.title, fontSize = 13.sp, color = Color.White, maxLines = 2, modifier = Modifier.align(Alignment.Center).padding(8.dp))
+        // Inset from the edges: on the edge, the highlight's border and the rounded corners hid it.
         p.progress?.takeIf { it > 0f }?.let { f ->
-            Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(3.dp).background(Color.White.copy(alpha = 0.25f)))
-            Box(Modifier.align(Alignment.BottomStart).fillMaxWidth(f.coerceIn(0f, 1f)).height(3.dp).background(AppColors.Accent))
+            Box(
+                Modifier.align(Alignment.BottomCenter).padding(start = 10.dp, end = 10.dp, bottom = 7.dp).fillMaxWidth().height(4.dp)
+                    .clip(RoundedCornerShape(2.dp)).background(Color.Black.copy(alpha = 0.45f)),
+            ) { Box(Modifier.fillMaxHeight().fillMaxWidth(f.coerceIn(0f, 1f)).background(AppColors.Accent)) }
         }
     }
 }
@@ -538,11 +689,19 @@ fun OsdCardStatic(p: OsdPoster, highlighted: Boolean) {
 @Composable
 private fun PosterCard(p: OsdPoster, enabled: Boolean, modifier: Modifier = Modifier) {
     var on by remember { mutableStateOf(false) }
+    // Its hold-OK menu closed without going anywhere (Cancel, Back): the highlight comes back to it.
+    val self = remember { FocusRequester() }
+    var held by remember { mutableStateOf(false) }
+    // (Only the card actually held: the same title can be in two rows.)
+    LaunchedEffect(CardMenu.open == null) {
+        if (held && CardMenu.open == null) { held = false; awaitFrame(); runCatching { self.requestFocus() } }
+    }
     Column(Modifier.width(OSD_CARD_W.dp)) {
         Surface(
             onClick = p.onClick,
+            onLongClick = if (p.options.isEmpty()) null else ({ held = true; CardMenu.open = p }),
             enabled = enabled,
-            modifier = modifier.size(OSD_CARD_W.dp, OSD_CARD_H.dp).onFocusChanged { on = it.isFocused },
+            modifier = modifier.focusRequester(self).size(OSD_CARD_W.dp, OSD_CARD_H.dp).onFocusChanged { on = it.isFocused },
             scale = ClickableSurfaceDefaults.scale(scale = 1f, focusedScale = 1.05f, pressedScale = 1f),
             shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
             border = ClickableSurfaceDefaults.border(
@@ -580,7 +739,8 @@ private fun Pill(icon: androidx.compose.ui.graphics.vector.ImageVector, label: S
             onClick = onClick,
             onLongClick = onLongClick,
             modifier = modifier.size(bw, bh).onFocusChanged { on = it.isFocused; if (it.isFocused) onFocus() },
-            scale = ClickableSurfaceDefaults.scale(scale = 1f, focusedScale = 1f, pressedScale = 1f),
+            // The shortcuts grow a little when highlighted, so it's clear which one you're on (the buttons don't).
+            scale = ClickableSurfaceDefaults.scale(scale = 1f, focusedScale = if (big) 1.2f else 1f, pressedScale = 1f),
             shape = ClickableSurfaceDefaults.shape(shortcutShape(style)),
             colors = ClickableSurfaceDefaults.colors(
                 containerColor = Color.White.copy(alpha = 0.14f),

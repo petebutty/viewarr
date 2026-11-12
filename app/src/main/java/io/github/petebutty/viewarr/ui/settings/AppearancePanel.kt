@@ -178,6 +178,7 @@ fun AppearanceSettingsScreen(onBack: () -> Unit, vm: AppearanceViewModel = hiltV
                 SettingItem("Corners", "Rounded or square corners on the guide's programmes and channel names.", corners,
                     if (palette.squareCorners) corners[1] else corners[0]) { c -> vm.setSquareCorners((c as Choice).value == true) },
                 optItem(opts, "Channel logos", "Logos beside the channel names.", io.github.petebutty.viewarr.ui.theme.UiOpts.CHANNEL_LOGOS),
+                optItem(opts, "End of a list", "The TV guide, the channel list and its groups, past the last channel (or above the first). Jump to the other end: one more press goes to the top (holding the button stops at the end, so a long scroll doesn't fly round). Stop: nothing more.", io.github.petebutty.viewarr.ui.theme.UiOpts.LIST_ENDS),
                 optItem(opts, "Catch-up icons", "The replay icon on past programmes you can watch again, and beside channels that have catch-up. Catch-up still works with it off.", io.github.petebutty.viewarr.ui.theme.UiOpts.CATCHUP_ICONS),
             ) + listOfNotNull(
                 // Low-memory mode: no programme pictures at all, so no setting for them.

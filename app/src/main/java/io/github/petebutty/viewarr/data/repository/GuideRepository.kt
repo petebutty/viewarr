@@ -4,7 +4,6 @@ import android.content.Context
 import android.util.JsonReader
 import android.util.JsonToken
 import androidx.room.withTransaction
-import io.github.petebutty.viewarr.data.local.AppDatabase
 import io.github.petebutty.viewarr.data.local.ChannelEntity
 import io.github.petebutty.viewarr.data.local.GroupEntity
 import io.github.petebutty.viewarr.data.local.ProgramEntity
@@ -211,6 +210,10 @@ class GuideRepository @Inject constructor(
         }.getOrDefault(emptyList())
     }
     suspend fun programsFor(channelId: Int, guideKey: String, from: Long, to: Long) = dao.programsFor(channelId, guideKey, from, to)
+    suspend fun programsForChannels(channelIds: List<Int>, from: Long, to: Long) =
+        // (SQLite takes up to 999 values in one IN list.)
+        channelIds.chunked(900).flatMap { dao.programsForChannels(it, from, to) }
+    suspend fun searchProgramsEnding(q: String, endFrom: Long, endTo: Long) = dao.searchProgramsEnding(q, endFrom, endTo)
 
     suspend fun syncIfStale(session: Session) {
         activate(session)

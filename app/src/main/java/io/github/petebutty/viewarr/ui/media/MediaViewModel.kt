@@ -249,6 +249,16 @@ class MediaViewModel @Inject constructor(
         if (set != null && l != null) r.copy(rows = l.ordered(r.rows).filter { io.github.petebutty.viewarr.ui.player.RowSets.matches(set, it) } + rowSetExtra.value)
         else if (l != null) r.copy(rows = l.ordered(r.rows).filter { it.id !in l.hidden || it.id == extra }) else r.copy(rows = focusFirst(orderSearch(f.apply(r.rows)), focus))
     }.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, RowsState(emptyList(), done = false))
+    /**
+     * The page's own home rows (as the page opens normally), for the live TV shortcuts' previews (Movies / Shows):
+     * [rows] becomes a network's set while one of their shortcuts is open, and the Shows shortcut showed Prime Video's.
+     */
+    val homeRows: kotlinx.coroutines.flow.StateFlow<RowsState> = kotlinx.coroutines.flow.combine(shownRows, layout, setRowsHome) { r, l, home ->
+        val grouped = if (home) emptySet() else io.github.petebutty.viewarr.ui.player.RowSets.sets(r.rows).filter { it.startsWith("name:") }.toSet()
+        val own = r.rows.filter { row -> io.github.petebutty.viewarr.ui.player.RowSets.name(row)?.let { "name:$it" !in grouped } ?: true }
+        r.copy(rows = if (l != null) l.ordered(own).filter { it.id !in l.hidden } else own)
+    }.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, RowsState(emptyList(), done = false))
+
     /** Every row in the chosen order with whether it's hidden, for Settings → Home rows. */
     val editableRows: kotlinx.coroutines.flow.StateFlow<Pair<List<Pair<io.github.petebutty.viewarr.data.media.MediaRow, Boolean>>, Boolean>> =
         kotlinx.coroutines.flow.combine(shownRows, layout, setRowsHome) { r, l, home ->
@@ -1452,6 +1462,24 @@ class MediaViewModel @Inject constructor(
             detailJob?.join()
             val d = _detail.value ?: return@launch
             if (d.copies != null) playBest()
+        }
+    }
+
+    /** A show from Continue watching, played straight away: the episode you're up to (as its Play S2 E4 button). */
+    fun quickNextUp(item: MediaItem) {
+        open(item)
+        viewModelScope.launch {
+            detailJob?.join()
+            if (_detail.value != null) playNextUp()
+        }
+    }
+
+    /** Continue watching → Play from the start: the film, or the episode you're up to, from the beginning. */
+    fun quickFromStart(item: MediaItem) {
+        open(item)
+        viewModelScope.launch {
+            detailJob?.join()
+            if (_detail.value != null) playFromStart()
         }
     }
 

@@ -1,5 +1,8 @@
 package io.github.petebutty.viewarr.ui.guide
 
+import kotlinx.serialization.json.long
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.jsonArray
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.petebutty.viewarr.data.local.ChannelListItem
@@ -65,23 +68,25 @@ class GuideViewModel @Inject constructor(
             ?.firstOrNull { it.key == "event_channel_managarr" && it.enabled }
             ?.settings?.get("channel_groups")?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.content }
             ?.split(',')?.map { it.trim().lowercase() }?.filter { it.isNotEmpty() }?.toSet().orEmpty()
-        // Ranked Matchups (a Dispatcharr plugin) keeps a "Top Matchups" group of the games worth watching: always in.
-        return (if (fromPlugin.isEmpty()) fromPlugin else fromPlugin + "top matchups").also { eventGroupNames = it }
+        return fromPlugin.also { eventGroupNames = it }
     }
     private val eventWords = Regex("\\b(sports?|events?|ppv|pay per view|box office|football|soccer|rugby|ufc|boxing|wwe|nfl|nba|nhl|mlb|f1|motogp|cricket|golf|tennis|darts|racing|premier league|efl|epl|spfl|uefa|matchroom|dazn)\\b", RegexOption.IGNORE_CASE)
 
     /** What's on the event channels now, and starting in the next three hours (most recent / soonest first). */
     suspend fun liveEvents(): LiveEvents {
         val named = eventGroups()
-        val all = repo.observeChannels(null).first()
-        val chans = all.filter { c -> c.groupName?.let { g -> if (named.isNotEmpty()) g.trim().lowercase() in named else (eventWords.containsMatchIn(g) || g.equals("Top Matchups", true)) } == true }.take(400)
+        val all = allChannelsList()
+        val chans = all.filter { c -> c.groupName?.let { g -> if (named.isNotEmpty()) g.trim().lowercase() in named else eventWords.containsMatchIn(g) } == true }.take(400)
         val now = System.currentTimeMillis()
         val onNow = ArrayList<Pair<ChannelListItem, GuideProgram>>()
         val soon = ArrayList<Pair<ChannelListItem, GuideProgram>>()
-        // Placeholders ("Ended: …", "No event today") left out: only real events.
-        for (c in chans) {
-            val ps = runCatching { repo.programsFor(c.id, c.guideKey, now - 1, now + 3 * 3_600_000L) }.getOrNull().orEmpty()
-                .filter { sports.clean(it.title) != null }
+        // Placeholders ("Ended: …", "No event today") left out: only real events. Every event channel's next three
+        // hours in one read (one channel at a time was hundreds of reads a minute).
+        val byId = chans.associateBy { it.id }
+        val all3h = runCatching { repo.programsForChannels(chans.map { it.id }, now - 1, now + 3 * 3_600_000L) }.getOrNull().orEmpty()
+        for ((id, ps0) in all3h.groupBy { it.channelId }) {
+            val c = byId[id] ?: continue
+            val ps = ps0.filter { sports.clean(it.title) != null }
             ps.firstOrNull { it.startTime <= now && it.endTime > now }?.let { onNow += c to it }
             ps.firstOrNull { it.startTime > now }?.let { soon += c to it }
         }
@@ -95,7 +100,8 @@ class GuideViewModel @Inject constructor(
             l.map { (c, p) ->
                 async {
                     val title = sports.clean(p.title) ?: p.title
-                    val pic = p.image ?: gate.withPermit { runCatching { sports.picture(title) }.getOrNull() }
+                    // (Pictures from TheSportsDB for the first dozen only: it allows very few requests.)
+                    val pic = p.image ?: if (l.indexOfFirst { it.second.rowId == p.rowId } < 12) gate.withPermit { runCatching { sports.picture(title) }.getOrNull() } else null
                     LiveEvent(c, p, title, sports.sport("$title ${c.name} ${c.groupName.orEmpty()}"), pic)
                 }
             }.map { it.await() }
@@ -180,11 +186,27 @@ class GuideViewModel @Inject constructor(
         _cursor.value = initialCursor(System.currentTimeMillis())
     }
 
-    fun moveVertical(delta: Int) {
+    /**
+     * Up / Down a row ([delta] rows; a page with the channel buttons). Past the last channel or above the first
+     * (Settings → Appearance → End of a list): [ends] 0 loops on round, 1 jumps to the other end on a [fresh] press
+     * (holding the button stops at the end), 2 stops.
+     */
+    fun moveVertical(delta: Int, ends: Int = 2, fresh: Boolean = true): Boolean {
         val count = channels.value.size
-        if (count == 0) return
-        _cursor.update { it.copy(row = (it.row + delta).coerceIn(0, count - 1)) }
+        if (count == 0) return false
+        val before = _cursor.value.row
+        _cursor.update { c ->
+            val to = c.row + delta
+            val row = when {
+                to in 0 until count -> to
+                ends == 0 -> ((to % count) + count) % count
+                ends == 1 && fresh && (c.row == 0 || c.row == count - 1) -> if (to < 0) count - 1 else 0
+                else -> to.coerceIn(0, count - 1)
+            }
+            c.copy(row = row)
+        }
         ensurePast()
+        return _cursor.value.row != before
     }
 
     fun moveRight() {
@@ -266,7 +288,7 @@ class GuideViewModel @Inject constructor(
     suspend fun channelsFor(session: io.github.petebutty.viewarr.data.session.Session) = repo.channelsFor(session)
     fun lastChannelOfSource(): Int? = repo.lastChannel()
 
-    suspend fun channelById(id: Int): ChannelListItem? = repo.observeChannels(null).first().firstOrNull { it.id == id }
+    suspend fun channelById(id: Int): ChannelListItem? = allChannelsById()[id]
 
     /** Channels whose name or number matches a search, across all categories. */
     /** A channel's programmes: back as far as its catch-up goes (else just earlier today), and the next day ahead. */
@@ -295,11 +317,103 @@ class GuideViewModel @Inject constructor(
         return repo.programsFor(ch.id, ch.guideKey, from, now + 30 * 3_600_000L)
     }
 
+    /**
+     * Sports hub: the channel showing [game], from the guide: a programme naming both sides (each by its most
+     * telling word: "Celtic", "Mirren"), from 3 hours before kick-off to an hour after. Null if none is listed yet.
+     */
+    // A game's channel, remembered for ten minutes (the Sports rows ask each time the live TV controls open).
+    private val gameChannels = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, Pair<ChannelListItem, GuideProgram>?>>()
+    // Every channel (all groups): one copy, kept up to date by the database (a guide sync, another Live TV source), for
+    // the things that look across all of them: search as you type, Live now each minute, a channel by its id. Each
+    // used to load the whole list again every time.
+    private val allChannels = repo.observeChannels(null).stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    private suspend fun allChannelsList(): List<ChannelListItem> = allChannels.value.ifEmpty { repo.observeChannels(null).first() }
+    private var byIdOf: Pair<List<ChannelListItem>, Map<Int, ChannelListItem>>? = null
+    private suspend fun allChannelsById(): Map<Int, ChannelListItem> {
+        val list = allChannelsList()
+        byIdOf?.takeIf { it.first === list }?.let { return it.second }
+        return list.associateBy { it.id }.also { byIdOf = list to it }
+    }
+
+    /** A televised UK match from the UK Sport on TV plugin (Dispatcharr): when, who, and which channels. */
+    private data class UkMatch(val start: Long, val home: String, val away: String, val channels: List<String>)
+    private var ukList: Pair<Long, List<UkMatch>?>? = null
+
+    /**
+     * The UK Sport on TV plugin's listings, if it's installed and on (read every 30 minutes). Null: not there (or this
+     * profile can't read plugins: only Dispatcharr admins can).
+     */
+    private suspend fun ukListings(): List<UkMatch>? {
+        ukList?.takeIf { System.currentTimeMillis() - it.first < 30 * 60_000L }?.let { return it.second }
+        val list = runCatching {
+            val p = plugins.installed()?.firstOrNull { it.key == "uk_sport_on_tv" && it.enabled } ?: return@runCatching null
+            val raw = (p.settings["listings"] as? kotlinx.serialization.json.JsonPrimitive)?.content ?: return@runCatching null
+            kotlinx.serialization.json.Json.parseToJsonElement(raw).jsonArray.mapNotNull { e ->
+                val a = e.jsonArray
+                UkMatch(
+                    a[0].jsonPrimitive.long, a[1].jsonPrimitive.content, a[2].jsonPrimitive.content,
+                    a[4].jsonArray.map { it.jsonPrimitive.content },
+                )
+            }
+        }.getOrNull()
+        ukList = System.currentTimeMillis() to list
+        return list
+    }
+
+    /**
+     * The UK channels showing a game your guide doesn't reach yet: the UK Sport on TV plugin's listings first (football,
+     * weeks ahead), else TheSportsDB. Null: no answer yet.
+     */
+    suspend fun ukChannels(game: io.github.petebutty.viewarr.data.sports.SportGame): List<String>? {
+        ukListings()?.let { list ->
+            // Same kick-off (within half an hour) and at least one of the teams ("Heart of Midlothian" is "Hearts"
+            // there, but Celtic is Celtic).
+            val skip = setOf("fc", "afc", "cf", "sc", "united", "city", "town", "athletic", "county", "rovers", "the", "and", "real", "club", "women", "albion")
+            fun words(n: String) = n.lowercase().replace("&", " ").split(Regex("[^\\p{L}0-9]+")).filter { it.length > 2 && it !in skip }.toSet()
+            fun same(a: String, b: String): Boolean {
+                if (a.equals(b, true)) return true
+                val wa = words(a); val wb = words(b)
+                return wa.isNotEmpty() && wb.isNotEmpty() && (wa.intersect(wb).isNotEmpty() || wa.any { x -> wb.any { y -> x.startsWith(y) || y.startsWith(x) } })
+            }
+            // (Women's and men's sides kept apart.)
+            fun women(n: String) = n.contains("women", true)
+            val m = list.firstOrNull { u ->
+                kotlin.math.abs(u.start - game.start) <= 30 * 60_000L && women(u.home) == women(game.home) &&
+                    (same(u.home, game.home) || same(u.away, game.away) || same(u.home, game.away) || same(u.away, game.home))
+            }
+            if (m != null) return m.channels
+            // Listed, and not there: not on UK TV (a Saturday 3pm game, say). The plugin's listings cover football only,
+            // the coming weeks only.
+            if (game.league.startsWith("soccer/") && list.any { it.start >= game.start }) return listOf(NOT_ON_UK_TV)
+        }
+        return runCatching { sports.ukChannels(game.home, game.away, game.start) }.getOrNull()
+    }
+
+    suspend fun channelForGame(game: io.github.petebutty.viewarr.data.sports.SportGame): Pair<ChannelListItem, GuideProgram>? {
+        val t = System.currentTimeMillis()
+        gameChannels[game.id + "|" + game.start]?.takeIf { t - it.first < 10 * 60_000L }?.let { return it.second }
+        val skip = setOf("fc", "afc", "cf", "sc", "united", "city", "town", "athletic", "county", "rovers", "the", "de", "real", "club")
+        fun key(team: String) = team.split(Regex("[^\\p{L}0-9]+")).filter { it.length > 2 && it.lowercase() !in skip }.maxByOrNull { it.length } ?: team
+        val a = key(game.home); val b = key(game.away)
+        if (a.isBlank()) return null
+        // Only the shows around kick-off (starting up to 3 h before to 1 h after; so ending by 7 h after), not the
+        // whole guide.
+        val channels = allChannelsById()
+        val found = runCatching { repo.searchProgramsEnding(a, game.start - 3 * 3_600_000L, game.start + 7 * 3_600_000L) }.getOrNull().orEmpty()
+            .mapNotNull { p -> channels[p.channelId]?.let { it to p } }
+        val best = found.filter { (_, p) ->
+            (b.isBlank() || p.title.contains(b, ignoreCase = true) || p.subTitle?.contains(b, ignoreCase = true) == true) &&
+                p.startTime in (game.start - 3 * 3_600_000L)..(game.start + 3_600_000L)
+        }.minByOrNull { (_, p) -> kotlin.math.abs(p.startTime - game.start) }
+        gameChannels[game.id + "|" + game.start] = t to best
+        return best
+    }
+
     /** Search: what's on now and coming up whose title matches, with its channel (one per showing). */
     suspend fun searchPrograms(q: String): List<Pair<ChannelListItem, io.github.petebutty.viewarr.data.local.GuideProgram>> {
         val t = q.trim()
         if (t.length < 2) return emptyList()
-        val channels = repo.observeChannels(null).first().associateBy { it.id }
+        val channels = allChannelsById()
         return repo.searchPrograms(t, System.currentTimeMillis(), 120)
             .mapNotNull { p -> channels[p.channelId]?.let { it to p } }
             // The same showing on two copies of a channel: keep one.
@@ -315,7 +429,7 @@ class GuideViewModel @Inject constructor(
         val t = q.trim()
         if (t.length < 2) return emptyList()
         val session = sessions.session.first() ?: return emptyList()
-        val all = repo.observeChannels(null).first().filter { it.catchupDays > 0 }
+        val all = allChannelsList().filter { it.catchupDays > 0 }
         if (all.isEmpty()) return emptyList()
         val now = System.currentTimeMillis()
         val from = now - all.maxOf { it.catchupDays } * 86_400_000L
@@ -334,7 +448,7 @@ class GuideViewModel @Inject constructor(
     suspend fun searchChannels(q: String): List<ChannelListItem> {
         val t = q.trim()
         if (t.length < 2) return emptyList()
-        return repo.observeChannels(null).first().filter { c ->
+        return allChannelsList().filter { c ->
             c.name.contains(t, ignoreCase = true) || c.number?.let { n -> (if (n % 1.0 == 0.0) n.toInt().toString() else n.toString()) == t } == true
         }.take(30)
     }
@@ -405,6 +519,8 @@ class GuideViewModel @Inject constructor(
     }
 
     companion object {
+        /** [ukChannels]: in the UK listings' range, and not in them (not on UK TV). */
+        const val NOT_ON_UK_TV = "\u0000not on UK TV"
         const val STEP_MS = 30 * 60_000L
         const val VISIBLE_MS = 150 * 60_000L
         private const val BUFFER_MS = 90 * 60_000L

@@ -58,6 +58,7 @@ class RemoteViewModel @Inject constructor(private val store: RemoteStore) : View
     fun resetButtons() = viewModelScope.launch { store.resetButtons() }
     fun applyPreset(p: io.github.petebutty.viewarr.data.settings.ControlPreset) = viewModelScope.launch { store.applyPreset(p) }
     fun setLiveShortcuts(ids: List<String>) = viewModelScope.launch { store.setLiveShortcuts(ids) }
+    fun setShortcutRows(id: String, rows: List<String>?) = viewModelScope.launch { store.setShortcutRows(id, rows) }
     fun resetLiveShortcuts() = viewModelScope.launch { store.clear(listOf(RemoteStore.LIVE_SHORTCUTS)) }
 }
 
@@ -182,13 +183,10 @@ fun RemoteSettingsScreen(onBack: () -> Unit, part: RemotePart = RemotePart.Butto
     }
     // "A button you choose": the next button pressed becomes the search button.
     var learning by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
-    var hubGuide by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
     var networkSetup by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
     fun item(title: String, description: String, key: String, choices: List<RemoteChoice>, current: RemoteChoice) =
         SettingItem(title, description, choices, current) {
             if (it == io.github.petebutty.viewarr.data.settings.SearchButton.Chosen) learning = true
-            // The Live TV hub: its guide first (what it needs, networks), which turns it on.
-            else if (it == io.github.petebutty.viewarr.data.settings.NavStyle.LiveHub && s.navStyle != it) hubGuide = true
             else vm.set(key, it)
         }
     val k = RemoteStore.Companion
@@ -268,7 +266,8 @@ fun RemoteSettingsScreen(onBack: () -> Unit, part: RemotePart = RemotePart.Butto
         "Reset these buttons", "Back to how Viewarr comes, for this screen only.",
         listOf(ButtonStatus("")), ButtonStatus(""), action = { vm.resetScreen(screen, keys) }, onSelect = {},
     )
-    val hubOn = s.navStyle == io.github.petebutty.viewarr.data.settings.NavStyle.LiveHub
+    // (The shortcuts are always on now: there's no separate Live TV hub style.)
+    val hubOn = true
     val searchItem = item("Search button", "Pops search up from any screen (live TV, the guide, films and shows); Back closes it and you're where you were.", k.SEARCH_BUTTON, all<io.github.petebutty.viewarr.data.settings.SearchButton>(), s.searchButton)
     // Which preset the settings match now (any change of your own: Custom).
     val preset = run {
@@ -372,31 +371,23 @@ fun RemoteSettingsScreen(onBack: () -> Unit, part: RemotePart = RemotePart.Butto
             listOf(searchItem) + buttonItems,
         ),
     )
-    // The Live TV hub's shortcuts: only with the hub on (they appear nowhere else). With Classic menus, one section
-    // saying what the hub is and turning it on, instead of five locked lists.
-    val hubCategories = if (hubOn) listOf(
+    // The live TV shortcuts: your row, and the lists to add to it.
+    val hubCategories = listOf(
         SettingCategory(
-            "Live TV shortcuts", "Your row of shortcuts on live TV: press OK, then Down. Each opens a page (Movies, the guide…), a network's rows (Netflix, BBC One…) or one of your libraries, with live TV carrying on in the corner. Add them from the \"Add shortcuts\" lists below. To change the order, press Right on one, move it with Up / Down, then Right again. On live TV, holding OK on a shortcut takes it off.",
-            shortcutItems,
+            "Live TV shortcuts", "Your row of shortcuts on live TV: press OK, then Down. Each opens a page (Movies, the guide…), a network's rows (Netflix, BBC One…) or one of your libraries, with live TV carrying on in the corner while you look; choosing a title stops it. Add them from the \"Add shortcuts\" lists below. To change the order, press Right on one, move it with Up / Down, then Right again. On live TV, holding OK on a shortcut gives Move, Choose rows, Refresh or Hide.",
+            listOf(SettingItem("Set up network shortcuts…", "Pick the streaming services and channels you watch (Netflix, Prime Video, BBC…): they join your row, most popular first.",
+                listOf(ButtonStatus("")), ButtonStatus(""), action = { networkSetup = true }, onSelect = {})) + shortcutItems,
         ),
         SettingCategory("Add shortcuts: pages", "Shortcuts to Viewarr's own pages: Movies, Shows, the TV guide, Live now (sport and events on now), Music, Recordings, Search and Settings. Switched on, they join the end of your row on live TV.", addList(pageShortcuts)),
         SettingCategory("Add shortcuts: networks", "Streaming services and TV channels from your addons: each shortcut opens that network's rows (Popular, New, Top rated…). Switched on, they join the end of your row on live TV.", addList(networkShortcuts)),
         SettingCategory("Add shortcuts: your libraries", "Your Plex, Jellyfin and Emby libraries and rows (Continue watching, Recently added, your watchlist), and your music: Albums, Artists, Playlists. Switched on, they join the end of your row on live TV.", addList(plexShortcuts)),
         SettingCategory("Add shortcuts: other rows", "Everything else: other libraries, TMDB and Trakt rows, addon catalogues. Switched on, they join the end of your row on live TV.", addList(otherShortcuts)),
-    ) else listOf(
-        SettingCategory(
-            "Live TV hub", "The Live TV hub is another way to use Viewarr: it opens on your last channel, Back from any page goes back to it, and on live TV, OK then Down shows a row of shortcuts (Netflix, your Plex libraries, Movies…) that open with the channel carrying on in the corner. Its shortcuts are chosen here once it's on. You're using Classic menus, so none of this shows.",
-            listOf(SettingItem("Turn on the Live TV hub…", "Shows what it needs first (live TV, and addons with network rows for the network shortcuts), then turns it on. You can go back to Classic menus any time under Start → Style.",
-                listOf(ButtonStatus("")), ButtonStatus(""), action = { hubGuide = true }, onSelect = {})),
-        ),
     )
     val navigationCategories = listOf(
         SettingCategory(
             "Start", "How Viewarr works and what you see when it opens.",
             listOf(
-                item("Style", "Classic menus: as Viewarr has always worked. Live TV hub: Viewarr opens on your last channel, Back from any page (Movies, Shows, Music, Recordings…) goes back to it, and the shortcuts under the live TV controls (OK, then Down) take you anywhere.", k.NAV_STYLE, all<io.github.petebutty.viewarr.data.settings.NavStyle>(), s.navStyle),
-                item("App opens on", "The page Viewarr starts on. Last channel plays the channel you watched last, full screen.", k.START_PAGE, all<StartPage>(), s.startPage)
-                    .locked(if (hubOn) Locks.LIVE_HUB else null),
+                item("App opens on", "The page Viewarr starts on: live TV (Last channel plays the channel you watched last, full screen), the TV guide, or one of your libraries.", k.START_PAGE, all<StartPage>(), s.startPage),
             ),
         ),
         SettingCategory(
@@ -419,11 +410,6 @@ fun RemoteSettingsScreen(onBack: () -> Unit, part: RemotePart = RemotePart.Butto
     // Reset: the buttons only (not where the app opens, the menu or the poster rows).
     if (part == RemotePart.Buttons) SettingsPage(title = "Remote buttons", categories = categories, onBack = onBack, onReset = { vm.resetButtons() }, resetLabel = "Reset buttons")
     else SettingsPage(title = "Navigation", categories = categories, onBack = onBack)
-    if (hubGuide) LiveHubGuide(
-        onTurnOn = { vm.set(k.NAV_STYLE, io.github.petebutty.viewarr.data.settings.NavStyle.LiveHub); hubGuide = false },
-        onNetworks = { networkSetup = true },
-        onClose = { hubGuide = false },
-    )
     // After choosing networks: the shortcut row is the networks picked (most popular first), then Movies, Shows,
     // your Plex rows, Music, Recordings and Search. Network ids are kept even before their rows have loaded.
     if (networkSetup) NetworkSetupScreen(

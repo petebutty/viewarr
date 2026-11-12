@@ -1,12 +1,13 @@
 package io.github.petebutty.viewarr.ui.media
 
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.foundation.focusGroup
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -15,13 +16,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.layout
-import androidx.compose.foundation.layout.offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.type
 import io.github.petebutty.viewarr.data.media.PlayerArt
@@ -73,6 +71,13 @@ object VodHost {
     private var shown: VodStream? = null
 
     fun minimise() { if (active) mini = true }
+    /** Search (the home screen sets it): the film goes to the corner and search opens over the page. */
+    var openSearch: () -> Unit = {}
+    /**
+     * After a film or episode ended or was stopped by you (Stop, Back): Settings → Playback → After a film or episode
+     * (the home screen sets it). Not when it's left for a shortcut (that goes where you chose).
+     */
+    var afterStop: () -> Unit = {}
     /**
      * The rest of a held Back that already did its job (the film went to the corner while it was held): swallowed at
      * the root until it's let go, so it doesn't also bring the film back full screen.
@@ -94,6 +99,7 @@ object VodHost {
 }
 
 /** At the root, over everything: the player, full screen or in the corner. */
+@OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
 fun VodHostLayer() {
     val src = VodHost.source ?: return
@@ -108,7 +114,7 @@ fun VodHostLayer() {
     val mini = VodHost.mini
     // Settings → Playback → Picture-in-picture: size and corner.
     val p = AppColors.palette
-    val (w, h) = when (p.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.MINI_SIZE)) { 1 -> 320.dp to 180.dp; 2 -> 512.dp to 288.dp; else -> 400.dp to 225.dp }
+    val (w, h) = io.github.petebutty.viewarr.ui.theme.CornerPicture.size()
     val corner = when (p.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.MINI_CORNER)) { 1 -> Alignment.BottomStart; 2 -> Alignment.TopEnd; 3 -> Alignment.TopStart; else -> Alignment.BottomEnd }
     val top = corner == Alignment.TopEnd || corner == Alignment.TopStart
     val left = corner == Alignment.BottomStart || corner == Alignment.TopStart
@@ -143,7 +149,6 @@ fun VodHostLayer() {
     // Standard video view (a SurfaceView): the display hardware scales the picture, so the window's real place and
     // size are moved (only re-laid out each frame). A scaled graphics layer doesn't apply to a SurfaceView.
     val surfaceView = io.github.petebutty.viewarr.data.settings.LocalPlayback.current.videoView == io.github.petebutty.viewarr.data.settings.VideoView.Standard
-    val settled by androidx.compose.runtime.remember { androidx.compose.runtime.derivedStateOf { VodHost.mini && shrinkAnim.value >= 0.999f } }
     androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize()) {
         val fullW = maxWidth
         val fullH = maxHeight
@@ -184,21 +189,29 @@ fun VodHostLayer() {
                 }
                 .background(Color.Black),
         ) {
+          // In the corner: nothing inside the player takes the highlight by moving onto it (the page's Right / Down
+          // went in there, out of sight); the corner picture's own highlight (Full screen / Close) is drawn by the page.
+          // The search button while the film's full screen: it goes to the corner and search opens (search first,
+          // whatever's playing). The rest of that press is swallowed (a tap of Menu would also open audio & subtitles).
+          val remote = io.github.petebutty.viewarr.data.settings.LocalRemote.current
+          val searchHeld = androidx.compose.runtime.remember { booleanArrayOf(false) }
+          val searchKeys = Modifier.onPreviewKeyEvent { e ->
+              if (searchHeld[0]) { if (e.type == androidx.compose.ui.input.key.KeyEventType.KeyUp) searchHeld[0] = false; return@onPreviewKeyEvent true }
+              if (mini || e.type != androidx.compose.ui.input.key.KeyEventType.KeyDown || !io.github.petebutty.viewarr.ui.common.SearchKey.hit(e, remote)) return@onPreviewKeyEvent false
+              searchHeld[0] = true
+              VodHost.minimise()
+              VodHost.openSearch()
+              true
+          }
+          Box(if (mini && !VodHost.gliding) Modifier.fillMaxSize()
+                  .focusProperties { enter = { androidx.compose.ui.focus.FocusRequester.Cancel } }.focusGroup()
+              else Modifier.fillMaxSize().then(searchKeys)) {
             // A new film or episode gets a fresh player and picture surface. Without this the old screen's
             // surface stayed attached to the old player: the picture froze and only the new one's sound played.
             androidx.compose.runtime.key(s) {
-                PlayerHost(stream = s, onClose = src.onClose, art = art, onProgress = src.onProgress)
+                PlayerHost(stream = s, onClose = { src.onClose(); VodHost.afterStop() }, art = art, onProgress = src.onProgress)
             }
+          }
         }
-        if (settled) androidx.tv.material3.Text(
-            "Hold Back: full screen",
-            fontSize = 12.sp, color = AppColors.TextPrimary,
-            modifier = Modifier.align(corner).padding(
-                start = if (left) 48.dp else 0.dp, end = if (left) 0.dp else 48.dp,
-                top = if (top) 56.dp + h + 8.dp else 0.dp, bottom = if (top) 0.dp else 32.dp + h + 8.dp,
-            )
-                .background(AppColors.Panel.copy(alpha = 0.9f), RoundedCornerShape(12.dp))
-                .padding(horizontal = 10.dp, vertical = 3.dp),
-        )
     }
 }

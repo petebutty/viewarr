@@ -452,9 +452,18 @@ class SettingsSync @Inject constructor(
         val LAST_HASH = stringPreferencesKey("last_hash")
         val APPLIED_AT = longPreferencesKey("applied_at")
 
-        /** Settings that belong to the box itself, never copied between TVs. */
+        /**
+         * Settings that belong to the box itself, never copied between TVs. The remote's buttons too (Settings →
+         * Remote buttons): every TV can have a different remote, with different buttons and codes. Where to go
+         * (Navigation: the hub, shortcuts, sports, the menu) is yours on every TV, so that's still copied.
+         */
         val LOCAL_ONLY = mapOf(
             "playback" to setOf("passthrough", "downmix", "mpv_decoding", "frame_rate", "picture_size", "deinterlace", "buffer", "max_res", "audio_delay"),
+            "remote" to setOf(
+                "guide_left_v2", "guide_back_v2", "channel_keys", "zap_v2", "seek", "player_ok", "row_left", "media_back_v2",
+                "menu_back", "preset_base", "live_sides", "search_button", "search_keycode", "buttons_v1", "bmap_v1",
+            ),
+            "appearance" to setOf("opt_zap_delay"),
         )
     }
 }

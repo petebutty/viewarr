@@ -31,12 +31,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
@@ -67,7 +67,6 @@ import io.github.petebutty.viewarr.ui.theme.AppColors
 import coil.compose.AsyncImage
 import java.time.Instant
 import java.time.ZoneId
-import java.time.format.DateTimeFormatter
 
 private val ChannelColumn = 230.dp
 private val RowHeight = 38.dp
@@ -93,6 +92,11 @@ fun GuideScreen(
     onOpenMenu: () -> Unit,
     onSelect: (ChannelListItem, GuideProgram?) -> Unit,
     onLongSelect: (ChannelListItem, GuideProgram?) -> Unit = { _, _ -> },
+    /**
+     * Up / Down with nowhere further to go (End of a list → Stop, or a held button at the end): a film's picture in the
+     * corner takes the highlight (true: it did).
+     */
+    onPastEnd: (up: Boolean) -> Boolean = { false },
 ) {
     val okPending = remember { mutableStateOf(false) }
     val remote = LocalRemote.current
@@ -109,12 +113,13 @@ fun GuideScreen(
     val focused = selectedChannel?.let { GuideViewModel.programAt(programs[it.id].orEmpty(), cursor.focusTime) }
 
     LaunchedEffect(cursor.row, channels.size) {
+        val target = cursor.row
         val visible = listState.layoutInfo.visibleItemsInfo
         val first = visible.firstOrNull()?.index ?: 0
         val shown = maxOf(visible.size, 1)
         when {
-            cursor.row < first + 1 -> listState.scrollToItem(maxOf(0, cursor.row - 1))
-            cursor.row > first + shown - 2 -> listState.scrollToItem(maxOf(0, cursor.row - shown + 2))
+            visible.isEmpty() || target < first + 1 -> listState.scrollToItem(maxOf(0, target - 1))
+            target > first + shown - 2 -> listState.scrollToItem(maxOf(0, target - shown + 2))
         }
     }
 
@@ -198,13 +203,16 @@ fun GuideScreen(
                 if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 // Buttons through RemoteKeys, so ones taught in Settings → Remote work here too.
                 val action = io.github.petebutty.viewarr.ui.common.RemoteKeys.action(e)
+                // Past the last channel / above the first: Settings → Appearance → End of a list (Jump: 1, Stop: 2).
+                val ends = if (AppColors.palette.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.LIST_ENDS) == 0) 1 else 2
+                val fresh = e.nativeKeyEvent.repeatCount == 0
                 when {
-                    e.key == Key.DirectionUp -> vm.moveVertical(-1)
-                    e.key == Key.DirectionDown -> vm.moveVertical(1)
+                    e.key == Key.DirectionUp -> { if (!vm.moveVertical(-1, ends, fresh) && fresh) onPastEnd(true) }
+                    e.key == Key.DirectionDown -> { if (!vm.moveVertical(1, ends, fresh) && fresh) onPastEnd(false) }
                     action == io.github.petebutty.viewarr.ui.common.RemoteAction.ChannelUp || e.key == Key.PageUp ->
-                        vm.moveVertical(if (remote.channelKeys == ChannelKeys.Reversed) PAGE else -PAGE)
+                        vm.moveVertical(if (remote.channelKeys == ChannelKeys.Reversed) PAGE else -PAGE, ends, fresh)
                     action == io.github.petebutty.viewarr.ui.common.RemoteAction.ChannelDown || e.key == Key.PageDown ->
-                        vm.moveVertical(if (remote.channelKeys == ChannelKeys.Reversed) -PAGE else PAGE)
+                        vm.moveVertical(if (remote.channelKeys == ChannelKeys.Reversed) -PAGE else PAGE, ends, fresh)
                     e.key == Key.DirectionRight || action == io.github.petebutty.viewarr.ui.common.RemoteAction.FastForward -> vm.moveRight()
                     action == io.github.petebutty.viewarr.ui.common.RemoteAction.Rewind -> vm.moveLeft()
                     // Record (remotes that have it): the highlighted programme's options, as holding OK.
@@ -255,15 +263,19 @@ fun GuideScreen(
             Column(Modifier.fillMaxSize()) {
                 TimeHeader(now, cursor.windowStart, sync, gridWidth)
                 LazyColumn(state = listState, userScrollEnabled = false, modifier = Modifier.fillMaxSize()) {
-                    itemsIndexed(channels, key = { _, c -> c.id }) { index, channel ->
+                    // One copy of the channels for the count, the keys and the rows (the list changing size between
+                    // them, e.g. another group, asked for a channel past its end and crashed).
+                    val list = channels
+                    items(list.size, key = { v -> list.getOrNull(v)?.id ?: "x$v" }) { v ->
+                        val channel = list.getOrNull(v) ?: return@items
                         GuideRow(
                             channel = channel,
                             recorded = recordedByChannel[channel.id].orEmpty(),
                             playingLive = channel.id == playingChannelId && playingCatchupRowId == null,
                             playingRowId = if (channel.id == playingChannelId) playingCatchupRowId else null,
                             programs = programs[channel.id].orEmpty(),
-                            selected = index == cursor.row,
-                            focusedRowId = if (index == cursor.row) focused?.rowId else null,
+                            selected = v == cursor.row,
+                            focusedRowId = if (v == cursor.row) focused?.rowId else null,
                             windowStart = cursor.windowStart,
                             now = now,
                             serverUrl = serverUrl,

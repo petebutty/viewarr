@@ -179,6 +179,34 @@ interface GuideDao {
     )
     suspend fun programsFor(channelId: Int, guideKey: String, from: Long, to: Long): List<GuideProgram>
 
+    /** Several channels' programmes between [from] and [to] in one go (Live now: every event channel at once). */
+    @Query(
+        """
+        SELECT c.id AS channelId, p.rowId, p.title, p.subTitle, p.description, p.startTime, p.endTime,
+               p.season, p.episode, p.isNew, p.isLive, p.isPremiere, p.image
+        FROM channels c JOIN programs p ON p.tvgId = c.guideKey
+        WHERE c.id IN (:channelIds) AND p.endTime > :from AND p.startTime < :to
+        ORDER BY p.startTime
+        """
+    )
+    suspend fun programsForChannels(channelIds: List<Int>, from: Long, to: Long): List<GuideProgram>
+
+    /**
+     * Programmes whose title contains [q] and that end between [endFrom] and [endTo] (a game's kick-off: the shows
+     * around it), read through the end-time index rather than the whole guide.
+     */
+    @Query(
+        """
+        SELECT c.id AS channelId, p.rowId, p.title, p.subTitle, p.description, p.startTime, p.endTime,
+               p.season, p.episode, p.isNew, p.isLive, p.isPremiere, p.image
+        FROM programs p JOIN channels c ON c.guideKey = p.tvgId
+        WHERE p.endTime BETWEEN :endFrom AND :endTo AND p.title LIKE '%' || :q || '%'
+        ORDER BY p.startTime, c.number IS NULL, c.number
+        LIMIT 60
+        """
+    )
+    suspend fun searchProgramsEnding(q: String, endFrom: Long, endTo: Long): List<GuideProgram>
+
     /** Search: programmes whose title contains [q], on now or still to come, soonest first. */
     @Query(
         """

@@ -5,7 +5,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -82,101 +81,6 @@ class LiveHubSetupViewModel @Inject constructor(
                     ((r as? kotlinx.serialization.json.JsonObject)?.get("name") as? kotlinx.serialization.json.JsonPrimitive)?.content == "stream" } == true) streams = true
         }
         check.value = AddonCheck(names.distinct(), streams, done = true)
-    }
-
-    /** "Use my own addon": a pasted manifest link, checked and added. Null: added; otherwise why not. */
-    suspend fun addOwn(url: String): String? {
-        val addon = stremio.fetchAddon(url) ?: return "That link didn't load an addon. Paste its manifest.json link."
-        store.update { a -> a.copy(addons = a.addons.filterNot { it.baseUrl == addon.baseUrl } + addon) }
-        checkAddons()
-        return null
-    }
-}
-
-/** The Live TV hub's checklist: what it needs, what's set up, and the way in. Shown before the hub can be turned on. */
-@Composable
-fun LiveHubGuide(onTurnOn: () -> Unit, onNetworks: () -> Unit, onClose: () -> Unit, vm: LiveHubSetupViewModel = androidx.hilt.navigation.compose.hiltViewModel()) {
-    val accounts by vm.accounts.collectAsStateWithLifecycle()
-    val session by vm.session.collectAsStateWithLifecycle()
-    val check by vm.check.collectAsStateWithLifecycle()
-    // Look through the addons already added (their manifests) each time the guide opens.
-    LaunchedEffect(Unit) { vm.checkAddons() }
-    val a = accounts
-    val liveTv = session != null
-    val servers = a != null && (a.plex != null || a.jellyfin != null || a.emby != null)
-    val networks = check.networks.isNotEmpty()
-    val streams = check.streams
-    var pasting by remember { mutableStateOf(false) }
-    var pasted by remember { mutableStateOf("") }
-    var pasteNote by remember { mutableStateOf<String?>(null) }
-    val scope = rememberCoroutineScope()
-    androidx.compose.ui.window.Dialog(onDismissRequest = onClose, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
-        val first = remember { FocusRequester() }
-        LaunchedEffect(Unit) { kotlinx.coroutines.android.awaitFrame(); runCatching { first.requestFocus() } }
-        Column(
-            Modifier.width(720.dp).background(AppColors.Panel, RoundedCornerShape(16.dp)).padding(30.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Text("Live TV hub", fontSize = 24.sp, color = AppColors.TextPrimary)
-            Text(
-                "Viewarr opens on your last channel, Back from any page goes back to it, and shortcuts under the live TV " +
-                    "controls (OK, then Down) take you anywhere: your libraries, Continue watching, and networks like Netflix " +
-                    "or BBC One. Opening one keeps the channel playing in a corner.",
-                fontSize = 14.sp, color = AppColors.TextSecondary,
-            )
-            Text("What it uses", fontSize = 16.sp, color = AppColors.Accent, modifier = Modifier.padding(top = 8.dp))
-            Check(liveTv, "Live TV", "Needed: Dispatcharr or a provider login (Settings → Accounts & sources → Live TV).")
-            Check(servers, "Plex, Jellyfin or Emby", "Optional: Continue watching, Recently added and your libraries as shortcuts.")
-            Check(networks, "Network shortcuts",
-                if (check.networks.isNotEmpty()) "From your addons: ${check.networks.take(6).joinToString()}${if (check.networks.size > 6) " and ${check.networks.size - 6} more" else ""}."
-                else if (!check.done) "Checking your addons…"
-                else "Optional: a shortcut per network (Netflix, BBC One…), each opening its own rows. They come from a catalogue addon you add: look for one like AIOMetadata (host it yourself or use an addon host). If you have AIOMetadata, Viewarr can fill it in for you.")
-            Check(streams, "Streams for addon titles", "Optional: to play titles from those rows that aren't in your libraries, a stream addon you add, set up with your own accounts (look for one like AIOStreams).")
-            Row(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Box(Modifier.width(200.dp)) {
-                    MenuItem(
-                        text = if (liveTv) "Turn on" else "Turn on (needs live TV)",
-                        selected = false, dim = !liveTv,
-                        modifier = Modifier.focusRequester(first),
-                        onClick = { if (liveTv) onTurnOn() },
-                    )
-                }
-                Box(Modifier.width(240.dp)) {
-                    MenuItem(text = "Network shortcuts", selected = false, onClick = onNetworks)
-                }
-                Box(Modifier.width(200.dp)) { MenuItem(text = "Use my own addon", selected = false, onClick = { pasting = !pasting }) }
-                Box(Modifier.width(140.dp)) { MenuItem(text = "Not now", selected = false, onClick = onClose) }
-            }
-            // Paste your own addon's manifest link (or add it from your phone: Accounts & sources → Addons, QR code).
-            if (pasting) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                androidx.compose.material3.OutlinedTextField(
-                    value = pasted, onValueChange = { pasted = it },
-                    label = { androidx.compose.material3.Text("Addon manifest link (…/manifest.json)") },
-                    singleLine = true, modifier = Modifier.weight(1f),
-                )
-                Box(Modifier.width(120.dp)) {
-                    MenuItem(text = "Add", selected = false, onClick = {
-                        scope.launch { pasteNote = vm.addOwn(pasted) ?: "Added."; if (pasteNote == "Added.") { pasted = ""; pasting = false } }
-                    })
-                }
-            }
-            pasteNote?.let { Text(it, fontSize = 13.sp, color = AppColors.Accent) }
-            if (pasting) Text("Easier from a phone: Settings → Accounts & sources → Addons has a QR code to paste links on your phone.", fontSize = 12.sp, color = AppColors.TextSecondary)
-        }
-    }
-}
-
-@Composable
-private fun Check(done: Boolean, title: String, note: String) {
-    Row(verticalAlignment = Alignment.Top) {
-        Box(
-            Modifier.padding(top = 2.dp).size(22.dp).background(if (done) Color(0xFF2EBD5A) else Color.White.copy(alpha = 0.15f), CircleShape),
-            contentAlignment = Alignment.Center,
-        ) { if (done) Text("✓", fontSize = 13.sp, color = Color.White) }
-        Column(Modifier.padding(start = 12.dp)) {
-            Text(title, fontSize = 15.sp, color = AppColors.TextPrimary)
-            Text(note, fontSize = 12.sp, color = AppColors.TextSecondary)
-        }
     }
 }
 
