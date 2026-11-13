@@ -290,6 +290,56 @@ class GuideRepository @Inject constructor(
         }
     }
 
+    /**
+     * Just the channel list again, not the guide (quick): a channel added on Dispatcharr since the last fetch shows up
+     * at once, its programmes with the next guide fetch. (An IPTV login or playlist: the whole fetch, as there the
+     * channels and guide come together.) At most once every 20 seconds, so outside links can't hammer the server.
+     */
+    suspend fun syncChannels(session: Session) {
+        val now = System.currentTimeMillis()
+        if (now - lastChannelSync < 20_000) return
+        lastChannelSync = now
+        if (session.isXc || session.isM3u) { sync(session); return }
+        mutex.withLock {
+            activate(session)
+            try {
+                _sync.value = SyncState.Running("Updating channels…")
+                val api = apiFactory.create(session.serverUrl, session.apiKey)
+                val (channels, groups) = coroutineScope {
+                    val c = async { api.channels() }
+                    val g = async { api.groups() }
+                    c.await() to g.await()
+                }
+                val referenced = channels.mapNotNull { it.epgDataId }.toSet()
+                val epgTvgIds = withContext(Dispatchers.IO) { api.epgData().use { parseEpgData(it.byteStream(), referenced) } }
+                val allChannelRows = channels.map {
+                    ChannelEntity(
+                        id = it.id, uuid = it.uuid, name = it.name, number = it.number, groupId = it.groupId, logoId = it.logoId,
+                        guideKey = it.epgDataId?.let(epgTvgIds::get) ?: it.uuid,
+                        catchupDays = if (it.isCatchup) it.catchupDays else 0,
+                    )
+                }
+                val (groupRows, channelRows) = onlyShown(groups.map { GroupEntity(it.id, it.name) }, allChannelRows)
+                db.withTransaction {
+                    dao.clearChannels()
+                    dao.clearGroups()
+                    dao.insertGroups(groupRows)
+                    dao.insertChannels(channelRows)
+                    dao.useUuidWhereGuideMissing()
+                }
+                _generation.value++
+                _sync.value = SyncState.Idle
+            } catch (e: CancellationException) {
+                // (Stopped part-way: the "Updating channels…" note mustn't stay up.)
+                _sync.value = SyncState.Idle
+                throw e
+            } catch (e: Exception) {
+                _sync.value = SyncState.Failed("Couldn't update the channels: ${e.message ?: e.javaClass.simpleName}")
+            }
+        }
+    }
+    private var lastChannelSync = 0L
+
     /** IPTV provider (Xtream Codes): channels and groups from player_api.php, the guide from xmltv.php. */
     private suspend fun syncXc(session: Session) {
         try {

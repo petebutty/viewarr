@@ -142,6 +142,7 @@ object DeepLink {
             "record" -> pendingCommand.value = Command("record", uuid = uri.getQueryParameter("uuid")?.trim()?.takeIf { it.isNotEmpty() },
                 number = uri.getQueryParameter("number")?.trim()?.toDoubleOrNull())
             "search" -> pendingCommand.value = Command("search", uri.getQueryParameter("q")?.take(200))
+            "refresh" -> pendingCommand.value = Command("refresh", if (uri.getQueryParameter("guide") in setOf("1", "true", "yes")) "guide" else null)
         }
     }
 

@@ -1,3 +1,4 @@
+@file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 package io.github.petebutty.viewarr.ui.home
 
 import androidx.activity.compose.BackHandler
@@ -98,7 +99,7 @@ internal fun ChannelListOverlay(
     // Settings → Appearance → End of a list: 1 jumps to the other end on a fresh press, 2 stops.
     val ends = if (AppColors.palette.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.LIST_ENDS) == 0) 1 else 2
     // (Opening: the highlighted channel at the top of the list.)
-    val listState = rememberLazyListState(initialFirstVisibleItemIndex = maxOf(0, start))
+    val listState = rememberLazyListState(initialFirstVisibleItemIndex = maxOf(0, start - 2))
     // Jump to the other end: the first and last channels, to move the highlight to.
     val firstCh = remember { FocusRequester() }
     val lastCh = remember { FocusRequester() }
@@ -109,10 +110,14 @@ internal fun ChannelListOverlay(
     BackHandler(enabled = !embedded || epgFor != null) { if (epgFor != null) epgFor = null else onClose() }
     // The current channel at the top, and focused (in the strip: only scrolled, a group being previewed mustn't take
     // the highlight from the groups).
-    LaunchedEffect(groupId) {
+    // (Waits for the channels: opened before they'd arrived, it scrolled to the top, then the highlight going to your
+    // channel scrolled the list all the way down to it in front of you. Now it jumps there first, then highlights.)
+    val currentIdx = channels.indexOfFirst { it.id == current.id }
+    LaunchedEffect(groupId, currentIdx >= 0 || channels.isNotEmpty()) {
+        if (channels.isEmpty()) return@LaunchedEffect
+        listState.scrollToItem(maxOf(0, currentIdx - 2))
         awaitFrame()
-        listState.scrollToItem(maxOf(0, channels.indexOfFirst { it.id == current.id }.coerceAtLeast(0)))
-        if (!embedded) { awaitFrame(); runCatching { focus.requestFocus() } }
+        if (!embedded) runCatching { focus.requestFocus() }
     }
     LaunchedEffect(activity) { if (!embedded) { delay(10_000); onClose() } }
     val focusTarget = channels.firstOrNull { it.id == current.id }?.id ?: channels.firstOrNull()?.id
@@ -136,6 +141,22 @@ internal fun ChannelListOverlay(
             .then(if (embedded) Modifier else Modifier.background(AppColors.MenuPanel))
             .padding(start = 24.dp, top = 24.dp, bottom = 24.dp, end = 36.dp),
     ) {
+        // Scrolls only when the highlight would leave the screen (a row's margin kept), not to the TV's own resting
+        // place: with that, opening the list jumped your channel to the top and then slid it back down (a bounce).
+        val rowMargin = with(androidx.compose.ui.platform.LocalDensity.current) { 56.dp.toPx() }
+        val gentle = remember(rowMargin) {
+            object : androidx.compose.foundation.gestures.BringIntoViewSpec {
+                override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float {
+                    val m = rowMargin.coerceAtMost(((containerSize - size) / 2f).coerceAtLeast(0f))
+                    return when {
+                        offset < m -> offset - m
+                        offset + size > containerSize - m -> offset + size - (containerSize - m)
+                        else -> 0f
+                    }
+                }
+            }
+        }
+        androidx.compose.runtime.CompositionLocalProvider(androidx.compose.foundation.gestures.LocalBringIntoViewSpec provides gentle) {
         LazyColumn(state = listState, verticalArrangement = Arrangement.spacedBy(2.dp)) {
             // (One copy of the channels for the count, the keys and the rows: see GuideScreen.)
             val list = channels
@@ -195,6 +216,7 @@ internal fun ChannelListOverlay(
                     }
                 }
             }
+        }
         }
     }
     epgFor?.let { ch -> ChannelPrograms(vm, ch, now, epgFocus, onLive = { onPick(ch) }, onCatchup = { onCatchup(ch, it) }, onFuture = { onFuture(ch, it) }) }

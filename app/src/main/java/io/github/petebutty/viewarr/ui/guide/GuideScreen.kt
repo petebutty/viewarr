@@ -105,7 +105,9 @@ fun GuideScreen(
     val cursor by vm.cursor.collectAsStateWithLifecycle()
     val now by vm.now.collectAsStateWithLifecycle()
     val sync by vm.sync.collectAsStateWithLifecycle()
-    val listState = rememberLazyListState()
+    // Opens already at the highlighted channel, roughly in the middle (it used to start at the top and then move down
+    // to it in front of you); the effect below centres it exactly.
+    val listState = rememberLazyListState(initialFirstVisibleItemIndex = (vm.cursor.value.row - 5).coerceAtLeast(0))
     val textMeasurer = rememberTextMeasurer(cacheSize = 256)
     val leftPending = remember { mutableStateOf(false) }
 
@@ -123,6 +125,13 @@ fun GuideScreen(
         val whole = maxOf(shown - 1, 1)
         val top = maxOf(0, target - whole / 2)
         if (visible.isEmpty() || top != first) listState.scrollToItem(top)
+        // First time (nothing laid out yet, so the middle wasn't known): once it is, centre it exactly, still a jump.
+        if (visible.isEmpty()) {
+            kotlinx.coroutines.android.awaitFrame()
+            val v = listState.layoutInfo.visibleItemsInfo
+            val t = maxOf(0, target - (maxOf(v.size, 1) - 1).coerceAtLeast(1) / 2)
+            if (v.isNotEmpty() && t != (v.firstOrNull()?.index ?: 0)) listState.scrollToItem(t)
+        }
     }
 
     Column(

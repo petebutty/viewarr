@@ -1,6 +1,6 @@
 # Shown once, the first time a new version opens (not on a fresh install). Keep it to the few things worth knowing.
 # Lines starting with "- " are the points; the first line without "#" or "-" is the heading.
-Smaller info bar, tidier menus
-- Info bar size and Preview cards (Settings → Appearance → Live TV): make the info bar and its rows smaller, for live TV and films alike
-- The menus open already in place, without scrolling themselves up or down
-- Colour tint now covers the whole menu; Settings keeps the plain glass
+Smoother lists and smarter links
+- The TV guide and the channel list open already at your channel, without scrolling or bouncing
+- viewarr:// links: a channel Viewarr doesn't know yet is fetched and tuned; new viewarr://refresh
+- Fixes for links replaying on restart and "Updating channels…" staying on screen

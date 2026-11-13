@@ -48,7 +48,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        io.github.petebutty.viewarr.data.media.DeepLink.handle(intent?.data)
+        // (Only a fresh start: Android hands a restored app its original link again, which replayed it on every restart.)
+        if (savedInstanceState == null) io.github.petebutty.viewarr.data.media.DeepLink.handle(intent?.data)
         lifecycleScope.launch { themeStore.palette.collect { AppColors.palette = it } }
         setContent {
             ViewarrTheme { AppRoot() }

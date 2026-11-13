@@ -41,7 +41,9 @@ Quote the link, as shown, so the shell doesn't split it at `?` or `&`.
   sent early is lost.
 - **Already watching:** it switches straight to the channel (closing the menu, search, the channel list or a film).
 - **Same channel again:** it reconnects the stream, which helps when a picture has frozen.
-- A channel that isn't in Viewarr's guide shows *"That channel isn't in Viewarr's guide"*.
+- **A channel Viewarr doesn't know yet** (added on Dispatcharr since it last fetched the channels): Viewarr fetches
+  the channel list again (quick: the channels only, not the whole guide) and then tunes. If it still isn't there,
+  it shows *"That channel isn't in Viewarr's guide"*. *(0.28.0 and later.)*
 
 ### Everything else
 
@@ -49,6 +51,7 @@ Quote the link, as shown, so the shell doesn't split it at `?` or `&`.
 |---|---|
 | `viewarr://stop` | Stops whatever is playing: live TV, a film or episode, or music. |
 | `viewarr://page?name=movies` | Opens a page: `movies`, `shows`, `music`, `recordings`, `sports` or `guide`. |
+| `viewarr://refresh` | Fetches the channel list again (quick; the guide's programmes follow with its next fetch). `viewarr://refresh?guide=1` fetches the whole guide. *(0.28.0 and later.)* |
 | `viewarr://search?q=<words>` | Opens search with those words filled in (encode spaces as `%20`). |
 | `viewarr://title?tmdb=<id>&type=movie` | Opens a film's page from its TMDB id (`type=show` for a TV show). |
 

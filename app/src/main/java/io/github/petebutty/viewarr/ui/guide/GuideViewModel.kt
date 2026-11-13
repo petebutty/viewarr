@@ -396,6 +396,11 @@ class GuideViewModel @Inject constructor(
         return runCatching { sports.ukChannels(game.home, game.away, game.start) }.getOrNull()
     }
 
+    /** Just the channel list again (viewarr://refresh, or a link to a channel not known yet). */
+    suspend fun refreshChannels() { sessions.session.first()?.let { runCatching { repo.syncChannels(it) } } }
+    /** The whole guide again (viewarr://refresh?guide=1). */
+    suspend fun refreshGuide() { sessions.session.first()?.let { runCatching { repo.sync(it) } } }
+
     /** The guide fetched again if it's older than [maxAgeMs] (Sports: a game on now whose event channel is newer). */
     suspend fun syncIfOlderThan(maxAgeMs: Long) {
         sessions.session.first()?.let { runCatching { repo.syncIfStale(it, maxAgeMs) } }

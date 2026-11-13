@@ -794,14 +794,27 @@ fun HomeScreen(
     val channelLink by DeepLink.pendingChannel.collectAsStateWithLifecycle()
     LaunchedEffect(channelLink) {
         val req = channelLink ?: return@LaunchedEffect
-        val all = kotlinx.coroutines.withTimeoutOrNull(60_000) { dvr.channels.first { it.isNotEmpty() } }?.values.orEmpty()
         DeepLink.pendingChannel.value = null
-        val ch = req.uuid?.let { u -> all.firstOrNull { it.uuid.equals(u, ignoreCase = true) } }
+        // (Run apart from this effect: clearing the request above restarts it, which cancelled a channel refresh
+        // half-way through.)
+        fromStartScope.launch {
+        var all = kotlinx.coroutines.withTimeoutOrNull(60_000) { dvr.channels.first { it.isNotEmpty() } }?.values.orEmpty()
+        fun find() = req.uuid?.let { u -> all.firstOrNull { it.uuid.equals(u, ignoreCase = true) } }
             ?: req.number?.let { n -> all.firstOrNull { it.number == n } }
-        if (ch == null) { toast("That channel isn't in Viewarr's guide"); return@LaunchedEffect }
+        var ch = find()
+        // Not known yet (added on Dispatcharr since the last fetch): the channel list again (quick, not the guide),
+        // then look once more.
+        if (ch == null) {
+            toast("Looking for that channel…")
+            vm.refreshChannels()
+            all = kotlinx.coroutines.withTimeoutOrNull(5_000) { dvr.channels.first { m -> m.values.any { c -> (req.uuid != null && c.uuid.equals(req.uuid, true)) || (req.number != null && c.number == req.number) } } }?.values ?: dvr.channels.first().values
+            ch = find()
+        }
+        if (ch == null) { toast("That channel isn't in Viewarr's guide"); return@launch }
         quickSearch = false; menuOpen = false; sportsOpen = false; channelListOpen = false; osdVisible = false
         VodHost.close()
         watchChannel(ch, endMultiView = true)
+        }
     }
     val deepLink by DeepLink.pending.collectAsStateWithLifecycle()
     LaunchedEffect(deepLink) {
@@ -888,6 +901,7 @@ fun HomeScreen(
     LaunchedEffect(commandLink) {
         val c = commandLink ?: return@LaunchedEffect
         DeepLink.pendingCommand.value = null
+        fromStartScope.launch {
         when (c.kind) {
             // Channel up / down: from the channel playing (else the first), full screen.
             "step" -> {
@@ -919,6 +933,9 @@ fun HomeScreen(
                 }
             }
             "search" -> { menuOpen = false; VodHost.minimise(); searchStart = c.arg; searchVoice = false; quickSearch = true }
+            // The channel list again (quick), or with guide=1 the whole guide.
+            "refresh" -> { if (c.arg == "guide") vm.refreshGuide() else vm.refreshChannels() }
+        }
         }
     }
     fun openService(name: String, closeMenu: Boolean, rowId: String? = null) {
