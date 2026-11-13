@@ -108,6 +108,7 @@ fun AppearanceSettingsScreen(onBack: () -> Unit, vm: AppearanceViewModel = hiltV
     val palette = AppColors.palette
     val highs = HighlightChoices.mapIndexed { i, c -> Choice(HighlightNames.getOrElse(i) { "Colour ${i + 1}" }, c) }
     val onOff = listOf(Choice("On", true), Choice("Off", false))
+    val corners = listOf(Choice("Rounded", false), Choice("Square", true))
     val transparencies = (0..100 step 10).map { Choice(if (it == 0) "Solid" else "$it%", it) }
     val currentT = ((palette.transparency * 100).roundToInt() / 10 * 10).coerceIn(0, 100)
     val currentG = ((palette.guideTransparency * 100).roundToInt() / 10 * 10).coerceIn(0, 100)
@@ -163,7 +164,7 @@ fun AppearanceSettingsScreen(onBack: () -> Unit, vm: AppearanceViewModel = hiltV
             buildList {
                 add(SettingItem("Glass", "The menu strip on the left and the channel list, on every page and over video.", transparencies,
                     transparencies.first { it.value == currentT }, slider = true) { c -> vm.setTransparency(((c as Choice).value as Int) / 100f) })
-                add(optItem(opts, "Glass colour", "A soft pastel tint through the glass: the menu, the channel list, the info bar and every pop-up. Plain is the Viewarr look.", io.github.petebutty.viewarr.ui.theme.UiOpts.GLASS_TINT))
+                add(optItem(opts, "Glass colour", "A colour through the glass: the menu, the channel list, the info bar and every pop-up. Plain is the Viewarr look.", io.github.petebutty.viewarr.ui.theme.UiOpts.GLASS_TINT))
                 add(SettingItem("Guide", "The guide's channel names and programmes (the one you're on stays solid). Shows more of the wallpaper behind.", transparencies,
                     transparencies.first { it.value == currentG }, slider = true) { c -> vm.setGuideTransparency(((c as Choice).value as Int) / 100f) })
                 if (palette.wallpaper != 0) add(SettingItem("Wallpaper dimming", "How dark the wallpaper is under the menus and text.", dims,
@@ -177,6 +178,8 @@ fun AppearanceSettingsScreen(onBack: () -> Unit, vm: AppearanceViewModel = hiltV
             listOf(
                 SettingItem("Channel numbers", "Show each channel's number next to its name.", onOff,
                     if (palette.showNumbers) onOff[0] else onOff[1]) { c -> vm.setShowNumbers((c as Choice).value == true) },
+                SettingItem("Programme corners", "The guide's programmes and channel names: rounded, or square-cornered boxes.", corners,
+                    if (palette.squareCorners) corners[1] else corners[0]) { c -> vm.setSquareCorners((c as Choice).value == true) },
                 SettingItem("Progress bars", "The bar showing how far through each programme on now is: on every channel, only the channel you're watching, or none.", progressChoices,
                     progressChoices[palette.progressBars.coerceIn(0, 2)]) { c -> vm.setProgressBars((c as Choice).value as Int) },
                 optItem(opts, "Channel logos", "Logos beside the channel names.", io.github.petebutty.viewarr.ui.theme.UiOpts.CHANNEL_LOGOS),
@@ -233,6 +236,14 @@ fun AppearanceSettingsScreen(onBack: () -> Unit, vm: AppearanceViewModel = hiltV
         SettingCategory(
             "Main menu", "What's listed in the menu on the left. Live TV and Settings are always there; streaming services appear once your addons' rows have loaded.",
             listOf(
+                optItem(opts, "List headings", "A heading at the top of each list in the menu (\"LIVE TV · CHANNEL GROUPS\", \"MOVIES\", \"SETTINGS\"…), or the path to it (\"Live TV › Channel groups\"), so the guide's channel groups are never mistaken for your libraries.", io.github.petebutty.viewarr.ui.theme.UiOpts.MENU_HEADINGS),
+                optItem(opts, "Source in the Live TV heading", "With more than one Live TV source: its name in the heading (\"LIVE TV · DISPATCHARR\").", io.github.petebutty.viewarr.ui.theme.UiOpts.MENU_HEAD_SOURCE),
+                optItem(opts, "TV mark on channel groups", "A small 📺 before each channel group's name.", io.github.petebutty.viewarr.ui.theme.UiOpts.MENU_GROUP_ICON),
+optItem(opts, "Colour edge", "A thin bar down the edge of each list in its section's colour: red for Live TV, blue for Movies, purple for Shows…", io.github.petebutty.viewarr.ui.theme.UiOpts.MENU_EDGE),
+                optItem(opts, "Colour tint", "Each list's glass faintly tinted in its section's colour.", io.github.petebutty.viewarr.ui.theme.UiOpts.MENU_TINT),
+                optItem(opts, "Icon column", "In a section's list, the main menu stays as a narrow column of icons with the one you're in lit, instead of folding away.", io.github.petebutty.viewarr.ui.theme.UiOpts.MENU_RAIL),
+                optItem(opts, "LIVE mark", "A red ● LIVE on the channel groups' All channels.", io.github.petebutty.viewarr.ui.theme.UiOpts.MENU_LIVE_MARK),
+                                optItem(opts, "Left / Right hints", "\"Right › open its list\" under the logo and \"‹ Left: main menu\" at the foot of a list.", io.github.petebutty.viewarr.ui.theme.UiOpts.MENU_HINTS),
                 menuItem("Live now", "menu:Live now", "The TV guide on the event channels: sport and events on now and soon."),
                 menuItem("Sports", "menu:Sports", "The TV guide on your sports channels."),
                 menuItem("Movies", "menu:Movies", "Your films: libraries, catalogues and rows.") { vm.setHideMedia(false) },

@@ -186,11 +186,14 @@ fun InvitedSetup(onBack: () -> Unit, vm: SetupViewModel = hiltViewModel(key = "s
 /** [art]: the picture; pulse goes 0…1…0 (buttons), wave runs 0…1 over and over (things in turn). */
 private data class TourPage(val title: String, val text: String, val art: @Composable BoxScope.(pulse: Float, wave: Float) -> Unit)
 
-/** Five short pages on how Viewarr works: Left / Right move, OK on the last one (or Skip) finishes. */
+/**
+ * Short pages on how Viewarr works: Left / Right move, OK on the last one (or Skip) finishes. [pages]: the tour, or the
+ * "Before you set up" pages; [finishLabel]: the last page's button.
+ */
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
-fun TourScreen(onDone: () -> Unit) {
-    val pages = remember { tourPages() }
+fun TourScreen(onDone: () -> Unit, prep: Boolean = false, finishLabel: String = "Start watching", onBack: () -> Unit = onDone) {
+    val pages = remember(prep) { if (prep) prepPages() else tourPages() }
     var page by remember { mutableIntStateOf(0) }
     val next = remember { FocusRequester() }
     var inside by remember { mutableStateOf(false) }
@@ -199,7 +202,7 @@ fun TourScreen(onDone: () -> Unit) {
     LaunchedEffect(inside) {
         if (!inside) { kotlinx.coroutines.delay(150); repeat(20) { if (inside) return@LaunchedEffect; runCatching { next.requestFocus() }; kotlinx.coroutines.delay(100) } }
     }
-    BackHandler { if (page > 0) page-- else onDone() }
+    BackHandler { if (page > 0) page-- else onBack() }
     val anim = rememberInfiniteTransition(label = "tour")
     val pulse by anim.animateFloat(0f, 1f, infiniteRepeatable(tween(1100, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "pulse")
     val wave by anim.animateFloat(0f, 1f, infiniteRepeatable(tween(2600, easing = androidx.compose.animation.core.LinearEasing), RepeatMode.Restart), label = "wave")
@@ -236,7 +239,7 @@ fun TourScreen(onDone: () -> Unit) {
                 Box(Modifier.padding(horizontal = 5.dp).size(if (i == page) 12.dp else 8.dp).background(if (i == page) AppColors.Accent else AppColors.TextSecondary.copy(alpha = 0.5f), CircleShape))
             }
             Spacer(Modifier.width(30.dp))
-            MenuItem(text = if (page == pages.lastIndex) "Start watching" else "Next  ›", selected = false, onClick = { if (page == pages.lastIndex) onDone() else page++ }, modifier = Modifier.width(180.dp).focusRequester(next))
+            MenuItem(text = if (page == pages.lastIndex) finishLabel else "Next  ›", selected = false, onClick = { if (page == pages.lastIndex) onDone() else page++ }, modifier = Modifier.width(180.dp).focusRequester(next))
             Spacer(Modifier.width(10.dp))
             if (page < pages.lastIndex) MenuItem(text = "Skip", selected = false, onClick = onDone, modifier = Modifier.width(120.dp))
         }
@@ -273,7 +276,7 @@ private fun Block(w: Dp, h: Dp, on: Boolean = false, label: String? = null) {
 }
 
 /** A spot on a tour screenshot (x, y as 0…1 of its width / height) with what it does. */
-private data class Spot(val x: Float, val y: Float, val text: String, val labelLeft: Boolean = false)
+internal data class Spot(val x: Float, val y: Float, val text: String, val labelLeft: Boolean = false)
 
 /** A real (painted) screenshot of Viewarr, with pulsing rings and labels on the parts that matter. */
 @Composable
@@ -303,7 +306,7 @@ private fun BoxScope.Shot(res: Int, spots: List<Spot>, pulse: Float) {
 private fun tourPages(): List<TourPage> = listOf(
     TourPage(
         "Welcome to Viewarr",
-        "Live TV with a proper TV guide, your films and shows, and your music, all in one place, made for the remote. These four pages show the basics: use Right to go on.",
+        "Live TV with a proper TV guide, your films, shows and streaming services, and your music, in one place, made for the remote. One see-through menu on the left takes you everywhere, and whatever's playing keeps going in the window at the top left. Use Right to go on.",
     ) { pulse, wave ->
         Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
             Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -327,42 +330,127 @@ private fun tourPages(): List<TourPage> = listOf(
     },
     TourPage(
         "The menu",
-        "Press Left (or Back) to open the menu: Live TV is the guide; Movies and Shows have your libraries; Music, Recordings and Search are there too. Settings is where you change how Viewarr looks and plays.",
+        "Press Left to open the menu (it slides in, pushing the page aside). Moving up and down changes the page behind straight away: Live TV, Movies, Shows, your streaming services, Sports, Music, Recordings. Right goes into an entry's own list, Left comes back. Edit menus lets you hide, show and reorder anything.",
     ) { pulse, _ ->
-        Shot(io.github.petebutty.viewarr.R.drawable.tour_menu, listOf(
-            Spot(0.085f, 0.277f, "Up / Down, OK to open"),
-            Spot(0.28f, 0.068f, "Right goes into it"),
-        ), pulse)
+        Mock(listOf(
+            Spot(0.03f, 0.175f, "Edit menus: tidy it up"),
+            Spot(0.03f, 0.236f, "Up / Down: the page changes"),
+            Spot(0.38f, 0.18f, "What's playing stays here"),
+        ), pulse) { MenuScreen() }
     },
     TourPage(
         "The TV guide",
-        "Move around with the arrows and press OK to watch. Hold OK on a programme for more: record it, a reminder, start it over, go to the show, or request it. While watching, Up / Down shows the channel list (Right there: what's on next).",
+        "Move with the arrows and press OK to watch: the picture plays in the window at the top left, OK again goes full screen. Hold OK on a programme for more: record it or the series, a reminder, start over, go to the show. A programme already recorded plays with OK.",
     ) { pulse, _ ->
-        Shot(io.github.petebutty.viewarr.R.drawable.tour_hold, listOf(
-            Spot(0.30f, 0.805f, "OK: watch", labelLeft = false),
-            Spot(0.67f, 0.384f, "Hold OK: this menu"),
-        ), pulse)
+        Mock(listOf(
+            Spot(0.23f, 0.42f, "OK: watch · Hold OK: more"),
+            Spot(0.16f, 0.18f, "The picture, top left"),
+        ), pulse) { GuideScreen() }
     },
     TourPage(
-        "Films and shows",
-        "Rows of what you're watching, what's new and what's popular. OK opens a title; hold OK for a quick menu (play, trailer, watchlist). While a film plays, OK shows the controls and Back stops it (your place is saved).",
+        "Channel groups",
+        "Left from the guide shows your channel groups. Moving through them changes the guide behind as you go; OK picks one and takes you back into the guide. Left again brings the main menu.",
     ) { pulse, _ ->
-        Shot(io.github.petebutty.viewarr.R.drawable.tour_movies, listOf(
-            Spot(0.092f, 0.55f, "OK: open · Hold OK: quick menu"),
-            Spot(0.045f, 0.40f, "Rows you can scroll"),
-        ), pulse)
+        Mock(listOf(
+            Spot(0.05f, 0.19f, "The guide follows as you move"),
+        ), pulse) { GroupsScreen() }
     },
     TourPage(
-        "Search, and making it yours",
-        "Hold the Menu button (or pick Search in the menu) to search for anything: a film, a person, a channel. Type, or use the microphone. In Settings → Appearance choose colours, text size, wallpaper and transparency. You can see this tour again in Settings → About.",
+        "Watching live TV",
+        "Full screen, one info bar does it all: what's on now and next, the picture and sound, and the controls. Change any button in Settings → Remote buttons, the way TiviMate does it.",
     ) { pulse, _ ->
-        Shot(io.github.petebutty.viewarr.R.drawable.tour_search, listOf(
-            Spot(0.066f, 0.066f, "Speak instead of typing"),
-            Spot(0.33f, 0.215f, "Films, shows, Live TV, music"),
-            Spot(0.092f, 0.42f, "Your own copies first"),
-        ), pulse)
+        Column(Modifier.align(Alignment.Center), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            listOf("OK" to "The controls (record, start over, audio & subtitles…)", "▲ ▼" to "Change channel", "Left" to "The channel list, or skip back (your choice)",
+                "Back" to "The guide, with the picture in the corner", "Down" to "Next episodes, when it's a show").forEach { (k, t) ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.width(120.dp), contentAlignment = Alignment.CenterEnd) { RemoteKey(k, pulse) }
+                    Spacer(Modifier.width(18.dp))
+                    Text(t, fontSize = 16.sp, color = AppColors.TextPrimary)
+                }
+            }
+        }
+    },
+    TourPage(
+        "Films, shows and your services",
+        "Rows of what you're watching, what's new and what's popular, from your Plex, Jellyfin or Emby and your addons. Netflix, Prime Video and the rest are in the menu with their own rows. As you move, the details show at the top and a trailer plays in the window.",
+    ) { pulse, _ ->
+        Mock(listOf(
+            Spot(0.09f, 0.49f, "OK: open · Hold OK: quick menu"),
+            Spot(0.16f, 0.18f, "Trailers play here"),
+        ), pulse) { ServiceScreen() }
+    },
+    TourPage(
+        "A title page",
+        "Play picks the best copy (your own servers first). Hold OK on Play to choose the source yourself. Seasons and episodes are right below. While an episode plays, Down shows the next ones; Back sends the film or show to the window at the top left and Stop ends it.",
+    ) { pulse, _ ->
+        Mock(listOf(
+            Spot(0.22f, 0.286f, "OK: play · Hold OK: pick a source"),
+            Spot(0.07f, 0.375f, "Seasons and episodes"),
+        ), pulse) { TitleScreen() }
+    },
+    TourPage(
+        "Make it yours",
+        "Settings has it all: Appearance for fonts, text size, the glass and its colour, and what the menu shows. Remote buttons changes what every button does. Sports follows your teams. Search is the remote's search button or Search in the menu. You can see this tour again in Settings → About.",
+    ) { pulse, _ ->
+        Column(Modifier.align(Alignment.Center), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            listOf("Appearance" to "Fonts, glass, colours, the menu", "Remote buttons" to "Every button, your way", "Sports" to "Your teams' games and channels",
+                "Home page & menu" to "Rows and libraries, in your order", "Playback" to "Players, subtitles, trailers").forEach { (k, t) ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.width(190.dp), contentAlignment = Alignment.CenterEnd) { RemoteKey(k, pulse) }
+                    Spacer(Modifier.width(18.dp))
+                    Text(t, fontSize = 16.sp, color = AppColors.TextPrimary)
+                }
+            }
+        }
     },
 )
+
+/** Before the setup wizard: what you'll be asked for, so it's to hand. */
+private fun prepPages(): List<TourPage> = listOf(
+    TourPage(
+        "1 · Live TV",
+        "Next you'll connect your live TV. Have one of these ready:",
+    ) { _, _ -> PrepList(listOf(
+        "Dispatcharr" to "Your server's address (e.g. http://192.168.1.10:9191), and your username and password",
+        "IPTV (Xtream codes)" to "The server address, username and password from your provider",
+        "M3U playlist" to "The playlist link, and the guide (EPG) link if it has one",
+    )) },
+    TourPage(
+        "2 · Your libraries (optional)",
+        "Films and shows you already have. Skip any you don't use; you can add them later.",
+    ) { _, _ -> PrepList(listOf(
+        "Plex" to "Nothing to type: a code appears, approve it on your phone",
+        "Jellyfin" to "The server address and your login, or Quick Connect",
+        "Emby" to "The server address and your login",
+        "Navidrome" to "For music: the address and your login",
+    )) },
+    TourPage(
+        "3 · Extras (optional)",
+        "These make Viewarr richer. The easiest way is \"Set up on your phone\": scan the code and paste them in there. All can be added later in Settings → Accounts & sources.",
+    ) { _, _ -> PrepList(listOf(
+        "Addons" to "AIOStreams, AIOMetadata or other Stremio addon links: streams and the streaming services' rows",
+        "Trakt" to "A code to approve: your watch history and watchlist",
+        "TMDB / MDBList" to "API keys for artwork, details and ratings",
+        "Seerr" to "Its address and API key, to request films and shows",
+    )) },
+)
+
+/** The prep pages' list: what, and what you'll need for it. */
+@Composable
+private fun BoxScope.PrepList(items: List<Pair<String, String>>) {
+    Column(Modifier.align(Alignment.CenterStart).padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
+        items.forEach { (what, need) ->
+            Row(verticalAlignment = Alignment.Top) {
+                Box(Modifier.padding(top = 6.dp).size(10.dp).background(AppColors.Accent, CircleShape))
+                Spacer(Modifier.width(14.dp))
+                Column {
+                    Text(what, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary)
+                    Text(need, fontSize = 14.sp, lineHeight = 20.sp, color = AppColors.TextSecondary)
+                }
+            }
+        }
+    }
+}
 
 /** The four parts of Viewarr on the tour's first page: a colour each and a simple drawn picture. */
 private enum class SectionCard(val label: String, val top: Color, val bottom: Color) {

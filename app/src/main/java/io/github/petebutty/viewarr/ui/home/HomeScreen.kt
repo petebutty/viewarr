@@ -298,6 +298,9 @@ fun HomeScreen(
     var rewindHeld by remember { mutableStateOf(false) }
     var bannerToken by remember { mutableLongStateOf(0L) }
     var bannerVisible by remember { mutableStateOf(false) }
+    // A channel browsed to in the info bar, not changed to yet (browse()).
+    var browseChannel by remember { mutableStateOf<ChannelListItem?>(null) }
+    var browseJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     var osdVisible by remember { mutableStateOf(false) }
     // Several channels on screen at once (from the player menu).
     var multiView by remember { mutableStateOf(false) }
@@ -321,6 +324,9 @@ fun HomeScreen(
     }
     // Held Back with nothing playing: the menu opens on its main list (not the page's own list).
     var menuOnMain by remember { mutableStateOf(false) }
+    // However the menu closed (a page or film picked in it, not only Back), the next one opens the normal way: on the
+    // page's own list (Left from the guide: the channel groups), not on the main list a held Back / film menu asked for.
+    LaunchedEffect(menuOpen) { if (!menuOpen) menuOnMain = false }
     val searchMedia: MediaViewModel = hiltViewModel(key = "media-search")
     val fromStartScope = rememberCoroutineScope()
     // Leaving full screen (guide, another page) ends multi-view; it mustn't reappear next time.
@@ -423,6 +429,33 @@ fun HomeScreen(
         showBanner()
     }
 
+    /**
+     * Browsing channels in the info bar (Remote buttons: "Next channel in the info bar"): the bar shows the next or
+     * previous channel and what's on it while the picture stays put; it changes once you rest on one for a moment
+     * (Settings → Playback → Browsing channels), or straight away on OK. Back stays where you were.
+     */
+    fun commitBrowse() {
+        browseJob?.cancel()
+        val target = browseChannel ?: return
+        browseChannel = null
+        if (target.id != playing?.id) { playback.play(target, session); vm.selectChannel(target.id) }
+        showBanner()
+    }
+    fun cancelBrowse() { browseJob?.cancel(); browseChannel = null }
+    fun browse(delta: Int) {
+        val list = vm.channels.value
+        if (list.isEmpty()) return
+        val from = browseChannel ?: playing
+        val index = list.indexOfFirst { it.id == from?.id }
+        val target = list.getOrNull((if (index < 0) 0 else index + delta).coerceIn(0, list.size - 1)) ?: return
+        browseChannel = target.takeIf { it.id != playing?.id }
+        showBanner()
+        browseJob?.cancel()
+        if (browseChannel == null) return
+        val wait = AppColors.palette.browseDelayMs ?: return
+        browseJob = fromStartScope.launch { delay(wait); commitBrowse() }
+    }
+
     /** A press from the button table (Settings → Remote → Buttons) on the guide, live TV or a page. */
     fun doButton(screen: BtnScreen, act: BtnAction) {
         val ch = playing
@@ -454,6 +487,8 @@ fun HomeScreen(
             BtnAction.Controls -> if (ch != null) showOsd()
             BtnAction.NextChannel -> zap(1)
             BtnAction.PrevChannel -> zap(-1)
+            BtnAction.BrowseNext -> browse(1)
+            BtnAction.BrowsePrev -> browse(-1)
             BtnAction.LastChannel -> lastChannel()
             BtnAction.SkipBack, BtnAction.SkipForward -> if (ch != null || catchup != null) {
                 playback.seekBy(if (act == BtnAction.SkipBack) -remote.seek.ms else remote.seek.ms)
@@ -562,6 +597,8 @@ fun HomeScreen(
             bannerVisible = false
         }
     }
+    // The bar gone (timed out, or anything else closed it) with a channel browsed to but not changed to: let it go.
+    LaunchedEffect(bannerVisible, fullscreen) { if (!bannerVisible || !fullscreen) cancelBrowse() }
     // The live controls close 8 s after they were last used.
     LaunchedEffect(osdVisible) {
         if (!osdVisible) return@LaunchedEffect
@@ -752,6 +789,20 @@ fun HomeScreen(
         vm.channels.first { it.isNotEmpty() }
         io.github.petebutty.viewarr.ui.common.StartupGate.ready = true
     }
+    // viewarr://channel?uuid=… / ?number=…: that live channel, full screen. On a cold start it waits for the guide's
+    // channels first; the channel already playing is reconnected (a frozen stream).
+    val channelLink by DeepLink.pendingChannel.collectAsStateWithLifecycle()
+    LaunchedEffect(channelLink) {
+        val req = channelLink ?: return@LaunchedEffect
+        val all = kotlinx.coroutines.withTimeoutOrNull(60_000) { dvr.channels.first { it.isNotEmpty() } }?.values.orEmpty()
+        DeepLink.pendingChannel.value = null
+        val ch = req.uuid?.let { u -> all.firstOrNull { it.uuid.equals(u, ignoreCase = true) } }
+            ?: req.number?.let { n -> all.firstOrNull { it.number == n } }
+        if (ch == null) { toast("That channel isn't in Viewarr's guide"); return@LaunchedEffect }
+        quickSearch = false; menuOpen = false; sportsOpen = false; channelListOpen = false; osdVisible = false
+        VodHost.close()
+        watchChannel(ch, endMultiView = true)
+    }
     val deepLink by DeepLink.pending.collectAsStateWithLifecycle()
     LaunchedEffect(deepLink) {
         val item = deepLink ?: return@LaunchedEffect
@@ -830,6 +881,44 @@ fun HomeScreen(
         val all = showMenuRows.rows + movieMenuRows.rows
         (RowSets.sets(showMenuRows.rows) + RowSets.sets(movieMenuRows.rows)).filter { it.startsWith("name:") }.distinct().map { key ->
             key.removePrefix("name:") to all.filter { RowSets.matches(key, it) }.map { it.id to RowSets.rowTitle(it) }.distinctBy { it.first }
+        }
+    }
+    // The other viewarr:// controls (home automation): each does what the remote's own button would.
+    val commandLink by DeepLink.pendingCommand.collectAsStateWithLifecycle()
+    LaunchedEffect(commandLink) {
+        val c = commandLink ?: return@LaunchedEffect
+        DeepLink.pendingCommand.value = null
+        when (c.kind) {
+            // Channel up / down: from the channel playing (else the first), full screen.
+            "step" -> {
+                kotlinx.coroutines.withTimeoutOrNull(60_000) { vm.channels.first { it.isNotEmpty() } }
+                if (playing == null) vm.channels.value.firstOrNull()?.let { watchChannel(it) }
+                else { zap(if (c.arg == "up") 1 else -1); if (page == Page.Tv) fullscreen = true }
+            }
+            // Stop whatever's playing: live TV, a film or episode, music.
+            "stop" -> { playback.stop(); VodHost.close(); io.github.petebutty.viewarr.playback.MusicPlayer.stop(); fullscreen = false }
+            "guide" -> { menuOpen = false; quickSearch = false; VodHost.minimise(); openPage(Page.Tv); fullscreen = false }
+            "page" -> {
+                menuOpen = false; quickSearch = false
+                when (c.arg) {
+                    "movies" -> openPage(Page.Movies); "shows" -> openPage(Page.Shows); "music" -> openPage(Page.Music)
+                    "recordings" -> openPage(Page.Recordings); "guide" -> { openPage(Page.Tv); fullscreen = false }
+                    "sports" -> { if (fullscreen) fullscreen = false; sportsOpen = true }
+                }
+            }
+            // Record what's on now on that channel (or the one playing), as one press of Record.
+            "record" -> {
+                val all = kotlinx.coroutines.withTimeoutOrNull(60_000) { dvr.channels.first { it.isNotEmpty() } }?.values.orEmpty()
+                val ch = c.uuid?.let { u -> all.firstOrNull { it.uuid.equals(u, ignoreCase = true) } } ?: c.number?.let { n -> all.firstOrNull { it.number == n } } ?: playing
+                val prog = ch?.let { GuideViewModel.programAt(programsOf(it), System.currentTimeMillis()) }
+                when {
+                    ch == null || prog == null -> toast("Nothing to record there")
+                    !Access.record -> toast("Recording isn't allowed for this profile")
+                    dvr.recordingFor(ch.id, prog) != null -> toast("Already recording: ${prog.title}")
+                    else -> { dvr.record(ch, prog); toast("⏺ Recording from now: ${prog.title}") }
+                }
+            }
+            "search" -> { menuOpen = false; VodHost.minimise(); searchStart = c.arg; searchVoice = false; quickSearch = true }
         }
     }
     fun openService(name: String, closeMenu: Boolean, rowId: String? = null) {
@@ -1418,7 +1507,7 @@ fun HomeScreen(
                     if (ButtonMap.pressOf(e) == held) {
                         // Held: channels and skips keep going, as their own buttons do.
                         if (e.type == KeyEventType.KeyDown && holdTap == null) tableScreen()?.let { sc -> ButtonMap.changed(remote, sc, held) }
-                            ?.takeIf { it in setOf(BtnAction.NextChannel, BtnAction.PrevChannel, BtnAction.SkipBack, BtnAction.SkipForward, BtnAction.PageUp, BtnAction.PageDown, BtnAction.Earlier, BtnAction.Later) }
+                            ?.takeIf { it in setOf(BtnAction.NextChannel, BtnAction.PrevChannel, BtnAction.BrowseNext, BtnAction.BrowsePrev, BtnAction.SkipBack, BtnAction.SkipForward, BtnAction.PageUp, BtnAction.PageDown, BtnAction.Earlier, BtnAction.Later) }
                             ?.let { doButton(tableScreen()!!, it) }
                         if (e.type == KeyEventType.KeyUp) {
                             tableHeld = null
@@ -1434,6 +1523,14 @@ fun HomeScreen(
                         return@onPreviewKeyEvent true
                     }
                     tableHeld = null
+                }
+                // Browsing channels in the info bar: OK changes to the one shown now, Back stays where you were.
+                if (browseChannel != null && e.type == KeyEventType.KeyDown && e.nativeKeyEvent.repeatCount == 0) {
+                    when (e.key) {
+                        Key.DirectionCenter, Key.Enter, Key.NumPadEnter -> { commitBrowse(); searchHeld = true; return@onPreviewKeyEvent true }
+                        Key.Back -> { cancelBrowse(); showBanner(); searchHeld = true; return@onPreviewKeyEvent true }
+                        else -> Unit
+                    }
                 }
                 // Settings → Remote buttons on the guide, full-screen live TV and the pages: buttons changed from standard
                 // (colours, Record, Info, the media and channel buttons, Menu). OK, Back and their holds are taken
@@ -1563,7 +1660,7 @@ fun HomeScreen(
             SearchPage(
                 guide = vm,
                 serverUrl = session?.serverUrl.orEmpty(),
-                focusEnabled = !menuOpen && !cornerFocused && !showAccounts && !quickSearch && infoTarget == null && recordTarget == null && seasonPick == null,
+                focusEnabled = !menuOpen && !cornerFocused && !showAccounts && !quickSearch && infoTarget == null && recordTarget == null && seasonPick == null && !sportsOpen,
                 onProgramme = { ch, prog -> recordTarget = ch to prog },
                 onCatchup = { ch, prog ->
                     watchChannel(ch, catchup = prog)
@@ -1578,7 +1675,7 @@ fun HomeScreen(
         } else if (page == Page.Music) {
             MusicScreen(
                 focusRequester = mediaFocus,
-                focusEnabled = !menuOpen && !cornerFocused && !showAccounts && !quickSearch && !VodHost.covering && !MusicPlayer.nowPlayingOpen,
+                focusEnabled = !menuOpen && !cornerFocused && !showAccounts && !quickSearch && !VodHost.covering && !MusicPlayer.nowPlayingOpen && !sportsOpen,
                 onOpenMenu = { menuOpen = true },
                 onBack = ::backOnPage,
                 onSetUp = { showAccounts = true },
@@ -1587,7 +1684,7 @@ fun HomeScreen(
             RecordingsScreen(
                 vm = dvr,
                 focusRequester = mediaFocus,
-                focusEnabled = !menuOpen && !cornerFocused && !showAccounts && !quickSearch && !VodHost.covering,
+                focusEnabled = !menuOpen && !cornerFocused && !showAccounts && !quickSearch && !VodHost.covering && !sportsOpen,
                 onBack = ::backOnPage,
                 onPlay = { recordingPlayback = it },
                 onOpenMenu = { menuOpen = true },
@@ -1597,7 +1694,7 @@ fun HomeScreen(
                 type = if (page == Page.Movies) MediaType.Movie else MediaType.Show,
                 cornerHasFocus = cornerFocused,
                 focusRequester = mediaFocus,
-                focusEnabled = !menuOpen && !cornerFocused && !showAccounts && !quickSearch,
+                focusEnabled = !menuOpen && !cornerFocused && !showAccounts && !quickSearch && !sportsOpen,
                 onOpenMenu = { menuOpen = true },
                 onBack = {
                     if (VodHost.active && VodHost.mini) { VodHost.expand(); return@MediaScreen }
@@ -1617,7 +1714,7 @@ fun HomeScreen(
         } else if (session == null) {
             NoLiveTv(
                 focusRequester = guideFocus,
-                focusEnabled = !menuOpen && !cornerFocused && !showAccounts && !quickSearch,
+                focusEnabled = !menuOpen && !cornerFocused && !showAccounts && !quickSearch && !sportsOpen,
                 onSetUp = { showAccounts = true },
                 onOpenMenu = { menuOpen = true },
             )
@@ -1746,9 +1843,13 @@ fun HomeScreen(
         val current = catchup ?: GuideViewModel.programAt(list, now)
         if (channel != null && !(multiView && fullscreen)) {
             val next = if (catchup != null) null else current?.let { c -> list.firstOrNull { it.startTime >= c.endTime } }
+            val browsed = browseChannel
+            val browsedList = browsed?.let { programsOf(it) }.orEmpty()
+            val browsedNow = browsed?.let { GuideViewModel.programAt(browsedList, now) }
             PlayerLayer(
                 vm = playback,
                 fullscreen = fullscreen,
+                browse = browsed?.let { Triple(it, browsedNow, browsedNow?.let { c -> browsedList.firstOrNull { p -> p.startTime >= c.endTime } }) },
                 bannerVisible = bannerVisible && !osdVisible && !inCorner && !liveBehind && !livePreview,
                 current = current,
                 next = next,
@@ -2032,6 +2133,12 @@ fun HomeScreen(
                 },
                 services = menuServices,
                 liveEntries = listOf("Live now", "Sports"),
+                openEntry = when {
+                    sportsOpen -> "Sports"
+                    page == Page.Shows -> showsVm.currentRowSet.value?.takeIf { it.startsWith("name:") }?.let { "svc:" + it.removePrefix("name:") }
+                    page == Page.Movies -> moviesVm.currentRowSet.value?.takeIf { it.startsWith("name:") }?.let { "svc:" + it.removePrefix("name:") }
+                    else -> null
+                },
                 onLiveEntry = { label, into -> if (into || (!fullscreen && !liveBehind && !VodHost.active)) openLiveEntry(label, closeMenu = into) },
                 // Moving onto a service: its page behind (not over full-screen video); Right / OK: into it.
                 onService = { name, rowId, into -> if (into || (!fullscreen && !liveBehind && !VodHost.active)) { sportsOpen = false; openService(name, closeMenu = into, rowId = rowId) } },

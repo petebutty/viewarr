@@ -141,6 +141,36 @@ class NavidromeSource(private val c: SubsonicClient, private val a: NavidromeAut
     }
     override suspend fun scrobble(songId: String, submission: Boolean) { c.call(a, "scrobble", "&id=${enc(localId(songId))}&submission=$submission") }
 
+    // Lyrics: OpenSubsonic's timed lyrics where the server has them, else the plain getLyrics.
+    override suspend fun lyrics(song: Song): Lyrics? {
+        val structured = c.call(a, "getLyricsBySongId", "&id=${enc(localId(song.id))}").child("lyricsList").array("structuredLyrics")
+        val pick = structured.firstOrNull { it.str("synced") == "true" } ?: structured.firstOrNull()
+        if (pick != null) {
+            val synced = pick.str("synced") == "true"
+            val lines = pick.array("line").map { l -> LyricLine(if (synced) l.str("start")?.toLongOrNull() else null, l.str("value").orEmpty()) }
+            if (lines.isNotEmpty()) return Lyrics(lines, synced, name)
+        }
+        val plain = c.call(a, "getLyrics", "&artist=${enc(song.artist)}&title=${enc(song.title)}").child("lyrics").str("value")
+        return plain?.takeIf { it.isNotBlank() }?.let { parseLrc(it) }?.copy(from = name)
+    }
+    override suspend fun similarSongs(song: Song, size: Int) =
+        c.call(a, "getSimilarSongs", "&id=${enc(localId(song.id))}&count=$size").child("similarSongs").array("song").map(::song)
+    override suspend fun artistInfo(artist: Artist): ArtistInfo? {
+        val info = c.call(a, "getArtistInfo2", "&id=${enc(localId(artist.id))}&count=12").child("artistInfo2")
+        val bio = info.str("biography")?.replace(Regex("<[^>]+>"), "")?.replace(Regex("\\s*Read more on Last\\.fm\\.?\\s*$"), "")?.trim()?.takeIf { it.isNotBlank() }
+        val similar = info.array("similarArtist").filter { it.str("id") != null }.map(::artist)
+        val top = c.call(a, "getTopSongs", "&artist=${enc(artist.name)}&count=10").child("topSongs").array("song").map(::song)
+        return ArtistInfo(bio, similar, top)
+    }
+    override suspend fun setStarred(id: String, kind: String, on: Boolean): Boolean {
+        val param = when (kind) { "album" -> "albumId"; "artist" -> "artistId"; else -> "id" }
+        return c.call(a, if (on) "star" else "unstar", "&$param=${enc(localId(id))}") != null
+    }
+    override suspend fun starredIds(): Set<String> {
+        val r = c.call(a, "getStarred2").child("starred2")
+        return (r.array("song") + r.array("album") + r.array("artist")).mapNotNull { it.str("id")?.let { i -> "nd:$i" } }.toSet()
+    }
+
     // Navidrome's album lists: one sort or one filter at a time (favourites, else genre, else decade).
     override suspend fun albumOptions() = listOf(
         io.github.petebutty.viewarr.data.media.SortOption("title", "Title", false), io.github.petebutty.viewarr.data.media.SortOption("artist", "Artist", false),

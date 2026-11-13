@@ -48,7 +48,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        io.github.petebutty.viewarr.data.media.DeepLink.parse(intent?.data)?.let { io.github.petebutty.viewarr.data.media.DeepLink.pending.value = it }
+        io.github.petebutty.viewarr.data.media.DeepLink.handle(intent?.data)
         lifecycleScope.launch { themeStore.palette.collect { AppColors.palette = it } }
         setContent {
             ViewarrTheme { AppRoot() }
@@ -64,9 +64,9 @@ class MainActivity : ComponentActivity() {
         if (hasFocus) io.github.petebutty.viewarr.ui.common.A11yTrim.refresh(this)
     }
 
-    /** Already running: a Watch Next card on the home screen opens its title here. */
+    /** Already running: a Watch Next card opens its title here; a viewarr://channel link changes channel. */
     override fun onNewIntent(intent: android.content.Intent) {
         super.onNewIntent(intent)
-        io.github.petebutty.viewarr.data.media.DeepLink.parse(intent.data)?.let { io.github.petebutty.viewarr.data.media.DeepLink.pending.value = it }
+        io.github.petebutty.viewarr.data.media.DeepLink.handle(intent.data)
     }
 }

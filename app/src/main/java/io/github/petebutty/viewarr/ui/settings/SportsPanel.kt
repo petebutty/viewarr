@@ -161,19 +161,22 @@ fun SportsSettingsScreen(onBack: () -> Unit, vm: SportsViewModel = hiltViewModel
     LaunchedEffect(results, focusKey, searching, leagueFor, picked) {
         val key = focusKey ?: return@LaunchedEffect
         if (leagueFor != null || picked != null) return@LaunchedEffect
-        if (results.isEmpty()) { if (!searching) { focusKey = null; awaitFrame(); runCatching { firstPill.requestFocus() } }; return@LaunchedEffect }
+        // Still loading: wait. (A league's teams arrive a frame before "searching" goes off; starting then, the
+        // change restarted this and dropped the move, leaving nothing highlighted and the remote doing nothing.)
+        if (searching) return@LaunchedEffect
+        if (results.isEmpty()) { focusKey = null; awaitFrame(); runCatching { firstPill.requestFocus() }; return@LaunchedEffect }
         val i = if (key == "first") 0 else results.indexOfFirst { it.shortcutId == key }.coerceAtLeast(0)
-        focusKey = null
         listState.scrollToItem(i) // (after the heading: index i + 1 is the row; i keeps the heading in view)
         // A pop-up that's just been closed is still going for a moment (its window has the remote): a highlight put here
-        // meanwhile was lost with it. So: try, and keep trying until a row really has it (half a second at most).
+        // meanwhile was lost with it. So: try, and keep trying until a row really has it (a second at most).
         val id = results[i].shortcutId
-        repeat(12) {
+        repeat(24) {
             delay(40)
             runCatching { rowReq(id).requestFocus() }
             awaitFrame()
-            if (rowFocused == id) return@LaunchedEffect
+            if (rowFocused == id) { focusKey = null; return@LaunchedEffect }
         }
+        focusKey = null
         runCatching { firstPill.requestFocus() }
     }
     BackHandler {

@@ -629,6 +629,12 @@ fun OsdCardContent(p: OsdPoster) {
             contentScale = if (p.logo) ContentScale.Fit else ContentScale.Crop,
             modifier = if (p.logo) Modifier.fillMaxSize().padding(horizontal = 28.dp, vertical = 18.dp) else Modifier.fillMaxSize(),
         ) else Text(p.title, fontSize = 13.sp, color = Color.White, maxLines = 2, modifier = Modifier.align(Alignment.Center).padding(8.dp))
+        // Not out yet: darker, and said.
+        if (p.unreleased) {
+            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.6f)))
+            Text("Not out yet", fontSize = 12.sp, color = Color.White, modifier = Modifier.align(Alignment.Center)
+                .background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(6.dp)).padding(horizontal = 8.dp, vertical = 3.dp))
+        }
         // Inset from the edges: on the edge, the highlight's border and the rounded corners hid it.
         p.progress?.takeIf { it > 0f }?.let { f ->
             Box(
@@ -645,6 +651,8 @@ fun OsdCardCaption(p: OsdPoster, highlighted: Boolean) {
     Text(p.title, fontSize = 12.sp, color = if (highlighted) Color.White else AppColors.TextSecondary, maxLines = 1,
         overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 5.dp))
     p.subtitle?.let { Text(it, fontSize = 11.sp, color = AppColors.TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+    // A line of its own (an episode's release date): it was cut off at the end of the subtitle.
+    p.note?.let { Text(it, fontSize = 11.sp, color = if (p.unreleased) AppColors.Accent else AppColors.TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis) }
 }
 
 /** A row's heading: its name, then the next row's (or that there are more on the shortcut's own page). */

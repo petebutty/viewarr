@@ -51,8 +51,8 @@ class ThemeStore @Inject constructor(@ApplicationContext private val context: Co
             transparency = prefs[TRANSPARENCY] ?: 0f,
             guideTransparency = prefs[GUIDE_TRANSPARENCY] ?: 0f,
             showNumbers = prefs[NUMBERS] ?: true,
-            // Always rounded now (the glass look); the old Corners setting is gone.
-            squareCorners = false,
+            // Settings → Appearance → Live TV → Programme corners (rounded unless chosen).
+            squareCorners = prefs[SQUARE] ?: false,
             hideMedia = prefs[HIDE_MEDIA] ?: false,
             progressBars = prefs[PROGRESS] ?: 0,
             // 2 was "From your library" (removed): None.

@@ -71,6 +71,8 @@ import coil.compose.AsyncImage
 import io.github.petebutty.viewarr.playback.MusicPlayer
 import io.github.petebutty.viewarr.ui.common.AppIcons
 import io.github.petebutty.viewarr.ui.theme.AppColors
+import io.github.petebutty.viewarr.ui.common.glass
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.delay
 
 /** At the root, over every page: the Now Playing screen, or the small now-playing bar while you browse. */
@@ -103,6 +105,20 @@ fun MusicLayer() {
         }
     }
 
+    // The screensaver (Settings → Playback → Music): after a quiet spell with music playing, Now Playing comes up big
+    // (artwork and lyrics); any button puts things back as they were.
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(5_000)
+            val wait = when (io.github.petebutty.viewarr.ui.theme.AppColors.palette.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.MUSIC_SAVER)) { 0 -> 120_000L; 1 -> 300_000L; 2 -> 600_000L; else -> null } ?: continue
+            if (MusicPlayer.isPlaying && !MusicSaver.on && !io.github.petebutty.viewarr.ui.media.VodHost.active &&
+                android.os.SystemClock.elapsedRealtime() - UserActivity.lastKeyAt > wait) {
+                MusicSaver.wasOpen = MusicPlayer.nowPlayingOpen
+                MusicSaver.on = true
+                MusicPlayer.nowPlayingOpen = true
+            }
+        }
+    }
     Box(Modifier.fillMaxSize()) {
         AnimatedVisibility(!MusicPlayer.nowPlayingOpen && !io.github.petebutty.viewarr.ui.media.VodHost.active, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.align(Alignment.BottomEnd)) {
             MiniBar(position)
@@ -117,9 +133,9 @@ fun MusicLayer() {
 private fun MiniBar(position: Long) {
     val s = MusicPlayer.current ?: return
     Row(
+        // The same glass as the info bar and every pop-up.
         Modifier.padding(end = 40.dp, bottom = 28.dp).width(420.dp).height(78.dp)
-            .clip(RoundedCornerShape(12.dp)).background(AppColors.Panel.copy(alpha = 0.96f))
-            .border(1.dp, AppColors.Accent.copy(alpha = 0.6f), RoundedCornerShape(12.dp)),
+            .glass(12.dp).clip(RoundedCornerShape(12.dp)),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         AsyncImage(MusicPlayer.cover(s, 150), null, contentScale = ContentScale.Crop, modifier = Modifier.size(78.dp).background(Color.Black))
@@ -137,14 +153,27 @@ private fun MiniBar(position: Long) {
 @Composable
 private fun NowPlaying(position: Long) {
     val s = MusicPlayer.current
+    val vm: MusicViewModel = androidx.hilt.navigation.compose.hiltViewModel()
+    LaunchedEffect(s?.id) { vm.loadLyrics(s) }
+    val lyrics by vm.lyrics.collectAsStateWithLifecycle()
+    val starred by vm.starred.collectAsStateWithLifecycle()
+    val lyricsOn = io.github.petebutty.viewarr.ui.theme.AppColors.palette.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.MUSIC_LYRICS) == 0
+    val saver = MusicSaver.on
     val playFocus = remember { FocusRequester() }
     var immersive by remember { mutableStateOf(false) }
+    var queueOpen by remember { mutableStateOf(false) }
+    var sleepOpen by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { delay(50); runCatching { playFocus.requestFocus() } }
     BackHandler { if (immersive) immersive = false else MusicPlayer.nowPlayingOpen = false }
     Box(
         Modifier.fillMaxSize().background(Color.Black)
             .focusProperties { exit = { FocusRequester.Cancel } }.focusGroup()
             .onPreviewKeyEvent { e ->
+                // The screensaver: any button ends it (and does nothing else).
+                if (MusicSaver.on) {
+                    if (e.type == KeyEventType.KeyUp) { MusicSaver.on = false; if (!MusicSaver.wasOpen) MusicPlayer.nowPlayingOpen = false }
+                    return@onPreviewKeyEvent true
+                }
                 // The rest of the held Back that opened this screen.
                 if (e.key == Key.Back && MusicPlayer.eatBackRelease) { if (e.type == KeyEventType.KeyUp) MusicPlayer.eatBackRelease = false; return@onPreviewKeyEvent true }
                 if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
@@ -169,16 +198,26 @@ private fun NowPlaying(position: Long) {
             Modifier.align(Alignment.BottomCenter).fillMaxWidth().fillMaxHeight(if (immersive) 0.62f else 0.26f).padding(horizontal = 48.dp),
             bands = io.github.petebutty.viewarr.playback.MusicPlayer.Analyser.BANDS, reflection = true,
         )
-        if (s != null) Row(
+        // The screensaver: the cover big, the song, and its lyrics.
+        if (s != null && saver) Row(Modifier.fillMaxSize().padding(horizontal = 80.dp, vertical = 60.dp), verticalAlignment = Alignment.CenterVertically) {
+            NowPlayingArt(MusicPlayer.cover(s, 800), 420.dp)
+            Spacer(Modifier.width(56.dp))
+            Column(Modifier.weight(1f)) {
+                Text(s.title, fontSize = 34.sp, lineHeight = 40.sp, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(s.artist, fontSize = 22.sp, color = Color.White.copy(alpha = 0.85f), maxLines = 1, modifier = Modifier.padding(top = 4.dp, bottom = 26.dp))
+                lyrics?.takeIf { lyricsOn }?.let { LyricsPanel(it, position, MusicPlayer.durationMs, Modifier.fillMaxWidth(), big = true) }
+                    ?: MusicPlayer.upNext(3).takeIf { it.isNotEmpty() }?.let { next ->
+                        Text("Up next", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = AppColors.Accent, modifier = Modifier.padding(bottom = 8.dp))
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) { next.forEach { MiniSong(it) } }
+                    }
+            }
+        }
+        if (s != null && !saver) Row(
             Modifier.padding(start = 64.dp, top = if (immersive) 40.dp else 44.dp, end = 64.dp),
             verticalAlignment = if (immersive) Alignment.CenterVertically else Alignment.Top,
         ) {
             val coverSize = if (immersive) 120.dp else 280.dp
-            AsyncImage(
-                MusicPlayer.cover(s, 600), s.album, contentScale = ContentScale.Crop,
-                modifier = Modifier.size(coverSize).clip(RoundedCornerShape(12.dp)).background(AppColors.Panel)
-                    .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(12.dp)),
-            )
+            NowPlayingArt(MusicPlayer.cover(s, 600), coverSize)
             Spacer(Modifier.width(36.dp))
             Column(Modifier.weight(1f)) {
                 if (!immersive) Text("NOW PLAYING", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = AppColors.Accent, letterSpacing = 2.sp)
@@ -200,10 +239,18 @@ private fun NowPlaying(position: Long) {
                     Control(AppIcons.Shuffle, "Shuffle", on = MusicPlayer.shuffle) { MusicPlayer.toggleShuffle() }
                     Control(if (MusicPlayer.repeat == Player.REPEAT_MODE_ONE) AppIcons.RepeatOne else AppIcons.Repeat, "Repeat", on = MusicPlayer.repeat != Player.REPEAT_MODE_OFF) { MusicPlayer.cycleRepeat() }
                     Control(AppIcons.Stats, if (immersive) "Less visualiser" else "Big visualiser", on = immersive) { immersive = !immersive }
+                    Control(AppIcons.Layers, "Queue") { queueOpen = true }
+                    Control(AppIcons.MusicNote, "Song radio") { vm.radio(s) }
+                    Control(if (s.id in starred) AppIcons.BookmarkFilled else AppIcons.Bookmark, if (s.id in starred) "Favourite (OK to remove)" else "Add to favourites", on = s.id in starred) { vm.toggleStar(s.id, "song") }
+                    Control(AppIcons.Clock, MusicPlayer.sleepMinutesLeft()?.let { "Sleep: $it min" } ?: MusicPlayer.sleepAfter?.let { "Sleep: end of $it" } ?: "Sleep timer",
+                        on = MusicPlayer.sleepAt != null || MusicPlayer.sleepAfter != null) { sleepOpen = true }
                     Control(AppIcons.Stop, "Stop") { MusicPlayer.stop() }
                 }
-                // The next few tracks, in a row under the controls.
-                if (!immersive) {
+                // Under the controls: the words when the song has some (Settings → Playback → Music → Lyrics), else
+                // the next few tracks in a row.
+                val l = lyrics
+                if (!immersive && lyricsOn && l != null) LyricsPanel(l, position, MusicPlayer.durationMs, Modifier.fillMaxWidth().padding(top = 16.dp))
+                else if (!immersive) {
                     val next = remember(MusicPlayer.index, MusicPlayer.shuffle, MusicPlayer.repeat, MusicPlayer.queue) { MusicPlayer.upNext(3) }
                     if (next.isNotEmpty()) {
                         Text("Up next", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = AppColors.Accent, modifier = Modifier.padding(top = 14.dp, bottom = 6.dp))
@@ -222,7 +269,17 @@ private fun NowPlaying(position: Long) {
                 }
             }
         }
+        // The queue slides in from the right; the sleep timer pops up.
+        if (queueOpen) Box(Modifier.align(Alignment.CenterEnd)) { QueuePanel(onClose = { queueOpen = false; runCatching { playFocus.requestFocus() } }) }
+        if (sleepOpen) SleepDialog(onClose = { sleepOpen = false })
     }
+}
+
+/** The music screensaver's state (MusicLayer starts it; any button ends it). */
+object MusicSaver {
+    var on by mutableStateOf(false)
+    /** Now Playing was already open when it started (so it stays open after). */
+    var wasOpen = false
 }
 
 @Composable
@@ -271,10 +328,69 @@ fun Visualiser(modifier: Modifier, bands: Int, reflection: Boolean) {
         }
     }
     val accent = AppColors.Accent
+    // Settings → Playback → Music → Visualiser: bars, mirrored bars, a wave, dots, or none.
+    val style = io.github.petebutty.viewarr.ui.theme.AppColors.palette.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.MUSIC_VIS)
+    if (style == 4) return
     Canvas(modifier) {
         @Suppress("UNUSED_EXPRESSION") frame
         val a = MusicPlayer.analyser
         val total = MusicPlayer.Analyser.BANDS
+        fun level(i: Int): Float {
+            val from = i * total / bands
+            val to = ((i + 1) * total / bands).coerceAtLeast(from + 1)
+            var v = 0f
+            for (k in from until to) v = maxOf(v, a.bands[k])
+            return v
+        }
+        when (style) {
+            // Mirrored: each bar grows up and down from the middle.
+            1 -> {
+                val gap = size.width / bands * 0.28f
+                val w = size.width / bands - gap
+                val mid = size.height / 2
+                for (i in 0 until bands) {
+                    val v = level(i)
+                    val h = (v * size.height / 2).coerceAtLeast(w * 0.3f)
+                    val x = i * (w + gap) + gap / 2
+                    val top = lerp(accent, Color.White, (v * 0.8f).coerceIn(0f, 1f))
+                    drawRoundRect(brush = Brush.verticalGradient(listOf(accent.copy(alpha = 0.5f), top, accent.copy(alpha = 0.5f)), startY = mid - h, endY = mid + h),
+                        topLeft = Offset(x, mid - h), size = Size(w, h * 2), cornerRadius = CornerRadius(w / 2, w / 2))
+                }
+                return@Canvas
+            }
+            // Wave: one smooth line through the levels, filled softly underneath.
+            2 -> {
+                val path = androidx.compose.ui.graphics.Path()
+                val step = size.width / (bands - 1).coerceAtLeast(1)
+                val base = size.height
+                path.moveTo(0f, base)
+                var px = 0f; var py = base - level(0) * base * 0.9f
+                path.lineTo(px, py)
+                for (i in 1 until bands) {
+                    val x = i * step; val y = base - level(i) * base * 0.9f
+                    path.quadraticTo(px, py, (px + x) / 2, (py + y) / 2)
+                    px = x; py = y
+                }
+                path.lineTo(size.width, py); path.lineTo(size.width, base); path.close()
+                drawPath(path, Brush.verticalGradient(listOf(accent.copy(alpha = 0.55f), Color.Transparent)))
+                return@Canvas
+            }
+            // Dots: a column of dots per band, lit up to its level.
+            3 -> {
+                val colW = size.width / bands
+                val d = (colW * 0.55f).coerceAtMost(size.height / 14f)
+                val rows = (size.height / (d * 1.5f)).toInt().coerceAtLeast(1)
+                for (i in 0 until bands) {
+                    val lit = (level(i) * rows).toInt()
+                    for (r in 0 until rows) {
+                        val on = r < lit
+                        drawCircle(if (on) lerp(accent, Color.White, r.toFloat() / rows) else Color.White.copy(alpha = 0.06f), radius = d / 2,
+                            center = Offset(i * colW + colW / 2, size.height - d - r * d * 1.5f))
+                    }
+                }
+                return@Canvas
+            }
+        }
         val gap = size.width / bands * 0.28f
         val w = size.width / bands - gap
         val base = if (reflection) size.height * 0.78f else size.height

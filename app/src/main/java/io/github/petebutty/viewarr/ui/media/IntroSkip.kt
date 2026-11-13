@@ -35,12 +35,26 @@ object NextUp {
             key = "ep-${ep.season}-${ep.number}",
             title = "${ep.number}. ${ep.name}",
             subtitle = listOfNotNull("S${ep.season} · E${ep.number}", ep.runtimeMin?.takeIf { it > 0 }?.let { "${it}m" }).joinToString("  ·  "),
+            note = released(ep.airDate),
             image = ep.still ?: fallbackArt,
             fallbackImage = fallbackArt,
+            unreleased = notOut(ep.airDate),
             onClick = { playEpisode(ep) },
         )
     }
     var fallbackArt: String? = null
+
+    /** An air date still to come (no date: taken as out). */
+    private fun notOut(airDate: String?): Boolean =
+        runCatching { java.time.LocalDate.parse(airDate?.take(10)) }.getOrNull()?.isAfter(java.time.LocalDate.now()) == true
+
+    /** When it came out ("18 Sep 2026"), or comes out ("Out Fri 20 Nov"), from the episode's air date. */
+    private fun released(airDate: String?): String? {
+        val d = runCatching { java.time.LocalDate.parse(airDate?.take(10)) }.getOrNull() ?: return null
+        val today = java.time.LocalDate.now()
+        return if (d.isAfter(today)) "Out " + d.format(java.time.format.DateTimeFormatter.ofPattern("EEE d MMM", java.util.Locale.UK))
+        else d.format(java.time.format.DateTimeFormatter.ofPattern("d MMM yyyy", java.util.Locale.UK))
+    }
 }
 
 /**

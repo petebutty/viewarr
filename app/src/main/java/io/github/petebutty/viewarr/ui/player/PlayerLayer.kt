@@ -70,6 +70,8 @@ fun PlayerLayer(
     now: Long,
     serverUrl: String,
     modifier: Modifier = Modifier,
+    /** A channel browsed to in the info bar (not changed to yet), with what's on it now and next: shown in place of the playing one. */
+    browse: Triple<ChannelListItem, GuideProgram?, GuideProgram?>? = null,
 ) {
     val channel by vm.channel.collectAsStateWithLifecycle()
     val state by vm.state.collectAsStateWithLifecycle()
@@ -160,10 +162,10 @@ fun PlayerLayer(
                 }
             }
             InfoBanner(
-                channel!!, current, next, now, serverUrl,
-                catchupPosition = if (catchup != null) position else null,
-                paused = paused,
-                quality = quality,
+                browse?.first ?: channel!!, if (browse != null) browse.second else current, if (browse != null) browse.third else next, now, serverUrl,
+                catchupPosition = if (catchup != null && browse == null) position else null,
+                paused = paused && browse == null,
+                quality = if (browse == null) quality else null,
                 modifier = Modifier.align(Alignment.BottomCenter),
             )
         }

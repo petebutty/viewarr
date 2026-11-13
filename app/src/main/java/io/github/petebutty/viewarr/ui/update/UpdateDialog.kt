@@ -35,7 +35,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
-import androidx.tv.material3.Button
+import io.github.petebutty.viewarr.ui.common.Button
 import androidx.tv.material3.OutlinedButton
 import androidx.tv.material3.Text
 import dagger.hilt.android.lifecycle.HiltViewModel

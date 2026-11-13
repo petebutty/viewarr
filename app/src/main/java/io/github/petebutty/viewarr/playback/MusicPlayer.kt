@@ -89,6 +89,7 @@ object MusicPlayer {
                     }
                     override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                         index = p.currentMediaItemIndex
+                        sleepOnTransition()
                         current?.let { onScrobble(it.id, false) }
                         scrobbledId = null
                     }
@@ -147,6 +148,69 @@ object MusicPlayer {
     }
     fun pause() { player?.pause() }
 
+    private fun item(s: Song) = MediaItem.Builder().setMediaId(s.id).setUri(s.streamUrl).setMediaMetadata(
+        MediaMetadata.Builder().setTitle(s.title).setArtist(s.artist).setAlbumTitle(s.album).build(),
+    ).build()
+
+    /** [songs] straight after the one playing (starting them if nothing is). */
+    fun playNext(context: Context, songs: List<Song>) {
+        if (songs.isEmpty()) return
+        val p = player
+        if (p == null || queue.isEmpty()) { play(context, songs); return }
+        val at = (p.currentMediaItemIndex + 1).coerceAtMost(queue.size)
+        p.addMediaItems(at, songs.map(::item))
+        queue = queue.toMutableList().apply { addAll(at, songs) }
+    }
+
+    /** [songs] at the end of the queue. */
+    fun addToQueue(context: Context, songs: List<Song>) {
+        if (songs.isEmpty()) return
+        val p = player
+        if (p == null || queue.isEmpty()) { play(context, songs); return }
+        p.addMediaItems(songs.map(::item))
+        queue = queue + songs
+    }
+
+    /** Takes the song at [i] out of the queue (not the one playing). */
+    fun removeAt(i: Int) {
+        val p = player ?: return
+        if (i !in queue.indices || i == p.currentMediaItemIndex) return
+        p.removeMediaItem(i)
+        queue = queue.toMutableList().apply { removeAt(i) }
+        index = p.currentMediaItemIndex
+    }
+
+    /** Moves the song at [from] to [to] in the queue. */
+    fun move(from: Int, to: Int) {
+        val p = player ?: return
+        if (from !in queue.indices || to !in queue.indices || from == to) return
+        p.moveMediaItem(from, to)
+        queue = queue.toMutableList().apply { add(to, removeAt(from)) }
+        index = p.currentMediaItemIndex
+    }
+
+    // ---- Sleep timer: stops at a time, or at the end of the song / album playing.
+    /** When to stop (ms since boot), or null. */
+    var sleepAt by mutableStateOf<Long?>(null)
+        private set
+    /** "song" / "album": stop when this song (or the album) ends. */
+    var sleepAfter by mutableStateOf<String?>(null)
+        private set
+    private var sleepAlbum: String? = null
+    fun setSleep(minutes: Int?) { sleepAfter = null; sleepAt = minutes?.let { android.os.SystemClock.elapsedRealtime() + it * 60_000L } }
+    fun sleepAfterThis(album: Boolean) { sleepAt = null; sleepAfter = if (album) "album" else "song"; sleepAlbum = current?.albumId ?: current?.album; sleepSong = current?.id }
+    private var sleepSong: String? = null
+    fun cancelSleep() { sleepAt = null; sleepAfter = null }
+    /** Minutes left on the timer (rounded up), for the button's label. */
+    fun sleepMinutesLeft(): Int? = sleepAt?.let { ((it - android.os.SystemClock.elapsedRealtime()).coerceAtLeast(0) / 60_000L + 1).toInt() }
+    /** On each new song: the "end of song / album" timer stops here. */
+    private fun sleepOnTransition() {
+        when (sleepAfter) {
+            "song" -> if (current?.id != sleepSong) { pause(); cancelSleep() }
+            "album" -> if ((current?.albumId ?: current?.album) != sleepAlbum) { pause(); cancelSleep() }
+        }
+    }
+
     /** The next few tracks in play order (shuffle included). */
     fun upNext(n: Int): List<Song> {
         val p = player ?: return emptyList()
@@ -166,6 +230,7 @@ object MusicPlayer {
 
     /** Called about once a second while playing: counts a listen at half way (or 4 minutes), as scrobblers do. */
     fun tick() {
+        sleepAt?.let { if (android.os.SystemClock.elapsedRealtime() >= it) { pause(); cancelSleep() } }
         val s = current ?: return
         val p = player ?: return
         if (scrobbledId == s.id || !p.isPlaying) return

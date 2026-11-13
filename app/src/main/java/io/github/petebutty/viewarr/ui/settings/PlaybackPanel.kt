@@ -109,7 +109,8 @@ fun PlaybackSettingsScreen(onBack: () -> Unit, vm: PlaybackSettingsViewModel = h
             "Live TV", "Watching live channels.",
             listOf(
                 optItem(opts, "Highlight the corner picture", "At the edge of a page, pressing towards the picture in the corner (live TV or a film) highlights it: Full screen or Close. Holding Back gives the same choice anywhere. Off: only hold Back.", io.github.petebutty.viewarr.ui.theme.UiOpts.CORNER_FOCUS).locked(cornerLock),
-                optItem(opts, "TV guide refresh", "How often the TV guide is fetched again from your server while Viewarr is open (and when it starts). Only when I ask: Settings → Refresh channels & guide.", io.github.petebutty.viewarr.ui.theme.UiOpts.GUIDE_REFRESH),
+                optItem(opts, "Browsing channels", "With a button set to \"Next / Previous channel in the info bar\" (Settings → Remote buttons → live TV): how long to rest on a channel before it changes. OK changes straight away; Back stays on the one you were watching.", io.github.petebutty.viewarr.ui.theme.UiOpts.BROWSE_DELAY),
+                                optItem(opts, "TV guide refresh", "How often the TV guide is fetched again from your server while Viewarr is open (and when it starts). Only when I ask: Settings → Refresh channels & guide.", io.github.petebutty.viewarr.ui.theme.UiOpts.GUIDE_REFRESH),
                 optItem(opts, "Still watching?", "After this long without a button press, live TV asks whether you're still there and stops if nobody answers within a minute (frees a provider connection when the TV's left on).", io.github.petebutty.viewarr.ui.theme.UiOpts.STILL_WATCHING),
             ),
         ),
@@ -121,6 +122,16 @@ fun PlaybackSettingsScreen(onBack: () -> Unit, vm: PlaybackSettingsViewModel = h
                 item("Start after", "How long to stay on a poster before its trailer starts.", k.TRAILER_DELAY, choices<io.github.petebutty.viewarr.data.settings.TrailerDelay>(), s.trailerDelay),
                 item("Preview sound", "Off plays previews silently. The Trailer button on a title page always has sound.", k.TRAILER_SOUND, choices<io.github.petebutty.viewarr.data.settings.TrailerSound>(), s.trailerSound),
             ).map { it.locked(lowLock) },
+        ),
+        SettingCategory(
+            "Music", "Now Playing: the artwork, lyrics, the visualiser and the screensaver.",
+            listOf(
+                optItem(opts, "Lyrics", "The words on Now Playing, following the song when they're timed (from your Navidrome).", io.github.petebutty.viewarr.ui.theme.UiOpts.MUSIC_LYRICS),
+                optItem(opts, "Lyrics from LRCLIB", "When your server has no lyrics for a song, look on LRCLIB, the free lyrics library. Only the song's artist, title, album and length are sent.", io.github.petebutty.viewarr.ui.theme.UiOpts.MUSIC_LRCLIB),
+                optItem(opts, "Artwork", "How Now Playing shows the album: its cover, a vinyl record with the cover as its label, a CD printed with it, a round cover, or a cover with a reflection. Records and CDs turn while the music plays.", io.github.petebutty.viewarr.ui.theme.UiOpts.MUSIC_ART),
+                optItem(opts, "Visualiser", "How the music is drawn on Now Playing and the now-playing bar.", io.github.petebutty.viewarr.ui.theme.UiOpts.MUSIC_VIS),
+                optItem(opts, "Screensaver", "With music playing and no button pressed for a while, Now Playing comes up big with the artwork and lyrics. Any button puts things back.", io.github.petebutty.viewarr.ui.theme.UiOpts.MUSIC_SAVER),
+            ),
         ),
         SettingCategory(
             "Troubleshooting", "Tools for when something doesn't play right.",

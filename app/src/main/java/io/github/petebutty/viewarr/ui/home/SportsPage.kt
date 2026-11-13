@@ -118,12 +118,16 @@ internal fun SportsPage(
         }
     }
     var hover by remember { mutableStateOf<GameCard?>(null) }
-    LaunchedEffect(focusEnabled, rows.isNotEmpty()) {
-        if (!focusEnabled || rows.isEmpty()) return@LaunchedEffect
+    // The page's own highlight: put on the first game when it opens, and back there if it's ever lost while the page
+    // is up (rows reload as games and channels come in, and a page behind used to take it: it came and went).
+    var pageHasFocus by remember { mutableStateOf(false) }
+    LaunchedEffect(focusEnabled, rows.isNotEmpty(), pageHasFocus) {
+        if (!focusEnabled || rows.isEmpty() || pageHasFocus) return@LaunchedEffect
         androidx.compose.runtime.withFrameNanos { }
-        runCatching { focusRequester.requestFocus() }
+        kotlinx.coroutines.delay(120)
+        if (!pageHasFocus) runCatching { focusRequester.requestFocus() }
     }
-    Column(Modifier.fillMaxSize().background(AppColors.Background)) {
+    Column(Modifier.fillMaxSize().background(AppColors.Background).onFocusChanged { pageHasFocus = it.hasFocus }) {
         // The header: the top-left window's place (live TV) and the highlighted game beside it.
         Row(Modifier.fillMaxWidth().height(232.dp)) {
             Spacer(Modifier.width(if (besidePreview) 356.dp else 48.dp))

@@ -352,7 +352,7 @@ fun MpvPlayer(
             PlayerButton.SwitchPlayer -> picks().let { (a, t) -> onSwitchPlayer?.invoke((position * 1000).toLong(), a, t) }
             PlayerButton.Stop -> { onClose(); return }
             // As on live TV: Settings over what's playing (the film carries on in the corner; Back brings it back).
-            PlayerButton.Settings -> { menu.open = false; VodHost.close(); io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.openSettings(); return }
+            PlayerButton.Settings -> { menu.open = false; VodHost.minimise(); io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.openSettings(); return } // (Keeps playing in the window top left; settings pages make room for it.)
             // The TV guide (Live TV hub): the film carries on in the corner; Back brings it back.
             PlayerButton.Guide -> { menu.open = false; VodHost.close(); io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.openGuide(); return }
         }

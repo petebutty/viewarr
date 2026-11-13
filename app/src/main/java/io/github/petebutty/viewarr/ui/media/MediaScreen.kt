@@ -88,7 +88,7 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.Border
-import androidx.tv.material3.Button
+import io.github.petebutty.viewarr.ui.common.Button
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.OutlinedButton
 import androidx.tv.material3.Surface
@@ -1080,7 +1080,9 @@ private fun DetailScreen(
         // Shows: the seasons and episodes come between the header and the tabs, so the page scrolls (focus leads it).
         val episodesEntry = remember { FocusRequester() }
         val inlineEpisodes = show && ui.seasons.isNotEmpty() && parts.shows(io.github.petebutty.viewarr.ui.theme.TitleParts.EPISODES)
-        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 56.dp, end = 40.dp, top = 24.dp, bottom = 12.dp)) {
+        // The header (logo, details, buttons) stays put; only what's under it scrolls (the logo was cut off the top as
+        // the page scrolled down to the episodes).
+        Column(Modifier.fillMaxSize().padding(start = 56.dp, end = 40.dp, top = 24.dp, bottom = 12.dp)) {
         Row(verticalAlignment = Alignment.Top, modifier = if (besidePreview) Modifier.heightIn(min = 190.dp) else Modifier) {
             // The preview's place (12–332 dp from the left, under the page's 56 dp margin) instead of the poster.
             if (besidePreview) Spacer(Modifier.width(300.dp))
@@ -1137,9 +1139,9 @@ private fun DetailScreen(
                                 next.third -> "Resume S${next.first} · E${next.second}"
                                 else -> "Play S${next.first} · E${next.second}"
                             }
-                            // Holding OK: pick the episode (and its source) yourself.
-                            // The seasons and episodes are on the page itself now (below); holding OK still opens the full list.
-                            Button(onClick = vm::playNextUp, onLongClick = vm::openEpisodes, modifier = (Modifier.focusRequester(playFocus)).free()) { androidx.compose.material3.Icon(io.github.petebutty.viewarr.ui.common.AppIcons.Play, null, modifier = Modifier.padding(end = 6.dp).size(20.dp), tint = androidx.tv.material3.LocalContentColor.current); Text(if (ui.searching) "Looking…" else label) }
+                            // Holding OK: the sources found for that episode, to pick from (as a film's Play). The seasons and
+                            // episodes are on the page itself (below).
+                            Button(onClick = vm::playNextUp, onLongClick = vm::pickNextUp, modifier = (Modifier.focusRequester(playFocus)).free()) { androidx.compose.material3.Icon(io.github.petebutty.viewarr.ui.common.AppIcons.Play, null, modifier = Modifier.padding(end = 6.dp).size(20.dp), tint = androidx.tv.material3.LocalContentColor.current); Text(if (ui.searching) "Looking…" else label) }
                             // Part-way through that episode: or start it again.
                             if (next?.third == true) IconAction(io.github.petebutty.viewarr.ui.common.AppIcons.Replay, "Start over", vm::playFromStart, Modifier.free())
                         } else {
@@ -1189,6 +1191,7 @@ private fun DetailScreen(
                 }
             }
         }
+        Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())) {
         if (inlineEpisodes) InlineEpisodes(ui, vm, free = sectionsFree && ui.episode == null, entry = episodesEntry, up = playFocus, down = tabFocus, onHover = { ep -> hover = "S${ep.season} E${ep.number} · ${ep.name}" to ep.overview })
         // "Episodes" (hold OK on a show, the guide's Go to show…): onto this page's episode row, once the season's in.
         // (Once per request: changing season afterwards mustn't pull focus down to the episodes again.)
@@ -1201,7 +1204,8 @@ private fun DetailScreen(
         }
         Spacer(Modifier.height(16.dp))
         DetailTabs(d, show, sectionsFree && ui.episode == null, tabFocus, onPerson = { c -> vm.openCastMember(c) }, onReview = { reading = it }, onSimilar = { vm.open(it) }, onHover = { m -> hover = m?.let { it.title to it.overview } })
-        }
+                }
+}
         reading?.let { r -> ReviewDialog(r) { reading = null } }
         if (ui.episodesOpen) EpisodesPanel(ui, vm, onPlex)
         else if (ui.streams.isNullOrEmpty()) EpisodeActionsFor(ui, vm)
@@ -2049,12 +2053,12 @@ private fun IconAction(icon: androidx.compose.ui.graphics.vector.ImageVector, la
             colors = ClickableSurfaceDefaults.colors(
                 containerColor = if (on) Color.White.copy(alpha = 0.22f) else Color.Black.copy(alpha = 0.25f),
                 contentColor = Color.White,
-                focusedContainerColor = Color.White,
-                focusedContentColor = Color.Black,
+                focusedContainerColor = AppColors.Accent,
+                focusedContentColor = AppColors.OnAccent,
             ),
         ) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                androidx.compose.material3.Icon(icon, contentDescription = label, tint = if (focused) Color.Black else Color.White, modifier = Modifier.size(22.dp))
+                androidx.compose.material3.Icon(icon, contentDescription = label, tint = if (focused) AppColors.OnAccent else Color.White, modifier = Modifier.size(22.dp))
             }
         }
         Text(

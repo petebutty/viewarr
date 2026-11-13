@@ -111,13 +111,13 @@ internal fun MediaMenuPanel(
             onNone = { media.openLibrary(catsFor, type); onCats(null); onOpenPage() })
         return
     }
+    // (The highlight goes onto "home" itself, not the list as a whole: see RecordingsPanel.)
     LazyColumn(
-        Modifier.focusRequester(focusRequester),
         verticalArrangement = Arrangement.spacedBy(1.dp), contentPadding = PaddingValues(bottom = 24.dp),
     ) {
         item(key = "home") {
             val go = { media.openLibrary(null, type); media.jumpTo(null); onOpenPage() }
-            MenuItem(text = home, selected = browse == null && current == null, onClick = go, modifier = Modifier.rightDoes(go))
+            MenuItem(text = home, selected = browse == null && current == null, onClick = go, modifier = Modifier.focusRequester(focusRequester).rightDoes(go))
         }
         if (libs.isNotEmpty()) item(key = "h-lib") {
             MenuGroupLabel("Libraries")
@@ -162,34 +162,40 @@ internal fun MediaMenuPanel(
 /**
  * The menu's Movies / Shows list, edited in place (the same settings as Settings → Home page & menu → Menu list):
  * every library with On / Off (OK switches; Right picks one up, Up / Down move it, Right or OK puts it down), then
- * the rows under "Jump to a row" with On / Off. Done, Back or Left (MenuOverlay) finish.
+ * the rows under "Jump to a row", the same way (moving one moves it on the page too, as the menu follows the page). Done, Back or Left (MenuOverlay) finish.
  */
 @Composable
 internal fun MenuListEditor(media: MediaViewModel, type: MediaType, startAt: String?, onDone: () -> Unit) {
     val all = media.allLibraries.collectAsStateWithLifecycle().value.orEmpty()
     // On first (in their order), then off: as the menu shows them.
     val libs = all.filter { !it.second } + all.filter { it.second }
-    val rows by media.editableMenuRows.collectAsStateWithLifecycle()
+    // The page's rows: "Jump to a row" lists exactly these, so one on / off and one order for both.
+    val rows = media.editableRows.collectAsStateWithLifecycle().value.first
     var carrying by remember { mutableStateOf<String?>(null) }
     val focus = remember { HashMap<String, FocusRequester>() }
     val doneFocus = remember { FocusRequester() }
     // Opened on a library (hold OK): focus there, else on Done. After a switch or a move: focus follows that library.
-    var follow by remember { mutableStateOf(startAt) }
-    LaunchedEffect(follow, libs.map { it.first.key to it.second }) {
+    // ("done": Done. Only when asked: it used to run on every change to the lists too, so a move saved a moment later
+    // threw the highlight onto Done with the library still picked up, and every press after that was swallowed.)
+    var follow by remember { mutableStateOf<String?>(startAt ?: "done") }
+    // Back that put a picked-up entry down: its release mustn't also finish editing.
+    var backUp by remember { mutableStateOf(false) }
+    LaunchedEffect(follow, libs.map { it.first.key to it.second }, rows.map { it.first.id }) {
+        val key = follow ?: return@LaunchedEffect
         awaitFrame(); awaitFrame()
-        val key = follow
-        if (key == null || runCatching { focus[key]?.requestFocus() }.isFailure) runCatching { doneFocus.requestFocus() }
+        if (key == "done" || runCatching { focus[key]?.requestFocus() }.isFailure) runCatching { doneFocus.requestFocus() }
         follow = null
     }
     val on = libs.filter { !it.second }.map { it.first.key }
     val off = libs.filter { it.second }.map { it.first.key }
+    val rowIds = rows.map { it.first.id }.toSet()
     // Opened by holding OK on a library: that held OK, let go, mustn't switch the library off.
     LazyColumn(Modifier.ignoreHeldOk(), verticalArrangement = Arrangement.spacedBy(1.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
         item(key = "done") {
             MenuItem(text = "✓ Done", selected = false, onClick = onDone, modifier = Modifier.focusRequester(doneFocus).rightDoes(onDone))
         }
         item(key = "hint") {
-            Text(if (carrying != null) "Up / Down to move it, then OK to put it down." else "OK: on / off  ·  Right: move", fontSize = 12.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
+            Text(if (carrying != null) "Up / Down to move it, then OK to put it down." else "OK: on / off  ·  Right: move (libraries and rows)", fontSize = 12.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
         }
         if (libs.isNotEmpty()) item(key = "h-lib") { MenuGroupLabel("Libraries") }
         itemsIndexed(libs, key = { _, it -> "l-" + it.first.key }) { i, (lib, hidden) ->
@@ -215,22 +221,48 @@ internal fun MenuListEditor(media: MediaViewModel, type: MediaType, startAt: Str
                     }
                 },
                 modifier = Modifier.focusRequester(focus.getOrPut(lib.key) { FocusRequester() }).onPreviewKeyEvent { e ->
-                    if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent carrying != null && e.key != Key.Back && e.key != Key.DirectionLeft
+                    if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent if (e.key == Key.Back && backUp) { backUp = false; true } else carried && e.key != Key.Back && e.key != Key.DirectionLeft && e.key != Key.DirectionCenter && e.key != Key.Enter
                     when {
                         carrying == null && e.key == Key.DirectionRight -> { if (!hidden) carrying = lib.key; true }
                         carried && e.key == Key.DirectionRight -> { carrying = null; true }
                         carried && e.key == Key.DirectionUp -> { move(-1); true }
                         carried && e.key == Key.DirectionDown -> { move(1); true }
-                        carrying != null && e.key != Key.DirectionLeft -> true
+                        // Back puts it down (not out of editing); OK does too (its click). Anywhere else while one's
+                        // picked up: put it down and carry on, never stuck.
+                        carried && e.key == Key.Back -> { carrying = null; backUp = true; true }
+                        carrying != null && !carried -> { carrying = null; false }
                         else -> false
                     }
                 },
             )
         }
-        if (rows.isNotEmpty()) item(key = "h-rows") { MenuGroupLabel("Under \"Jump to a row\"") }
+        if (rows.isNotEmpty()) item(key = "h-rows") { MenuGroupLabel("Rows (the page and \"Jump to a row\")") }
         items(rows, key = { "r-" + it.first.id }) { (row, hidden) ->
-            MenuItem(text = row.title, trailing = if (hidden) "Off" else "On", dim = hidden, selected = false,
-                onClick = { if (carrying == null) media.setMenuRowHidden(row.id, !hidden) })
+            val id = "row:" + row.id
+            val carried = carrying == id
+            MenuItem(
+                text = (if (carried) "↕ " else "") + row.title, trailing = if (carried) "Moving" else if (hidden) "Off" else media.rowOrigin(row),
+                dim = hidden && !carried, selected = carried,
+                onClick = { if (carried) carrying = null else if (carrying == null) { media.setRowHidden(row.id, !hidden); follow = id } },
+                modifier = Modifier.focusRequester(focus.getOrPut(id) { FocusRequester() }).onPreviewKeyEvent { e ->
+                    if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent if (e.key == Key.Back && backUp) { backUp = false; true } else carried && e.key != Key.Back && e.key != Key.DirectionLeft && e.key != Key.DirectionCenter && e.key != Key.Enter
+                    when {
+                        carrying == null && e.key == Key.DirectionRight -> { carrying = id; true }
+                        carried && e.key == Key.DirectionRight -> { carrying = null; true }
+                        // Same order as the page, so the page's rows move with it.
+                        carried && (e.key == Key.DirectionUp || e.key == Key.DirectionDown) -> {
+                            media.moveRowAmong(row.id, if (e.key == Key.DirectionUp) -1 else 1) { r -> r.id in rowIds }
+                            follow = id
+                            true
+                        }
+                        // Back puts it down (not out of editing); OK does too (its click). Anywhere else while one's
+                        // picked up: put it down and carry on, never stuck.
+                        carried && e.key == Key.Back -> { carrying = null; backUp = true; true }
+                        carrying != null && !carried -> { carrying = null; false }
+                        else -> false
+                    }
+                },
+            )
         }
     }
 }
@@ -376,7 +408,10 @@ internal fun RecordingsPanel(focusRequester: FocusRequester, channelName: (Int) 
     }
     // "Live" leads most sports titles in the guide; in a list of recordings it says nothing.
     fun shown(t: String) = t.removePrefix("Live ").removePrefix("LIVE ").removePrefix("Live: ").removePrefix("LIVE: ")
-    LazyColumn(Modifier.focusRequester(focusRequester), verticalArrangement = Arrangement.spacedBy(2.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
+    // (The highlight goes onto the first entry itself: asked of the list as a whole, it didn't pass it on while the
+    // list was folded away, and Right from the menu did nothing.)
+    val firstId = recorded.firstOrNull()?.let { "r${it.id}" } ?: upcoming.firstOrNull()?.let { "u${it.id}" } ?: "all"
+    LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
         if (recorded.isNotEmpty()) item(key = "h-rec") { MenuGroupLabel("Recorded", first = true) }
         items(recorded, key = { "r${it.id}" }) { r ->
             val now = r.state == io.github.petebutty.viewarr.data.dvr.DvrState.Recording
@@ -387,15 +422,17 @@ internal fun RecordingsPanel(focusRequester: FocusRequester, channelName: (Int) 
                 onClick = { scope.launch { dvr.playback(r)?.let(onPlay) } },
                 // Hold OK: play, stop or delete.
                 onLongClick = { dvr.clearMessage(); confirmDelete = false; picked = r },
+                modifier = if (firstId == "r${r.id}") Modifier.focusRequester(focusRequester) else Modifier,
             )
         }
         if (upcoming.isNotEmpty()) item(key = "h-up") { MenuGroupLabel("Coming up", first = recorded.isEmpty()) }
         items(upcoming, key = { "u${it.id}" }) { r ->
-            RecordingRow(shown(r.title), details(r, withTime = true), live = false, onClick = onOpenPage, onLongClick = { dvr.clearMessage(); confirmDelete = false; picked = r })
+            RecordingRow(shown(r.title), details(r, withTime = true), live = false, onClick = onOpenPage, onLongClick = { dvr.clearMessage(); confirmDelete = false; picked = r },
+                modifier = if (firstId == "u${r.id}") Modifier.focusRequester(focusRequester) else Modifier)
         }
         item(key = "all") {
             Spacer(Modifier.height(6.dp))
-            MenuItem(text = "All recordings", trailing = "›", selected = false, onClick = onOpenPage)
+            MenuItem(text = "All recordings", trailing = "›", selected = false, onClick = onOpenPage, modifier = if (firstId == "all") Modifier.focusRequester(focusRequester) else Modifier)
         }
     }
     picked?.let { r ->
@@ -435,12 +472,12 @@ internal fun RecordingsPanel(focusRequester: FocusRequester, channelName: (Int) 
 
 /** A recording in the menu: its title, and underneath when / channel / length (red dot while recording). */
 @Composable
-internal fun RecordingRow(title: String, details: String, live: Boolean, onClick: () -> Unit, onLongClick: () -> Unit) {
+internal fun RecordingRow(title: String, details: String, live: Boolean, onClick: () -> Unit, onLongClick: () -> Unit, modifier: Modifier = Modifier) {
     var focused by remember { mutableStateOf(false) }
     Surface(
         onClick = onClick,
         onLongClick = onLongClick,
-        modifier = Modifier.fillMaxWidth().onFocusChanged { focused = it.isFocused },
+        modifier = modifier.fillMaxWidth().onFocusChanged { focused = it.isFocused },
         scale = ClickableSurfaceDefaults.scale(scale = 1f, focusedScale = 1f, pressedScale = 1f),
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(6.dp)),
         colors = ClickableSurfaceDefaults.colors(

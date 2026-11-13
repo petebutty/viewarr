@@ -44,6 +44,8 @@ data class Palette(val main: Color, val highlight: Color, val transparency: Floa
         val upNextSeconds get() = (opts[UiOpts.UP_NEXT_S] ?: opts[UiOpts.UP_NEXT]?.let { intArrayOf(20, 10, 30, 60)[it.coerceIn(0, 3)] / 5 } ?: 4).coerceIn(0, 36) * 5
     val textScale get() = floatArrayOf(1f, 0.9f, 1.12f, 1.25f)[opt(UiOpts.TEXT_SIZE).coerceIn(0, 3)]
     /** Settings → Playback → TV guide refresh: how old the guide may get (null: only Refresh channels & guide). */
+    /** How long to rest on a channel browsed in the info bar before it changes (null: only on OK). */
+    val browseDelayMs: Long? get() = when (opt(UiOpts.BROWSE_DELAY)) { 1 -> 300L; 2 -> 800L; 3 -> 1_000L; 4 -> 1_500L; 5 -> 2_000L; 6 -> null; else -> 500L }
     val guideRefreshMs: Long? get() = longArrayOf(4, 2, 8, 12, 24, 0)[opt(UiOpts.GUIDE_REFRESH).coerceIn(0, 5)].takeIf { it > 0 }?.times(3_600_000L)
     /** Title pages: the ratings in the order chosen (Settings → Appearance → Ratings). */
     fun ratingRank(source: String): Int = ratingsOrder.indexOf(source).let { if (it < 0) 100 + TitleParts.ratings.indexOfFirst { r -> r.first == source }.coerceAtLeast(0) else it }
@@ -69,17 +71,22 @@ data class Palette(val main: Color, val highlight: Color, val transparency: Floa
 data class ThemePreset(val name: String, val main: Color, val highlight: Color)
 
 /** Pastel tints for the glass (Settings → Appearance → Glass colour); the first is plain. */
+// Deep, rich colours: mixed into the dark glass they read as clearly different tints (pale pastels all came out
+// as much the same grey).
 val GlassTints: List<Pair<String, Color?>> = listOf(
     "Plain" to null,
-    "Lavender" to Color(0xFFC8B6FF),
-    "Lilac" to Color(0xFFE2C2FF),
-    "Sky" to Color(0xFFA2D2FF),
-    "Aqua" to Color(0xFFA0E7E5),
-    "Mint" to Color(0xFFB5EAD7),
-    "Lemon" to Color(0xFFFFF5BA),
-    "Peach" to Color(0xFFFFDAC1),
-    "Coral" to Color(0xFFFFADAD),
-    "Rose" to Color(0xFFFFB7C5),
+    "Midnight blue" to Color(0xFF1E3A8A),
+    "Ocean" to Color(0xFF1E6FB8),
+    "Teal" to Color(0xFF0F8B8D),
+    "Emerald" to Color(0xFF16A34A),
+    "Forest" to Color(0xFF3F6212),
+    "Violet" to Color(0xFF6D28D9),
+    "Plum" to Color(0xFF86198F),
+    "Rose" to Color(0xFFBE185D),
+    "Ruby" to Color(0xFFB91C1C),
+    "Amber" to Color(0xFFC2700C),
+    "Bronze" to Color(0xFF8A6A3B),
+    "Slate" to Color(0xFF475569),
 )
 
 val ThemePresets = listOf(
@@ -121,7 +128,7 @@ object AppColors {
     val PreviewBox get() = palette.previewBox
     val MenuPanel get() = tinted(palette.panel).copy(alpha = palette.menuAlpha)
     /** A glass colour with Settings → Appearance → Glass colour's pastel mixed in. */
-    fun tinted(c: Color): Color = palette.glassTint?.let { androidx.compose.ui.graphics.lerp(c, it, 0.3f) } ?: c
+    fun tinted(c: Color): Color = palette.glassTint?.let { androidx.compose.ui.graphics.lerp(c, it, 0.35f) } ?: c
     val MenuPanelAlt get() = palette.panelAlt.copy(alpha = palette.menuAlpha)
     val TextPrimary = Color(0xFFFFFFFF)
     val TextSecondary = Color(0xFFBFC6DA)
@@ -198,6 +205,34 @@ object UiOpts {
     const val GUIDE_REFRESH = "guide_refresh"
     /** The guide and channel list: "S15E4" after programme names, or not. */
     const val GUIDE_EPISODE = "guide_episode"
+    /** The menu: a heading on each list ("LIVE TV · CHANNEL GROUPS", "MOVIES"…), so groups and libraries aren't confused. */
+    const val MENU_HEADINGS = "menu_headings"
+    /** The Live TV heading names the source (Dispatcharr, an IPTV login…) when there are two or more. */
+    const val MENU_HEAD_SOURCE = "menu_head_source"
+    /** A TV mark before each channel group's name. */
+    const val MENU_GROUP_ICON = "menu_group_icon"
+    /** A thin bar down a menu list's edge in its section's colour (Live TV red, Movies blue…). */
+    const val MENU_EDGE = "menu_edge"
+    /** A menu list's glass faintly tinted in its section's colour. */
+    const val MENU_TINT = "menu_tint"
+    /** In a section's list, the main list kept as a narrow column of icons (the section you're in lit). */
+    const val MENU_RAIL = "menu_rail"
+    /** A red "● LIVE" on the channel groups' All channels. */
+    const val MENU_LIVE_MARK = "menu_live_mark"
+    /** The menu's "Right › open its list" / "‹ Left: main menu" hints. */
+    const val MENU_HINTS = "menu_hints"
+    /** Browsing channels in the info bar (Remote buttons: "Next channel in the info bar"): how long to rest on one before it changes. */
+    const val BROWSE_DELAY = "browse_delay"
+    /** Music: lyrics from LRCLIB when the song's own server has none (sends the artist, title, album and length). */
+    const val MUSIC_LRCLIB = "music_lrclib"
+    /** Music: the visualiser's look. */
+    const val MUSIC_VIS = "music_vis"
+    /** Music: Now Playing as a screensaver after a while without a press (big artwork and lyrics). */
+    const val MUSIC_SAVER = "music_saver"
+    /** Music: lyrics on Now Playing. */
+    const val MUSIC_LYRICS = "music_lyrics"
+    /** Music: how Now Playing shows the artwork (a cover, a spinning record or CD…). */
+    const val MUSIC_ART = "music_art"
     const val BANNER_GLASS = "banner_glass"
     /** The glass's strength for the info bar and every pop-up, as a slider: 0 the clearest … 10 solid. */
     const val POPUP_GLASS = "popup_glass"
@@ -268,6 +303,20 @@ object UiOpts {
         FONT to listOf("Standard", "Condensed", "Light", "Medium", "Serif", "Thin", "Bold", "Condensed light", "Casual", "Typewriter", "Small caps", "Handwritten"),
         GLASS_TINT to GlassTints.map { it.first },
         GUIDE_EPISODE to listOf("On", "Off"),
+        MENU_HEADINGS to listOf("Heading", "Off", "Path (Live TV › Channel groups)"),
+        MENU_EDGE to listOf("Off", "On"),
+        MENU_TINT to listOf("Off", "On"),
+        MENU_RAIL to listOf("Off", "On"),
+        MENU_LIVE_MARK to listOf("Off", "On"),
+        MENU_HEAD_SOURCE to listOf("On", "Off"),
+        MENU_GROUP_ICON to listOf("Off", "On"),
+        MENU_HINTS to listOf("On", "Off"),
+        MUSIC_LRCLIB to listOf("Off", "On"),
+        MUSIC_VIS to listOf("Bars", "Mirrored bars", "Wave", "Dots", "Off"),
+        MUSIC_SAVER to listOf("After 2 minutes", "After 5 minutes", "After 10 minutes", "Off"),
+        MUSIC_LYRICS to listOf("On", "Off"),
+        MUSIC_ART to listOf("Square cover", "Spinning vinyl record", "Spinning CD", "Round cover, turning slowly", "Cover with a reflection"),
+        BROWSE_DELAY to listOf("0.5 seconds", "0.3 seconds", "0.8 seconds", "1 second", "1.5 seconds", "2 seconds", "Only when I press OK"),
         GUIDE_REFRESH to listOf("Every 4 hours", "Every 2 hours", "Every 8 hours", "Every 12 hours", "Once a day", "Only when I ask"),
         BANNER_GLASS to listOf("Medium", "Light", "Dark"),
         POPUP_GLASS to (0..10).map { if (it == 10) "Solid" else "${100 - (30 + it * 7)}% see-through" },

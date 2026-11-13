@@ -48,6 +48,17 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="viewarr" android:host="title" />
             </intent-filter>
+            <!-- Home automation / ADB: viewarr://channel (uuid / number / step), stop, guide, page, record, search. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="viewarr" android:host="channel" />
+                <data android:scheme="viewarr" android:host="stop" />
+                <data android:scheme="viewarr" android:host="guide" />
+                <data android:scheme="viewarr" android:host="page" />
+                <data android:scheme="viewarr" android:host="record" />
+                <data android:scheme="viewarr" android:host="search" />
+            </intent-filter>
         </activity>
         <receiver android:name=".data.update.InstallReceiver" android:exported="false" />
     </application>

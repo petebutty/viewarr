@@ -1,6 +1,7 @@
 package io.github.petebutty.viewarr.ui.music
 
 import android.content.Context
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -148,6 +149,12 @@ data class MusicDetail(
     val songs: List<Song> = emptyList(),
     val albums: List<MusicCard> = emptyList(),
     val loading: Boolean = true,
+    /** Artists: their biography, most-played songs and similar artists (where the server has them). */
+    val bio: String? = null,
+    val topSongs: List<Song> = emptyList(),
+    val similar: List<MusicCard> = emptyList(),
+    /** Albums: their artist, to go to from the album's page. */
+    val artist: MusicCard? = null,
 )
 
 data class MusicSearch(val query: String = "", val artists: List<MusicCard> = emptyList(), val albums: List<MusicCard> = emptyList(), val songs: List<Song> = emptyList())
@@ -196,6 +203,57 @@ class MusicViewModel @Inject constructor(
     val search: StateFlow<MusicSearch> = _search
     private val stack = ArrayDeque<MusicDetail>()
     private var browseJob: Job? = null
+    /** Starred songs, albums and artists (hold OK to star or unstar; shown with ★). */
+    private val _starred = MutableStateFlow<Set<String>>(emptySet())
+    val starred: StateFlow<Set<String>> = _starred
+    /** The playing song's lyrics (null: none found / not looked yet). */
+    private val _lyrics = MutableStateFlow<io.github.petebutty.viewarr.data.music.Lyrics?>(null)
+    val lyrics: StateFlow<io.github.petebutty.viewarr.data.music.Lyrics?> = _lyrics
+    private var lyricsFor: String? = null
+
+    /** Looks up [song]'s lyrics once (Now Playing asks as the song changes). */
+    fun loadLyrics(song: Song?) {
+        if (song == null || song.id == lyricsFor) return
+        lyricsFor = song.id
+        _lyrics.value = null
+        val lrclib = io.github.petebutty.viewarr.ui.theme.AppColors.palette.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.MUSIC_LRCLIB) == 1
+        viewModelScope.launch {
+            val l = runCatching { library.lyrics(song, lrclib) }.getOrNull()
+            if (lyricsFor == song.id) _lyrics.value = l
+        }
+    }
+
+    /** Song radio: endless music like [song] (its server's similar songs, else more by the artist and a mix). */
+    fun radio(song: Song) = viewModelScope.launch {
+        Toast.makeText(context, "Starting radio from ${song.title}…", Toast.LENGTH_SHORT).show()
+        play(library.similarSongs(song, 60), 0)
+    }
+    /** Radio from an artist's top song (or any of theirs). */
+    fun artistRadio(d: MusicDetail) = viewModelScope.launch {
+        val seed = d.topSongs.firstOrNull() ?: d.albums.firstOrNull()?.let { library.album(it.id)?.second?.firstOrNull() } ?: return@launch
+        play(library.similarSongs(seed, 60), 0)
+    }
+
+    fun playNext(songs: List<Song>) { MusicPlayer.playNext(context, songs); Toast.makeText(context, if (songs.size == 1) "Plays next: ${songs[0].title}" else "${songs.size} songs play next", Toast.LENGTH_SHORT).show() }
+    fun addToQueue(songs: List<Song>) { MusicPlayer.addToQueue(context, songs); Toast.makeText(context, if (songs.size == 1) "Added to the queue: ${songs[0].title}" else "${songs.size} songs added to the queue", Toast.LENGTH_SHORT).show() }
+    /** An album's or playlist's songs, for Play next / Add to queue from its card. */
+    fun songsOf(card: MusicCard, then: (List<Song>) -> Unit) = viewModelScope.launch {
+        val songs = when (card.kind) {
+            MusicKind.Album -> library.album(card.id)?.second
+            MusicKind.Playlist -> library.playlist(card.id)?.second
+            else -> null
+        }.orEmpty()
+        then(songs)
+    }
+
+    /** Stars or unstars a song, album or artist on its server (Navidrome); says so if the server can't. */
+    fun toggleStar(id: String, kind: String) = viewModelScope.launch {
+        val on = id !in _starred.value
+        if (library.setStarred(id, kind, on)) {
+            _starred.value = if (on) _starred.value + id else _starred.value - id
+            Toast.makeText(context, if (on) "★ Added to your favourites" else "Removed from your favourites", Toast.LENGTH_SHORT).show()
+        } else Toast.makeText(context, "Favourites aren't available on this server", Toast.LENGTH_SHORT).show()
+    }
 
     init {
         MusicPlayer.onScrobble = { id, submission -> scrobbleScope.launch { library.scrobble(id, submission) } }
@@ -237,6 +295,7 @@ class MusicViewModel @Inject constructor(
             MusicRow("Rediscover", random.await().map(::albumCard)),
         ).filter { it.cards.isNotEmpty() }
         _home.value = MusicHome(rows, loading = false, error = if (rows.isEmpty()) "Couldn't load any music from your servers." else null)
+        _starred.value = runCatching { library.starredIds() }.getOrDefault(emptySet())
     }
 
     /** Back to the Music home (from the side menu). */
@@ -372,16 +431,19 @@ class MusicViewModel @Inject constructor(
         viewModelScope.launch {
             val d = when (card.kind) {
                 MusicKind.Album -> library.album(card.id)?.let { (a, songs) ->
-                    MusicDetail(card.copy(art = a.art ?: card.art), a.name, listOfNotNull(a.artist, a.year?.toString(), songCount(songs.size), runtime(songs)).joinToString(" · "), songs = songs, loading = false)
+                    MusicDetail(card.copy(art = a.art ?: card.art), a.name, listOfNotNull(a.artist, a.year?.toString(), songCount(songs.size), runtime(songs)).joinToString(" · "), songs = songs, loading = false,
+                        artist = a.artistId?.let { MusicCard(MusicKind.Artist, it, a.artist, "", null) })
                 }
                 MusicKind.Playlist -> library.playlist(card.id)?.let { (p, songs) ->
                     MusicDetail(card, p.name, listOfNotNull(songCount(songs.size), runtime(songs)).joinToString(" · "), songs = songs, loading = false)
                 }
                 MusicKind.Artist -> library.artist(card.id)?.let { (ar, albums) ->
+                    val info = runCatching { library.artistInfo(ar) }.getOrNull()
                     MusicDetail(
                         card.copy(art = ar.art ?: card.art), ar.name, "${albums.size} album${if (albums.size == 1) "" else "s"}",
                         albums = albums.sortedByDescending { it.year ?: 0 }.map { albumCard(it).copy(sub = it.year?.toString() ?: "") },
                         loading = false,
+                        bio = info?.bio, topSongs = info?.topSongs.orEmpty(), similar = info?.similar.orEmpty().map(::artistCard),
                     )
                 }
                 MusicKind.Genre -> null
@@ -486,6 +548,8 @@ fun MusicScreen(
     val browse by vm.browse.collectAsStateWithLifecycle()
     val detail by vm.detail.collectAsStateWithLifecycle()
     BackHandler(enabled = focusEnabled) { if (!vm.back()) onBack() }
+    // Hold OK on a song, album, playlist or artist: play next, add to queue, radio, favourite.
+    MusicOptionsHost(vm)
     val mem = remember { FocusMemory() }
     val lists = remember { HashMap<String, LazyListState>() }
     val grids = remember { HashMap<String, LazyGridState>() }
@@ -739,6 +803,7 @@ private fun GenreTile(c: MusicCard, modifier: Modifier, onClick: () -> Unit) {
 @Composable
 private fun MusicDetailPage(d: MusicDetail, vm: MusicViewModel, page: String, mem: FocusMemory, list: LazyListState, focusRequester: FocusRequester, onOpenMenu: () -> Unit) {
     val playing = MusicPlayer.current?.id
+    val starred by vm.starred.collectAsStateWithLifecycle()
     val playKey = "$page|play"
     val shuffleKey = "$page|shuffle"
     fun trackKey(i: Int) = "$page|t$i"
@@ -777,20 +842,53 @@ private fun MusicDetailPage(d: MusicDetail, vm: MusicViewModel, page: String, me
                         if (d.card.kind == MusicKind.Artist) vm.playArtist(d, true) else vm.play(d.songs, shuffled = true)
                     }
                 }
+                // Artists: a radio of music like theirs; albums and artists: a favourite (★) on the server.
+                Row(Modifier.padding(top = 10.dp)) {
+                    if (d.card.kind == MusicKind.Artist) { Pill("Radio") { if (ready) vm.artistRadio(d) }; Spacer(Modifier.width(10.dp)) }
+                    // An album: on to its artist's page (Back comes back here).
+                    d.artist?.let { ar -> Pill("Artist ›") { vm.open(ar) }; Spacer(Modifier.width(10.dp)) }
+                    if (d.card.kind != MusicKind.Playlist) Pill(if (d.card.id in starred) "★ Favourite" else "☆ Favourite") {
+                        vm.toggleStar(d.card.id, if (d.card.kind == MusicKind.Artist) "artist" else "album")
+                    }
+                }
             }
             Spacer(Modifier.width(36.dp))
             if (d.card.kind == MusicKind.Artist) {
-                Column(Modifier.weight(1f)) {
-                    Text("Albums", fontSize = 16.sp, fontWeight = FontWeight.Medium, color = AppColors.TextPrimary, modifier = Modifier.padding(bottom = 10.dp))
-                    LazyVerticalGrid(
-                        columns = GridCells.Fixed(5),
-                        horizontalArrangement = Arrangement.spacedBy(14.dp), verticalArrangement = Arrangement.spacedBy(14.dp),
-                        contentPadding = PaddingValues(bottom = 110.dp),
-                    ) {
-                        items(d.albums.size, key = { d.albums[it].key }) { i ->
-                            val c = d.albums[i]
-                            MusicCardView(c, null, Modifier.remembered(mem, page, "$page|${c.key}")
-                                .then(if (i % 5 == 0) Modifier.focusProperties { left = mem.of(shuffleKey) } else Modifier)) { vm.open(c) }
+                // An artist: their story, most-played songs, albums, and artists like them (Navidrome, where it knows).
+                LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = 110.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    d.bio?.let { bio -> item(key = "bio") {
+                        Text(bio, fontSize = 13.sp, lineHeight = 19.sp, color = AppColors.TextSecondary, maxLines = 4, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(bottom = 10.dp))
+                    } }
+                    if (d.topSongs.isNotEmpty()) {
+                        item(key = "h-top") { Text("Top songs", fontSize = 16.sp, fontWeight = FontWeight.Medium, color = AppColors.TextPrimary, modifier = Modifier.padding(bottom = 4.dp)) }
+                        itemsIndexed(d.topSongs.take(5), key = { i, t -> "top$i:${t.id}" }) { i, t ->
+                            TrackRow((i + 1).toString(), t, showArtist = false, nowPlaying = t.id == playing, starred = t.id in starred,
+                                modifier = Modifier.remembered(mem, page, "$page|top$i").focusProperties { left = mem.of(shuffleKey) }) { vm.play(d.topSongs, i) }
+                        }
+                    }
+                    item(key = "h-alb") { Text("Albums", fontSize = 16.sp, fontWeight = FontWeight.Medium, color = AppColors.TextPrimary, modifier = Modifier.padding(top = 10.dp, bottom = 6.dp)) }
+                    val rowsOf = d.albums.chunked(5)
+                    itemsIndexed(rowsOf, key = { i, _ -> "alb$i" }) { _, chunk ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(14.dp), modifier = Modifier.padding(bottom = 8.dp)) {
+                            chunk.forEachIndexed { j, c ->
+                                Box(Modifier.weight(1f)) {
+                                    MusicCardView(c, null, Modifier.remembered(mem, page, "$page|${c.key}")
+                                        .then(if (j == 0) Modifier.focusProperties { left = mem.of(shuffleKey) } else Modifier)) { vm.open(c) }
+                                }
+                            }
+                            repeat(5 - chunk.size) { Spacer(Modifier.weight(1f)) }
+                        }
+                    }
+                    if (d.similar.isNotEmpty()) {
+                        item(key = "h-sim") { Text("Similar artists", fontSize = 16.sp, fontWeight = FontWeight.Medium, color = AppColors.TextPrimary, modifier = Modifier.padding(top = 10.dp, bottom = 6.dp)) }
+                        item(key = "sim") {
+                            androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                                items(d.similar.size, key = { "sim" + d.similar[it].key }) { i ->
+                                    val c = d.similar[i]
+                                    MusicCardView(c, 120.dp, Modifier.remembered(mem, page, "$page|sim${c.key}")
+                                        .then(if (i == 0) Modifier.focusProperties { left = mem.of(shuffleKey) } else Modifier)) { vm.open(c) }
+                                }
+                            }
                         }
                     }
                 }
@@ -804,7 +902,7 @@ private fun MusicDetailPage(d: MusicDetail, vm: MusicViewModel, page: String, me
                             )
                             TrackRow(
                                 number = if (d.card.kind == MusicKind.Album) (s.track ?: (i + 1)).toString() else (i + 1).toString(),
-                                song = s, showArtist = d.card.kind == MusicKind.Playlist, nowPlaying = s.id == playing,
+                                song = s, showArtist = d.card.kind == MusicKind.Playlist, nowPlaying = s.id == playing, starred = s.id in starred,
                                 // Left from any track: back to the buttons (not whatever's nearest on the left); the
                                 // ends of the list stop there rather than jumping off the page.
                                 modifier = Modifier.remembered(mem, page, trackKey(i))
@@ -824,9 +922,11 @@ private fun MusicDetailPage(d: MusicDetail, vm: MusicViewModel, page: String, me
 }
 
 @Composable
-private fun TrackRow(number: String, song: Song, showArtist: Boolean, nowPlaying: Boolean, modifier: Modifier, onClick: () -> Unit) {
+private fun TrackRow(number: String, song: Song, showArtist: Boolean, nowPlaying: Boolean, modifier: Modifier, starred: Boolean = false, onClick: () -> Unit) {
     Surface(
         onClick = onClick,
+        // Hold OK: play next, add to queue, song radio, favourite.
+        onLongClick = { MusicOptions.song = song },
         modifier = modifier.fillMaxWidth().height(if (showArtist) 52.dp else 42.dp),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
@@ -842,6 +942,7 @@ private fun TrackRow(number: String, song: Song, showArtist: Boolean, nowPlaying
                 Text(song.title, fontSize = 15.sp, color = c, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = if (nowPlaying) FontWeight.SemiBold else FontWeight.Normal)
                 if (showArtist) Text(song.artist, fontSize = 12.sp, color = c.copy(alpha = 0.7f), maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
+            if (starred) Text("★  ", fontSize = 13.sp, color = c.copy(alpha = 0.85f))
             Text(clock(song.durationSec), fontSize = 13.sp, color = c.copy(alpha = 0.7f))
         }
     }
@@ -855,6 +956,8 @@ internal fun MusicCardView(c: MusicCard, size: Dp?, modifier: Modifier, onClick:
     Column(if (size != null) Modifier.width(size) else Modifier.fillMaxWidth()) {
         Surface(
             onClick = onClick,
+            // Hold OK: play next, add to queue, favourite (not genres).
+            onLongClick = if (c.kind == MusicKind.Genre) null else ({ MusicOptions.card = c }),
             modifier = modifier.onFocusChanged { if (it.isFocused) MusicHover.card = c }.then(if (size != null) Modifier.size(size) else Modifier.fillMaxWidth().aspectRatio(1f)),
             scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
             shape = ClickableSurfaceDefaults.shape(shape),

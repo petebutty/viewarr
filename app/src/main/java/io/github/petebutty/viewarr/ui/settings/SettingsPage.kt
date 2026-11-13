@@ -12,6 +12,7 @@ import io.github.petebutty.viewarr.ui.theme.appBackground
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -193,6 +194,8 @@ fun SettingsPage(
             Column(Modifier.width(300.dp).fillMaxHeight().padding(top = if (SettingsLayout.belowPreview) 170.dp else 0.dp)) {
                 Text("Settings", fontSize = 14.sp, color = AppColors.Accent)
                 Text(title, fontSize = 30.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, modifier = Modifier.padding(bottom = 20.dp))
+                // Scrolls: Remote buttons has more sections (every button) than fit, and Ch − was cut off the bottom.
+                Column(Modifier.weight(1f).verticalScroll(androidx.compose.foundation.rememberScrollState()), verticalArrangement = Arrangement.spacedBy(0.dp)) {
                 categories.forEachIndexed { i, c ->
                     MenuItem(
                         text = c.name,
@@ -223,7 +226,7 @@ fun SettingsPage(
                             },
                     )
                 }
-                Spacer(Modifier.weight(1f))
+                }
                 onReset?.let {
                     var confirm by remember { mutableStateOf(false) }
                     MenuItem(

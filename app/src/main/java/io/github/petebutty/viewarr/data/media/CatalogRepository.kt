@@ -1378,6 +1378,23 @@ class CatalogRepository @Inject constructor(
     // ------------------------------------------------------------------ Stremio addons
 
     /** Where each addon row came from (its catalogue), so one shortcut's rows can be fetched again on their own. */
+    /** Where a row comes from, by its id: Plex, Jellyfin, Emby, an add-on (AIOStreams, AIOMetadata…), Trakt, TMDB, IPTV. */
+    fun rowOrigin(id: String): String {
+        addonRowSources[id]?.let { return it.addon.name }
+        return when {
+            id.startsWith("merged:") -> "Your servers"
+            id.startsWith("plex-") -> "Plex"
+            id.startsWith("Jellyfin-") -> "Jellyfin"
+            id.startsWith("Emby-") -> "Emby"
+            id.startsWith("trakt-") -> "Trakt"
+            id.startsWith("upcoming-") -> "Trakt / TMDB"
+            id.startsWith("tmdb-") -> "TMDB"
+            id.startsWith("xc-") -> "IPTV"
+            id.startsWith("stremio-") -> "Add-on"
+            else -> "Viewarr"
+        }
+    }
+
     private class AddonRowSource(val addon: AddonInfo, val catalog: String, val catType: String, val type: MediaType, val take: Int, val name: String)
     private val addonRowSources = ConcurrentHashMap<String, AddonRowSource>()
 

@@ -138,7 +138,8 @@ fun AppRoot(vm: AppViewModel = hiltViewModel()) {
             .fillMaxSize()
             .appBackground()
             // Presses during the splash are swallowed rather than lost on a half-loaded page.
-            .onPreviewKeyEvent { splashShown },
+            // (Every press also counts as being there: the music screensaver waits for a quiet spell.)
+            .onPreviewKeyEvent { io.github.petebutty.viewarr.ui.music.UserActivity.touch(); splashShown },
     ) {
         // (After the splash: decoding pictures competed with the start page loading.)
         if (!splashShown) io.github.petebutty.viewarr.ui.theme.WallpaperLoader()
@@ -151,7 +152,23 @@ fun AppRoot(vm: AppViewModel = hiltViewModel()) {
                 when (role) {
                     null -> io.github.petebutty.viewarr.ui.onboarding.RoleScreen(onAdmin = { role = "admin" }, onInvited = { role = "invited" })
                     "invited" -> io.github.petebutty.viewarr.ui.onboarding.InvitedSetup(onBack = { role = null })
-                    else -> SetupWizard()
+                    // Running your own: first how Viewarr works (the tour), then what setting up will ask for (1-2-3),
+                    // then the setup itself. (The tour's then done: it isn't shown again after setting up.)
+                    else -> {
+                        val ctx = androidx.compose.ui.platform.LocalContext.current
+                        var stage by androidx.compose.runtime.saveable.rememberSaveable {
+                            androidx.compose.runtime.mutableStateOf(if (io.github.petebutty.viewarr.ui.onboarding.Tour.done(ctx)) "setup" else "tour")
+                        }
+                        when (stage) {
+                            "tour" -> io.github.petebutty.viewarr.ui.onboarding.TourScreen(
+                                onDone = { io.github.petebutty.viewarr.ui.onboarding.Tour.markDone(ctx); stage = "prep" },
+                                finishLabel = "Next: setting up  ›",
+                                onBack = { role = null },
+                            )
+                            "prep" -> io.github.petebutty.viewarr.ui.onboarding.TourScreen(onDone = { stage = "setup" }, prep = true, finishLabel = "Start setup", onBack = { stage = "tour" })
+                            else -> SetupWizard()
+                        }
+                    }
                 }
                 // Signed in to a Dispatcharr user another TV saved its setup to: offer it.
                 io.github.petebutty.viewarr.ui.sync.SyncOfferHost()

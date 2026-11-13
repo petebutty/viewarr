@@ -247,7 +247,10 @@ class MediaViewModel @Inject constructor(
     }
 
     val rows: kotlinx.coroutines.flow.StateFlow<RowsState> = kotlinx.coroutines.flow.combine(shownWithSet, layout, _searchFilter, openedFromMenu, _searchFocus) { (r, set), l, f, extra, focus ->
-        if (set != null && l != null) r.copy(rows = l.ordered(r.rows).filter { io.github.petebutty.viewarr.ui.player.RowSets.matches(set, it) && it.id !in l.hidden } + rowSetExtra.value)
+        // A service's page: its shows and films rows together in one fixed order (New shows, New films, Originals, Popular,
+        // Top rated: RowSets.kindRank), this page's type before the other's within each kind.
+        if (set != null && l != null) r.copy(rows = (l.ordered(r.rows).filter { io.github.petebutty.viewarr.ui.player.RowSets.matches(set, it) && it.id !in l.hidden }.map { it to 0 } +
+            rowSetExtra.value.map { it to 1 }).sortedWith(compareBy({ io.github.petebutty.viewarr.ui.player.RowSets.kindRank(it.first) }, { it.second })).map { it.first })
         else if (l != null) r.copy(rows = l.ordered(r.rows).filter { it.id !in l.hidden || it.id == extra }) else r.copy(rows = focusFirst(orderSearch(f.apply(r.rows)), focus))
     }.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, RowsState(emptyList(), done = false))
     /**
@@ -276,10 +279,10 @@ class MediaViewModel @Inject constructor(
         val lay = l ?: io.github.petebutty.viewarr.data.settings.RowLayout()
         r.copy(rows = lay.ordered(r.rows).filter { it.id !in lay.menuHidden })
     }.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, RowsState(emptyList(), done = false))
-    /** The menu's "Jump to a row": only rows the page has (network rows kept to their shortcuts couldn't be jumped to). */
+    /** The menu's "Jump to a row": exactly the rows on the page, in its order (one on / off for both). */
     val jumpRows: kotlinx.coroutines.flow.StateFlow<RowsState> = kotlinx.coroutines.flow.combine(shownWithSet, layout) { (r, _), l ->
         val lay = l ?: io.github.petebutty.viewarr.data.settings.RowLayout()
-        r.copy(rows = lay.ordered(r.rows).filter { it.id !in lay.menuHidden })
+        r.copy(rows = lay.ordered(r.rows).filter { it.id !in lay.hidden })
     }.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, RowsState(emptyList(), done = false))
     /** Every row with whether it's left out of the menu, for Settings → Menu list. */
     val editableMenuRows: kotlinx.coroutines.flow.StateFlow<List<Pair<io.github.petebutty.viewarr.data.media.MediaRow, Boolean>>> =
@@ -287,6 +290,9 @@ class MediaViewModel @Inject constructor(
             val lay = l ?: io.github.petebutty.viewarr.data.settings.RowLayout()
             lay.ordered(r.rows).map { it to (it.id in lay.menuHidden) }
         }.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, emptyList())
+
+    /** Where a row comes from, for the settings lists: Plex, Jellyfin, an add-on's name, Trakt… */
+    fun rowOrigin(row: io.github.petebutty.viewarr.data.media.MediaRow): String = repo.rowOrigin(row.id)
 
     fun setMenuRowHidden(id: String, hidden: Boolean) {
         val t = layoutType.value ?: return
@@ -1191,6 +1197,19 @@ class MediaViewModel @Inject constructor(
     }
 
     /** The "Play S2 E4" button on a show from continue watching. */
+    /** Holding OK on a show's Play: the sources found for the episode Play would start (as holding OK on an episode). */
+    fun pickNextUp() {
+        val d = _detail.value ?: return
+        val item = d.detail.item
+        val s = item.nextSeason ?: d.nextUp?.first ?: d.seasons.map { it.number }.filter { it > 0 }.minOrNull() ?: 1
+        val e = (if (item.nextSeason != null) item.nextEpisode else d.nextUp?.second) ?: 1
+        viewModelScope.launch {
+            if (d.season != s || d.episodes == null) selectSeason(s)
+            val eps = kotlinx.coroutines.withTimeoutOrNull(10_000) { _detail.first { it == null || (it.season == s && it.episodes != null) }?.episodes }
+            pickEpisode(eps?.firstOrNull { it.number == e } ?: io.github.petebutty.viewarr.data.media.EpisodeInfo(s, e, "Episode $e", null, null, null, null))
+        }
+    }
+
     fun playNextUp() {
         val d = _detail.value ?: return
         val item = d.detail.item

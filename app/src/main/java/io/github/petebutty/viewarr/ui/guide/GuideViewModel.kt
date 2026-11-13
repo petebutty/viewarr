@@ -396,6 +396,12 @@ class GuideViewModel @Inject constructor(
         return runCatching { sports.ukChannels(game.home, game.away, game.start) }.getOrNull()
     }
 
+    /** The guide fetched again if it's older than [maxAgeMs] (Sports: a game on now whose event channel is newer). */
+    suspend fun syncIfOlderThan(maxAgeMs: Long) {
+        sessions.session.first()?.let { runCatching { repo.syncIfStale(it, maxAgeMs) } }
+        gameChannels.clear()
+    }
+
     suspend fun channelForGame(game: io.github.petebutty.viewarr.data.sports.SportGame): Pair<ChannelListItem, GuideProgram>? {
         val t = System.currentTimeMillis()
         gameChannels[game.id + "|" + game.start]?.takeIf { t - it.first < 10 * 60_000L }?.let { return it.second }

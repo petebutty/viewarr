@@ -47,6 +47,8 @@ internal class SportsHub(
      */
     /** Games already looked for in the guide / the listings (so going back to Sports carries on, not starts again). */
     private val lookedUp = HashSet<String>()
+    /** When the guide was last fetched again for a game with no channel (step 1b). */
+    private var lastFreshen = 0L
     private var running = false
 
     suspend fun load(follows: List<SportFollow>) {
@@ -69,6 +71,17 @@ internal class SportsHub(
                         loadedAt[f.shortcutId] = t0
                     }
                 }.forEach { it.await() }
+            }
+            // 1b: a game on now (or within 3 hours) with no channel found, and the guide on this box older than half an
+            // hour: event channels are named after the match only shortly before (the EPG & Sports Editor plugin), after
+            // the box last fetched the guide. Fetched again (at most every half hour), and those games looked for again.
+            val missing = follows.flatMap { games[it.shortcutId].orEmpty() }
+                .filter { (g, ch) -> ch == null && (g.state == "in" || (g.state == "pre" && g.start < t0 + 3 * 3_600_000L)) }
+                .map { it.first.id }.toSet()
+            if (missing.isNotEmpty() && t0 - lastFreshen > 30 * 60_000L) {
+                lastFreshen = t0
+                guide.syncIfOlderThan(30 * 60_000L)
+                lookedUp.removeAll(missing)
             }
             // 2: where each is on, one game at a time with a pause between (a guide search each, and the UK listings, all
             // at once made a small box stop responding). Soonest first; games already looked for skipped.

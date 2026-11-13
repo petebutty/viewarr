@@ -109,6 +109,42 @@ class WatchNext @Inject constructor(
 object DeepLink {
     val pending = MutableStateFlow<MediaItem?>(null)
 
+    /**
+     * A live channel asked for from outside (home automation, a remote web page over ADB…):
+     * viewarr://channel?uuid=<Dispatcharr channel UUID> or viewarr://channel?number=<channel number>. [at] makes the
+     * same channel asked for twice a new request (it's reconnected, which helps when a stream froze).
+     */
+    data class ChannelRequest(val uuid: String?, val number: Double?, val at: Long = System.nanoTime())
+    val pendingChannel = MutableStateFlow<ChannelRequest?>(null)
+
+    /**
+     * The other controls from outside, each run as the remote's own button would (a profile's limits apply):
+     * step (channel up / down), stop, guide, page, record, search.
+     */
+    data class Command(val kind: String, val arg: String? = null, val uuid: String? = null, val number: Double? = null, val at: Long = System.nanoTime())
+    val pendingCommand = MutableStateFlow<Command?>(null)
+
+    /** Any viewarr:// link: a title or a channel, each to its own queue. */
+    fun handle(uri: Uri?) {
+        if (uri == null || uri.scheme != "viewarr") return
+        when (uri.host) {
+            "title" -> parse(uri)?.let { pending.value = it }
+            "channel" -> {
+                val uuid = uri.getQueryParameter("uuid")?.trim()?.takeIf { it.isNotEmpty() }
+                val number = uri.getQueryParameter("number")?.trim()?.toDoubleOrNull()
+                val step = uri.getQueryParameter("step")?.trim()?.lowercase()
+                if (uuid != null || number != null) pendingChannel.value = ChannelRequest(uuid, number)
+                else if (step == "up" || step == "down") pendingCommand.value = Command("step", step)
+            }
+            "stop", "guide" -> pendingCommand.value = Command(uri.host!!)
+            "page" -> uri.getQueryParameter("name")?.trim()?.lowercase()?.takeIf { it in setOf("movies", "shows", "music", "recordings", "guide", "sports") }
+                ?.let { pendingCommand.value = Command("page", it) }
+            "record" -> pendingCommand.value = Command("record", uuid = uri.getQueryParameter("uuid")?.trim()?.takeIf { it.isNotEmpty() },
+                number = uri.getQueryParameter("number")?.trim()?.toDoubleOrNull())
+            "search" -> pendingCommand.value = Command("search", uri.getQueryParameter("q")?.take(200))
+        }
+    }
+
     fun uriFor(item: MediaItem): Uri = Uri.Builder().scheme("viewarr").authority("title").apply {
         appendQueryParameter("key", item.key.removeSuffix(":deck"))
         appendQueryParameter("type", item.type.name)
@@ -126,8 +162,10 @@ object DeepLink {
     /** From an incoming intent's data, or null if it isn't one of ours. */
     fun parse(uri: Uri?): MediaItem? {
         if (uri == null || uri.scheme != "viewarr" || uri.host != "title") return null
-        val key = uri.getQueryParameter("key") ?: return null
-        val type = runCatching { MediaType.valueOf(uri.getQueryParameter("type").orEmpty()) }.getOrDefault(MediaType.Movie)
+        // ("type" may be Movie / Show, or movie / show / tv from outside.)
+        val type = when (uri.getQueryParameter("type")?.lowercase()) { "show", "tv", "series" -> MediaType.Show; else -> MediaType.Movie }
+        // From outside with just a TMDB id: the title's page is looked up from it.
+        val key = uri.getQueryParameter("key") ?: uri.getQueryParameter("tmdb")?.toIntOrNull()?.let { "tmdb:${type.name}:$it" } ?: return null
         return MediaItem(
             key = key,
             type = type,

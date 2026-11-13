@@ -5,6 +5,7 @@ import io.github.petebutty.viewarr.data.accounts.Accounts
 import io.github.petebutty.viewarr.data.remote.services.HttpJson
 import io.github.petebutty.viewarr.data.remote.services.MediaServerService
 import io.github.petebutty.viewarr.data.remote.services.PlexService
+import io.github.petebutty.viewarr.data.remote.services.str
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -36,6 +37,13 @@ data class Song(
     val source: String = "",
 )
 data class Playlist(val id: String, val name: String, val songCount: Int, val art: Art?, val durationSec: Int, val source: String = "")
+
+/** A song's words: lines with their time (synced) or without. */
+data class LyricLine(val timeMs: Long?, val text: String)
+data class Lyrics(val lines: List<LyricLine>, val synced: Boolean, val from: String)
+
+/** An artist's page extras: their biography, similar artists, their most-played songs. */
+data class ArtistInfo(val bio: String?, val similar: List<Artist>, val topSongs: List<Song>)
 
 /** Which albums: the lists every server can give. */
 enum class AlbumList { Newest, Recent, Frequent, Random, Favourites, AZ }
@@ -72,6 +80,31 @@ interface MusicSource {
     suspend fun search(query: String): MusicSearchResult
     /** [submission] false: now playing; true: listened to (play count, scrobblers). */
     suspend fun scrobble(songId: String, submission: Boolean)
+    /** The song's lyrics from the server, if it has them. */
+    suspend fun lyrics(song: Song): Lyrics? = null
+    /** Songs like this one (for a song radio); empty when the server can't say. */
+    suspend fun similarSongs(song: Song, size: Int): List<Song> = emptyList()
+    /** Biography, similar artists and top songs, where the server has them. */
+    suspend fun artistInfo(artist: Artist): ArtistInfo? = null
+    /** Stars / unstars a song, album or artist ([kind]: "song", "album", "artist"); false if the server can't. */
+    suspend fun setStarred(id: String, kind: String, on: Boolean): Boolean = false
+    /** Everything starred here (ids as everywhere else). */
+    suspend fun starredIds(): Set<String> = emptySet()
+}
+
+/** LRC lines ("[01:23.45] words") as lyric lines; plain lines when there are no times. */
+internal fun parseLrc(text: String): Lyrics? {
+    val tag = Regex("""\[(\d+):(\d+(?:\.\d+)?)]""")
+    val lines = ArrayList<LyricLine>()
+    var timed = false
+    text.lines().forEach { raw ->
+        val times = tag.findAll(raw).toList()
+        val words = raw.replace(tag, "").trim()
+        if (times.isEmpty()) { if (raw.isNotBlank() && !raw.trim().matches(Regex("""\[[a-z]+:.*]"""))) lines += LyricLine(null, raw.trim()) }
+        else times.forEach { m -> timed = true; lines += LyricLine((m.groupValues[1].toLong() * 60_000 + (m.groupValues[2].toDouble() * 1000).toLong()), words) }
+    }
+    if (lines.isEmpty()) return null
+    return Lyrics(if (timed) lines.filter { it.timeMs != null }.sortedBy { it.timeMs } else lines, timed, "")
 }
 
 /** Ids are "<source>:<server's own id>". */
@@ -234,6 +267,35 @@ class MusicLibrary @Inject constructor(
     }
 
     suspend fun scrobble(songId: String, submission: Boolean) { source(songId)?.let { runCatching { it.scrobble(songId, submission) } } }
+
+    /**
+     * The song's lyrics: from its own server, else (Settings → Playback → Lyrics from LRCLIB, off unless chosen) from
+     * LRCLIB, the free lyrics library: only the artist, title, album and length are sent.
+     */
+    suspend fun lyrics(song: Song, lrclib: Boolean): Lyrics? {
+        source(song.id)?.let { s -> runCatching { s.lyrics(song) }.getOrNull()?.takeIf { it.lines.isNotEmpty() }?.let { return it } }
+        if (!lrclib) return null
+        fun e(v: String) = java.net.URLEncoder.encode(v, "UTF-8")
+        val r = runCatching {
+            http.get("https://lrclib.net/api/get?artist_name=${e(song.artist)}&track_name=${e(song.title)}&album_name=${e(song.album)}&duration=${song.durationSec}")
+        }.getOrNull()?.takeIf { it.ok } ?: return null
+        val synced = r.body.str("syncedLyrics")?.takeIf { it.isNotBlank() }
+        val plain = r.body.str("plainLyrics")?.takeIf { it.isNotBlank() }
+        return (synced?.let(::parseLrc) ?: plain?.let(::parseLrc))?.copy(from = "LRCLIB")
+    }
+
+    /** A song radio: songs like [song] (its server's own idea where it has one), else more by the artist and a mix. */
+    suspend fun similarSongs(song: Song, size: Int = 50): List<Song> {
+        val own = source(song.id)?.let { runCatching { it.similarSongs(song, size) }.getOrNull() }.orEmpty()
+        val more = if (own.size >= 15) emptyList() else runCatching { search(song.artist).songs }.getOrDefault(emptyList()).shuffled().take(20) + randomSongs(20)
+        return (listOf(song) + own + more).distinctBy { norm(it.artist) + "|" + norm(it.title) }.take(size)
+    }
+
+    suspend fun artistInfo(artist: Artist): ArtistInfo? = source(artist.id)?.let { runCatching { it.artistInfo(artist) }.getOrNull() }
+
+    suspend fun setStarred(id: String, kind: String, on: Boolean): Boolean = source(id)?.let { runCatching { it.setStarred(id, kind, on) }.getOrDefault(false) } ?: false
+
+    suspend fun starredIds(): Set<String> = merged(null) { it.starredIds().toList() }.toSet()
 
     /** Your servers with a music library (Plex, Jellyfin, Emby: not Navidrome), for setup's switches: id, name. */
     suspend fun servers(): List<Pair<String, String>> = allSources().filter { it.id != "nd" }.map { it.id to it.name }

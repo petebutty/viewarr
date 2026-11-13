@@ -38,6 +38,10 @@ data class OsdPoster(
     val plays: Boolean = false,
     /** Shown instead when [image] can't be loaded (an episode's still missing: the show's picture). */
     val fallbackImage: String? = null,
+    /** Not out yet (an episode that hasn't aired): the picture drawn darker, with "Not out yet" on it. */
+    val unreleased: Boolean = false,
+    /** A third line under the card (an episode's release date). */
+    val note: String? = null,
     val onClick: () -> Unit,
 )
 
@@ -241,6 +245,13 @@ object RowSets {
     }
     /** A row's own name on its set's page ("Popular"). */
     fun rowTitle(row: MediaRow): String = if (name(row) != null) row.title.substringAfter(SEP) else row.title
+    /**
+     * A service's rows always in one order, films and shows together: New (shows, then films), Originals, Popular,
+     * Top rated, then anything else.
+     */
+    fun kindRank(row: MediaRow): Int = when (rowTitle(row).trim().lowercase()) {
+        "new" -> 0; "originals" -> 1; "popular" -> 2; "top rated" -> 3; else -> 4
+    }
     fun sets(rows: List<MediaRow>): List<String> = buildList {
         if (rows.any { it.id.startsWith("plex-") }) add("plex")
         rows.mapNotNull { name(it) }.groupingBy { it }.eachCount().filter { it.value >= 2 }.keys.forEach { add("name:$it") }
