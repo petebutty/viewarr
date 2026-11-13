@@ -23,7 +23,7 @@ Viewarr doesn't provide any content. It plays only what your own servers and acc
 ## Highlights
 
 - **One glass menu on the left** that slides the page aside, and a **top-left window** where live TV, a film or a trailer keeps playing while you browse.
-- **A TiviMate-style TV guide** for your Dispatcharr channels, with catch-up, pause and rewind, **Start over** and **Go to show**.
+- **A TiviMate-style TV guide** for your Dispatcharr channels, up to 7 days ahead, with catch-up, pause and rewind, **Start over**, **Go to show**, **★ favourites** and channel groups in your own order.
 - **Recordings, reminders and one-press record** on your Dispatcharr server; **multi-view** of up to four channels.
 - **Sports**: follow teams and leagues and see which channel shows each game.
 - **No Dispatcharr?** Use an IPTV provider's Xtream Codes login or an M3U playlist, and save several sources.
@@ -31,9 +31,11 @@ Viewarr doesn't provide any content. It plays only what your own servers and acc
 - **One Play button** that picks the best copy you have; hold OK on Play to choose the source yourself.
 - **Skip intro, next episode** and a **mini player** that keeps a film going while you browse.
 - **Music** from Navidrome, Plex, Jellyfin or Emby, with lyrics, the queue, song radio, artist pages and a spinning vinyl Now Playing.
+- **An info bar you arrange yourself**: show, hide and move its buttons, and add extras such as Favourite, Last channel, Audio sync, a Sleep timer and TV settings. Browse channels in it without changing until you press OK.
+- **Frame rate matching** for films and live TV (the TV switches to 50 Hz for UK channels), with frame-rate badges on the info bar.
 - **Every remote button your way**, with TiviMate and Viewarr presets.
 - **Profiles** for everyone in the house, sharing with friends in another house, and your setup saved on Dispatcharr.
-- **Easy setup** from your phone with a QR code.
+- **Easy setup** from your phone with a QR code, and **Search settings** to find any option by name.
 
 ## What you need
 

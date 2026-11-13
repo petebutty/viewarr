@@ -90,7 +90,15 @@ enum class MpvDecoding(override val label: String) : RemoteChoice {
 
 enum class FrameRateMatch(override val label: String) : RemoteChoice {
     Off("Off"),
-    On("On"),
+    /** (Saved as "On" from before live TV could match too.) */
+    On("Films and episodes"),
+    LiveOnly("Live TV"),
+    Live("Both"),
+    ;
+    /** Films and episodes switch the TV's rate. */
+    val films get() = this == On || this == Live
+    /** Live channels switch the TV's rate. */
+    val live get() = this == LiveOnly || this == Live
 }
 
 enum class PictureSize(override val label: String) : RemoteChoice {

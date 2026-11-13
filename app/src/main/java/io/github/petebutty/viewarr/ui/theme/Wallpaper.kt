@@ -59,7 +59,70 @@ val WallpaperStyles = listOf(
         drawRect(Brush.radialGradient(listOf(h.copy(alpha = 0.55f), Color.Transparent), Offset(size.width, 0f), size.width * 0.8f))
         drawRect(Brush.radialGradient(listOf(h.copy(alpha = 0.25f), Color.Transparent), Offset(0f, size.height), size.width * 0.6f))
     },
+    // (Added 0.27.3: dark, low-contrast and glassy, so the see-through panels and the highlight colour read well over them.)
+    WallpaperStyle("Midnight") { _ ->
+        drawRect(Brush.verticalGradient(listOf(Color(0xFF0A1024), Color(0xFF060914), Color(0xFF030408))))
+        drawRect(Brush.radialGradient(listOf(Color(0x333B82F6), Color.Transparent), Offset(size.width * 0.5f, -size.height * 0.1f), size.width * 0.6f))
+        vignette()
+    },
+    WallpaperStyle("Ember") { _ ->
+        drawRect(Brush.linearGradient(listOf(Color(0xFF0C0A09), Color(0xFF1C1210), Color(0xFF0C0A09)), Offset.Zero, Offset(size.width, size.height)))
+        drawRect(Brush.radialGradient(listOf(Color(0x66F97316), Color.Transparent), Offset(size.width * 0.05f, size.height * 0.95f), size.width * 0.55f))
+        drawRect(Brush.radialGradient(listOf(Color(0x33DC2626), Color.Transparent), Offset(size.width * 0.3f, size.height * 1.1f), size.width * 0.4f))
+        vignette()
+    },
+    WallpaperStyle("Frosted glass") { _ ->
+        drawRect(Color(0xFF111827))
+        drawRect(Brush.radialGradient(listOf(Color(0x4494A3B8), Color.Transparent), Offset(size.width * 0.15f, size.height * 0.2f), size.width * 0.35f))
+        drawRect(Brush.radialGradient(listOf(Color(0x3364748B), Color.Transparent), Offset(size.width * 0.75f, size.height * 0.3f), size.width * 0.4f))
+        drawRect(Brush.radialGradient(listOf(Color(0x3394A3B8), Color.Transparent), Offset(size.width * 0.5f, size.height * 0.95f), size.width * 0.45f))
+        drawRect(Brush.verticalGradient(listOf(Color(0x14FFFFFF), Color.Transparent, Color(0x33000000))))
+    },
+    WallpaperStyle("Twilight") { _ ->
+        drawRect(Brush.linearGradient(listOf(Color(0xFF1E1B4B), Color(0xFF172554), Color(0xFF042F2E)), Offset(0f, 0f), Offset(size.width, size.height)))
+        drawRect(Brush.radialGradient(listOf(Color(0x44818CF8), Color.Transparent), Offset(size.width * 0.85f, size.height * 0.1f), size.width * 0.45f))
+        vignette()
+    },
+    WallpaperStyle("Cinema") { _ ->
+        drawRect(Color(0xFF050505))
+        drawRect(Brush.radialGradient(listOf(Color(0x2EFFFFFF), Color.Transparent), Offset(size.width * 0.5f, -size.height * 0.2f), size.width * 0.55f))
+        drawRect(Brush.verticalGradient(0.6f to Color.Transparent, 1f to Color(0x66B91C1C)))
+        vignette(0.85f)
+    },
+    WallpaperStyle("Graphite") { h ->
+        drawRect(Brush.linearGradient(listOf(Color(0xFF1F2023), Color(0xFF111113), Color(0xFF09090B)), Offset(0f, 0f), Offset(size.width * 0.6f, size.height)))
+        drawRect(Brush.radialGradient(listOf(h.copy(alpha = 0.18f), Color.Transparent), Offset(size.width, size.height * 0.5f), size.width * 0.45f))
+        vignette()
+    },
+    WallpaperStyle("Highlight mesh") { h ->
+        drawRect(Color(0xFF07080C))
+        drawRect(Brush.radialGradient(listOf(h.copy(alpha = 0.35f), Color.Transparent), Offset(size.width * 0.1f, size.height * 0.1f), size.width * 0.45f))
+        drawRect(Brush.radialGradient(listOf(h.copy(alpha = 0.22f), Color.Transparent), Offset(size.width * 0.9f, size.height * 0.4f), size.width * 0.4f))
+        drawRect(Brush.radialGradient(listOf(h.copy(alpha = 0.28f), Color.Transparent), Offset(size.width * 0.4f, size.height * 1.0f), size.width * 0.45f))
+        vignette()
+    },
+    WallpaperStyle("Plum & gold") { _ ->
+        drawRect(Brush.linearGradient(listOf(Color(0xFF1A0B1F), Color(0xFF2E1035), Color(0xFF14081A)), Offset(0f, size.height), Offset(size.width, 0f)))
+        drawRect(Brush.radialGradient(listOf(Color(0x44EAB308), Color.Transparent), Offset(size.width * 0.8f, size.height * 0.85f), size.width * 0.45f))
+        vignette()
+    },
+    WallpaperStyle("Arctic") { _ ->
+        drawRect(Brush.verticalGradient(listOf(Color(0xFF0F172A), Color(0xFF0B2533), Color(0xFF071318))))
+        drawRect(Brush.radialGradient(listOf(Color(0x4467E8F9), Color.Transparent), Offset(size.width * 0.25f, size.height * 0.05f), size.width * 0.5f))
+        drawRect(Brush.radialGradient(listOf(Color(0x22E0F2FE), Color.Transparent), Offset(size.width * 0.9f, size.height * 0.9f), size.width * 0.35f))
+        vignette()
+    },
+    WallpaperStyle("Emerald night") { _ ->
+        drawRect(Brush.linearGradient(listOf(Color(0xFF021C17), Color(0xFF052E26), Color(0xFF020F0C)), Offset(0f, 0f), Offset(size.width, size.height)))
+        drawRect(Brush.radialGradient(listOf(Color(0x4410B981), Color.Transparent), Offset(size.width * 0.7f, size.height * 0.2f), size.width * 0.45f))
+        vignette()
+    },
 )
+
+/** Darker towards the edges, so the middle (where pages put their text) stays calm. */
+private fun DrawScope.vignette(strength: Float = 0.7f) {
+    drawRect(Brush.radialGradient(0.45f to Color.Transparent, 1f to Color.Black.copy(alpha = strength), center = Offset(size.width / 2f, size.height / 2f), radius = max(size.width, size.height) * 0.75f))
+}
 
 /** Setting value → name. ("From your library", 2, was tried and removed: treated as None.) */
 val WallpaperModes = listOf(0 to "None", 1 to "Built-in", 3 to "What's selected")

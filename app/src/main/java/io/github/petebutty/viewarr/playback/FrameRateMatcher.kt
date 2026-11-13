@@ -13,12 +13,12 @@ object FrameRateMatcher {
     private const val TAG = "FrameRate"
 
     /** Asks for the best display mode for [fps] at the current resolution. Returns the mode id to restore later. */
-    fun match(activity: Activity, fps: Float): Int? {
+    fun match(activity: Activity, fps: Float, minHz: Float = 0f): Int? {
         if (fps < 10f) return null
         val display = activity.window.decorView.display ?: return null
         val current = display.mode
         val candidates = display.supportedModes.filter {
-            it.physicalWidth == current.physicalWidth && it.physicalHeight == current.physicalHeight
+            it.physicalWidth == current.physicalWidth && it.physicalHeight == current.physicalHeight && it.refreshRate >= minHz
         }
         // Exact rate first, then a whole multiple (25 → 50 Hz, 23.976 → 47.952 Hz…).
         val best = candidates
@@ -37,6 +37,23 @@ object FrameRateMatcher {
 
     fun restore(activity: Activity, modeId: Int) {
         activity.window.attributes = activity.window.attributes.apply { preferredDisplayModeId = modeId }
+    }
+
+    /**
+     * Live TV: the TV kept at the channel's rate family (50 Hz for UK channels, 59.94 / 60 for American ones), never
+     * below 47 Hz (a 25 or 50 field broadcast at 25 Hz would judder). Switched once the rate is certain; the mode from
+     * before the first switch is put back when live TV stops.
+     */
+    object Live {
+        private var restoreMode: Int? = null
+        fun apply(activity: Activity, fps: Float) {
+            val previous = match(activity, fps, minHz = 47f) ?: return
+            if (restoreMode == null) restoreMode = previous
+        }
+        fun restore(activity: Activity) {
+            restoreMode?.let { restore(activity, it) }
+            restoreMode = null
+        }
     }
 
     /** The tallest picture the TV can show (2160 on a 4K TV), for "Match the TV" quality. */

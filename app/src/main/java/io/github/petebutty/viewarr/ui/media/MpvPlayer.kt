@@ -99,6 +99,12 @@ fun MpvPlayer(
     var error by remember { mutableStateOf<String?>(null) }
     var osdUntil by remember { mutableLongStateOf(System.currentTimeMillis() + io.github.petebutty.viewarr.ui.theme.AppColors.palette.controlsMs) }
     var tracksOpen by remember { mutableStateOf(false) }
+    // The Transparency panel over the film (the same as live TV's), from its button.
+    var transOpen by remember { mutableStateOf(false) }
+    // The Audio sync choices over the film, from its button.
+    var syncOpen by remember { mutableStateOf(false) }
+    // The TV settings panel over the film (frame rate matching, picture size…), from its button.
+    var tvOpen by remember { mutableStateOf(false) }
     // Audio & subtitles opened from the Subtitles button: start on the subtitles.
     var tracksSubs by remember { mutableStateOf(false) }
     val menu = remember { PlayerMenu() }
@@ -194,8 +200,12 @@ fun MpvPlayer(
 
     // Settings → Playback → Match frame rate: switch the TV once mpv knows the video's rate; switch back on exit.
     val activity = context as? android.app.Activity
+    // The info bar's Audio sync (mpv's own audio delay; later is positive, as in AvSync).
+    LaunchedEffect(mpv, io.github.petebutty.viewarr.playback.AvSync.ms) {
+        runCatching { MPVLib.setPropertyDouble("audio-delay", io.github.petebutty.viewarr.playback.AvSync.ms / 1000.0) }
+    }
     LaunchedEffect(mpv, settings.frameRate) {
-        if (settings.frameRate != io.github.petebutty.viewarr.data.settings.FrameRateMatch.On) return@LaunchedEffect
+        if (!settings.frameRate.films) return@LaunchedEffect
         if (activity == null) { runCatching { mpv.setPropertyBoolean("pause", false) }; return@LaunchedEffect }
         // mpv was started paused (configure): switching the TV mid-playback stalls HDMI audio on Amlogic boxes.
         try {
@@ -217,7 +227,7 @@ fun MpvPlayer(
     // so it also catches a film resumed part-way through.
     LaunchedEffect(mpv) {
         if (settings.passthrough != Passthrough.On) return@LaunchedEffect
-        delay(if (settings.frameRate == io.github.petebutty.viewarr.data.settings.FrameRateMatch.On) 9_000 else 5_000)
+        delay(if (settings.frameRate.films) 9_000 else 5_000)
         // Watched for the first two minutes, not checked once: a press of pause (people press it when nothing
         // happens) used to skip the only check, leaving the film stuck. Stuck = meant to be playing, not waiting on
         // the network, and the clock still for 5 s (including a resume jump that never completes). Once the clock runs normally, passthrough is working.
@@ -287,12 +297,12 @@ fun MpvPlayer(
     // (The menu over it counts too: the player lets go of the remote and its controls.)
     val mini = VodHost.mini || VodHost.behind
     LaunchedEffect(mini) {
-        if (mini) { menu.open = false; tracksOpen = false; detailsOn = false; if (scrub.active) scrub.cancel(); osdUntil = 0L; return@LaunchedEffect }
+        if (mini) { menu.open = false; tracksOpen = false; transOpen = false; syncOpen = false; tvOpen = false; detailsOn = false; if (scrub.active) scrub.cancel(); osdUntil = 0L; return@LaunchedEffect }
         repeat(3) { awaitFrame(); runCatching { focus.requestFocus() } }
     }
     val searchOpen = io.github.petebutty.viewarr.ui.common.LocalQuickSearchOpen.current
-    LaunchedEffect(hasFocus, tracksOpen, searchOpen, mini) {
-        if (!hasFocus && !tracksOpen && !searchOpen && !mini) { delay(150); runCatching { focus.requestFocus() } }
+    LaunchedEffect(hasFocus, tracksOpen, transOpen, syncOpen, tvOpen, searchOpen, mini) {
+        if (!hasFocus && !(tracksOpen || transOpen || syncOpen || tvOpen) && !searchOpen && !mini) { delay(150); runCatching { focus.requestFocus() } }
     }
     // Repaint the clock for the auto-hiding controls.
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -313,6 +323,8 @@ fun MpvPlayer(
             tracksOpen -> tracksOpen = false
             scrub.active -> { scrub.cancel(); showOsd() }
             detailsOn -> detailsOn = false
+            // Editing the buttons: Back puts a picked-up one down, then finishes.
+            menu.open && menu.editing -> { if (menu.carrying) menu.carrying = false else menu.editing = false }
             menu.open -> { menu.open = false; osdUntil = 0L }
             System.currentTimeMillis() < osdUntil && !paused -> osdUntil = 0L
             // Back again: into the corner, still playing (hold Back to bring it back).
@@ -339,7 +351,13 @@ fun MpvPlayer(
         return a to t
     }
     // Live TV hub: the TV guide first (live TV comes first there).
-    val buttons = listOfNotNull(if (hubOn) PlayerButton.Guide else null, PlayerButton.PlayPause, PlayerButton.Stop, PlayerButton.Details, PlayerButton.Audio, PlayerButton.Subtitles, PlayerButton.Info, if (onSwitchPlayer != null) PlayerButton.SwitchPlayer else null, PlayerButton.Settings)
+    // As you've arranged them (hold OK on one to edit; see BarLayout).
+    val barAppearance: io.github.petebutty.viewarr.ui.settings.AppearanceViewModel = androidx.hilt.navigation.compose.hiltViewModel()
+    val allButtons = listOfNotNull(if (hubOn) PlayerButton.Guide else null, PlayerButton.PlayPause, PlayerButton.Stop, PlayerButton.Details, PlayerButton.Audio, PlayerButton.Subtitles, PlayerButton.Info, if (onSwitchPlayer != null) PlayerButton.SwitchPlayer else null,
+        // (Episodes: only with more to come.)
+        if (NextUp.upcoming.isNotEmpty()) PlayerButton.Episodes else null, PlayerButton.Sync, PlayerButton.Sleep, PlayerButton.Movies, PlayerButton.Shows, PlayerButton.Recordings,
+        PlayerButton.Search, PlayerButton.Transparency, PlayerButton.TvSettings, PlayerButton.Settings)
+    val buttons = io.github.petebutty.viewarr.ui.common.BarLayout.arrange(allButtons, { io.github.petebutty.viewarr.ui.common.BarLayout.filmId(it.name) }, menu.editing)
     menu.home = buttons.indexOf(PlayerButton.PlayPause).coerceAtLeast(0)
     menu.guideAt = buttons.indexOf(PlayerButton.Guide)
     fun press(b: PlayerButton) {
@@ -347,6 +365,15 @@ fun MpvPlayer(
             PlayerButton.PlayPause -> mpv.setPropertyBoolean("pause", !paused)
             PlayerButton.Audio -> { tracksSubs = false; tracksOpen = true }
             PlayerButton.Subtitles -> { tracksSubs = true; tracksOpen = true }
+            PlayerButton.Transparency -> { menu.open = false; transOpen = true; return }
+            PlayerButton.TvSettings -> { menu.open = false; tvOpen = true; return }
+            // Search over the film: it carries on in the corner (as the remote's Search).
+            PlayerButton.Search -> { menu.open = false; VodHost.minimise(); VodHost.openSearch(); return }
+            PlayerButton.Episodes -> { menu.onEpisodes = true; menu.episodesOnly = false; menu.episode = 0 }
+            PlayerButton.Sync -> { menu.open = false; syncOpen = true; return }
+            PlayerButton.Sleep -> io.github.petebutty.viewarr.playback.SleepTimer.cycle(((duration * 1000).toLong() - (position * 1000).toLong()).takeIf { it > 0 }?.let { System.currentTimeMillis() + it })
+            // A page over the film (it carries on in the corner).
+            PlayerButton.Movies, PlayerButton.Shows, PlayerButton.Recordings -> { menu.open = false; VodHost.minimise(); io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.openPage(b.name); return }
             PlayerButton.Info -> menu.infoOn = !menu.infoOn
             PlayerButton.Details -> { detailsOn = !detailsOn; if (detailsOn) menu.open = false }
             PlayerButton.SwitchPlayer -> picks().let { (a, t) -> onSwitchPlayer?.invoke((position * 1000).toLong(), a, t) }
@@ -370,12 +397,14 @@ fun MpvPlayer(
         override fun pause() = mpv.setPropertyBoolean("pause", true)
     }
     val hooks = VodHooks(
-        buttons = buttons, press = ::press, seekMs = (seekSec * 1000).toLong(), showOsd = ::showOsd,
+        buttons = buttons, press = ::press,
+        toggleButton = { b -> io.github.petebutty.viewarr.ui.common.BarLayout.filmId(b.name).let { id -> io.github.petebutty.viewarr.ui.common.BarLayout.setShown(id, !io.github.petebutty.viewarr.ui.common.BarLayout.shown(id), barAppearance::setTitlePart) } },
+        moveButton = { b, dir -> io.github.petebutty.viewarr.ui.common.BarLayout.moved(buttons.map { io.github.petebutty.viewarr.ui.common.BarLayout.filmId(it.name) }, io.github.petebutty.viewarr.ui.common.BarLayout.filmId(b.name), dir)?.let { barAppearance.setBarOrder("all", it) } }, seekMs = (seekSec * 1000).toLong(), showOsd = ::showOsd,
         openTracks = { subs -> subs?.let { tracksSubs = it }; tracksOpen = true },
         toggleDetails = { detailsOn = !detailsOn }, showDetails = { detailsOn = true }, stop = onClose,
         // Back makes it the mini player (its last step below); Stop ends it.
         backMode = 0,
-        atTop = { !tracksOpen && !scrub.active && !detailsOn && !menu.open && !(System.currentTimeMillis() < osdUntil && !paused) },
+        atTop = { !(tracksOpen || transOpen || syncOpen || tvOpen) && !scrub.active && !detailsOn && !menu.open && !(System.currentTimeMillis() < osdUntil && !paused) },
         minimise = { VodHost.minimise(); if (!VodHost.active) onClose() },
         stepBack = ::backStep,
         skipOk = { skip.ok({ ms -> mpv.command(arrayOf("seek", (ms / 1000.0).toString(), "absolute")) }, onNext = { NextUp.play() }) },
@@ -414,10 +443,10 @@ fun MpvPlayer(
             .background(Color.Black)
             .focusRequester(focus)
             .onFocusChanged { hasFocus = it.isFocused }
-            .focusable(enabled = !tracksOpen && !(mini && !VodHost.gliding))
+            .focusable(enabled = !(tracksOpen || transOpen || syncOpen || tvOpen) && !(mini && !VodHost.gliding))
             .onPreviewKeyEvent { e ->
                 if (VodHost.eatsBack(e)) return@onPreviewKeyEvent true
-                if (tracksOpen) return@onPreviewKeyEvent false
+                if ((tracksOpen || transOpen || syncOpen || tvOpen)) return@onPreviewKeyEvent false
                 keys.handle(e, remote, hooks)
             },
     ) {
@@ -491,12 +520,33 @@ fun MpvPlayer(
         // Until the first picture: the loading screen (backdrop, breathing logo); then the controls carry the logo.
         var started by remember(stream) { mutableStateOf(false) }
         if (!buffering && position > 0) started = true
-        if (!mini && started && (detailsOn || (paused && pausedLong && !tracksOpen && !scrub.active && !menu.open))) PlayerDetails(stream.title, art)
+        if (!mini && started && (detailsOn || (paused && pausedLong && !(tracksOpen || transOpen || syncOpen || tvOpen) && !scrub.active && !menu.open))) PlayerDetails(stream.title, art)
         if (!mini && osdVisible && started) PlayerOsd(
             stream.title, (position * 1000).toLong(), (duration * 1000).toLong(), paused, buffering,
             scrub.targetMs, thumbs, Modifier.align(Alignment.BottomCenter), logo = art?.logo,
             from = stream.from,
-            buttons = if (menu.open) buttons.map { it.osd(paused, menu.infoOn, "the built-in player") } else null,
+            // The badges: the film's own picture, frame rate and sound, as mpv reads them.
+            quality = runCatching {
+                io.github.petebutty.viewarr.ui.player.StreamQuality(
+                    MPVLib.getPropertyInt("height") ?: 0,
+                    (MPVLib.getPropertyDouble("container-fps") ?: 0.0).toFloat(),
+                    MPVLib.getPropertyInt("audio-params/channel-count") ?: 0,
+                )
+            }.getOrNull(),
+            buttons = if (menu.open) buttons.map { b ->
+                val o = b.osd(paused, menu.infoOn, "the built-in player")
+                if (!menu.editing) o else {
+                    val hidden = !io.github.petebutty.viewarr.ui.common.BarLayout.shown(io.github.petebutty.viewarr.ui.common.BarLayout.filmId(b.name))
+                    val focused = buttons.indexOf(b) == menu.button
+                    OsdButton(o.icon, when {
+                        focused && menu.carrying -> "◀  ${o.label}  ▶"
+                        io.github.petebutty.viewarr.ui.common.BarLayout.filmId(b.name) in io.github.petebutty.viewarr.ui.common.BarLayout.fixed -> "${o.label} (always shown)"
+                        hidden -> "${o.label} (" + (if (io.github.petebutty.viewarr.ui.common.BarLayout.filmId(b.name) in io.github.petebutty.viewarr.ui.common.BarLayout.extras) "not added" else "hidden") + ")"
+                        else -> o.label
+                    }, groupEnd = false, dim = hidden)
+                }
+            } else null,
+            editingButtons = menu.open && menu.editing,
             buttonFocus = if (menu.open && !menu.onBar && !menu.onShortcuts && !menu.onEpisodes) menu.button else -1,
             barFocused = menu.open && menu.onBar,
             shortcuts = if (menu.open && menu.onShortcuts) io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.items.map { it.first } else null,
@@ -507,7 +557,7 @@ fun MpvPlayer(
             rows = if (menu.open && menu.onRows) io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.rowsFor(menu.shortcut) else null,
             rowFocus = menu.row, cardFocus = menu.card,
         )
-        if (!mini && started && !menu.open && !scrub.active && !tracksOpen && !osdVisible) IntroSkipPill(skip, Modifier.align(Alignment.BottomEnd).padding(end = 40.dp, bottom = 36.dp))
+        if (!mini && started && !menu.open && !scrub.active && !(tracksOpen || transOpen || syncOpen || tvOpen) && !osdVisible) IntroSkipPill(skip, Modifier.align(Alignment.BottomEnd).padding(end = 40.dp, bottom = 36.dp))
         // Holding OK on a shortcut or a card: their menus (shared with the other player).
         FilmShortcutDialogs(menu)
         PlayerLoading(stream.title, art, visible = !mini && !started && error == null)
@@ -519,6 +569,11 @@ fun MpvPlayer(
             Text(it, fontSize = 18.sp, color = Color.White, modifier = Modifier.align(Alignment.Center).background(Color.Black.copy(alpha = 0.7f)).padding(20.dp))
         }
         if (tracksOpen && !mini) MpvTrackPicker(mpv, subtitlesFirst = tracksSubs, onSwitchPlayer = onSwitchPlayer?.let { f -> { picks().let { (a, t) -> f((position * 1000).toLong(), a, t) } } }, onClose = { tracksOpen = false; runCatching { focus.requestFocus() } }, modifier = Modifier.align(Alignment.CenterEnd))
+        if (transOpen && !mini) io.github.petebutty.viewarr.ui.player.TransparencyPanel(onClose = { transOpen = false; runCatching { focus.requestFocus() } },
+            // On its info bar rows: the film's bar up behind it, while they're being changed.
+            onInfoBar = { show -> osdUntil = if (show) Long.MAX_VALUE else 0L })
+        if (syncOpen && !mini) io.github.petebutty.viewarr.ui.player.AvSyncPanel(onClose = { syncOpen = false; runCatching { focus.requestFocus() } }, modifier = Modifier.align(Alignment.CenterEnd))
+        if (tvOpen && !mini) io.github.petebutty.viewarr.ui.player.TvSettingsPanel(onClose = { tvOpen = false; runCatching { focus.requestFocus() } }, modifier = Modifier.align(Alignment.CenterEnd))
     }
 }
 
@@ -577,7 +632,7 @@ private fun configure(mpv: MpvHandle, context: android.content.Context, stream: 
     s.audioCode()?.let { opt("alang", "$it,${iso3(it)}") }
     if (s.passthrough == Passthrough.On) spdifFormats(context).also { Log.i(TAG, "passthrough formats: '$it'") }.takeIf { it.isNotEmpty() }?.let { opt("audio-spdif", it) }
     // Match frame rate: start paused, switch the TV, let HDMI settle, then play (see MpvPlayer).
-    if (s.frameRate == io.github.petebutty.viewarr.data.settings.FrameRateMatch.On) opt("pause", "yes")
+    if (s.frameRate.films) opt("pause", "yes")
     if (s.downmix == Downmix.Stereo) opt("audio-channels", "stereo") else opt("audio-channels", "auto")
     if (s.nightMode == NightMode.On) opt("af", "lavfi=[dynaudnorm=f=250:g=31:m=4]")
     // Subtitles

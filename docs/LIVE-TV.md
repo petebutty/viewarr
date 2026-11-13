@@ -21,20 +21,30 @@ A TiviMate-style guide with channel logos, categories, and programmes going back
 
 What the guide shows:
 
-- A progress bar under what's on now: on every channel, only the one you're watching, or off (**Settings → Appearance → Live TV → Progress bars**).
+- A progress bar under what's on now: on every channel, only the one you're watching, or off (**Settings → Appearance → TV guide → Progress bars**).
 - A picture of the highlighted programme at the top: the guide's own artwork from Dispatcharr when it has some, otherwise one found on TMDB. Turn it off with **Programme pictures**.
 - **Programme corners**: rounded or square boxes for programmes and channel names.
 - **Channel numbers**, **Channel logos** and **Episode numbers** ("S15E4") can each be turned on or off.
 - **Catch-up icons**: the replay icon on programmes and channel names, channel names only, or off. Catch-up still works with it off.
 - **End of a list**: past the last channel, jump to the other end or stop.
 
-All of these are in **Settings → Appearance → Live TV**.
+All of these are in **Settings → Appearance → TV guide**.
 
 ### Channel groups
 
 ![The TV guide with its channel groups](screenshots/guide.png)
 
 Press **Left** from the start of the guide (or **Hold Back**) to see your channel groups. Moving through them changes the guide behind as you go. **OK** picks one and takes you back into the guide. **Left** again brings the main menu.
+
+**Hold OK** on a group to pick it up, then **Up / Down** to move it and OK (or Back) to put it down. Your order is kept for each Live TV source. *(0.28.0 and later.)*
+
+Don't need **All channels**? Hide it in **Settings → Live TV → "All channels" group**. The groups then start with your own, and the guide opens on the first of them.
+
+### Favourites
+
+Hold OK on a channel in the guide (or the full-screen channel list) and choose **★ Add to favourites**. A **★ Favourites** group then heads the channel groups, with just those channels in channel order. **★ Remove from favourites** in the same place takes one out. A channel with nothing listed is added or removed by holding OK straight away.
+
+Favourites are kept on the box for each Live TV source, and shared by everyone who uses it. *(0.28.0 and later.)*
 
 ### Hold OK in the guide
 
@@ -46,14 +56,20 @@ Hold OK on a programme for:
 - **Go to show**: opens its page, at the episode you're up to.
 - **Search catch-up**: lists every showing you can still replay.
 - **Request on Seerr…**: a film, or a show's missing episodes. Seasons already on your servers aren't asked for again.
+- **★ Add to favourites** / **Remove from favourites** for the channel.
+- **✎ Edit this menu**: choose which of these options the pop-up shows (OK switches each one on or off). Cancelling a recording or a reminder is always there.
 
 A programme already recorded plays with OK.
 
 ### Guide refresh
 
-The guide is fetched again from your server while Viewarr is open, and when it starts. Choose how often in **Settings → Playback → TV guide refresh**: every 2, 4, 8 or 12 hours, once a day, or **Only when I ask**.
+The guide is fetched again from your server while Viewarr is open, and when it starts. Choose how often in **Settings → Live TV → TV guide refresh**: every 2, 4, 8 or 12 hours, once a day, or **Only when I ask**.
 
 To refresh now, use **Settings → Refresh channels & guide**.
+
+### How far ahead
+
+The guide shows **3 days** ahead by default. Change it in **Settings → Live TV → TV guide days ahead**: 1, 3, 5 or 7 days (most guides list 4 to 7). More days take a little longer to fetch and a little more room on the box. A change applies at the next guide refresh. *(0.28.0 and later; before that it was 36 hours.)*
 
 ## Watching live TV
 
@@ -67,7 +83,7 @@ To refresh now, use **Settings → Refresh channels & guide**.
 
 ### The info bar
 
-The info bar shows the channel, what's on now and next, and badges for the stream. Change it in **Settings → Appearance → Live TV**:
+The info bar shows the channel, what's on now and next, and badges for the stream. Change it in **Settings → Appearance → Info bar & controls**:
 
 - **Pop-up glass**: from see-through to solid. Every pop-up follows it.
 - **Info bar: border**, **Info bar: channel number** and **Info bar: episode numbers**: each on or off.
@@ -76,7 +92,21 @@ The info bar shows the channel, what's on now and next, and badges for the strea
 - **Info bar size**: Normal, Compact, Small or Large. Smaller covers less of the picture.
 - **Preview cards**: the size of the cards in the bar's rows (next episodes, shortcuts).
 
+### Arranging the info bar's buttons
+
+Hold OK on any button in the controls (OK while watching) to edit them, right there:
+
+- **OK** shows or hides the highlighted button (hidden ones are dimmed while you edit).
+- **Hold OK** picks it up; **Left / Right** move it; OK puts it down.
+- **Back** (or **Done** at the end) finishes.
+
+**Extra buttons** show in edit mode marked *not added*: OK adds one (OK again removes it). They are **Favourite** (add or remove this channel), **Last channel**, **Audio sync** (the sound up to 300 ms earlier or later, starting from Settings → Playback → Lip sync), **Sleep timer** (each press: 15, 30, 60 or 90 minutes, the end of the programme, off; then everything stops), **Movies**, **Shows** and **Recordings** (the page, with the channel in the corner), **TV settings** (frame rate matching, picture size, deinterlace, surround passthrough, channels, night mode and volume boost, changed over the picture with OK, with the TV's current mode shown at the top), and for films **Episodes** (the next episodes row).
+
+The TV guide button always stays. The arrangement is shared with the film and episode controls, so both bars stay the same; live TV's extras (Aspect, Source, Record, Multi-view) keep their places in it, and you can edit it from either bar. *(0.28.0 and later.)*
+
 ### Browsing channels in the info bar
+
+The easy way: **Settings → Live TV → Up / Down while watching** → *Browse in the info bar, OK changes* (or *…changes when you stop*). Up / Down and Channel + / − then move the info bar through the channels while the picture stays put; **OK** changes to the one shown, **Back** stays where you were. *(0.28.0 and later.)*
 
 You can look through channels without changing the picture:
 
@@ -84,7 +114,7 @@ You can look through channels without changing the picture:
 2. While watching, that button shows each channel and what's on it in the bar, while the picture stays put.
 3. The channel changes when you stop on one.
 
-Choose how long to rest on a channel in **Settings → Playback → Browsing channels**: 0.3 to 2 seconds, or **Only when I press OK**. OK always changes straight away; Back stays on the channel you were watching.
+Choose how long to rest on a channel in **Settings → Live TV → Browsing channels**: 0.3 to 2 seconds, or **Only when I press OK**. OK always changes straight away; Back stays on the channel you were watching.
 
 ### Quick zapping
 

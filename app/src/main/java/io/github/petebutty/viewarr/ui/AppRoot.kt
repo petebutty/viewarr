@@ -1,5 +1,8 @@
+@file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+
 package io.github.petebutty.viewarr.ui
 
+import io.github.petebutty.viewarr.ui.common.followingSetting
 import kotlinx.coroutines.flow.first
 import io.github.petebutty.viewarr.ui.theme.appBackground
 
@@ -96,6 +99,8 @@ fun AppRoot(vm: AppViewModel = hiltViewModel()) {
     val state by vm.state.collectAsStateWithLifecycle()
     val remote by vm.remote.collectAsStateWithLifecycle()
     val playbackSettings by vm.playback.collectAsStateWithLifecycle()
+    // Audio sync starts from Settings → Playback → Lip sync (the info bars' button changes it from there).
+    androidx.compose.runtime.LaunchedEffect(playbackSettings.audioDelay) { io.github.petebutty.viewarr.playback.AvSync.set(playbackSettings.audioDelay.ms) }
     // The splash stays up for at least 3.8 s (the logo's animation, then a moment's hold) while the start page loads
     // underneath it, and then until that page is ready (StartupGate: the guide's channels are in), so the first press
     // after it fades lands on a ready page. Slow boxes get longer; a guide that never comes (no live TV yet) doesn't
@@ -125,7 +130,11 @@ fun AppRoot(vm: AppViewModel = hiltViewModel()) {
     val lowMem = io.github.petebutty.viewarr.ui.theme.AppColors.palette.lowMemory
     val lowRam = androidx.compose.runtime.remember { (appCtx.getSystemService(android.content.Context.ACTIVITY_SERVICE) as? android.app.ActivityManager)?.isLowRamDevice == true }
     androidx.compose.runtime.SideEffect { io.github.petebutty.viewarr.data.net.SmallerImages.weak = lowMem || lowRam }
+    // Every list follows the highlight per Settings → Appearance → List scrolling (instant: no trail going fast).
+    val baseScroll = androidx.compose.foundation.gestures.LocalBringIntoViewSpec.current
+    val appScroll = androidx.compose.runtime.remember(baseScroll) { baseScroll.followingSetting() }
     androidx.compose.runtime.CompositionLocalProvider(
+        androidx.compose.foundation.gestures.LocalBringIntoViewSpec provides appScroll,
         io.github.petebutty.viewarr.data.settings.LocalRemote provides remote,
         io.github.petebutty.viewarr.data.settings.LocalPlayback provides playbackSettings,
         androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(baseDensity.density * scale, baseDensity.fontScale),

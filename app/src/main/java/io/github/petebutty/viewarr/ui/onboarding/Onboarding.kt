@@ -1,5 +1,6 @@
 package io.github.petebutty.viewarr.ui.onboarding
 
+import io.github.petebutty.viewarr.ui.common.instantFocusScale
 import android.content.Context
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
@@ -128,9 +129,9 @@ fun RoleScreen(onAdmin: () -> Unit, onInvited: () -> Unit) {
 private fun RoleCard(title: String, text: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
     androidx.tv.material3.Surface(
         onClick = onClick,
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth().instantFocusScale(1.02f),
         shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
-        scale = androidx.tv.material3.ClickableSurfaceDefaults.scale(focusedScale = 1.02f),
+        scale = io.github.petebutty.viewarr.ui.common.focusScale(1.02f),
         colors = androidx.tv.material3.ClickableSurfaceDefaults.colors(
             containerColor = AppColors.Panel, contentColor = AppColors.TextPrimary,
             focusedContainerColor = AppColors.Accent, focusedContentColor = AppColors.OnAccent,

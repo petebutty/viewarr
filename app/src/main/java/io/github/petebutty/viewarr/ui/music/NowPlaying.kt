@@ -1,5 +1,6 @@
 package io.github.petebutty.viewarr.ui.music
 
+import io.github.petebutty.viewarr.ui.common.instantFocusScale
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
@@ -231,20 +232,23 @@ private fun NowPlaying(position: Long) {
                     Spacer(Modifier.weight(1f))
                     Text(io.github.petebutty.viewarr.ui.media.clockMs(MusicPlayer.durationMs), fontSize = 13.sp, color = Color.White.copy(alpha = 0.8f))
                 }
-                Row(Modifier.padding(top = 14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                // Two rows (one was too long for a TV and ran off the right): playing, then the extras, a little smaller.
+                Row(Modifier.padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Control(AppIcons.SkipPrevious, "Previous") { MusicPlayer.previous() }
                     Control(if (MusicPlayer.isPlaying) AppIcons.Pause else AppIcons.Play, if (MusicPlayer.isPlaying) "Pause" else "Play", big = true, modifier = Modifier.focusRequester(playFocus)) { MusicPlayer.toggle() }
                     Control(AppIcons.SkipNext, "Next") { MusicPlayer.next() }
-                    Spacer(Modifier.width(10.dp))
+                    Spacer(Modifier.width(6.dp))
                     Control(AppIcons.Shuffle, "Shuffle", on = MusicPlayer.shuffle) { MusicPlayer.toggleShuffle() }
                     Control(if (MusicPlayer.repeat == Player.REPEAT_MODE_ONE) AppIcons.RepeatOne else AppIcons.Repeat, "Repeat", on = MusicPlayer.repeat != Player.REPEAT_MODE_OFF) { MusicPlayer.cycleRepeat() }
-                    Control(AppIcons.Stats, if (immersive) "Less visualiser" else "Big visualiser", on = immersive) { immersive = !immersive }
-                    Control(AppIcons.Layers, "Queue") { queueOpen = true }
-                    Control(AppIcons.MusicNote, "Song radio") { vm.radio(s) }
-                    Control(if (s.id in starred) AppIcons.BookmarkFilled else AppIcons.Bookmark, if (s.id in starred) "Favourite (OK to remove)" else "Add to favourites", on = s.id in starred) { vm.toggleStar(s.id, "song") }
-                    Control(AppIcons.Clock, MusicPlayer.sleepMinutesLeft()?.let { "Sleep: $it min" } ?: MusicPlayer.sleepAfter?.let { "Sleep: end of $it" } ?: "Sleep timer",
-                        on = MusicPlayer.sleepAt != null || MusicPlayer.sleepAfter != null) { sleepOpen = true }
                     Control(AppIcons.Stop, "Stop") { MusicPlayer.stop() }
+                }
+                Row(Modifier.padding(top = 2.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Control(AppIcons.Stats, if (immersive) "Less visualiser" else "Big visualiser", small = true, on = immersive) { immersive = !immersive }
+                    Control(AppIcons.Layers, "Queue", small = true) { queueOpen = true }
+                    Control(AppIcons.MusicNote, "Song radio", small = true) { vm.radio(s) }
+                    Control(if (s.id in starred) AppIcons.BookmarkFilled else AppIcons.Bookmark, if (s.id in starred) "Favourite (OK to remove)" else "Add to favourites", small = true, on = s.id in starred) { vm.toggleStar(s.id, "song") }
+                    Control(AppIcons.Clock, MusicPlayer.sleepMinutesLeft()?.let { "Sleep: $it min" } ?: MusicPlayer.sleepAfter?.let { "Sleep: end of $it" } ?: "Sleep timer",
+                        small = true, on = MusicPlayer.sleepAt != null || MusicPlayer.sleepAfter != null) { sleepOpen = true }
                 }
                 // Under the controls: the words when the song has some (Settings → Playback → Music → Lyrics), else
                 // the next few tracks in a row.
@@ -283,13 +287,13 @@ object MusicSaver {
 }
 
 @Composable
-private fun Control(icon: ImageVector, label: String, modifier: Modifier = Modifier, big: Boolean = false, on: Boolean = false, onClick: () -> Unit) {
+private fun Control(icon: ImageVector, label: String, modifier: Modifier = Modifier, big: Boolean = false, small: Boolean = false, on: Boolean = false, onClick: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Surface(
             onClick = onClick,
-            modifier = modifier.size(if (big) 64.dp else 48.dp).onFocusChanged { focused = it.isFocused },
-            scale = ClickableSurfaceDefaults.scale(focusedScale = 1.08f),
+            modifier = modifier.size(if (big) 64.dp else if (small) 40.dp else 48.dp).onFocusChanged { focused = it.isFocused }.instantFocusScale(1.08f),
+            scale = io.github.petebutty.viewarr.ui.common.focusScale(1.08f),
             shape = ClickableSurfaceDefaults.shape(CircleShape),
             colors = ClickableSurfaceDefaults.colors(
                 containerColor = if (big) Color.White.copy(alpha = 0.22f) else Color.White.copy(alpha = 0.1f),
@@ -298,7 +302,7 @@ private fun Control(icon: ImageVector, label: String, modifier: Modifier = Modif
             ),
         ) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                androidx.compose.material3.Icon(icon, label, modifier = Modifier.size(if (big) 34.dp else 24.dp), tint = androidx.tv.material3.LocalContentColor.current)
+                androidx.compose.material3.Icon(icon, label, modifier = Modifier.size(if (big) 34.dp else if (small) 20.dp else 24.dp), tint = androidx.tv.material3.LocalContentColor.current)
             }
         }
         Text(if (focused) label else "", fontSize = 11.sp, color = Color.White, maxLines = 1, softWrap = false, modifier = Modifier.padding(top = 4.dp))

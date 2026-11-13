@@ -82,6 +82,53 @@ fun PlayerLayer(
     // Read so a new player (after switching source) is attached in update below.
     val playerVersion by vm.playerVersion.collectAsStateWithLifecycle()
 
+    // The stream's frame rate, once it's certain: one reading for the info bar's badge and frame rate matching. The
+    // stream's own rate if it gives one; else Dispatcharr's probe of it (admins; asked a few seconds apart as it
+    // probes on starting); else frames counted each second, three in a row agreeing (the first second or two after
+    // tuning come in bursts and read wrong: the badge said 45 or 48 for a 50 fps channel). Null until then.
+    var liveFps by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<Float?>(null) }
+    val streamPlaying = state is PlaybackState.Playing
+    val streamPlayingNow = androidx.compose.runtime.rememberUpdatedState(streamPlaying)
+    androidx.compose.runtime.LaunchedEffect(playerVersion, channel?.id, catchup) {
+        // A channel seen before: its rate straight away (it doesn't change between tunes).
+        val key = channel?.uuid?.let { if (catchup == null) it else "$it:cu" }
+        liveFps = key?.let { KnownFps.get(it) }
+        if (liveFps != null || key == null) return@LaunchedEffect
+        // Else counting frames (FpsCounter).
+        val counter = FpsCounter()
+        var tick = 0; var nextAsk = 1
+        while (tick < 60) {
+            kotlinx.coroutines.delay(500); tick++
+            if (!streamPlayingNow.value) { counter.reset(); continue }
+            val p = vm.player ?: continue
+            p.videoFormat?.frameRate?.takeIf { it > 0 }?.let { liveFps = it; KnownFps.put(key, it); return@LaunchedEffect }
+            // Dispatcharr's probe (admins): asked every couple of seconds for the first ten, as it probes on starting.
+            if (catchup == null && tick >= nextAsk && tick <= 20) {
+                nextAsk = tick + 4
+                runCatching { vm.sourceFps() }.getOrNull()?.let { liveFps = it; KnownFps.put(key, it); return@LaunchedEffect }
+            }
+            val frames = FpsCounter.frames(p) ?: continue
+            counter.feed(frames, android.os.SystemClock.elapsedRealtime())?.let { liveFps = it; KnownFps.put(key, it); return@LaunchedEffect }
+        }
+    }
+
+    androidx.compose.runtime.LaunchedEffect(liveFps) { LiveQuality.fps = liveFps }
+
+    // Settings → Playback → Match frame rate → Live TV or Both: the TV switched to that rate. Full screen only (the
+    // guide's window doesn't flash the screen while you browse); the TV's earlier mode comes back when live TV stops.
+    val afrActivity = androidx.compose.ui.platform.LocalContext.current as? android.app.Activity
+    val liveAfr = io.github.petebutty.viewarr.data.settings.LocalPlayback.current.frameRate.live
+    androidx.compose.runtime.LaunchedEffect(liveFps, fullscreen, liveAfr, catchup == null) {
+        val fps = liveFps ?: return@LaunchedEffect
+        if (liveAfr && fullscreen && catchup == null && afrActivity != null) io.github.petebutty.viewarr.playback.FrameRateMatcher.Live.apply(afrActivity, fps)
+    }
+    androidx.compose.runtime.LaunchedEffect(state is PlaybackState.Idle) {
+        if (state is PlaybackState.Idle && afrActivity != null) io.github.petebutty.viewarr.playback.FrameRateMatcher.Live.restore(afrActivity)
+    }
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        onDispose { afrActivity?.let { io.github.petebutty.viewarr.playback.FrameRateMatcher.Live.restore(it) } }
+    }
+
     Box(modifier.background(Color.Black)) {
         AndroidView(
             factory = { ctx ->
@@ -135,28 +182,10 @@ fun PlayerLayer(
             // The stream's picture and sound, for the info bar's badges (read while it's up).
             var quality by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<StreamQuality?>(null) }
             androidx.compose.runtime.LaunchedEffect(playerVersion, channel?.id) {
-                // The frame rate: the player's, when the stream says it; else Dispatcharr's probe of the stream
-                // (admins); else measured from the frames shown each second, rounded to the usual rates (25, 50…).
-                var serverFps: Float? = null
-                var asked = 0
-                var lastFrames = -1L
-                var lastAt = 0L
-                var measured = 0f
+                // The frame rate is the certain one from above (blank until then, not a first-second guess).
                 while (true) {
                     val p = vm.player
-                    val frames = p?.videoDecoderCounters?.let { it.renderedOutputBufferCount + it.skippedOutputBufferCount + it.droppedBufferCount }?.toLong()
-                    val at = android.os.SystemClock.elapsedRealtime()
-                    if (frames != null && lastFrames >= 0 && frames > lastFrames && at > lastAt) {
-                        val fps = (frames - lastFrames) * 1000f / (at - lastAt)
-                        val usual = floatArrayOf(23.976f, 24f, 25f, 29.97f, 30f, 48f, 50f, 59.94f, 60f)
-                        measured = usual.minByOrNull { kotlin.math.abs(it - fps) }?.takeIf { kotlin.math.abs(it - fps) < 3f } ?: fps
-                    }
-                    if (frames != null) { lastFrames = frames; lastAt = at }
-                    // Dispatcharr probes a stream as it starts: asked a couple of times, a few seconds apart.
-                    if (serverFps == null && asked < 9 && asked++ % 3 == 0) serverFps = runCatching { vm.sourceFps() }.getOrNull()
-                    quality = p?.videoFormat?.let { v ->
-                        StreamQuality(v.height, v.frameRate.takeIf { it > 0 } ?: serverFps ?: measured, p.audioFormat?.channelCount ?: 0)
-                    }
+                    quality = p?.videoFormat?.let { v -> StreamQuality(v.height, liveFps ?: 0f, p.audioFormat?.channelCount ?: 0) }
                     LiveQuality.now = quality
                     kotlinx.coroutines.delay(1_000)
                 }
@@ -172,20 +201,30 @@ fun PlayerLayer(
     }
 }
 
+/** Channels' frame rates once known (by uuid), so a channel tuned again has its rate at once. */
+private object KnownFps {
+    private val map = java.util.concurrent.ConcurrentHashMap<String, Float>()
+    fun get(k: String) = map[k]
+    fun put(k: String, v: Float) { map[k] = v }
+}
+
 /** What the live stream is: picture height, frames per second, sound channels (the info bar's badges). */
-internal data class StreamQuality(val height: Int, val fps: Float, val channels: Int)
+data class StreamQuality(val height: Int, val fps: Float, val channels: Int)
 
 /** The live stream's picture / sound / frame rate, last measured (the controls show the same badges). */
 internal object LiveQuality {
     var now by androidx.compose.runtime.mutableStateOf<StreamQuality?>(null)
+    /** The playing channel's frame rate once certain (whether or not the info bar is up), for Stream info. */
+    var fps by androidx.compose.runtime.mutableStateOf<Float?>(null)
 }
 
 /** The info bar's panel: the one bar for live TV and films alike (the info bar, and the controls with their buttons inside it). */
 @Composable
 internal fun InfoBarPanel(modifier: Modifier, content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
     // One look: the glass panel, inset from the edges, everything inside it.
+    // Settings → Appearance → Info bar width: narrower bars are centred at the bottom.
     val outer = modifier
-        .fillMaxWidth()
+        .fillMaxWidth(AppColors.palette.infoBarWidth)
         .padding(start = 40.dp, end = 40.dp, bottom = 28.dp)
         .glass()
         .padding(horizontal = 24.dp, vertical = 18.dp)

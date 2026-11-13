@@ -247,29 +247,7 @@ fun RemoteSettingsScreen(onBack: () -> Unit, part: RemotePart = RemotePart.Butto
             ) + buttonItems,
         ),
     )
-    val navigationCategories = listOf(
-        SettingCategory(
-            "Start", "How Viewarr works and what you see when it opens.",
-            listOf(
-                item("App opens on", "The page Viewarr starts on: live TV (Last channel plays the channel you watched last, full screen), the TV guide, or one of your libraries.", k.START_PAGE, all<StartPage>(), s.startPage),
-            ),
-        ),
-        SettingCategory(
-            "Menu", "The side menu (Left on the first poster, or hold Back). Going into a list slides the one before it away to the left; Left or Back brings it back, one level at a time, then Back closes the menu.",
-            listOf(
-                item("Menu opens on", "Open on the current page's own list (channel groups, catalogues), or on the main list.", k.MENU_OPENS_ON, all<MenuOpensOn>(), s.menuOpensOn),
-                item("Right on a library", "In the menu's Movies and Shows lists: Right on a library lists what to jump straight into: its categories (IPTV) or genres, collections, decades, years, studios / networks or age ratings. Or Right just opens it. OK always opens the whole library.", k.MENU_LIBRARY_RIGHT, all<io.github.petebutty.viewarr.data.settings.MenuLibraryRight>(), s.menuLibraryRight),
-                optItem(opts, "Button hints", "A small pill at the bottom of the screen saying what the buttons do there: the first few times on each screen, always, or off.", io.github.petebutty.viewarr.ui.theme.UiOpts.BUTTON_HINTS),
-            ),
-        ),
-        SettingCategory(
-            "Poster rows", "Moving around the rows of posters on Movies, Shows and title pages.",
-            listOf(
-                item("Moving between rows", "Going back to a row lands on the poster you were on, or always on its first poster.", k.ROW_MEMORY, all<RowMemory>(), s.rowMemory),
-                item("Poster position", "Keep the highlighted poster at the left edge of the row, or scroll only when it would go off screen.", k.ROW_ALIGN, all<RowAlign>(), s.rowAlign),
-            ),
-        ),
-    )
+    val navigationCategories = navigationCategories(vm, opts)
     val categories = if (part == RemotePart.Buttons) buttonCategories else navigationCategories
     // Reset: the buttons only (not where the app opens, the menu or the poster rows).
     if (part == RemotePart.Buttons) SettingsPage(title = "Remote buttons", categories = categories, onBack = onBack, onReset = { vm.resetButtons() }, resetLabel = "Reset buttons")
@@ -395,4 +373,36 @@ private fun LearnButtonDialog(onKey: (Int) -> Unit, onCancel: () -> Unit) {
             note?.let { androidx.tv.material3.Text(it, fontSize = 14.sp, color = io.github.petebutty.viewarr.ui.theme.AppColors.Accent) }
         }
     }
+}
+
+/** Settings → Menu & navigation's settings: where Viewarr opens, the menu, and the poster rows (also the catalogue's). */
+@Composable
+fun navigationCategories(vm: RemoteViewModel = hiltViewModel(), opts: UiOptsViewModel = hiltViewModel()): List<SettingCategory> {
+    val s by vm.settings.collectAsStateWithLifecycle()
+    fun item(title: String, description: String, key: String, choices: List<RemoteChoice>, current: RemoteChoice) =
+        SettingItem(title, description, choices, current) { vm.set(key, it) }
+    val k = RemoteStore.Companion
+    return listOf(
+        SettingCategory(
+            "Start", "How Viewarr works and what you see when it opens.",
+            listOf(
+                item("App opens on", "The page Viewarr starts on: live TV (Last channel plays the channel you watched last, full screen), the TV guide, or one of your libraries.", k.START_PAGE, all<StartPage>(), s.startPage),
+            ),
+        ),
+        SettingCategory(
+            "Menu", "The side menu (Left on the first poster, or hold Back). Going into a list slides the one before it away to the left; Left or Back brings it back, one level at a time, then Back closes the menu.",
+            listOf(
+                item("Menu opens on", "Open on the current page's own list (channel groups, catalogues), or on the main list.", k.MENU_OPENS_ON, all<MenuOpensOn>(), s.menuOpensOn),
+                item("Right on a library", "In the menu's Movies and Shows lists: Right on a library lists what to jump straight into: its categories (IPTV) or genres, collections, decades, years, studios / networks or age ratings. Or Right just opens it. OK always opens the whole library.", k.MENU_LIBRARY_RIGHT, all<io.github.petebutty.viewarr.data.settings.MenuLibraryRight>(), s.menuLibraryRight),
+                optItem(opts, "Button hints", "A small pill at the bottom of the screen saying what the buttons do there: the first few times on each screen, always, or off.", io.github.petebutty.viewarr.ui.theme.UiOpts.BUTTON_HINTS),
+            ),
+        ),
+        SettingCategory(
+            "Poster rows", "Moving around the rows of posters on Movies, Shows and title pages.",
+            listOf(
+                item("Moving between rows", "Going back to a row lands on the poster you were on, or always on its first poster.", k.ROW_MEMORY, all<RowMemory>(), s.rowMemory),
+                item("Poster position", "Keep the highlighted poster at the left edge of the row, or scroll only when it would go off screen.", k.ROW_ALIGN, all<RowAlign>(), s.rowAlign),
+            ),
+        ),
+    )
 }

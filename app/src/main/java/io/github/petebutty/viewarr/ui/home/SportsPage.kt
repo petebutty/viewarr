@@ -1,5 +1,6 @@
 package io.github.petebutty.viewarr.ui.home
 
+import io.github.petebutty.viewarr.ui.common.instantFocusScale
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -204,8 +205,8 @@ private fun GamePanel(c: GameCard, modifier: Modifier, onClick: () -> Unit) {
     Column(Modifier.width(208.dp)) {
         Surface(
             onClick = onClick,
-            modifier = modifier.size(width = 208.dp, height = 117.dp),
-            scale = ClickableSurfaceDefaults.scale(focusedScale = 1.05f),
+            modifier = modifier.size(width = 208.dp, height = 117.dp).instantFocusScale(1.05f),
+            scale = io.github.petebutty.viewarr.ui.common.focusScale(1.05f),
             shape = ClickableSurfaceDefaults.shape(shape),
             border = ClickableSurfaceDefaults.border(focusedBorder = Border(BorderStroke(3.dp, AppColors.Accent), shape = shape)),
             colors = ClickableSurfaceDefaults.colors(containerColor = Color.Transparent, focusedContainerColor = Color.Transparent),

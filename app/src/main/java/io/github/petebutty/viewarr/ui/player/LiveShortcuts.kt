@@ -93,6 +93,8 @@ object LiveShortcutsBridge {
     var openSettings: () -> Unit = {}
     /** The film player's TV guide button: the guide (the film in the corner). */
     var openGuide: () -> Unit = {}
+    /** The film player's Movies / Shows / Recordings buttons ("Movies", "Shows", "Recordings"): that page. */
+    var openPage: (String) -> Unit = {}
     /**
      * What holding OK on a shortcut offers (Move / Refresh / Hide), the same for live TV and the film player: both call
      * these, so a change from either is the one row everywhere (set by the home screen).

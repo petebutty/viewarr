@@ -1,5 +1,6 @@
 package io.github.petebutty.viewarr.ui.home
 
+import io.github.petebutty.viewarr.ui.common.instantFocusScale
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -181,7 +182,8 @@ internal fun SearchPage(
                         items(catchupHits, key = { (c, p) -> "cu:${c.id}:${p.startTime}" }) { (ch, p) ->
                             androidx.tv.material3.Surface(
                                 onClick = { onCatchup(ch, p) },
-                                modifier = Modifier.width(300.dp).focusProperties { canFocus = fieldFree && focusEnabled },
+                                modifier = Modifier.width(300.dp).focusProperties { canFocus = fieldFree && focusEnabled }.instantFocusScale(1.1f),
+                                scale = io.github.petebutty.viewarr.ui.common.focusScale(1.1f),
                                 shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(androidx.compose.foundation.shape.RoundedCornerShape(8.dp)),
                                 colors = androidx.tv.material3.ClickableSurfaceDefaults.colors(
                                     containerColor = AppColors.Panel, contentColor = AppColors.TextPrimary,
@@ -226,7 +228,8 @@ internal fun SearchPage(
                             val live = p.startTime <= nowMs
                             androidx.tv.material3.Surface(
                                 onClick = { if (live) onChannel(ch) else onProgramme(ch, p) },
-                                modifier = Modifier.width(250.dp).focusProperties { canFocus = fieldFree && focusEnabled },
+                                modifier = Modifier.width(250.dp).focusProperties { canFocus = fieldFree && focusEnabled }.instantFocusScale(1.1f),
+                                scale = io.github.petebutty.viewarr.ui.common.focusScale(1.1f),
                                 shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(androidx.compose.foundation.shape.RoundedCornerShape(8.dp)),
                                 colors = androidx.tv.material3.ClickableSurfaceDefaults.colors(
                                     containerColor = AppColors.Panel, contentColor = AppColors.TextPrimary,
@@ -318,9 +321,9 @@ internal fun SearchPage(
                 if (canVoice) {
                     androidx.tv.material3.Surface(
                         onClick = ::listen,
-                        modifier = Modifier.size(44.dp).focusRequester(micFocus).focusProperties { canFocus = fieldFree && focusEnabled },
+                        modifier = Modifier.size(44.dp).focusRequester(micFocus).focusProperties { canFocus = fieldFree && focusEnabled }.instantFocusScale(1.1f),
                         shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(androidx.compose.foundation.shape.CircleShape),
-                        scale = androidx.tv.material3.ClickableSurfaceDefaults.scale(focusedScale = 1.1f),
+                        scale = io.github.petebutty.viewarr.ui.common.focusScale(1.1f),
                         colors = androidx.tv.material3.ClickableSurfaceDefaults.colors(
                             containerColor = AppColors.Panel, contentColor = AppColors.TextPrimary,
                             focusedContainerColor = AppColors.Accent, focusedContentColor = AppColors.OnAccent,

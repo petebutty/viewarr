@@ -5,7 +5,7 @@ Practical fixes for the most common problems. Problems during setup (the phone c
 ## No channels, or the guide is empty
 
 - Use **Settings → Refresh channels & guide** to load the channel list and TV guide again now. The first load can take a minute while it downloads the listings.
-- Check **Settings → Playback → TV guide refresh** isn't set to **Only when I ask** if you expect it to update by itself.
+- Check **Settings → Live TV → TV guide refresh** isn't set to **Only when I ask** if you expect it to update by itself.
 - Check Dispatcharr itself: open its web page and make sure the channels have streams and the guide (EPG) has data for them.
 - Check your Dispatcharr user is a **Standard** or **Admin** user. *Streamer* accounts only work in player apps.
 - If an admin set **Live TV limits** for your profile, you only see the channel groups they ticked.
@@ -30,6 +30,7 @@ Your TV or receiver may not really accept that soundtrack. Viewarr notices and d
 
 **A film looks choppy or skips frames**
 - Turn on **Settings → Playback → Match frame rate** so the TV switches to the film's own rate (24p films look smoother). Some TVs go black for a second when it switches.
+- **Live TV** (or **Both**, with films) does the same for live channels: the TV goes to 50 Hz for UK channels and 59.94 / 60 Hz for American ones, so motion and sport don't judder. It switches a few seconds after a channel starts full screen, once the rate is certain, and only when it differs from what the TV is already on. *(0.28.0 and later.)*
 - Switch player from the controls (**OK** while watching), or choose the player in **Settings → Playback → Player**. On weak boxes the built-in player is often the smoothest.
 - In mpv, choose **Settings → Playback → mpv decoding → Hardware, direct to screen**, the lightest option. Try software decoding only if the picture glitches or shows colour blocks.
 
@@ -52,7 +53,7 @@ Try **Night mode**, **Channels** (**Stereo**) or **Volume boost** in **Settings 
 
 ## Viewarr is slow, or closes by itself
 
-On boxes with 1 to 2 GB of memory, turn on **Settings → Playback → Low-memory mode**. It turns off the heavy extras: box-made seek previews, guide pictures, title logos, wallpaper, title-page artwork, trailer previews, multi-view and the extra ratings. Their settings show as locked until it's off.
+On boxes with 1 to 2 GB of memory, turn on **Settings → Troubleshooting → Low-memory mode**. It turns off the heavy extras: box-made seek previews, guide pictures, title logos, wallpaper, title-page artwork, trailer previews, multi-view and the extra ratings. Their settings show as locked until it's off.
 
 Other things that help:
 
@@ -74,7 +75,7 @@ They need a TMDB key, or at least Plex, Jellyfin, Emby, Trakt or an addon. Add o
 
 ## Streaming services are missing from the menu
 
-They come from your own addons' rows (for example your own AIOMetadata). They appear once those rows have loaded, and can be hidden in **Edit menus** or **Settings → Appearance → Main menu**.
+They come from your own addons' rows (for example your own AIOMetadata). They appear once those rows have loaded, and can be hidden in **Edit menus** or **Settings → Menu & navigation → What the menu lists**.
 
 ## Something says "admin only"
 

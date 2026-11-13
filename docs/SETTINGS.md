@@ -33,22 +33,30 @@ Add, change, check or remove everything you connect:
 
 See [Profiles](PROFILES.md).
 
+**🔍 Search settings** sits at the top: type a word (frame rate, wallpaper, subtitles…) and every setting that matches is listed with where it lives, such as *Playback › Video*. OK opens that page with the setting highlighted. *(0.28.0 and later.)*
+
+How the pages are split: **Appearance** is how things look, **Live TV** and **Playback** are how things behave, **Menu & navigation** is where things are, and **Remote buttons** is which button does what. Each setting lives in one place only.
+
 ## Look & controls
 
 ### Appearance
 
-How Viewarr looks. Changes show straight away.
+Everything to do with how Viewarr looks, in sections:
 
 | Section | What it covers |
 |---|---|
-| **Colours & text** | **Highlight colour** (orange by default, with ten softer ones to choose from), **Text size** (four sizes), **Font** (twelve), **Clock**, **Date format** (day first or month first) and **Time format** (24- or 12-hour). |
-| **Wallpaper** | None, a built-in design, or the artwork of the programme you've highlighted, behind the guide, menus and settings. Movies and Shows always show the highlighted title's artwork. |
-| **Transparency** | Sliders for the **Glass** (the menu and channel list), **Glass colour** (twelve tints; Plain is the Viewarr look), the **Guide**, and **Wallpaper dimming**. |
-| **Live TV** | The guide (channel numbers, **Programme corners**, progress bars, channel logos, episode numbers, end of a list, catch-up icons, programme pictures) and the info bar (**Pop-up glass**, border, channel number, episode numbers, picture quality, frame rate, **Info bar size**, **Preview cards**). See [Live TV](LIVE-TV.md). |
-| **Posters** | **Where it's from** (e.g. "Plex · Living room") and **Progress bars** on posters. |
-| **Title pages** | What a title page shows (the logo, trailer, episodes row and each tab), and **Age ratings** (UK or US). Anything off isn't fetched. |
+| **Theme** | **Background colour** (Viewarr's charcoal, or Classic blue, Ocean blue, Sky blue and others), **Highlight colour** (orange by default, including Bright cyan), **Text size**, **Font**, **Clock**, **Date format** (Tue 10 Nov, Tue, Nov 10, Tue 10/11 or Tue 11/10) and **Time format**. |
+| **Wallpaper** | None, one of sixteen built-in designs, or the artwork of the programme you've highlighted. |
+| **Glass & transparency** | **Glass**, **Glass colour**, **Guide**, **Wallpaper dimming**, **Pop-up glass** and the info bar's **border**. |
+| **TV guide** | Channel numbers, logos, **Programme corners**, progress bars, episode numbers, catch-up icons and programme pictures. |
+| **Info bar & controls** | **Info bar size** and **width**, **Preview cards**, the channel number, episode numbers, picture-quality and frame-rate badges, and **Player controls size**. |
+| **Menu** | Headings, colour edge and tint, the icon column, hints, the TV and LIVE marks, and **Button hints**. |
+| **Posters** | **Library posters** size, **Where it's from** and **Progress bars**. |
+| **Title pages** | What a title page shows, and **Age ratings**. |
 | **Ratings** | Which ratings show, and their order. |
-| **Main menu** | Headings, colour edges, tints, the icon column, marks and hints, and which entries the menu lists. See [Getting around](GETTING-AROUND.md#main-menu-settings). |
+| **Subtitles** | **Size**, **Colour** and **Background**. |
+| **Music** | Now Playing's **Artwork**, **Visualiser**, **Screensaver** and **Lyrics**. |
+| **Motion** | **List scrolling** (Instant, the default, or Smooth). |
 
 ### Home page & menu
 
@@ -58,32 +66,39 @@ Which libraries the menu lists for Movies and Shows (on or off, order, names), a
 
 Every button on your remote, and what it does in the TV guide, on live TV, in films & shows and in menus & pages. **Presets** (Viewarr or TiviMate), **Skip size**, **Channel change delay**, the **Search button** and extra buttons. See [Remote control](REMOTE.md).
 
-### Navigation
-
-How you get around.
+### Menu & navigation
 
 | Section | Settings |
 |---|---|
 | **Start** | **App opens on**: live TV (**Last channel** plays the channel you watched last, full screen), the TV guide, or one of your libraries. |
-| **Menu** | **Menu opens on** (the current page's own list, or the main list), **Right on a library** (list its genres, collections and so on, or just open it), **Button hints** (first few times, always, or off). |
-| **Poster rows** | **Moving between rows** (back to the poster you were on, or the first) and **Poster position** (keep the highlighted poster at the left edge, or scroll only when needed). |
+| **Menu** | **Menu opens on** (the current page's own list, or the main list) and **Right on a library**. |
+| **What the menu lists** | Which entries the main menu shows (Live now, Sports, Movies, Shows, Music, Recordings, Search and your streaming services). |
+| **Poster rows** | **Moving between rows** and **Poster position**. |
 
 ## Watching
+
+### Live TV
+
+| Section | Settings |
+|---|---|
+| **Watching** | **Up / Down while watching** (change channel, or browse in the info bar), **Browsing channels**, **Highlight the corner picture**, **Still watching?** |
+| **TV guide** | **TV guide days ahead** (1, 3, 5 or 7), **TV guide refresh**, **End of a list**. |
+| **Channel groups** | **"All channels" group** (shown or hidden). |
+
+How the guide and info bar look is in **Appearance**. See [Live TV](LIVE-TV.md).
 
 ### Playback
 
 | Section | What it covers |
 |---|---|
-| **Player** | **Player** (built-in or mpv), **Video view** (Standard, or Compatible for a box where Standard leaves the picture black), **Resume**, **Controls stay up for**, **Player controls size**, **Seek-bar previews**, **mpv decoding**. |
-| **Video** | **Match frame rate**, **Picture size**, **Deinterlace**. |
-| **Audio** | **Language**, **Surround passthrough**, **Channels** (stereo downmix), **Night mode**, **Volume boost**, **Lip sync**. |
-| **Subtitles** | **Show subtitles**, **Language**, **Size**, **Colour**, **Background**. |
-| **Streams** | **Addon streams** (choose yourself, or start the best cached stream), **Best quality allowed**, **Plex quality**, **Buffer**. |
-| **Episodes** | **Skip intros**, **Skip credits**, **Play next episode automatically**, **After a film or episode** (stay where you were, or back to live TV), **Next episode countdown**. |
-| **Live TV** | **Highlight the corner picture**, **Browsing channels**, **TV guide refresh**, **Still watching?**. |
+| **Player** | **Player** (built-in or mpv), **Video view**, **Resume**, **Controls stay up for**, **Seek-bar previews**, **mpv decoding**. |
+| **Video** | **Match frame rate** (Off, Films and episodes, Live TV, or Both), **Picture size**, **Deinterlace**. |
+| **Audio** | **Language**, **Surround passthrough**, **Channels**, **Night mode**, **Volume boost**, **Lip sync**. |
+| **Subtitles** | **Show subtitles** and **Language** (how they look is in Appearance). |
+| **Streams** | **Addon streams**, **Best quality allowed**, **Plex quality**, **Buffer**. |
+| **Episodes** | **Skip intros**, **Skip credits**, **Play next episode automatically**, **After a film or episode**, **Next episode countdown**. |
 | **Trailers** | **Trailer previews**, **Start after**, **Preview sound**. |
-| **Music** | **Lyrics**, **Lyrics from LRCLIB**, **Artwork**, **Visualiser**, **Screensaver**. See [Music](MUSIC.md#music-settings). |
-| **Troubleshooting** | **Show playback info** (format, decoder and dropped frames while playing) and **Low-memory mode**. See [Troubleshooting](TROUBLESHOOTING.md). |
+| **Music** | **Lyrics from LRCLIB**. |
 
 ### Sports
 
@@ -93,7 +108,7 @@ Your teams and leagues: type a team, league or sport, or pick a sport, then a le
 
 Which watchlist **Add / Remove** and the **Your watchlist** row use: Trakt, Plex, Jellyfin favourites or Emby favourites. OK moves to the next choice.
 
-## Live TV
+## Live TV server
 
 ### Dispatcharr plugins
 
@@ -115,6 +130,10 @@ Viewarr's setup saved on your Dispatcharr server (Dispatcharr sign-ins only):
 
 See [Profiles](PROFILES.md#your-setup-saved-on-dispatcharr) and [Privacy](PRIVACY.md).
 
+### Troubleshooting
+
+**Show playback info** (format, decoder and dropped frames while playing) and **Low-memory mode** for boxes with 1–2 GB. See [Troubleshooting](TROUBLESHOOTING.md).
+
 ### Updates
 
 - **Check for updates**: looks for a newer Viewarr on GitHub. If there is one, you can install it straight away.
@@ -131,4 +150,4 @@ See [Profiles](PROFILES.md#your-setup-saved-on-dispatcharr) and [Privacy](PRIVAC
 
 ### Sign out of everything
 
-Signs this TV out of all your accounts and sources. Press OK twice to confirm.
+Signs this TV out of all your accounts and sources. It asks first: **Cancel** (highlighted) or **Sign out**.

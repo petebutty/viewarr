@@ -1,5 +1,8 @@
 package io.github.petebutty.viewarr.ui.player
 
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.ui.draw.alpha
+import io.github.petebutty.viewarr.ui.common.instantFocusScale
 import kotlinx.coroutines.delay
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -68,7 +71,10 @@ import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.ZoneId
 
-private enum class OsdPopup { Audio, Subtitles, Aspect, Source, Info }
+private enum class OsdPopup { Audio, Subtitles, Aspect, Source, Info, Sync }
+
+/** A button the home screen adds to live TV's info bar (Movies, Favourite, Last channel…; see BarLayout.extras). */
+class BarExtra(val id: String, val icon: androidx.compose.ui.graphics.vector.ImageVector, val label: String, val onClick: () -> Unit)
 
 private val hhmm get() = io.github.petebutty.viewarr.ui.theme.Dates.time
 private fun Long.clockTime() = Instant.ofEpochMilli(this).atZone(ZoneId.systemDefault()).format(hhmm)
@@ -91,6 +97,10 @@ fun PlayerOsd(
     onStop: (() -> Unit)? = null,
     /** The settings, over live TV (Back returns here). */
     onSettings: (() -> Unit)? = null,
+    /** Search (films, shows, channels, programmes) over live TV. */
+    onSearch: (() -> Unit)? = null,
+    /** The home screen's extra buttons (shown once added to the bar). */
+    extraButtons: List<BarExtra> = emptyList(),
     /** Channel list, guide and wallpaper transparency, adjusted over the picture. */
     onTransparency: (() -> Unit)? = null,
     /** Down from the buttons: your shortcuts (libraries, rows, Music…; Settings → Navigation → Live TV shortcuts). */
@@ -118,6 +128,8 @@ fun PlayerOsd(
     val sources by vm.sources.collectAsStateWithLifecycle()
     val sourceNote by vm.sourceNote.collectAsStateWithLifecycle()
     var popup by remember { mutableStateOf<OsdPopup?>(if (openAudio) OsdPopup.Audio else null) }
+    // The TV settings panel (frame rate matching, picture size…), from its button.
+    var tvOpen by remember { mutableStateOf(false) }
     var note by remember { mutableStateOf<String?>(null) }
     val firstFocus = remember { FocusRequester() }
     // The progress bar: Left on it while live rewinds (catch-up channels); it stays focused as it turns into the
@@ -147,6 +159,7 @@ fun PlayerOsd(
             .ignoreHeldOk(),
     ) {
         if (popup == OsdPopup.Info) StreamInfoPopup(vm)
+        if (tvOpen) TvSettingsPanel(onClose = { tvOpen = false; runCatching { firstFocus.requestFocus() } })
         popup?.takeIf { it != OsdPopup.Info }?.let { p ->
             OptionPopup(
                 wide = p == OsdPopup.Source,
@@ -154,10 +167,11 @@ fun PlayerOsd(
                     OsdPopup.Audio -> audio.map { it.label to it.selected }
                     OsdPopup.Subtitles -> subtitles.map { it.label to it.selected }
                     OsdPopup.Aspect -> AspectMode.entries.map { it.label to (it == aspect) }
+                    OsdPopup.Sync -> io.github.petebutty.viewarr.playback.AvSync.steps.map { io.github.petebutty.viewarr.playback.AvSync.label(it) to (it == io.github.petebutty.viewarr.playback.AvSync.ms) }
                     OsdPopup.Source -> sources.orEmpty().map { (if (it.current) "✓  " else "     ") + (if (it.provider.isNotEmpty()) "${it.name}  ·  ${it.provider}" else it.name) to it.current }
                     OsdPopup.Info -> emptyList()
                 },
-                title = if (p == OsdPopup.Source) "Source" + (sourceNote?.let { "  ·  $it" } ?: "") else p.name,
+                title = when (p) { OsdPopup.Source -> "Source" + (sourceNote?.let { "  ·  $it" } ?: ""); OsdPopup.Sync -> "Audio sync"; else -> p.name },
                 emptyText = when {
                     p == OsdPopup.Subtitles -> "No subtitles on this channel"
                     p == OsdPopup.Source -> sourceNote ?: "Loading sources…"
@@ -168,6 +182,7 @@ fun PlayerOsd(
                         OsdPopup.Audio -> audio.getOrNull(i)?.let { vm.selectTrack(it, C.TRACK_TYPE_AUDIO) }
                         OsdPopup.Subtitles -> subtitles.getOrNull(i)?.let { vm.selectTrack(it, C.TRACK_TYPE_TEXT) }
                         OsdPopup.Aspect -> vm.setAspect(AspectMode.entries[i])
+                        OsdPopup.Sync -> io.github.petebutty.viewarr.playback.AvSync.steps.getOrNull(i)?.let { io.github.petebutty.viewarr.playback.AvSync.set(it) }
                         OsdPopup.Source -> sources?.getOrNull(i)?.let { if (!it.current) vm.switchSource(it) }
                         OsdPopup.Info -> Unit
                     }
@@ -189,7 +204,8 @@ fun PlayerOsd(
                 val behind = vm.behindLiveMs()?.takeIf { it > 60_000 }?.let { "${it / 60_000} MIN BEHIND LIVE" }
                 if (catchup != null) Badge(listOfNotNull(if (behind != null) null else "CATCH-UP", behind, if (paused) "PAUSED" else null).joinToString(" · "))
                 else if (paused) Badge("PAUSED · PLAY CARRIES ON FROM HERE")
-                QualityBadges(LiveQuality.now)
+                // (The saved picture / sound, with the frame rate as it is now: it can become certain after the info bar was up.)
+                QualityBadges(LiveQuality.now?.let { q -> LiveQuality.fps?.let { q.copy(fps = it) } ?: q })
             },
             title = current?.let { if (AppColors.palette.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.BANNER_EPISODE) == 0) displayTitle(it) else it.title } ?: "No guide information",
             progress = {
@@ -249,11 +265,18 @@ fun PlayerOsd(
 
         // The same icon buttons as the film / show player's controls (the focused one's name underneath).
         var showShortcuts by remember { mutableStateOf(false) }
+        // Editing the buttons (hold OK on one): OK shows / hides, hold OK picks one up to move, Back or Done finishes.
+        val appearance: io.github.petebutty.viewarr.ui.settings.AppearanceViewModel = androidx.hilt.navigation.compose.hiltViewModel()
+        var editing by remember { mutableStateOf(false) }
+        var carrying by remember { mutableStateOf<String?>(null) }
+        androidx.activity.compose.BackHandler(enabled = editing) { if (carrying != null) carrying = null else editing = false }
         val shortcutFocus = remember { FocusRequester() }
         Row(
-            Modifier.padding(top = 6.dp).onPreviewKeyEvent { e ->
+            // Scrolls sideways when there are more buttons than fit (extras added, or editing: every button shows).
+            Modifier.padding(top = 6.dp).horizontalScroll(androidx.compose.foundation.rememberScrollState()).onPreviewKeyEvent { e ->
                 // Down from the buttons: the shortcuts row.
-                if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionDown && shortcuts.isNotEmpty() && popup == null) { showShortcuts = true; true } else false
+                if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionDown && editing) true
+                else if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionDown && shortcuts.isNotEmpty() && popup == null) { showShortcuts = true; true } else false
             },
             verticalAlignment = Alignment.Top,
         ) {
@@ -261,19 +284,62 @@ fun PlayerOsd(
                 if (catchup != null) Pill(io.github.petebutty.viewarr.ui.common.AppIcons.Replay, "Start over") { vm.restartProgramme() }
                 Pill(io.github.petebutty.viewarr.ui.common.AppIcons.SkipNext, "Go live", groupEnd = true) { vm.goLive() }
             }
-            Pill(io.github.petebutty.viewarr.ui.common.AppIcons.Guide, "TV guide", if (catchup == null) Modifier.focusRequester(firstFocus) else Modifier, onClick = onGuide)
-            if (onStop != null) Pill(io.github.petebutty.viewarr.ui.common.AppIcons.Stop, "Stop", groupEnd = true) { onStop() }
-            Pill(io.github.petebutty.viewarr.ui.common.AppIcons.Audio, "Audio") { popup = OsdPopup.Audio }
-            Pill(io.github.petebutty.viewarr.ui.common.AppIcons.Subtitles, "Subtitles") { popup = OsdPopup.Subtitles }
-            Pill(io.github.petebutty.viewarr.ui.common.AppIcons.Aspect, "Aspect: ${aspect.label}") { popup = OsdPopup.Aspect }
-            if (vm.dispatcharrLive) {
-                Pill(io.github.petebutty.viewarr.ui.common.AppIcons.Layers, "Source") { vm.loadSources(); popup = OsdPopup.Source }
-                Pill(io.github.petebutty.viewarr.ui.common.AppIcons.Stats, if (popup == OsdPopup.Info) "Hide stream info" else "Stream info") { popup = if (popup == OsdPopup.Info) null else OsdPopup.Info }
+            // The buttons as arranged (hold OK on one: edit them here; see BarLayout).
+            class LiveBtn(val id: String, val icon: androidx.compose.ui.graphics.vector.ImageVector, val label: String, val onClick: () -> Unit)
+            val all = buildList {
+                add(LiveBtn("guide", io.github.petebutty.viewarr.ui.common.AppIcons.Guide, "TV guide", onGuide))
+                onStop?.let { add(LiveBtn("stop", io.github.petebutty.viewarr.ui.common.AppIcons.Stop, "Stop", it)) }
+                add(LiveBtn("audio", io.github.petebutty.viewarr.ui.common.AppIcons.Audio, "Audio") { popup = OsdPopup.Audio })
+                add(LiveBtn("subtitles", io.github.petebutty.viewarr.ui.common.AppIcons.Subtitles, "Subtitles") { popup = OsdPopup.Subtitles })
+                add(LiveBtn("aspect", io.github.petebutty.viewarr.ui.common.AppIcons.Aspect, "Aspect: ${aspect.label}") { popup = OsdPopup.Aspect })
+                if (vm.dispatcharrLive) add(LiveBtn("source", io.github.petebutty.viewarr.ui.common.AppIcons.Layers, "Source") { vm.loadSources(); popup = OsdPopup.Source })
+                run {
+                    add(LiveBtn("info", io.github.petebutty.viewarr.ui.common.AppIcons.Stats, if (popup == OsdPopup.Info) "Hide stream info" else "Stream info") { popup = if (popup == OsdPopup.Info) null else OsdPopup.Info })
+                }
+                onRecord?.let { add(LiveBtn("record", io.github.petebutty.viewarr.ui.common.AppIcons.Record, "Record", it)) }
+                onMultiView?.let { add(LiveBtn("multiview", io.github.petebutty.viewarr.ui.common.AppIcons.Grid, "Multi-view", it)) }
+                extraButtons.forEach { add(LiveBtn(it.id, it.icon, it.label, it.onClick)) }
+                add(LiveBtn("sync", io.github.petebutty.viewarr.ui.common.AppIcons.Equalizer, "Audio sync: " + io.github.petebutty.viewarr.playback.AvSync.label()) { popup = OsdPopup.Sync })
+                add(LiveBtn("tvsettings", io.github.petebutty.viewarr.ui.common.AppIcons.Tune, "TV settings") { tvOpen = true })
+                add(LiveBtn("sleep", io.github.petebutty.viewarr.ui.common.AppIcons.Bedtime, io.github.petebutty.viewarr.playback.SleepTimer.label(now)) { io.github.petebutty.viewarr.playback.SleepTimer.cycle(current?.endTime) })
+                onSearch?.let { add(LiveBtn("search", io.github.petebutty.viewarr.ui.common.AppIcons.Search, "Search", it)) }
+                onTransparency?.let { add(LiveBtn("transparency", io.github.petebutty.viewarr.ui.common.AppIcons.Opacity, "Transparency", it)) }
+                onSettings?.let { add(LiveBtn("settings", io.github.petebutty.viewarr.ui.common.AppIcons.Settings, "Settings", it)) }
             }
-            if (onRecord != null) Pill(io.github.petebutty.viewarr.ui.common.AppIcons.Record, "Record") { onRecord() }
-            if (onMultiView != null) Pill(io.github.petebutty.viewarr.ui.common.AppIcons.Grid, "Multi-view") { onMultiView() }
-            if (onTransparency != null) Pill(io.github.petebutty.viewarr.ui.common.AppIcons.Opacity, "Transparency") { onTransparency() }
-            if (onSettings != null) Pill(io.github.petebutty.viewarr.ui.common.AppIcons.Settings, "Settings") { onSettings() }
+            val arranged = io.github.petebutty.viewarr.ui.common.BarLayout.arrange(all, { it.id }, editing)
+            arranged.forEach { b ->
+                androidx.compose.runtime.key(b.id) {
+                    val hidden = !io.github.petebutty.viewarr.ui.common.BarLayout.shown(b.id)
+                    Pill(
+                        b.icon,
+                        when {
+                            carrying == b.id -> "◀  ${b.label}  ▶"
+                            editing && b.id in io.github.petebutty.viewarr.ui.common.BarLayout.fixed -> "${b.label} (always shown)"
+                            editing && hidden -> "${b.label} (" + (if (b.id in io.github.petebutty.viewarr.ui.common.BarLayout.extras) "not added" else "hidden") + ")"
+                            else -> b.label
+                        },
+                        (if (b.id == "guide" && catchup == null) Modifier.focusRequester(firstFocus) else Modifier)
+                            .alpha(if (editing && hidden) 0.4f else 1f)
+                            .onPreviewKeyEvent { e ->
+                                // Picked up: Left / Right move it along.
+                                if (carrying != b.id || e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                                val dir = when (e.key) { Key.DirectionLeft -> -1; Key.DirectionRight -> 1; else -> return@onPreviewKeyEvent false }
+                                io.github.petebutty.viewarr.ui.common.BarLayout.moved(arranged.map { it.id }, b.id, dir)?.let { appearance.setBarOrder("all", it) }
+                                onActivity(); true
+                            },
+                        onLongClick = { onActivity(); if (!editing) editing = true else carrying = if (carrying == b.id) null else b.id },
+                    ) {
+                        onActivity()
+                        when {
+                            !editing -> b.onClick()
+                            carrying != null -> carrying = null
+                            b.id in io.github.petebutty.viewarr.ui.common.BarLayout.fixed -> Unit
+                            else -> io.github.petebutty.viewarr.ui.common.BarLayout.setShown(b.id, hidden, appearance::setTitlePart)
+                        }
+                    }
+                }
+            }
+            if (editing) Pill(io.github.petebutty.viewarr.ui.common.AppIcons.Check, "Done") { editing = false; carrying = null }
             (note ?: sourceNote?.takeIf { popup == null })?.let { Text(it, fontSize = 12.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(start = 8.dp, top = 14.dp)) }
         }
         // -1: on the shortcuts (the first row peeks underneath); otherwise the poster row being browsed.
@@ -705,8 +771,8 @@ private fun PosterCard(p: OsdPoster, enabled: Boolean, modifier: Modifier = Modi
             onClick = p.onClick,
             onLongClick = if (p.options.isEmpty()) null else ({ held = true; CardMenu.open = p }),
             enabled = enabled,
-            modifier = modifier.focusRequester(self).size((OSD_CARD_W * k).dp, (OSD_CARD_H * k).dp).onFocusChanged { on = it.isFocused },
-            scale = ClickableSurfaceDefaults.scale(scale = 1f, focusedScale = 1.05f, pressedScale = 1f),
+            modifier = modifier.focusRequester(self).size((OSD_CARD_W * k).dp, (OSD_CARD_H * k).dp).onFocusChanged { on = it.isFocused }.instantFocusScale(1.05f),
+            scale = io.github.petebutty.viewarr.ui.common.focusScale(1.05f),
             shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
             border = ClickableSurfaceDefaults.border(
                 focusedBorder = androidx.tv.material3.Border(androidx.compose.foundation.BorderStroke(2.dp, AppColors.Accent)),
@@ -729,7 +795,7 @@ private fun Pill(icon: androidx.compose.ui.graphics.vector.ImageVector, label: S
     colors: List<Long>? = null,
     /** The shortcut itself (the shortcuts row): drawn in Settings → Shortcut style. */
     shortcut: LiveShortcut? = null, onClick: () -> Unit) {
-    // Sized like the film / show player's buttons (Settings → Playback → Player controls size).
+    // Sized like the film / show player's buttons (Settings → Appearance → Info bar & controls → Player controls size).
     val k = AppColors.palette.controlsScale
     fun d(v: Int) = (v * k).dp
     var on by remember { mutableStateOf(false) }
@@ -895,13 +961,15 @@ private fun OptionPopup(
     }
 }
 
-/** Dispatcharr's live view of this channel's stream (refreshes every 2 s while open). */
+/** What the player on this box is getting, then Dispatcharr's live view of the stream (both refresh every 2 s while open). */
 @Composable
 private fun StreamInfoPopup(vm: PlaybackViewModel) {
     var lines by remember { mutableStateOf<List<Pair<String, String>>?>(null) }
+    var box by remember { mutableStateOf(vm.playerInfo(LiveQuality.fps)) }
     LaunchedEffect(Unit) {
         while (true) {
-            lines = vm.streamInfo()
+            box = vm.playerInfo(LiveQuality.fps)
+            lines = if (vm.dispatcharrLive) vm.streamInfo() else emptyList()
             delay(2_000)
         }
     }
@@ -909,8 +977,15 @@ private fun StreamInfoPopup(vm: PlaybackViewModel) {
         Modifier.width(460.dp).background(AppColors.Panel, RoundedCornerShape(10.dp)).padding(horizontal = 16.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(3.dp),
     ) {
-        Text("Stream info (from Dispatcharr)", fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(bottom = 4.dp))
+        Text("On this box (the player)", fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(bottom = 4.dp))
+        box.forEach { (k, v) ->
+            Row {
+                Text(k, fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.width(110.dp))
+                Text(v, fontSize = 13.sp, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
         val l = lines
+        if (l == null || l.isNotEmpty()) Text("From Dispatcharr", fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(top = 8.dp, bottom = 4.dp))
         if (l == null) Text("Loading…", fontSize = 13.sp, color = Color.White)
         else l.forEach { (k, v) ->
             Row {

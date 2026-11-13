@@ -1,5 +1,7 @@
 package io.github.petebutty.viewarr.ui.media
 
+import io.github.petebutty.viewarr.ui.common.instantFocusScale
+import io.github.petebutty.viewarr.ui.common.followingSetting
 import io.github.petebutty.viewarr.ui.theme.appBackground
 
 import io.github.petebutty.viewarr.ui.common.ignoreHeldOk
@@ -72,6 +74,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -79,6 +82,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.foundation.shape.CircleShape
@@ -111,7 +115,7 @@ fun MediaScreen(
     focusRequester: FocusRequester,
     focusEnabled: Boolean,
     /**
-     * The picture in the corner has the highlight (Settings → Playback → Highlight the corner picture): the rows stand
+     * The picture in the corner has the highlight (Settings → Live TV → Highlight the corner picture): the rows stand
      * aside (they'd take it back), a title page stays as it is (it put the highlight back on Play on its return).
      */
     cornerHasFocus: Boolean = false,
@@ -351,7 +355,7 @@ fun MediaScreen(
                     "Nothing to show yet. Connect Plex, TMDB, Trakt or an addon in Settings → Accounts & sources.",
                     color = AppColors.TextSecondary, modifier = Modifier.padding(start = 48.dp, top = 12.dp, end = 48.dp),
                 )
-                else -> CompositionLocalProvider(LocalBringIntoViewSpec provides topAligned, LocalButtonsFree provides (detail == null && playing == null)) { LazyColumn(
+                else -> CompositionLocalProvider(LocalBringIntoViewSpec provides remember(topAligned) { topAligned.followingSetting() }, LocalButtonsFree provides (detail == null && playing == null)) { LazyColumn(
                     state = listState,
                     modifier = Modifier.fillMaxWidth().weight(1f).onFocusChanged { hasFocus = it.hasFocus },
                     // Room below the last row so it can also scroll up to the top (no half row left above it).
@@ -463,7 +467,8 @@ private fun Hero(
     // On the Movies and Shows pages the artwork fills the whole page (drawn by the page's background), so the
     // hero doesn't draw its own copy (it left a seam where it ended).
     val pageArt = io.github.petebutty.viewarr.ui.theme.Wallpaper.titlePages > 0 || io.github.petebutty.viewarr.ui.common.LiveBehind.on
-    Box(Modifier.fillMaxWidth().height(232.dp)) {
+    // (Clipped: a tall logo with a long description ran down over the library's heading and search box below.)
+    Box(Modifier.fillMaxWidth().height(232.dp).clipToBounds()) {
         if (!pageArt) item?.backdrop?.let { url ->
             AsyncImage(
                 model = url,
@@ -491,7 +496,7 @@ private fun Hero(
             Text(if (type == MediaType.Movie) "Movies" else "Shows", fontSize = 14.sp, color = AppColors.Accent)
             Spacer(Modifier.height(8.dp))
             if (item != null) {
-                TitleLogo(item, logoOf, height = 64.dp, maxWidth = 360.dp, fontSize = 26, waitMs = 300)
+                TitleLogo(item, logoOf, height = 54.dp, maxWidth = 340.dp, fontSize = 26, waitMs = 300)
                 Spacer(Modifier.height(6.dp))
                 Text(
                     inLibrary?.let { where -> metaLine(item.copy(origin = "$where · via ${item.origin}")) } ?: metaLine(item),
@@ -517,14 +522,15 @@ private fun Hero(
                 }
                 item.overview?.let {
                     Spacer(Modifier.height(10.dp))
-                    Text(it, fontSize = 14.sp, lineHeight = 20.sp, color = AppColors.TextPrimary, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                    Text(it, fontSize = 14.sp, lineHeight = 20.sp, color = AppColors.TextPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 }
             }
         }
     }
 }
 
-private const val GRID_COLUMNS = 7
+/** Settings → Appearance → Library posters: how wide each poster is (Small: the rows' own 100 dp, so they match). */
+private val GRID_POSTER_DP get() = io.github.petebutty.viewarr.ui.theme.AppColors.palette.libraryPosterDp
 
 /**
  * A whole library as a poster grid, one page at a time (so a big library never weighs on the box), with the sort
@@ -547,6 +553,10 @@ private fun LibraryGrid(
     /** The page's header above it (the highlighted title's details): no copy of them here, and less room on top. */
     withHero: Boolean = false,
 ) {
+    // How many posters fit across, worked out from the space the grid really has (it's narrower with the menu or the
+    // mini player beside it), so each poster is the same size as everywhere else.
+    var gridColumns by remember { androidx.compose.runtime.mutableIntStateOf(8) }
+    val density = androidx.compose.ui.platform.LocalDensity.current
     val gridState = remember(b.library.key, b.version) { androidx.compose.foundation.lazy.grid.LazyGridState() }
     val cells = remember(b.library.key, b.version) { HashMap<Int, FocusRequester>() }
     fun cell(i: Int) = cells.getOrPut(i) { FocusRequester() }
@@ -565,7 +575,7 @@ private fun LibraryGrid(
     suspend fun focusAt(i: Int) {
         if (count == 0) return
         val idx = i.coerceIn(0, count - 1)
-        if (gridState.layoutInfo.visibleItemsInfo.none { it.index == idx }) runCatching { gridState.scrollToItem(idx - idx % GRID_COLUMNS) }
+        if (gridState.layoutInfo.visibleItemsInfo.none { it.index == idx }) runCatching { gridState.scrollToItem(idx - idx % gridColumns) }
         awaitFrame(); awaitFrame()
         runCatching { cell(idx).requestFocus() }
     }
@@ -577,7 +587,7 @@ private fun LibraryGrid(
     // A–Z: the grid moves to the letter; picked with OK on the strip, focus goes there too.
     LaunchedEffect(b.jump) {
         val j = b.jump ?: return@LaunchedEffect
-        if (railOn) runCatching { gridState.scrollToItem(j - j % GRID_COLUMNS) } else focusAt(j)
+        if (railOn) runCatching { gridState.scrollToItem(j - j % gridColumns) } else focusAt(j)
         vm.setLastIndex(b.version, j)
         vm.letterJumpDone()
     }
@@ -647,9 +657,14 @@ private fun LibraryGrid(
                 b.total == 0 && b.filtered -> Text("Nothing in this library matches these filters", fontSize = 15.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(start = 48.dp, top = 12.dp))
                 b.total == 0 -> Text("This library is empty", fontSize = 15.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(start = 48.dp, top = 12.dp))
             }
-            Row(Modifier.fillMaxWidth().weight(1f)) {
+            Row(Modifier.fillMaxWidth().weight(1f).onSizeChanged { sz ->
+                val wDp = with(density) { sz.width.toDp().value }
+                // Side padding (48 dp + the A–Z strip's room) and 12 dp between posters.
+                val usable = wDp - 48f - (if (b.canLetters) 12f + 40f else 48f) + 12f
+                gridColumns = (usable / (GRID_POSTER_DP + 12f)).toInt().coerceIn(4, 12)
+            }) {
                 androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
-                    columns = androidx.compose.foundation.lazy.grid.GridCells.Fixed(GRID_COLUMNS),
+                    columns = androidx.compose.foundation.lazy.grid.GridCells.Fixed(gridColumns),
                     state = gridState,
                     modifier = Modifier.weight(1f).fillMaxHeight().onFocusChanged { onHasFocus(it.hasFocus) },
                     contentPadding = PaddingValues(start = 48.dp, end = if (b.canLetters) 12.dp else 48.dp, top = 4.dp, bottom = 60.dp),
@@ -658,7 +673,7 @@ private fun LibraryGrid(
                 ) {
                     items(count, key = { it }) { i ->
                         val item = b.item(i)
-                        val col = i % GRID_COLUMNS
+                        val col = i % gridColumns
                         val m = Modifier.focusRequester(cell(i))
                             .onFocusChanged { if (it.isFocused) { vm.setLastIndex(b.version, i); item?.let(onFocus) } }
                             .onPreviewKeyEvent { e ->
@@ -673,7 +688,7 @@ private fun LibraryGrid(
                                     // Left on the first column: the menu (pick another library).
                                     e.key == Key.DirectionLeft && col == 0 -> { onLeftEdge(); true }
                                     // Right at the end of a row: onto the A–Z strip.
-                                    e.key == Key.DirectionRight && b.canLetters && (col == GRID_COLUMNS - 1 || i == count - 1) -> { runCatching { railFocus.requestFocus() }; true }
+                                    e.key == Key.DirectionRight && b.canLetters && (col == gridColumns - 1 || i == count - 1) -> { runCatching { railFocus.requestFocus() }; true }
                                     else -> false
                                 }
                             }
@@ -693,7 +708,7 @@ private fun LibraryGrid(
                     onUp = { runCatching { focusRequester.requestFocus() } },
                     onLeft = {
                         val first = gridState.layoutInfo.visibleItemsInfo.firstOrNull()?.index ?: 0
-                        val target = (first + GRID_COLUMNS - 1).coerceAtMost(count - 1)
+                        val target = (first + gridColumns - 1).coerceAtMost(count - 1)
                         runCatching { cell(target).requestFocus() }
                     },
                 )
@@ -780,9 +795,9 @@ internal fun LibrarySearchBox(query: String, onQuery: (String) -> Unit, onFocus:
     run {
         Surface(
             onClick = { voice.toggle() },
-            modifier = Modifier.padding(end = 8.dp).size(36.dp),
+            modifier = Modifier.padding(end = 8.dp).size(36.dp).instantFocusScale(1.08f),
             shape = ClickableSurfaceDefaults.shape(androidx.compose.foundation.shape.CircleShape),
-            scale = ClickableSurfaceDefaults.scale(scale = 1f, focusedScale = 1.08f, pressedScale = 1f),
+            scale = io.github.petebutty.viewarr.ui.common.focusScale(1.08f),
             colors = ClickableSurfaceDefaults.colors(
                 containerColor = AppColors.Panel, contentColor = AppColors.TextPrimary,
                 focusedContainerColor = AppColors.Accent, focusedContentColor = AppColors.OnAccent,
@@ -912,7 +927,7 @@ private fun PosterRow(
         // ("FocusRequester is not initialized").
         val entryAttached = remember { booleanArrayOf(false) }
         val scope = rememberCoroutineScope()
-        CompositionLocalProvider(LocalBringIntoViewSpec provides rowSpec) { LazyRow(
+        CompositionLocalProvider(LocalBringIntoViewSpec provides remember(rowSpec) { rowSpec.followingSetting() }) { LazyRow(
             state = state,
             // Moving onto this row from above or below lands on its remembered poster, not the nearest one on screen.
             modifier = Modifier
@@ -1916,8 +1931,8 @@ private fun CastCard(c: io.github.petebutty.viewarr.data.media.CastMember, free:
     Column(Modifier.width(96.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Surface(
             onClick = onClick,
-            modifier = Modifier.size(76.dp).onFocusChanged { focused = it.isFocused }.focusProperties { canFocus = free },
-            scale = ClickableSurfaceDefaults.scale(scale = 1f, focusedScale = 1.06f, pressedScale = 1f),
+            modifier = Modifier.size(76.dp).onFocusChanged { focused = it.isFocused }.focusProperties { canFocus = free }.instantFocusScale(1.06f),
+            scale = io.github.petebutty.viewarr.ui.common.focusScale(1.06f),
             shape = ClickableSurfaceDefaults.shape(androidx.compose.foundation.shape.CircleShape),
             border = ClickableSurfaceDefaults.border(focusedBorder = Border(BorderStroke(3.dp, AppColors.Accent), shape = androidx.compose.foundation.shape.CircleShape)),
             colors = ClickableSurfaceDefaults.colors(containerColor = AppColors.Panel, focusedContainerColor = AppColors.Panel),
@@ -2046,8 +2061,8 @@ private fun IconAction(icon: androidx.compose.ui.graphics.vector.ImageVector, la
     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(48.dp)) {
         Surface(
             onClick = onClick,
-            modifier = modifier.size(44.dp).onFocusChanged { focused = it.isFocused },
-            scale = ClickableSurfaceDefaults.scale(scale = 1f, focusedScale = 1.08f, pressedScale = 1f),
+            modifier = modifier.size(44.dp).onFocusChanged { focused = it.isFocused }.instantFocusScale(1.08f),
+            scale = io.github.petebutty.viewarr.ui.common.focusScale(1.08f),
             shape = ClickableSurfaceDefaults.shape(CircleShape),
             border = ClickableSurfaceDefaults.border(border = Border(androidx.compose.foundation.BorderStroke(1.5.dp, Color.White.copy(alpha = 0.45f)))),
             colors = ClickableSurfaceDefaults.colors(

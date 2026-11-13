@@ -14,7 +14,7 @@ The menu is see-through on every page. It slides the page and the picture aside 
   - **Live TV**: its channel groups. Moving through them changes the guide behind as you go; OK picks one and takes you into the guide.
   - **Movies** and **Shows**: your libraries, with your rows tucked under **Jump to a row**.
   - **Recordings**, **Music** and the streaming services: straight into the page.
-- **Left** or **Back** steps back one level at a time. Back on the main list closes the menu.
+- **Left** or **Back** steps back one level at a time. On the main list, Back first goes to **Live TV**, and then closes the menu.
 
 Going into a list slides the one before it away, one panel at a time, as TiviMate does.
 
@@ -30,11 +30,11 @@ Other ways to reach the menu:
 - A hint at the foot of a list says "‹ Left: main menu".
 - Each list can have a heading, such as **LIVE TV · CHANNEL GROUPS** or **MOVIES**, or its path (**Live TV › Channel groups**). That way the guide's channel groups are never mistaken for your libraries.
 
-You can change all of these in **Settings → Appearance → Main menu** (see below).
+You can change all of these in **Settings → Appearance → Menu** (see below).
 
 ### Edit menus
 
-**Edit menus** sits at the top of the menu. Use it to tidy things up right there, with the page changing as you go:
+**Edit menus** sits at the top of the menu (**Up** from Live TV), with a **⚙** to its left that opens Settings without going to the bottom of the list. Use Edit menus to tidy things up right there, with the page changing as you go:
 
 - Show, hide and reorder the menu's entries and streaming services.
 - Show or hide a service's rows.
@@ -42,7 +42,7 @@ You can change all of these in **Settings → Appearance → Main menu** (see be
 
 When you're done, anything switched off is hidden.
 
-Only want live TV? Switch Movies, Shows and the services off in **Edit menus** or in **Settings → Appearance → Main menu**.
+Only want live TV? Switch Movies, Shows and the services off in **Edit menus** or in **Settings → Menu & navigation → What the menu lists**.
 
 ## The top-left window
 
@@ -58,7 +58,7 @@ Live TV keeps playing in the guide's preview place while you browse Movies, Show
 
 Live TV and films share the same glass info bar. It shows the programme or film, its progress, and the controls' buttons. The bar also says where the picture is coming from (your Plex server, Jellyfin, an addon, IPTV).
 
-Skip intro, the next-episode countdown, reminders and every other pop-up use the same glass. You can change it in **Settings → Appearance → Live TV**:
+Skip intro, the next-episode countdown, reminders and every other pop-up use the same glass. You can change it in **Settings → Appearance → Glass & transparency**:
 
 - **Pop-up glass**: from see-through to solid, for the info bar, the player's controls and every pop-up.
 - **Info bar: border**: the thin light edge round the glass, on or off.
@@ -66,14 +66,14 @@ Skip intro, the next-episode countdown, reminders and every other pop-up use the
 
 ## Main menu settings
 
-**Settings → Appearance → Main menu** controls how the menu looks and what it lists.
+**Settings → Appearance → Menu** controls how the menu looks, and **Settings → Menu & navigation → What the menu lists** what it lists.
 
 | Setting | Choices | What it does |
 |---|---|---|
 | **List headings** | Heading, Off, Path (Live TV › Channel groups) | A heading at the top of each list, or the path to it. |
 | **Source in the Live TV heading** | On, Off | With more than one Live TV source, its name goes in the heading ("LIVE TV · DISPATCHARR"). |
 | **TV mark on channel groups** | Off, On | A small TV mark before each channel group's name. |
-| **Colour edge** | Off, On | A thin bar down each list's edge in its section's colour: red for Live TV, blue for Movies, purple for Shows. |
+| **Colour edge** | Off, On | A thin bar down each list's edge in your highlight colour. |
 | **Colour tint** | Off, On | Each list's glass faintly tinted in its section's colour. |
 | **Icon column** | Off, On | In a section's list, the main menu stays as a narrow column of icons with the one you're in lit, instead of folding away. |
 | **LIVE mark** | Off, On | A red ● LIVE on the channel groups' **All channels**. |
@@ -83,8 +83,8 @@ Below these, each menu entry (Live now, Sports, Movies, Shows, Music, Recordings
 
 ## More ways to find your way
 
-- **Button hints**: a small pill at the bottom of the screen says what the buttons do where you are. Choose **First few times**, **Always** or **Off** in **Settings → Navigation → Button hints**.
+- **Button hints**: a small pill at the bottom of the screen says what the buttons do where you are. Choose **First few times**, **Always** or **Off** in **Settings → Appearance → Menu → Button hints**.
 - **Settings explain themselves**: a line at the top of Settings describes the highlighted entry, and every section says what it covers.
-- **Settings → Navigation** sets where Viewarr opens (**App opens on**), where the menu opens (**Menu opens on**), what **Right on a library** does, and how poster rows behave. See [Settings](SETTINGS.md#navigation).
+- **Settings → Menu & navigation** sets where Viewarr opens (**App opens on**), where the menu opens (**Menu opens on**), what **Right on a library** does, and how poster rows behave. See [Settings](SETTINGS.md#menu--navigation).
 - **Search** pops up over any screen: hold **Menu (≡)** or use the remote's search button. See [Films & shows](FILMS-AND-SHOWS.md#search).
 - **The tour** from the first run can be seen again any time from **Settings → About → Show the tour**.

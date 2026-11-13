@@ -114,6 +114,16 @@ fun GuideScreen(
     val selectedChannel = channels.getOrNull(cursor.row)
     val focused = selectedChannel?.let { GuideViewModel.programAt(programs[it.id].orEmpty(), cursor.focusTime) }
 
+    // Scrolled in the same frame as the highlight moves: the effect below runs a frame later, which showed the
+    // highlight a row out first, so holding Down flickered between two rows ("ghosting" through the guide fast).
+    // The effect stays for the first open (nothing laid out yet) and is a no-op otherwise.
+    androidx.compose.runtime.SideEffect {
+        val visible = listState.layoutInfo.visibleItemsInfo
+        if (visible.isNotEmpty()) {
+            val top = maxOf(0, cursor.row - maxOf(visible.size - 1, 1) / 2)
+            if (top != listState.firstVisibleItemIndex) listState.requestScrollToItem(top)
+        }
+    }
     LaunchedEffect(cursor.row, channels.size) {
         val target = cursor.row
         val visible = listState.layoutInfo.visibleItemsInfo
@@ -144,7 +154,10 @@ fun GuideScreen(
                 if (e.key == Key.DirectionLeft && remote.guideLeft == GuideLeft.EdgeMenu) {
                     // Back through the programmes and into catch-up; holding Left scrolls fast and stops at the
                     // start (a scroll can't overshoot into the menu). A fresh press at the start opens the menu.
-                    if (e.type == KeyEventType.KeyDown && !vm.moveLeft() && e.nativeKeyEvent.repeatCount == 0) onOpenMenu()
+                    // A tap that can't go further only because the earlier programmes are still being fetched
+                    // carries on browsing (it moves once they're in) instead of opening the menu; otherwise at the
+                    // start the menu opens straight away.
+                    if (e.type == KeyEventType.KeyDown && !vm.moveLeft() && e.nativeKeyEvent.repeatCount == 0 && !vm.loadingPast) onOpenMenu()
                     return@onPreviewKeyEvent true
                 }
                 if (e.key == Key.DirectionLeft && remote.guideLeft == GuideLeft.NowMenu) {
@@ -214,7 +227,7 @@ fun GuideScreen(
                 if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 // Buttons through RemoteKeys, so ones taught in Settings → Remote work here too.
                 val action = io.github.petebutty.viewarr.ui.common.RemoteKeys.action(e)
-                // Past the last channel / above the first: Settings → Appearance → End of a list (Jump: 1, Stop: 2).
+                // Past the last channel / above the first: Settings → Live TV → TV guide → End of a list (Jump: 1, Stop: 2).
                 val ends = if (AppColors.palette.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.LIST_ENDS) == 0) 1 else 2
                 val fresh = e.nativeKeyEvent.repeatCount == 0
                 when {
@@ -414,17 +427,22 @@ private fun Badges(program: GuideProgram) {
 @Composable
 private fun TimeHeader(now: Long, windowStart: Long, sync: SyncState, gridWidth: Dp) {
     Box(Modifier.fillMaxWidth().height(28.dp)) {
+        // Today: the date and time now. Scrolled to another day: that day, in the highlight colour, so it's clear
+        // the times along the top are tomorrow's (or yesterday's), not today's.
+        val shownDay = windowStart.local().toLocalDate()
+        val otherDay = shownDay != now.local().toLocalDate()
         Text(
-            now.local().format(dateFormat),
+            if (otherDay) windowStart.local().format(io.github.petebutty.viewarr.ui.theme.Dates.day) else now.local().format(dateFormat),
             fontSize = 13.sp,
-            color = AppColors.TextPrimary,
+            color = if (otherDay) AppColors.Accent else AppColors.TextPrimary,
             modifier = Modifier.align(Alignment.CenterStart),
         )
         Box(Modifier.padding(start = ChannelColumn).fillMaxSize().clipToBounds()) {
             var t = windowStart
             while (t < windowStart + GuideViewModel.VISIBLE_MS) {
+                // Midnight along the top: the new day's name with it ("Sat 00:00").
                 Text(
-                    t.local().format(timeFormat),
+                    (if (t.local().hour == 0 && t.local().minute == 0) t.local().format(io.github.petebutty.viewarr.ui.theme.Dates.shortDay) + "  " else "") + t.local().format(timeFormat),
                     fontSize = 13.sp,
                     color = AppColors.TextSecondary,
                     modifier = Modifier.align(Alignment.CenterStart).offset(x = xOf(t, windowStart, gridWidth) + 4.dp),

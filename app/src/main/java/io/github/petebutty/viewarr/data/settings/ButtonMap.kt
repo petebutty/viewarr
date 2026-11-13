@@ -130,7 +130,7 @@ object ButtonMap {
             BtnAction.RecordOptions, BtnAction.MultiView, BtnAction.Transparency, BtnAction.Stop) + pages,
         BtnScreen.Film to listOf(BtnAction.Nothing, BtnAction.Controls, BtnAction.TimeTitle, BtnAction.SeekBar, BtnAction.SkipBack, BtnAction.SkipForward,
             BtnAction.PlayPause, BtnAction.AudioSubs, BtnAction.Details, BtnAction.MediaInfo, BtnAction.SwitchPlayer, BtnAction.Stop, BtnAction.Guide,
-            BtnAction.MainMenu, BtnAction.Search, BtnAction.Settings, BtnAction.Episodes),
+            BtnAction.MainMenu, BtnAction.Search, BtnAction.Settings, BtnAction.Transparency, BtnAction.Episodes),
         BtnScreen.Pages to listOf(BtnAction.Nothing, BtnAction.MainMenu, BtnAction.Guide) + pages,
     )
 

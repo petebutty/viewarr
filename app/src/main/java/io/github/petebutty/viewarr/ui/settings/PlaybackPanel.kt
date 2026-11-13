@@ -34,7 +34,7 @@ private inline fun <reified E> choices(): List<RemoteChoice> where E : Enum<E>, 
 
 /** Settings → Playback, full screen. Defaults are the safe choice for most TVs; each setting explains itself. */
 @Composable
-fun PlaybackSettingsScreen(onBack: () -> Unit, vm: PlaybackSettingsViewModel = hiltViewModel(), opts: UiOptsViewModel = hiltViewModel()) {
+fun playbackCategories(vm: PlaybackSettingsViewModel = hiltViewModel(), opts: UiOptsViewModel = hiltViewModel()): List<SettingCategory> {
     val s by vm.settings.collectAsStateWithLifecycle()
     val r by vm.remote.collectAsStateWithLifecycle()
     fun item(title: String, description: String, key: String, all: List<RemoteChoice>, current: RemoteChoice) =
@@ -60,7 +60,7 @@ fun PlaybackSettingsScreen(onBack: () -> Unit, vm: PlaybackSettingsViewModel = h
         SettingCategory(
             "Video", "Picture size and smoothness.",
             listOf(
-                item("Match frame rate", "Switches the TV to the film's own rate (e.g. 24 Hz) for smoother motion. Some TVs go black for a second when it switches.", k.FRAME_RATE, choices<io.github.petebutty.viewarr.data.settings.FrameRateMatch>(), s.frameRate),
+                item("Match frame rate", "Switches the TV to the video's own rate for smoother motion: a film's 24 Hz, or a live channel's 50 or 60 Hz (once its rate is certain, a few seconds in, and only full screen). Some TVs go black for a second when it switches; live TV only switches when a channel's rate differs from the TV's.", k.FRAME_RATE, choices<io.github.petebutty.viewarr.data.settings.FrameRateMatch>(), s.frameRate),
                 item("Picture size", "How the picture fills the screen when its shape doesn't match the TV.", k.PICTURE_SIZE, choices<io.github.petebutty.viewarr.data.settings.PictureSize>(), s.pictureSize),
                 item("Deinterlace", "Smooths combing lines on older TV recordings and broadcasts (mpv).", k.DEINTERLACE, choices<io.github.petebutty.viewarr.data.settings.Deinterlace>(), s.deinterlace),
             ),
@@ -109,8 +109,11 @@ fun PlaybackSettingsScreen(onBack: () -> Unit, vm: PlaybackSettingsViewModel = h
             "Live TV", "Watching live channels.",
             listOf(
                 optItem(opts, "Highlight the corner picture", "At the edge of a page, pressing towards the picture in the corner (live TV or a film) highlights it: Full screen or Close. Holding Back gives the same choice anywhere. Off: only hold Back.", io.github.petebutty.viewarr.ui.theme.UiOpts.CORNER_FOCUS).locked(cornerLock),
+                optItem(opts, "Up / Down while watching", "What Up / Down (and Channel + / −) do on full-screen live TV. Browse: the info bar shows the next channels and what's on while the picture stays put; OK changes to the one shown, Back stays where you were. \"Changes when you stop\" waits as long as Browsing channels (below) says.", io.github.petebutty.viewarr.ui.theme.UiOpts.LIVE_UPDOWN),
                 optItem(opts, "Browsing channels", "With a button set to \"Next / Previous channel in the info bar\" (Settings → Remote buttons → live TV): how long to rest on a channel before it changes. OK changes straight away; Back stays on the one you were watching.", io.github.petebutty.viewarr.ui.theme.UiOpts.BROWSE_DELAY),
-                                optItem(opts, "TV guide refresh", "How often the TV guide is fetched again from your server while Viewarr is open (and when it starts). Only when I ask: Settings → Refresh channels & guide.", io.github.petebutty.viewarr.ui.theme.UiOpts.GUIDE_REFRESH),
+                optItem(opts, "\"All channels\" group", "The first entry in the channel groups. Hidden: just your own groups, and the guide opens on the first of them.", io.github.petebutty.viewarr.ui.theme.UiOpts.GROUP_ALL),
+                optItem(opts, "TV guide days ahead", "How far ahead the guide reaches. Most guides list 4 to 7 days; more days take a little longer to fetch and more room on the box. Changes at the next guide refresh (Settings → Refresh channels & guide does it now).", io.github.petebutty.viewarr.ui.theme.UiOpts.GUIDE_DAYS),
+                optItem(opts, "TV guide refresh", "How often the TV guide is fetched again from your server while Viewarr is open (and when it starts). Only when I ask: Settings → Refresh channels & guide.", io.github.petebutty.viewarr.ui.theme.UiOpts.GUIDE_REFRESH),
                 optItem(opts, "Still watching?", "After this long without a button press, live TV asks whether you're still there and stops if nobody answers within a minute (frees a provider connection when the TV's left on).", io.github.petebutty.viewarr.ui.theme.UiOpts.STILL_WATCHING),
             ),
         ),
@@ -141,8 +144,17 @@ fun PlaybackSettingsScreen(onBack: () -> Unit, vm: PlaybackSettingsViewModel = h
             ),
         ),
     )
-    SettingsPage(title = "Playback", categories = categories, onBack = onBack, onReset = {
-        vm.reset()
+    return categories
+}
+
+/** Playback's settings back to how they come (the Playback page's Reset). */
+fun playbackReset(vm: PlaybackSettingsViewModel, opts: UiOptsViewModel) {
+    vm.reset()
         opts.reset(listOf(io.github.petebutty.viewarr.ui.theme.UiOpts.CONTROLS_TIME, io.github.petebutty.viewarr.ui.theme.UiOpts.CONTROLS_SIZE, io.github.petebutty.viewarr.ui.theme.UiOpts.SEEK_PREVIEWS, io.github.petebutty.viewarr.ui.theme.UiOpts.UP_NEXT, io.github.petebutty.viewarr.ui.theme.UiOpts.UP_NEXT_S, io.github.petebutty.viewarr.ui.theme.UiOpts.AFTER_FILM, io.github.petebutty.viewarr.ui.theme.UiOpts.MINI_SIZE, io.github.petebutty.viewarr.ui.theme.UiOpts.MINI_CORNER, io.github.petebutty.viewarr.ui.theme.UiOpts.CORNER_FOCUS, io.github.petebutty.viewarr.ui.theme.UiOpts.ANIM_FILM, io.github.petebutty.viewarr.ui.theme.UiOpts.ANIM_LIVE, io.github.petebutty.viewarr.ui.theme.UiOpts.LIVE_CORNER, io.github.petebutty.viewarr.ui.theme.UiOpts.STILL_WATCHING, io.github.petebutty.viewarr.ui.theme.UiOpts.LOW_MEMORY))
-    })
+}
+
+/** Settings → Playback on its own (Settings now opens it through the layout: SettingsMap). */
+@Composable
+fun PlaybackSettingsScreen(onBack: () -> Unit, vm: PlaybackSettingsViewModel = hiltViewModel(), opts: UiOptsViewModel = hiltViewModel()) {
+    SettingsPage(title = "Playback", categories = playbackCategories(vm, opts), onBack = onBack, onReset = { playbackReset(vm, opts) })
 }

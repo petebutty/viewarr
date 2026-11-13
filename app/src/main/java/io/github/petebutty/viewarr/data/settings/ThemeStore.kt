@@ -62,6 +62,7 @@ class ThemeStore @Inject constructor(@ApplicationContext private val context: Co
             titleHidden = prefs[TITLE_HIDDEN] ?: emptySet(),
             menuOrder = prefs[MENU_ORDER]?.split('\u001F')?.filter { it.isNotEmpty() }.orEmpty(),
             ratingsOrder = prefs[RATINGS_ORDER]?.split('\u001F')?.filter { it.isNotEmpty() }.orEmpty(),
+            barOrder = prefs.asMap().entries.mapNotNull { (k, v) -> if (k.name.startsWith("bar_") && v is String) k.name.removePrefix("bar_") to v.split('\u001F').filter { it.isNotEmpty() } else null }.toMap(),
             opts = prefs.asMap().entries.mapNotNull { (k, v) -> if (k.name.startsWith("opt_") && v is Int) k.name.removePrefix("opt_") to v else null }.toMap(),
         )
     }
@@ -84,6 +85,11 @@ class ThemeStore @Inject constructor(@ApplicationContext private val context: Co
     /** The ratings' order on title pages. */
     suspend fun saveRatingsOrder(ids: List<String>) {
         context.appearanceStore.edit { it[RATINGS_ORDER] = ids.joinToString("\u001F") }
+    }
+
+    /** An info bar's button order ("live", "film"; hold OK on a button → move). */
+    suspend fun saveBarOrder(bar: String, ids: List<String>) {
+        context.appearanceStore.edit { it[androidx.datastore.preferences.core.stringPreferencesKey("bar_$bar")] = ids.joinToString("\u001F") }
     }
 
     /** The main menu's order (hold OK in the menu → move). */
@@ -126,8 +132,8 @@ class ThemeStore @Inject constructor(@ApplicationContext private val context: Co
     }
 
     suspend fun resetTitleParts() {
-        // (The main menu's choices, kept in the same list, stay.)
-        context.appearanceStore.edit { p -> p[TITLE_HIDDEN] = (p[TITLE_HIDDEN] ?: emptySet()).filter { it.startsWith("menu:") }.toSet() }
+        // (The main menu's, the info bars' and the hold-OK pop-up's choices, kept in the same list, stay.)
+        context.appearanceStore.edit { p -> p[TITLE_HIDDEN] = (p[TITLE_HIDDEN] ?: emptySet()).filter { it.startsWith("menu:") || it.startsWith("bar:") || it.startsWith("hold:") }.toSet() }
     }
 
     suspend fun saveShowNumbers(on: Boolean) {

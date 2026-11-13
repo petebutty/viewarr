@@ -1,5 +1,6 @@
 package io.github.petebutty.viewarr.ui.settings
 
+import io.github.petebutty.viewarr.ui.common.instantFocusScale
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -151,7 +152,8 @@ fun NetworkSetupScreen(onDone: (List<String>) -> Unit, onClose: () -> Unit, vm: 
                     Surface(
                         onClick = { if (on) picked.remove(n) else picked.add(n) },
                         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(12.dp)),
-                        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.04f),
+                        modifier = androidx.compose.ui.Modifier.instantFocusScale(1.04f),
+                        scale = io.github.petebutty.viewarr.ui.common.focusScale(1.04f),
                         colors = ClickableSurfaceDefaults.colors(
                             containerColor = if (on) AppColors.Accent.copy(alpha = 0.25f) else Color.White.copy(alpha = 0.06f),
                             focusedContainerColor = AppColors.Accent, contentColor = AppColors.TextPrimary, focusedContentColor = AppColors.OnAccent,

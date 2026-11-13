@@ -23,7 +23,7 @@ import io.github.petebutty.viewarr.ui.theme.UiOpts
 
 /**
  * A small pill at the bottom of the screen saying what the buttons do here ("OK: watch · hold Back: groups"),
- * for a few seconds when [screen] comes up (again when [text] changes). Settings → Appearance → Button hints:
+ * for a few seconds when [screen] comes up (again when [text] changes). Settings → Appearance → Menu → Button hints:
  * the first few times on each screen (counted on this TV), always, or off.
  */
 @Composable

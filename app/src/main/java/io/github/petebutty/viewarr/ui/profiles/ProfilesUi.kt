@@ -1,5 +1,6 @@
 package io.github.petebutty.viewarr.ui.profiles
 
+import io.github.petebutty.viewarr.ui.common.instantFocusScale
 import io.github.petebutty.viewarr.ui.common.stopAt
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -385,9 +386,9 @@ fun WhoIsWatching(onDone: () -> Unit, vm: ProfilesViewModel = hiltViewModel()) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Surface(
                             onClick = { if (!busy) { if (p.pin != null && !on) askPin = p else vm.switchTo(p) { onDone() } } },
-                            modifier = (if (on || (active == null && i == 0)) Modifier.focusRequester(first) else Modifier).size(120.dp),
+                            modifier = (if (on || (active == null && i == 0)) Modifier.focusRequester(first) else Modifier).size(120.dp).instantFocusScale(1.1f),
                             shape = ClickableSurfaceDefaults.shape(CircleShape),
-                            scale = ClickableSurfaceDefaults.scale(focusedScale = 1.1f),
+                            scale = io.github.petebutty.viewarr.ui.common.focusScale(1.1f),
                             border = ClickableSurfaceDefaults.border(
                                 focusedBorder = androidx.tv.material3.Border(androidx.compose.foundation.BorderStroke(4.dp, Color.White), shape = CircleShape),
                             ),

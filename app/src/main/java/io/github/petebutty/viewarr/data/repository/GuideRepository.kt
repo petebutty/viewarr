@@ -1,6 +1,7 @@
 package io.github.petebutty.viewarr.data.repository
 
 import android.content.Context
+import io.github.petebutty.viewarr.data.settings.appearanceStore
 import android.util.JsonReader
 import android.util.JsonToken
 import androidx.room.withTransaction
@@ -45,9 +46,13 @@ class GuideRepository @Inject constructor(
     private val apiFactory: ApiFactory,
     private val xtream: io.github.petebutty.viewarr.data.xtream.XtreamClient,
     private val m3u: io.github.petebutty.viewarr.data.m3u.M3uClient,
-    @ApplicationContext context: Context,
+    @ApplicationContext private val context: Context,
 ) {
     private val prefs = context.getSharedPreferences("guide", Context.MODE_PRIVATE)
+    /** How far ahead to fetch (Settings → Live TV → TV guide days ahead), read from the saved setting itself
+     *  so a sync at start-up doesn't use the default before the appearance settings have loaded. */
+    private suspend fun forwardMs(): Long = io.github.petebutty.viewarr.ui.theme.UiOpts.guideForwardMs(
+        runCatching { context.appearanceStore.data.first()[androidx.datastore.preferences.core.intPreferencesKey("opt_" + io.github.petebutty.viewarr.ui.theme.UiOpts.GUIDE_DAYS)] }.getOrNull() ?: 0)
     private val mutex = Mutex()
     /** The active source's guide database (each saved source keeps its own; see GuideDatabases). */
     private val _db = MutableStateFlow(dbs.get(prefs.getString(KEY_SOURCE, null) ?: "none"))
@@ -121,6 +126,32 @@ class GuideRepository @Inject constructor(
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     fun observeChannels(groupId: Int?) = _db.flatMapLatest { it.guideDao().observeChannels(groupId) }
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    fun observeChannelsIn(uuids: List<String>) = _db.flatMapLatest { it.guideDao().observeChannelsIn(uuids) }
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    fun observeProgramBlockIn(uuids: List<String>, offset: Int, count: Int, start: Long, end: Long) =
+        _db.flatMapLatest { it.guideDao().observeProgramBlockIn(uuids, offset, count, start, end) }
+
+    /** The channel groups' order as you've set it (hold OK on a group → move), by name; per Live TV source. */
+    private val _groupOrder = MutableStateFlow(loadGroupOrder())
+    val groupOrder = _groupOrder.asStateFlow()
+    private fun loadGroupOrder(): List<String> = prefs.getString(k("group_order"), null)?.split('\u001F')?.filter { it.isNotEmpty() }.orEmpty()
+    fun setGroupOrder(names: List<String>) {
+        prefs.edit().putString(k("group_order"), names.joinToString("\u001F")).apply()
+        _groupOrder.value = names
+    }
+
+    /** Favourite channels (their uuids), kept per Live TV source on this box; shared by every profile. */
+    private val _favourites = MutableStateFlow(loadFavourites())
+    val favourites = _favourites.asStateFlow()
+    private fun loadFavourites(): Set<String> = prefs.getStringSet(k("favourites"), emptySet()).orEmpty().toSet()
+    /** Adds or removes [uuid]; true if it's now a favourite. */
+    fun toggleFavourite(uuid: String): Boolean {
+        val now = _favourites.value.let { if (uuid in it) it - uuid else it + uuid }
+        prefs.edit().putStringSet(k("favourites"), now).apply()
+        _favourites.value = now
+        return uuid in now
+    }
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     fun observeProgramBlock(groupId: Int?, offset: Int, count: Int, start: Long, end: Long) =
         _db.flatMapLatest { it.guideDao().observeProgramBlock(groupId, offset, count, start, end) }
 
@@ -173,6 +204,8 @@ class GuideRepository @Inject constructor(
         android.util.Log.i("Guide", "switching to source ${id.hashCode()}")
         prefs.edit().putString(KEY_SOURCE, id).apply()
         _db.value = dbs.get(id)
+        _favourites.value = loadFavourites()
+        _groupOrder.value = loadGroupOrder()
         _generation.value++
     }
 
@@ -215,7 +248,7 @@ class GuideRepository @Inject constructor(
         channelIds.chunked(900).flatMap { dao.programsForChannels(it, from, to) }
     suspend fun searchProgramsEnding(q: String, endFrom: Long, endTo: Long) = dao.searchProgramsEnding(q, endFrom, endTo)
 
-    /** [maxAgeMs]: how old the guide may be (Settings → Playback → TV guide refresh); null: only if it's empty. */
+    /** [maxAgeMs]: how old the guide may be (Settings → Live TV → TV guide refresh); null: only if it's empty. */
     suspend fun syncIfStale(session: Session, maxAgeMs: Long? = STALE_MS) {
         activate(session)
         val age = System.currentTimeMillis() - prefs.getLong(k(KEY_LAST_SYNC), 0)
@@ -262,7 +295,7 @@ class GuideRepository @Inject constructor(
             _sync.value = SyncState.Running("Loading TV guide…")
             val now = System.currentTimeMillis()
             val start = Instant.ofEpochMilli(now - LOOKBACK_MS).toString()
-            val end = Instant.ofEpochMilli(now + FORWARD_MS).toString()
+            val end = Instant.ofEpochMilli(now + forwardMs()).toString()
             api.grid(start, end).use { body ->
                 db.withTransaction {
                     dao.clearPrograms()
@@ -381,7 +414,7 @@ class GuideRepository @Inject constructor(
             var total = 0
             // Providers without a guide still work: channels just show their names.
             runCatching {
-                xtream.guide(session, wanted, now - back, now + FORWARD_MS) { batch ->
+                xtream.guide(session, wanted, now - back, now + forwardMs()) { batch ->
                     dao.insertPrograms(batch)
                     total += batch.size
                     _sync.value = SyncState.Running("Loading TV guide… %,d programmes".format(total))
@@ -438,7 +471,7 @@ class GuideRepository @Inject constructor(
                 _sync.value = SyncState.Running("Loading TV guide…")
                 val wanted = channelRows.mapTo(HashSet()) { it.guideKey }
                 runCatching {
-                    xtream.guideFromUrl(guide, wanted, now - LOOKBACK_MS, now + FORWARD_MS) { batch ->
+                    xtream.guideFromUrl(guide, wanted, now - LOOKBACK_MS, now + forwardMs()) { batch ->
                         dao.insertPrograms(batch)
                         total += batch.size
                         _sync.value = SyncState.Running("Loading TV guide… %,d programmes".format(total))
@@ -629,7 +662,6 @@ class GuideRepository @Inject constructor(
         const val STALE_MS = 4 * 3_600_000L
         const val LOOKBACK_MS = 3_600_000L
         const val XC_LOOKBACK_MS = 48 * 3_600_000L
-        const val FORWARD_MS = 36 * 3_600_000L
         const val BATCH = 1000
     }
 }

@@ -83,11 +83,11 @@ The **Other buttons** section has:
 
 ### Button hints
 
-A small pill at the bottom of the screen says what the buttons do where you are. Choose **First few times**, **Always** or **Off** in **Settings → Navigation → Button hints**.
+A small pill at the bottom of the screen says what the buttons do where you are. Choose **First few times**, **Always** or **Off** in **Settings → Appearance → Menu → Button hints**.
 
 ### Navigation
 
-**Settings → Navigation** covers the rest of how you get around: where the app opens, the side menu, and poster rows. See [Settings](SETTINGS.md#navigation).
+**Settings → Menu & navigation** covers the rest of how you get around: where the app opens, the side menu, and poster rows. See [Settings](SETTINGS.md#menu--navigation).
 
 ## Controlling Viewarr from outside
 

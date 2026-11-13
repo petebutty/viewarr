@@ -68,10 +68,20 @@ internal fun MediaMenuPanel(
     onEditing: (Boolean) -> Unit = {},
     /** The menu's edit mode (✎ Edit menus): "Edit this list" and hold OK to edit are offered only then. */
     editMode: Boolean = false,
+    /** Makes sure the page behind is Movies / Shows (not a service's) before a preview, without closing the menu. */
+    onPreviewPage: () -> Unit = {},
 ) {
     // Same instance as the page's, so what's picked here shows there straight away.
     val media: MediaViewModel = hiltViewModel(key = "media-${type.name}")
     LaunchedEffect(type) { media.load(type); media.loadLibraries(type) }
+    // As you move through the list the page behind follows (home, a library, a row, a category), after a short pause
+    // so scrolling past doesn't load each one (an IPTV library asks the server for every category).
+    val previewScope = androidx.compose.runtime.rememberCoroutineScope()
+    var previewJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    fun preview(show: () -> Unit) {
+        previewJob?.cancel()
+        previewJob = previewScope.launch { kotlinx.coroutines.delay(450); onPreviewPage(); show() }
+    }
     // The menu's own list (Settings → Home page & menu → Menu list), separate from which rows the page shows.
     val rowsState by media.jumpRows.collectAsStateWithLifecycle()
     val libraries by media.libraries.collectAsStateWithLifecycle()
@@ -108,7 +118,8 @@ internal fun MediaMenuPanel(
     if (catsFor != null) {
         LibraryCategories(media, type, catsFor, rightMode.groups, browse,
             onPick = { group, v -> media.openLibraryAt(catsFor, type, group, v); onCats(null); onOpenPage() },
-            onNone = { media.openLibrary(catsFor, type); onCats(null); onOpenPage() })
+            onNone = { media.openLibrary(catsFor, type); onCats(null); onOpenPage() },
+            onHover = { group, v -> preview { media.openLibraryAt(catsFor, type, group, v) } })
         return
     }
     // (The highlight goes onto "home" itself, not the list as a whole: see RecordingsPanel.)
@@ -121,7 +132,8 @@ internal fun MediaMenuPanel(
     ) {
         item(key = "home") {
             val go = { media.openLibrary(null, type); media.jumpTo(null); onOpenPage() }
-            MenuItem(text = home, selected = browse == null && current == null, onClick = go, modifier = Modifier.focusRequester(focusRequester).rightDoes(go))
+            MenuItem(text = home, selected = browse == null && current == null, onClick = go,
+                modifier = Modifier.focusRequester(focusRequester).onFocusChanged { if (it.isFocused) preview { media.openLibrary(null, type); media.jumpTo(null) } }.rightDoes(go))
         }
         if (libs.isNotEmpty()) item(key = "h-lib") {
             MenuGroupLabel("Libraries")
@@ -138,7 +150,8 @@ internal fun MediaMenuPanel(
                 onClick = go,
                 // Hold OK: edit this list, on this library.
                 onLongClick = if (editMode) ({ lastLib = lib.key; onEditing(true) }) else null,
-                modifier = Modifier.focusRequester(libFocus.getOrPut(lib.key) { FocusRequester() }).rightDoes(right),
+                modifier = Modifier.focusRequester(libFocus.getOrPut(lib.key) { FocusRequester() })
+                    .onFocusChanged { if (it.isFocused) preview { media.openLibrary(lib, type) } }.rightDoes(right),
             )
         }
         // The page's rows are on the page itself; here they're folded away under one entry (OK / Right opens it),
@@ -154,7 +167,8 @@ internal fun MediaMenuPanel(
         }
         if (rowsOpen) items(rows, key = { "r-" + it.id }) { row ->
             val go = { media.openLibrary(null, type); media.jumpTo(row.id); onOpenPage() }
-            MenuItem(text = "   " + row.title, trailing = row.items.size.toString(), selected = browse == null && row.id == current, onClick = go, modifier = Modifier.rightDoes(go))
+            MenuItem(text = "   " + row.title, trailing = row.items.size.toString(), selected = browse == null && row.id == current, onClick = go,
+                modifier = Modifier.onFocusChanged { if (it.isFocused) preview { media.openLibrary(null, type); media.jumpTo(row.id) } }.rightDoes(go))
         }
         if (editMode) item(key = "edit") {
             val go = { lastLib = null; onEditing(true) }
@@ -280,6 +294,8 @@ internal fun LibraryCategories(
     media: MediaViewModel, type: MediaType, lib: io.github.petebutty.viewarr.data.media.MediaLibrary, groups: List<String>,
     browse: MediaViewModel.LibraryBrowse?,
     onPick: (String, io.github.petebutty.viewarr.data.media.FilterValue?) -> Unit, onNone: () -> Unit,
+    /** Moving onto one: the page behind shows the library on it (MediaMenuPanel waits a moment first). */
+    onHover: (String, io.github.petebutty.viewarr.data.media.FilterValue?) -> Unit = { _, _ -> },
 ) {
     var cats by remember(lib.key, groups) { mutableStateOf<Pair<String, List<io.github.petebutty.viewarr.data.media.FilterValue>>?>(null) }
     var loaded by remember(lib.key, groups) { mutableStateOf(false) }
@@ -316,12 +332,12 @@ internal fun LibraryCategories(
         item(key = "all") {
             val go = { onPick(group, null) }
             MenuItem(text = "All", selected = currentId == null && browse?.library?.key == lib.key, onClick = go,
-                modifier = (if (startIdx == 0) Modifier.focusRequester(first) else Modifier).rightDoes(go))
+                modifier = (if (startIdx == 0) Modifier.focusRequester(first) else Modifier).onFocusChanged { if (it.isFocused) onHover(group, null) }.rightDoes(go))
         }
         itemsIndexed(values, key = { _, v -> "c-" + v.id }) { i, v ->
             val go = { onPick(group, v) }
             MenuItem(text = v.label, selected = v.id == currentId, onClick = go,
-                modifier = (if (startIdx == i + 1) Modifier.focusRequester(first) else Modifier).rightDoes(go))
+                modifier = (if (startIdx == i + 1) Modifier.focusRequester(first) else Modifier).onFocusChanged { if (it.isFocused) onHover(group, v) }.rightDoes(go))
         }
     }
 }

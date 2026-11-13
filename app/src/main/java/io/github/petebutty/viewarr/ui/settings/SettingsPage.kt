@@ -1,5 +1,6 @@
 package io.github.petebutty.viewarr.ui.settings
 
+import io.github.petebutty.viewarr.ui.common.followingSetting
 import kotlinx.coroutines.launch
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.onKeyEvent
@@ -86,9 +87,9 @@ class SettingItem(
 
 /** Lock notes, the same words everywhere. */
 object Locks {
-    const val LOW_MEMORY = "Off in Low-memory mode. To use it, switch off Settings → Playback → Low-memory mode."
-    const val LIVE_HUB = "Set by the Live TV hub style. To choose it yourself, set Settings → Navigation → Start → Style to Classic."
-    const val NEEDS_HUB = "Part of the Live TV hub. To use it, set Settings → Navigation → Start → Style to Live TV hub."
+    const val LOW_MEMORY = "Off in Low-memory mode. To use it, switch off Settings → Troubleshooting → Low-memory mode."
+    const val LIVE_HUB = "Set by the Live TV hub style. To choose it yourself, set Settings → Menu & navigation → Start → Style to Classic."
+    const val NEEDS_HUB = "Part of the Live TV hub. To use it, set Settings → Menu & navigation → Start → Style to Live TV hub."
 }
 
 /** [header]: drawn above the items (e.g. Remote & navigation's remote picture); not focusable. */
@@ -120,10 +121,14 @@ fun SettingsPage(
     onBack: () -> Unit,
     onReset: (() -> Unit)? = null,
     resetLabel: String = "Reset to defaults",
+    /** Open on this section (Search settings: where the setting found lives) … */
+    startSection: String? = null,
+    /** … with this setting highlighted. */
+    startItem: String? = null,
 ) {
     // The open category, kept by name: a setting can add or hide categories (low-memory mode hides some), and an
     // index alone then pointed past the end (crash) or at the wrong one.
-    var categoryName by remember { mutableStateOf<String?>(null) }
+    var categoryName by remember { mutableStateOf<String?>(startSection?.takeIf { s -> categories.any { it.name == s } }) }
     // A category that's gone (e.g. "Live TV hub" once the hub is turned on from it): the one now in its place.
     var lastCategory by remember { androidx.compose.runtime.mutableIntStateOf(0) }
     val category = categories.indexOfFirst { it.name == categoryName }.takeIf { it >= 0 } ?: lastCategory.coerceIn(0, maxOf(0, categories.lastIndex))
@@ -174,7 +179,9 @@ fun SettingsPage(
     BackHandler { if (choosing != null) closeChoices() else onBack() }
     LaunchedEffect(Unit) {
         awaitFrame()
-        runCatching { catFocus[0].requestFocus() }
+        // From Search settings: straight onto the setting found (the refocus effect scrolls to it).
+        if (startItem != null && currentItems.any { it.title == startItem }) refocus = startItem
+        else runCatching { catFocus[category].requestFocus() }
     }
     // Safety net: if focus ever drops out of the page (a list redrawing, a pop-up closing), it goes back to the last
     // row used, else the open category, instead of leaving nothing highlighted.
@@ -257,7 +264,7 @@ fun SettingsPage(
                         }
                     }
                 }
-                androidx.compose.runtime.CompositionLocalProvider(androidx.compose.foundation.gestures.LocalBringIntoViewSpec provides gentle) {
+                androidx.compose.runtime.CompositionLocalProvider(androidx.compose.foundation.gestures.LocalBringIntoViewSpec provides remember(gentle) { gentle.followingSetting() }) {
                 LazyColumn(Modifier.stopAt(androidx.compose.ui.focus.FocusDirection.Down), state = listState, verticalArrangement = Arrangement.spacedBy(6.dp), contentPadding = PaddingValues(bottom = 40.dp)) {
                     c.header?.let { h -> item(key = c.name + "#header") { h() } }
                     itemsIndexed(c.items, key = { _, it -> c.name + it.title }) { index, item ->

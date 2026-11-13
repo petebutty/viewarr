@@ -44,7 +44,10 @@ import kotlin.math.roundToInt
  * Up / Down picks a slider, Left / Right changes it (saved straight away), Back or OK closes.
  */
 @Composable
-fun TransparencyPanel(onClose: () -> Unit, onRow: (Int) -> Unit = {}, vm: AppearanceViewModel = hiltViewModel(),
+fun TransparencyPanel(onClose: () -> Unit, onRow: (Int) -> Unit = {},
+    /** On the glass colour / info bar rows: true, so the info bar shows behind the panel while you change it. */
+    onInfoBar: (Boolean) -> Unit = {},
+    vm: AppearanceViewModel = hiltViewModel(),
     opts: io.github.petebutty.viewarr.ui.settings.UiOptsViewModel = hiltViewModel()) {
     val p = AppColors.palette
     var row by remember { mutableIntStateOf(0) }
@@ -66,7 +69,8 @@ fun TransparencyPanel(onClose: () -> Unit, onRow: (Int) -> Unit = {}, vm: Appear
     val colourRow = rows.size
     val popupRow = rows.size + 1
     val last = popupRow
-    LaunchedEffect(row) { onRow(if (row >= colourRow) 0 else row) }
+    LaunchedEffect(row) { onRow(if (row >= colourRow) 0 else row); onInfoBar(row >= colourRow) }
+    androidx.compose.runtime.DisposableEffect(Unit) { onDispose { onInfoBar(false) } }
     fun change(i: Int, dir: Int) {
         if (i == colourRow) { opts.set(io.github.petebutty.viewarr.ui.theme.UiOpts.GLASS_TINT, (tint + dir + tints.size) % tints.size); return }
         if (i == popupRow) { opts.set(io.github.petebutty.viewarr.ui.theme.UiOpts.POPUP_GLASS, (popup + dir).coerceIn(0, 10)); return }

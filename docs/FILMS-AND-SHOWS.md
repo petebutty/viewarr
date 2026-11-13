@@ -37,7 +37,7 @@ You can also do this from the menu itself with **Edit menus** (see [Getting arou
 **Movies** and **Shows** in the menu list your Plex, Jellyfin and Emby libraries, plus **IPTV Movies** and **IPTV Shows** (your provider's films and series through Dispatcharr). IPTV titles get pages found on TMDB by name when the provider gives no id. Your rows are tucked under **Jump to a row**.
 
 - Going into a list slides the one before it away, like the guide's channel groups.
-- **Right on a library** lists what you can jump straight into: its categories (IPTV), genres, collections, decades, years, studios or age ratings. Change this in **Settings → Navigation → Right on a library**. OK always opens the whole library.
+- **Right on a library** lists what you can jump straight into: its categories (IPTV), genres, collections, decades, years, studios or age ratings. Change this in **Settings → Menu & navigation → Right on a library**. OK always opens the whole library.
 
 A library is one continuous grid with:
 
@@ -106,7 +106,8 @@ Addons with their own titles (no IMDb or TMDB id, such as fan edits) get proper 
 
 ### Player controls
 
-- **OK** brings up the seek bar (with preview pictures) and icon buttons: Play / Pause and Stop, then Details, Audio, Subtitles, Media info and switching player.
+- **OK** brings up the seek bar (with preview pictures) and icon buttons: Play / Pause and Stop, then Details, Audio, Subtitles, Media info, switching player, Search, Transparency and Settings.
+- **Hold OK on a button** to arrange them: OK shows or hides one, hold OK picks it up and **Left / Right** move it, **Back** finishes. Play / Pause always stays. It's one arrangement with live TV's controls, so changing either changes both. *(0.28.0 and later.)*
 - The remote's **Play/Pause** button pauses.
 - The remote's **Info** button (or **Details**) shows the poster, episode and synopsis. These also appear by themselves a moment after you pause.
 - **Down**, then **Left / Right** and **OK**: move along the seek bar with preview pictures and jump there. Previews come from Plex, Emby or Jellyfin when the server made them; otherwise the box makes them from the film itself (**Settings → Playback → Seek-bar previews**).

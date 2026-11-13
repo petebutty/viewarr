@@ -182,6 +182,30 @@ class PlaybackViewModel @Inject constructor(
         return (r.body.child("source_fps") as? kotlinx.serialization.json.JsonPrimitive)?.content?.toFloatOrNull()?.takeIf { it > 0 }
     }
 
+    /**
+     * What the player on this box is getting: picture, frame rate ([fps]: the certain reading, as the badge has it),
+     * sound, bitrate, how far ahead it has buffered and frames dropped. Works for every source, not just Dispatcharr.
+     */
+    fun playerInfo(fps: Float?): List<Pair<String, String>> {
+        val p = player ?: return emptyList()
+        val v = p.videoFormat
+        val a = p.audioFormat
+        fun codec(f: androidx.media3.common.Format?) = (f?.codecs?.substringBefore('.') ?: f?.sampleMimeType?.substringAfter('/'))?.uppercase()
+        val rate = v?.frameRate?.takeIf { it > 0 } ?: fps
+        val counters = p.videoDecoderCounters
+        val ahead = (p.bufferedPosition - p.currentPosition).coerceAtLeast(0)
+        return listOfNotNull(
+            listOfNotNull(v?.takeIf { it.width > 0 }?.let { "${it.width}×${it.height}" }, rate?.let { "%.3f".format(it).trimEnd('0').trimEnd('.') + " fps" + (if (v?.frameRate?.takeIf { f -> f > 0 } == null) " (counted)" else "") })
+                .joinToString("  ·  ").takeIf { it.isNotEmpty() }?.let { "Picture" to it },
+            codec(v)?.let { "Video" to it },
+            listOfNotNull(codec(a), a?.channelCount?.takeIf { it > 0 }?.let { when (it) { 1 -> "mono"; 2 -> "stereo"; 6 -> "5.1"; 8 -> "7.1"; else -> "$it ch" } }, a?.sampleRate?.takeIf { it > 0 }?.let { "${it / 1000} kHz" })
+                .joinToString("  ·  ").takeIf { it.isNotEmpty() }?.let { "Audio" to it },
+            (v?.bitrate ?: 0).takeIf { it > 0 }?.let { "Bitrate" to "%.1f Mbps".format(it / 1_000_000f) },
+            "Buffered" to "%.1f s ahead".format(ahead / 1000f),
+            counters?.let { "Dropped" to "${it.droppedBufferCount} frames" },
+        )
+    }
+
     suspend fun streamInfo(): List<Pair<String, String>> {
         val s = session ?: return emptyList()
         val ch = _channel.value ?: return emptyList()
@@ -350,7 +374,11 @@ class PlaybackViewModel @Inject constructor(
         return ExoPlayer.Builder(context)
             .setRenderersFactory(
                 // FFmpeg audio only as a fallback (MP2 on some channels); the box's own decoders and passthrough come first.
-                DefaultRenderersFactory(context)
+                // (The audio sink with the info bar's Audio sync on its clock.)
+                object : DefaultRenderersFactory(context) {
+                    override fun buildAudioSink(ctx: Context, floatOutput: Boolean, audioTrackPlaybackParams: Boolean): androidx.media3.exoplayer.audio.AudioSink? =
+                        super.buildAudioSink(ctx, floatOutput, audioTrackPlaybackParams)?.let(AvSync::wrap)
+                }
                     .setEnableDecoderFallback(true)
                     .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON),
             )

@@ -315,6 +315,8 @@ fun HomeScreen(
     var accountsFromMenu by remember { mutableStateOf(false) }
     var searchVoice by remember { mutableStateOf(false) }
     var menuOnSettings by remember { mutableStateOf(false) }
+    // Sign out of everything: asked first.
+    var askSignOut by remember { mutableStateOf(false) }
     // Live TV controls → Transparency: the three sliders over the picture.
     var transparencyOpen by remember { mutableStateOf(false) }
     // A film brought back full screen (held Back, handled in MainActivity): the menu or search under it closes,
@@ -343,6 +345,18 @@ fun HomeScreen(
     // The guide group a channel was started from (browsing another group later doesn't change it).
     var playingGroup by remember { mutableStateOf<Int?>(null) }
     LaunchedEffect(playing?.id) { if (playing != null) playingGroup = vm.groupId.value }
+    // Settings → Live TV → "All channels" group hidden: the guide shows the first group instead of everything
+    // (also after switching source, which starts on All channels).
+    val groupsForAll by vm.groups.collectAsStateWithLifecycle()
+    val groupForAll by vm.groupId.collectAsStateWithLifecycle()
+    LaunchedEffect(AppColors.palette.hideAllChannels, groupForAll, groupsForAll.isNotEmpty()) {
+        if (AppColors.palette.hideAllChannels && groupForAll == null) groupsForAll.firstOrNull()?.let { vm.selectGroup(it.id) }
+    }
+    // The last favourite removed while on ★ Favourites: back to all channels (or the first group, as above).
+    val favsNow by vm.favourites.collectAsStateWithLifecycle()
+    LaunchedEffect(favsNow.isEmpty(), groupForAll) {
+        if (favsNow.isEmpty() && groupForAll == io.github.petebutty.viewarr.ui.guide.GuideViewModel.FAVOURITES) vm.selectGroup(null)
+    }
     // Back from full screen: the guide opens on the channel playing, at now, in its group (not wherever the guide was
     // last scrolled to, nor the group browsed since).
     LaunchedEffect(fullscreen) {
@@ -419,10 +433,26 @@ fun HomeScreen(
         }
     }
 
+    /**
+     * The channel [delta] along from [index] in a list of [size]. Past either end it follows Settings → Live TV → TV
+     * guide → End of a list (as the guide and the channel list do): round to the other end, unless that says Stop.
+     * (Down on the first channel used to do nothing, which looked as if Down didn't work.)
+     */
+    fun stepIndex(index: Int, delta: Int, size: Int): Int {
+        if (size <= 0) return 0
+        if (index < 0) return 0
+        val next = index + delta
+        val stop = AppColors.palette.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.LIST_ENDS) == 1
+        return when {
+            next in 0 until size -> next
+            stop -> next.coerceIn(0, size - 1)
+            else -> ((next % size) + size) % size
+        }
+    }
     fun zap(delta: Int) {
         val list = vm.channels.value
         val index = list.indexOfFirst { it.id == playing?.id }
-        val target = list.getOrNull((if (index < 0) 0 else index + delta).coerceIn(0, maxOf(0, list.size - 1))) ?: return
+        val target = list.getOrNull(stepIndex(index, delta, list.size)) ?: return
         if (target.id == playing?.id) return
         playback.play(target, session)
         vm.selectChannel(target.id)
@@ -442,19 +472,23 @@ fun HomeScreen(
         showBanner()
     }
     fun cancelBrowse() { browseJob?.cancel(); browseChannel = null }
+    LaunchedEffect(bannerVisible) { if (!bannerVisible && browseChannel != null) cancelBrowse() }
     fun browse(delta: Int) {
         val list = vm.channels.value
         if (list.isEmpty()) return
         val from = browseChannel ?: playing
         val index = list.indexOfFirst { it.id == from?.id }
-        val target = list.getOrNull((if (index < 0) 0 else index + delta).coerceIn(0, list.size - 1)) ?: return
+        val target = list.getOrNull(stepIndex(index, delta, list.size)) ?: return
         browseChannel = target.takeIf { it.id != playing?.id }
         showBanner()
         browseJob?.cancel()
         if (browseChannel == null) return
-        val wait = AppColors.palette.browseDelayMs ?: return
+        // (Up / Down set to "Browse, OK changes": only OK changes.)
+        val wait = (if (AppColors.palette.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.LIVE_UPDOWN) == 1) null else AppColors.palette.browseDelayMs) ?: return
         browseJob = fromStartScope.launch { delay(wait); commitBrowse() }
     }
+    /** Up / Down and Channel + / − while watching (Settings → Live TV → Up / Down while watching): change, or browse. */
+    fun upDown(delta: Int) { if (AppColors.palette.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.LIVE_UPDOWN) != 0) browse(delta) else zap(delta) }
 
     /** A press from the button table (Settings → Remote → Buttons) on the guide, live TV or a page. */
     fun doButton(screen: BtnScreen, act: BtnAction) {
@@ -485,8 +519,9 @@ fun HomeScreen(
             BtnAction.Earlier -> vm.moveLeft()
             BtnAction.Later -> vm.moveRight()
             BtnAction.Controls -> if (ch != null) showOsd()
-            BtnAction.NextChannel -> zap(1)
-            BtnAction.PrevChannel -> zap(-1)
+            // (Settings → Live TV → Up / Down while watching set to browse: buttons set to change channel browse too.)
+            BtnAction.NextChannel -> upDown(1)
+            BtnAction.PrevChannel -> upDown(-1)
             BtnAction.BrowseNext -> browse(1)
             BtnAction.BrowsePrev -> browse(-1)
             BtnAction.LastChannel -> lastChannel()
@@ -591,7 +626,10 @@ fun HomeScreen(
         }
     }
 
-    LaunchedEffect(bannerToken) {
+    // Held up while the Transparency panel is on its glass colour / info bar rows (the bar is what's being changed).
+    var bannerHeld by remember { mutableStateOf(false) }
+    LaunchedEffect(bannerToken, bannerHeld) {
+        if (bannerHeld) { bannerVisible = true; return@LaunchedEffect }
         if (bannerVisible) {
             delay(5_000)
             bannerVisible = false
@@ -869,6 +907,16 @@ fun HomeScreen(
         if (closeMenu) menuOpen = false
     }
 
+    // The info bars' sleep timer: when it's up, everything playing stops (music has its own timer).
+    LaunchedEffect(io.github.petebutty.viewarr.playback.SleepTimer.endsAt) {
+        val t = io.github.petebutty.viewarr.playback.SleepTimer.endsAt ?: return@LaunchedEffect
+        delay((t - System.currentTimeMillis()).coerceAtLeast(0))
+        io.github.petebutty.viewarr.playback.SleepTimer.clear()
+        if (playing != null || catchup != null) doButton(BtnScreen.Live, BtnAction.Stop)
+        VodHost.close()
+        toast("Sleep timer: stopped")
+    }
+
     // A button's page (Movies, Recordings…), the TV guide from a page, or leaving the app.
     LaunchedEffect(buttonRequest) {
         val r = buttonRequest ?: return@LaunchedEffect
@@ -1143,6 +1191,7 @@ fun HomeScreen(
     SideEffect {
         LiveShortcutsBridge.items = liveShortcuts
         LiveShortcutsBridge.openSettings = { settingsFromFilm = true; menuOnSettings = true; menuOpen = true }
+        LiveShortcutsBridge.openPage = { name -> buttonRequest = when (name) { "Movies" -> BtnAction.Movies; "Shows" -> BtnAction.Shows; else -> BtnAction.Recordings } }
         LiveShortcutsBridge.openGuide = { menuOpen = false; quickSearch = false; if (page != Page.Tv) openPage(Page.Tv) else fullscreen = false }
     }
     // Settings opened from a film: closing it brings the film back full screen.
@@ -1371,7 +1420,7 @@ fun HomeScreen(
         ).filter { it.items.isNotEmpty() }
     } }
 
-    // ---- The corner picture, highlighted (Settings → Playback → Highlight the corner picture): at the page's edge,
+    // ---- The corner picture, highlighted (Settings → Live TV → Highlight the corner picture): at the page's edge,
     // pressing towards it moves onto it; then Full screen or Close (Left / Right, OK).
     val cornerFocus = remember { FocusRequester() }
     var cornerFocused by remember { mutableStateOf(false) }
@@ -1791,6 +1840,8 @@ fun HomeScreen(
                 onLongSelect = { channel, program ->
                     ButtonMap.changed(remote, BtnScreen.Guide, BtnPress.OkHold)?.let { doButton(BtnScreen.Guide, it); return@GuideScreen }
                     if (program != null) recordTarget = channel to program
+                    // No programme listed (nothing to record): hold OK just adds / removes the favourite.
+                    else toast(if (vm.toggleFavourite(channel)) "${channel.name} added to favourites" else "${channel.name} removed from favourites")
                 },
             )
         }
@@ -1979,13 +2030,16 @@ fun HomeScreen(
                                 playback.seekBy(-remote.seek.ms)
                                 showBanner()
                             }
-                            RemoteAction.Up, RemoteAction.Down -> when (remote.zap) {
-                                ZapDirection.ChannelList -> channelListOpen = true
-                                ZapDirection.UpNext -> zap(if (action == RemoteAction.Up) 1 else -1)
-                                ZapDirection.UpPrevious -> zap(if (action == RemoteAction.Up) -1 else 1)
+                            RemoteAction.Up, RemoteAction.Down -> when {
+                                // Browsing in the info bar (Settings → Live TV → Up / Down while watching) wins over the list.
+                                AppColors.palette.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.LIVE_UPDOWN) != 0 ->
+                                    upDown(if ((action == RemoteAction.Up) != (remote.zap == ZapDirection.UpPrevious)) 1 else -1)
+                                remote.zap == ZapDirection.ChannelList -> channelListOpen = true
+                                remote.zap == ZapDirection.UpNext -> zap(if (action == RemoteAction.Up) 1 else -1)
+                                else -> zap(if (action == RemoteAction.Up) -1 else 1)
                             }
-                            RemoteAction.ChannelDown -> zap(-1)
-                            RemoteAction.ChannelUp -> zap(1)
+                            RemoteAction.ChannelDown -> upDown(-1)
+                            RemoteAction.ChannelUp -> upDown(1)
                             RemoteAction.Ok -> when {
                                 playState is PlaybackState.Error -> playback.retry()
                                 remote.playerOk == PlayerOk.Banner -> showBanner()
@@ -2033,6 +2087,19 @@ fun HomeScreen(
                     // Settings over live TV: the menu opens on Settings; Back closes it, back to the channel.
                     onSettings = { osdVisible = false; menuOnSettings = true; menuOpen = true },
                     onTransparency = { osdVisible = false; transparencyOpen = true },
+                    onSearch = { osdVisible = false; doButton(BtnScreen.Live, BtnAction.Search) },
+                    // Extra buttons (once added to the bar: hold OK on a button → OK on one marked "not added").
+                    extraButtons = listOf(
+                        io.github.petebutty.viewarr.ui.player.BarExtra("favourite",
+                            if (channel.uuid in favsNow) io.github.petebutty.viewarr.ui.common.AppIcons.Star else io.github.petebutty.viewarr.ui.common.AppIcons.StarOutline,
+                            if (channel.uuid in favsNow) "Remove from favourites" else "Add to favourites") {
+                            toast(if (vm.toggleFavourite(channel)) "${channel.name} added to favourites" else "${channel.name} removed from favourites")
+                        },
+                        io.github.petebutty.viewarr.ui.player.BarExtra("lastchannel", io.github.petebutty.viewarr.ui.common.AppIcons.History, "Last channel") { osdVisible = false; doButton(BtnScreen.Live, BtnAction.LastChannel) },
+                        io.github.petebutty.viewarr.ui.player.BarExtra("movies", io.github.petebutty.viewarr.ui.common.AppIcons.Movie, "Movies") { osdVisible = false; doButton(BtnScreen.Live, BtnAction.Movies) },
+                        io.github.petebutty.viewarr.ui.player.BarExtra("shows", io.github.petebutty.viewarr.ui.common.AppIcons.Tv, "Shows") { osdVisible = false; doButton(BtnScreen.Live, BtnAction.Shows) },
+                        io.github.petebutty.viewarr.ui.player.BarExtra("recordings", io.github.petebutty.viewarr.ui.common.AppIcons.Recordings, "Recordings") { osdVisible = false; doButton(BtnScreen.Live, BtnAction.Recordings) },
+                    ),
                     // No shortcut row under the buttons any more: every library and service is in the menu on the left.
                     shortcuts = emptyList(),
                     posterRows = emptyList(),
@@ -2076,7 +2143,7 @@ fun HomeScreen(
                 Text("   Press ◀ again, or hold ◀", fontSize = 13.sp, color = AppColors.TextSecondary)
             }
         }
-        // What the buttons do here (Settings → Appearance → Button hints), following the button settings.
+        // What the buttons do here (Settings → Appearance → Menu → Button hints), following the button settings.
         if (!menuOpen && !quickSearch && !showAccounts && recordTarget == null && infoTarget == null && !VodHost.active) {
             val holdBackGuide = ButtonMap.action(remote, BtnScreen.Guide, BtnPress.BackHold).label.lowercase()
             when {
@@ -2093,6 +2160,7 @@ fun HomeScreen(
         if (transparencyOpen && page == Page.Tv) TransparencyPanel(
             onClose = { transparencyOpen = false; if (playing != null) fullscreen = true },
             onRow = { r -> if (playing != null) fullscreen = r == 0 },
+            onInfoBar = { show -> bannerHeld = show && playing != null; if (bannerHeld) { fullscreen = true; showBanner() } },
         )
         // Going right into a page (a library, a service, a channel group's guide): the menu's glass slides back out to the
         // left with the page and the preview moving back, rather than vanishing while they move.
@@ -2126,10 +2194,8 @@ fun HomeScreen(
                     menuOpen = false; menuOnSettings = false; menuOnMain = false
                     if (page == Page.Tv && !fullscreen) exitArmed = System.currentTimeMillis()
                 },
-                onSignOut = {
-                    playback.stop()
-                    onSignOut()
-                },
+                // An "are you sure?" first (it signs out of every account and source on this TV).
+                onSignOut = { menuOpen = false; askSignOut = true },
                 channelsPanel = if (fullscreen && channelListOpen && channel != null) ({ onLeft -> channelPanel(true, onLeft) }) else null,
                 // A group picked: back to its channels, the channel list on its own.
                 onGroupPicked = { menuOpen = false; menuOnMain = false },
@@ -2275,8 +2341,22 @@ fun HomeScreen(
             }
         }
         seasonPick?.let { m -> SeasonPicker(m, onClose = { seasonPick = null }) }
+    if (askSignOut) io.github.petebutty.viewarr.ui.dvr.ChoicePanel(
+        title = "Sign out of everything?",
+        subtitle = "This TV forgets all your accounts and Live TV sources (they stay on your servers). You'll need to set Viewarr up again.",
+        choices = listOf(
+            "Cancel" to { askSignOut = false },
+            "Sign out" to { askSignOut = false; playback.stop(); onSignOut() },
+        ),
+        message = null,
+        onClose = { askSignOut = false },
+    )
         if (seasonPick == null) recordTarget?.let { (ch, prog) ->
             RecordDialog(ch, prog, dvr, onDetails = { recordTarget = null; infoTarget = ch to prog },
+                favourite = (if (ch.uuid in vm.favourites.value) "★  Remove from favourites" else "★  Add to favourites") to {
+                    recordTarget = null
+                    toast(if (vm.toggleFavourite(ch)) "${ch.name} added to favourites" else "${ch.name} removed from favourites")
+                },
                 onChooseSeasons = { m -> recordTarget = null; seasonPick = m },
                 onWatchFromStart = {
                     recordTarget = null

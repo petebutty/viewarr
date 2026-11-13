@@ -1,6 +1,7 @@
 @file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 package io.github.petebutty.viewarr.ui.home
 
+import io.github.petebutty.viewarr.ui.common.followingSetting
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -96,10 +97,11 @@ internal fun ChannelListOverlay(
     val programs by vm.programs.collectAsStateWithLifecycle()
     val groupId by vm.groupId.collectAsStateWithLifecycle()
     val start = channels.indexOfFirst { it.id == current.id }.coerceAtLeast(0)
-    // Settings → Appearance → End of a list: 1 jumps to the other end on a fresh press, 2 stops.
+    // Settings → Live TV → TV guide → End of a list: 1 jumps to the other end on a fresh press, 2 stops.
     val ends = if (AppColors.palette.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.LIST_ENDS) == 0) 1 else 2
     // (Opening: the highlighted channel at the top of the list.)
-    val listState = rememberLazyListState(initialFirstVisibleItemIndex = maxOf(0, start - 2))
+    // (Opens with your channel in the middle of the screen, as the guide does: roughly at first, exactly once laid out.)
+    val listState = rememberLazyListState(initialFirstVisibleItemIndex = maxOf(0, start - 5))
     // Jump to the other end: the first and last channels, to move the highlight to.
     val firstCh = remember { FocusRequester() }
     val lastCh = remember { FocusRequester() }
@@ -115,7 +117,12 @@ internal fun ChannelListOverlay(
     val currentIdx = channels.indexOfFirst { it.id == current.id }
     LaunchedEffect(groupId, currentIdx >= 0 || channels.isNotEmpty()) {
         if (channels.isEmpty()) return@LaunchedEffect
-        listState.scrollToItem(maxOf(0, currentIdx - 2))
+        // Your channel in the middle of the list (how many rows fit is only known once it's laid out), then highlighted:
+        // nowhere near an edge, so highlighting it doesn't move the list.
+        awaitFrame()
+        val rows = listState.layoutInfo.visibleItemsInfo.size.coerceAtLeast(1)
+        // (rows / 2: the middle row of what's on screen; counting down from (rows - 1) left it one row too high.)
+        listState.scrollToItem(maxOf(0, currentIdx - rows / 2))
         awaitFrame()
         if (!embedded) runCatching { focus.requestFocus() }
     }
@@ -141,22 +148,18 @@ internal fun ChannelListOverlay(
             .then(if (embedded) Modifier else Modifier.background(AppColors.MenuPanel))
             .padding(start = 24.dp, top = 24.dp, bottom = 24.dp, end = 36.dp),
     ) {
-        // Scrolls only when the highlight would leave the screen (a row's margin kept), not to the TV's own resting
-        // place: with that, opening the list jumped your channel to the top and then slid it back down (a bounce).
+        // Keeps the highlighted channel in the middle of the screen (not the TV's own resting place, which made the list
+        // bounce as it opened, nor only at the edges, which let the highlight run to the bottom first).
         val rowMargin = with(androidx.compose.ui.platform.LocalDensity.current) { 56.dp.toPx() }
         val gentle = remember(rowMargin) {
             object : androidx.compose.foundation.gestures.BringIntoViewSpec {
-                override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float {
-                    val m = rowMargin.coerceAtMost(((containerSize - size) / 2f).coerceAtLeast(0f))
-                    return when {
-                        offset < m -> offset - m
-                        offset + size > containerSize - m -> offset + size - (containerSize - m)
-                        else -> 0f
-                    }
-                }
+                // The highlighted channel kept in the middle, the list moving under it (as the guide and TiviMate do);
+                // at the top and end of the list it can't move further, so the highlight goes up / down instead.
+                override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float =
+                    offset + size / 2f - containerSize / 2f
             }
         }
-        androidx.compose.runtime.CompositionLocalProvider(androidx.compose.foundation.gestures.LocalBringIntoViewSpec provides gentle) {
+        androidx.compose.runtime.CompositionLocalProvider(androidx.compose.foundation.gestures.LocalBringIntoViewSpec provides remember(gentle) { gentle.followingSetting() }) {
         LazyColumn(state = listState, verticalArrangement = Arrangement.spacedBy(2.dp)) {
             // (One copy of the channels for the count, the keys and the rows: see GuideScreen.)
             val list = channels

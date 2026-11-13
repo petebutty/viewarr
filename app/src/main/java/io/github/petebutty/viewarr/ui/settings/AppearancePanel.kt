@@ -1,5 +1,6 @@
 package io.github.petebutty.viewarr.ui.settings
 
+import io.github.petebutty.viewarr.ui.common.instantFocusScale
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -65,6 +66,7 @@ class AppearanceViewModel @Inject constructor(private val store: ThemeStore) : V
         viewModelScope.launch { store.saveHideMedia(on) }
     }
     fun setMenuOrder(ids: List<String>) { viewModelScope.launch { store.saveMenuOrder(ids) } }
+    fun setBarOrder(bar: String, ids: List<String>) { viewModelScope.launch { store.saveBarOrder(bar, ids) } }
     fun setRatingsOrder(ids: List<String>) { viewModelScope.launch { store.saveRatingsOrder(ids) } }
 
     fun setSquareCorners(on: Boolean) {
@@ -99,14 +101,15 @@ private class Choice(override val label: String, val value: Any) : io.github.pet
     override fun hashCode() = value.hashCode()
 }
 
-private val MainColourNames = listOf("Charcoal", "Navy", "Graphite", "Deep teal", "Plum", "Oxblood", "Forest", "Slate", "Aubergine", "OLED black")
-private val HighlightNames = listOf("Cyan", "Pink", "Sky blue", "Blue", "Teal", "Lilac", "Orange", "Green", "Amber", "Rose")
+private val MainColourNames = listOf("Charcoal (Viewarr)", "Classic blue", "Graphite", "Deep teal", "Plum", "Oxblood", "Forest", "Slate", "Aubergine", "OLED black", "Ocean blue", "Sky blue")
+private val HighlightNames = listOf("Cyan", "Pink", "Sky blue", "Blue", "Teal", "Lilac", "Orange", "Green", "Amber", "Rose", "Bright cyan")
 
 /** Settings → Appearance, full screen like the other settings pages. */
 @Composable
-fun AppearanceSettingsScreen(onBack: () -> Unit, vm: AppearanceViewModel = hiltViewModel(), opts: UiOptsViewModel = hiltViewModel()) {
+fun appearanceCategories(vm: AppearanceViewModel = hiltViewModel(), opts: UiOptsViewModel = hiltViewModel()): List<SettingCategory> {
     val palette = AppColors.palette
     val highs = HighlightChoices.mapIndexed { i, c -> Choice(HighlightNames.getOrElse(i) { "Colour ${i + 1}" }, c) }
+    val mains = MainColourChoices.mapIndexed { i, c -> Choice(MainColourNames.getOrElse(i) { "Colour ${i + 1}" }, c) }
     val onOff = listOf(Choice("On", true), Choice("Off", false))
     val corners = listOf(Choice("Rounded", false), Choice("Square", true))
     val transparencies = (0..100 step 10).map { Choice(if (it == 0) "Solid" else "$it%", it) }
@@ -136,13 +139,18 @@ fun AppearanceSettingsScreen(onBack: () -> Unit, vm: AppearanceViewModel = hiltV
         SettingCategory(
             "Colours & text", "Colours, text size, the clock and how dates and times show. Changes show straight away.",
             listOf(
-                // One theme for now (Viewarr): only the highlight colour can change.
+                // The background behind everything (the glass is tinted by it too): Viewarr's charcoal, or a colour.
+                SettingItem("Background colour", "The colour behind the guide, menus and pages. Classic blue, Ocean blue and Sky blue are the brighter looks from before the glass design.", mains,
+                    mains.firstOrNull { it.value == palette.main } ?: Choice("Custom", palette.main)) { c ->
+                    vm.apply((c as Choice).value as androidx.compose.ui.graphics.Color, palette.highlight)
+                },
                 SettingItem("Highlight colour", "The colour of whatever is selected.", highs,
                     highs.firstOrNull { it.value == palette.highlight } ?: Choice("Custom", palette.highlight)) { c ->
                     vm.apply(palette.main, (c as Choice).value as androidx.compose.ui.graphics.Color)
                 },
                 optItem(opts, "Text size", "How big text and everything else on screen is. Larger is easier to read from the sofa.", io.github.petebutty.viewarr.ui.theme.UiOpts.TEXT_SIZE),
                 optItem(opts, "Font", "The lettering for all text, from the fonts built into your box (a box without one shows the standard font).", io.github.petebutty.viewarr.ui.theme.UiOpts.FONT),
+                optItem(opts, "List scrolling", "How lists follow the highlight. Instant: the list moves with it in one go (no trail when you go through quickly). Smooth: it slides there.", io.github.petebutty.viewarr.ui.theme.UiOpts.LIST_SCROLL),
                 optItem(opts, "Clock", "The time in the top corner.", io.github.petebutty.viewarr.ui.theme.UiOpts.CLOCK),
                 optItem(opts, "Date format", "How dates show across Viewarr: the guide, recordings, episodes and reviews.", io.github.petebutty.viewarr.ui.theme.UiOpts.DATE_ORDER),
                 optItem(opts, "Time format", "24-hour or 12-hour times: the guide, the clock, programme times and recordings.", io.github.petebutty.viewarr.ui.theme.UiOpts.TIME_FORMAT),
@@ -184,6 +192,7 @@ fun AppearanceSettingsScreen(onBack: () -> Unit, vm: AppearanceViewModel = hiltV
                     progressChoices[palette.progressBars.coerceIn(0, 2)]) { c -> vm.setProgressBars((c as Choice).value as Int) },
                 optItem(opts, "Channel logos", "Logos beside the channel names.", io.github.petebutty.viewarr.ui.theme.UiOpts.CHANNEL_LOGOS),
                 optItem(opts, "Info bar size", "How big the info bar is drawn over live TV and films: its text, buttons and preview rows together. Smaller covers less of the picture.", io.github.petebutty.viewarr.ui.theme.UiOpts.INFOBAR_SIZE),
+                optItem(opts, "Info bar width", "How wide the info bar is: the whole screen, or narrower and centred at the bottom (live TV and films alike).", io.github.petebutty.viewarr.ui.theme.UiOpts.INFOBAR_WIDTH),
                 optItem(opts, "Preview cards", "The size of the cards in the info bar's rows (next episodes, shortcuts).", io.github.petebutty.viewarr.ui.theme.UiOpts.CARD_SIZE),
                 optItem(opts, "Episode numbers", "Series and episode numbers after programme names (\"S15E4\") in the guide and the channel list.", io.github.petebutty.viewarr.ui.theme.UiOpts.GUIDE_EPISODE),
                 optItem(opts, "End of a list", "The TV guide, the channel list and its groups, past the last channel (or above the first). Jump to the other end: one more press goes to the top (holding the button stops at the end, so a long scroll doesn't fly round). Stop: nothing more.", io.github.petebutty.viewarr.ui.theme.UiOpts.LIST_ENDS),
@@ -203,8 +212,9 @@ fun AppearanceSettingsScreen(onBack: () -> Unit, vm: AppearanceViewModel = hiltV
             ),
         ),
         SettingCategory(
-            "Posters", "What's drawn on posters in Movies, Shows and search.",
+            "Posters", "How big library posters are, and what's drawn on posters in Movies, Shows and search.",
             listOf(
+                optItem(opts, "Library posters", "How big the posters are in a library's grid (Plex, Jellyfin, Emby, IPTV). Small is the same size as the posters in the rows; as many fit across as there's room for, with the mini player or menu beside it too.", io.github.petebutty.viewarr.ui.theme.UiOpts.LIBRARY_POSTERS),
                 optItem(opts, "Where it's from", "The label saying which of your servers has it (e.g. \"Plex · Living room\").", io.github.petebutty.viewarr.ui.theme.UiOpts.BADGE_SOURCE),
                 optItem(opts, "Progress bars", "How far through you are, along the bottom of posters and episodes.", io.github.petebutty.viewarr.ui.theme.UiOpts.BADGE_PROGRESS),
             ),
@@ -241,7 +251,7 @@ fun AppearanceSettingsScreen(onBack: () -> Unit, vm: AppearanceViewModel = hiltV
                 optItem(opts, "List headings", "A heading at the top of each list in the menu (\"LIVE TV · CHANNEL GROUPS\", \"MOVIES\", \"SETTINGS\"…), or the path to it (\"Live TV › Channel groups\"), so the guide's channel groups are never mistaken for your libraries.", io.github.petebutty.viewarr.ui.theme.UiOpts.MENU_HEADINGS),
                 optItem(opts, "Source in the Live TV heading", "With more than one Live TV source: its name in the heading (\"LIVE TV · DISPATCHARR\").", io.github.petebutty.viewarr.ui.theme.UiOpts.MENU_HEAD_SOURCE),
                 optItem(opts, "TV mark on channel groups", "A small 📺 before each channel group's name.", io.github.petebutty.viewarr.ui.theme.UiOpts.MENU_GROUP_ICON),
-optItem(opts, "Colour edge", "A thin bar down the edge of each list in its section's colour: red for Live TV, blue for Movies, purple for Shows…", io.github.petebutty.viewarr.ui.theme.UiOpts.MENU_EDGE),
+optItem(opts, "Colour edge", "A thin bar down the edge of each list in your highlight colour.", io.github.petebutty.viewarr.ui.theme.UiOpts.MENU_EDGE),
                 optItem(opts, "Colour tint", "Each list's glass faintly tinted in its section's colour.", io.github.petebutty.viewarr.ui.theme.UiOpts.MENU_TINT),
                 optItem(opts, "Icon column", "In a section's list, the main menu stays as a narrow column of icons with the one you're in lit, instead of folding away.", io.github.petebutty.viewarr.ui.theme.UiOpts.MENU_RAIL),
                 optItem(opts, "LIVE mark", "A red ● LIVE on the channel groups' All channels.", io.github.petebutty.viewarr.ui.theme.UiOpts.MENU_LIVE_MARK),
@@ -256,11 +266,20 @@ optItem(opts, "Colour edge", "A thin bar down the edge of each list in its secti
             ) + serviceNames.map { n -> menuItem(n, "menu:svc:$n", "$n's rows (Popular, New, Top rated…) under Shows in the menu.") },
         ),
     )
-    SettingsPage(title = "Appearance", categories = categories, onBack = onBack, onReset = {
+    return categories
+}
+
+/** Appearance's settings back to how they come (the Appearance page's Reset). */
+fun appearanceReset(vm: AppearanceViewModel, opts: UiOptsViewModel) {
         vm.apply(ThemePresets[0].main, ThemePresets[0].highlight); vm.setTransparency(0f); vm.setGuideTransparency(0f)
         vm.setShowNumbers(true); vm.setHideMedia(false); vm.setWallpaper(0, 0, 0.6f); vm.resetTitleParts()
         opts.reset(listOf(io.github.petebutty.viewarr.ui.theme.UiOpts.TEXT_SIZE, io.github.petebutty.viewarr.ui.theme.UiOpts.CLOCK, io.github.petebutty.viewarr.ui.theme.UiOpts.CHANNEL_LOGOS, io.github.petebutty.viewarr.ui.theme.UiOpts.CATCHUP_ICONS, io.github.petebutty.viewarr.ui.theme.UiOpts.GUIDE_ART, io.github.petebutty.viewarr.ui.theme.UiOpts.BADGE_SOURCE, io.github.petebutty.viewarr.ui.theme.UiOpts.BADGE_PROGRESS))
-    })
+}
+
+/** Settings → Appearance on its own (Settings now opens it through the layout: SettingsMap). */
+@Composable
+fun AppearanceSettingsScreen(onBack: () -> Unit, vm: AppearanceViewModel = hiltViewModel(), opts: UiOptsViewModel = hiltViewModel()) {
+    SettingsPage(title = "Appearance", categories = appearanceCategories(vm, opts), onBack = onBack, onReset = { appearanceReset(vm, opts) })
 }
 
 @Composable
@@ -323,9 +342,9 @@ private fun SwatchRow(colors: List<Color>, current: Color, onPick: (Color) -> Un
             val selected = c == current
             Surface(
                 onClick = { onPick(c) },
-                modifier = Modifier.size(22.dp),
+                modifier = Modifier.size(22.dp).instantFocusScale(1.15f),
                 shape = ClickableSurfaceDefaults.shape(CircleShape),
-                scale = ClickableSurfaceDefaults.scale(scale = 1f, focusedScale = 1.15f),
+                scale = io.github.petebutty.viewarr.ui.common.focusScale(1.15f),
                 colors = ClickableSurfaceDefaults.colors(containerColor = c, focusedContainerColor = c),
                 border = ClickableSurfaceDefaults.border(
                     border = if (selected) Border(BorderStroke(2.dp, Color.White), shape = CircleShape) else Border.None,

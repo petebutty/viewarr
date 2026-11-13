@@ -211,6 +211,8 @@ fun RecordDialog(
     onChooseSeasons: ((GuideMatch) -> Unit)? = null,
     /** Search opened on this title, Catch-up picked: every showing that can be replayed. */
     onSearchCatchup: (() -> Unit)? = null,
+    /** "Add to favourites" / "Remove from favourites" for the channel, and what it does. */
+    favourite: Pair<String, () -> Unit>? = null,
     onClose: () -> Unit,
 ) {
     val dvrMessage by vm.message.collectAsStateWithLifecycle()
@@ -243,47 +245,64 @@ fun RecordDialog(
     val isFilm = matched?.item?.type == io.github.petebutty.viewarr.data.media.MediaType.Movie ||
         (program.season == null && program.episode == null &&
             Regex("^[A-Za-z][A-Za-z &/'-]{1,30} · (19|20)\\d{2}\\b").containsMatchIn(program.description.orEmpty()))
-    val choices = if (canRecord && rec != null) buildList<Pair<String, () -> Unit>> {
+    // Each option has a kind, so the pop-up can be trimmed: "✎ Edit this menu" switches kinds on and off (kept on the
+    // box, Settings → Appearance values "hold:<kind>"). Undoing a recording, Keep and Close are always there.
+    val hidden = { kind: String -> !io.github.petebutty.viewarr.ui.theme.AppColors.palette.shows("hold:$kind") }
+    var editing by remember { mutableStateOf(false) }
+    val appearance: io.github.petebutty.viewarr.ui.settings.AppearanceViewModel = androidx.hilt.navigation.compose.hiltViewModel()
+    val all = if (canRecord && rec != null) buildList<Triple<String?, String, () -> Unit>> {
         // Already set to record: just the way to undo it (and keep it), not the record / remind options again.
-        if (rec.state == DvrState.Recording) add("Stop recording" to { run { vm.stop(rec) } })
-        else add("Cancel this recording" to { run { vm.cancel(rec) } })
-        if (rule != null) add("Stop series recording" to { run { vm.removeRule(rule) } })
-        add((if (rec.state == DvrState.Recording) "Keep recording" else "Keep this recording") to onClose)
-        if (!future) onWatchFromStart?.let { add("Start over" to it) }
-        onGoTo?.let { add((if (isFilm) "Go to film" else "Go to show") to it) }
-        onSearchCatchup?.let { add("Search catch-up" to it) }
-        seerrChoices.forEach { (l, f) -> add(l to { if (l == SEERR_MORE) f() else run(f) }) }
-        onDetails?.let { add("Details" to it) }
-    } else buildList<Pair<String, () -> Unit>> {
+        if (rec.state == DvrState.Recording) add(Triple(null, "Stop recording", { run { vm.stop(rec) } }))
+        else add(Triple(null, "Cancel this recording", { run { vm.cancel(rec) } }))
+        if (rule != null) add(Triple(null, "Stop series recording", { run { vm.removeRule(rule) } }))
+        add(Triple(null, if (rec.state == DvrState.Recording) "Keep recording" else "Keep this recording", onClose))
+        if (!future) onWatchFromStart?.let { add(Triple("start", "Start over", it)) }
+        onGoTo?.let { add(Triple("goto", if (isFilm) "Go to film" else "Go to show", it)) }
+        onSearchCatchup?.let { add(Triple("catchup", "Search catch-up", it)) }
+        seerrChoices.forEach { (l, f) -> add(Triple("request", l, { if (l == SEERR_MORE) f() else run(f) })) }
+        favourite?.let { add(Triple("fav", it.first, it.second)) }
+        onDetails?.let { add(Triple("details", "Details", it)) }
+    } else buildList<Triple<String?, String, () -> Unit>> {
         // The film or episode from your servers (Plex, Jellyfin, Emby) or addons: from the start if it's on or has
         // aired, or now if it's still to come.
-        if (onWatchFromStart != null && !future) add("Start over" to onWatchFromStart)
-        onGoTo?.let { add((if (isFilm) "Go to film" else "Go to show") to it) }
-        onSearchCatchup?.let { add("Search catch-up" to it) }
+        if (onWatchFromStart != null && !future) add(Triple("start", "Start over", onWatchFromStart))
+        onGoTo?.let { add(Triple("goto", if (isFilm) "Go to film" else "Go to show", it)) }
+        onSearchCatchup?.let { add(Triple("catchup", "Search catch-up", it)) }
         if (!canRecord) {
             // No recordings here (IPTV provider login, or a Dispatcharr user without DVR access): reminders still work.
         } else when {
-            rec?.state == DvrState.Recording -> add("Stop recording" to { run { vm.stop(rec) } })
-            rec != null -> add("Cancel this recording" to { run { vm.cancel(rec) } })
+            rec?.state == DvrState.Recording -> add(Triple(null, "Stop recording", { run { vm.stop(rec) } }))
+            rec != null -> add(Triple(null, "Cancel this recording", { run { vm.cancel(rec) } }))
             // Already over: nothing to record (series recording still offered below).
             program.endTime <= System.currentTimeMillis() -> Unit
-            else -> add((if (program.startTime <= System.currentTimeMillis()) "Record from now" else "Record this programme") to { run { vm.record(channel, program) } })
+            else -> add(Triple("record", if (program.startTime <= System.currentTimeMillis()) "Record from now" else "Record this programme", { run { vm.record(channel, program) } }))
         }
         if (canRecord && (!isFilm || rule != null)) {
-            if (rule != null) add("Stop series recording" to { run { vm.removeRule(rule) } })
+            if (rule != null) add(Triple(null, "Stop series recording", { run { vm.removeRule(rule) } }))
             else {
-                add("Record series: every episode" to { run { vm.recordSeries(channel, program, newOnly = false) } })
-                add("Record series: new episodes only" to { run { vm.recordSeries(channel, program, newOnly = true) } })
+                add(Triple("series", "Record series: every episode", { run { vm.recordSeries(channel, program, newOnly = false) } }))
+                add(Triple("series", "Record series: new episodes only", { run { vm.recordSeries(channel, program, newOnly = true) } }))
             }
         }
         if (future) {
-            if (reminder != null) add("Cancel reminder" to { vm.forget(reminder.id); onClose() })
-            else add("Remind me when it starts" to { run { vm.remind(channel, program) } })
+            if (reminder != null) add(Triple(null, "Cancel reminder", { vm.forget(reminder.id); onClose() }))
+            else add(Triple("remind", "Remind me when it starts", { run { vm.remind(channel, program) } }))
         }
         // Seerr: one line (the film; a show opens its own panel: whole show, this season, chosen seasons).
-        seerrChoices.forEach { (l, f) -> add(l to { if (l == SEERR_MORE) f() else run(f) }) }
-        onDetails?.let { add("Details" to it) }
-        add("Close" to onClose)
+        seerrChoices.forEach { (l, f) -> add(Triple("request", l, { if (l == SEERR_MORE) f() else run(f) })) }
+        favourite?.let { add(Triple("fav", it.first, it.second)) }
+        onDetails?.let { add(Triple("details", "Details", it)) }
+    }
+    val choices: List<Pair<String, () -> Unit>> = if (editing) buildList {
+        // Every kind, on or off (OK switches it), whether or not this programme offers it right now.
+        HoldKinds.forEach { (kind, name) ->
+            add((if (hidden(kind)) "○  $name  (hidden)" else "●  $name") to { appearance.setTitlePart("hold:$kind", hidden(kind)) })
+        }
+        add("✓  Done" to { editing = false })
+    } else buildList {
+        all.filter { it.first == null || !hidden(it.first!!) }.forEach { add(it.second to it.third) }
+        add("✎  Edit this menu" to { editing = true })
+        if (!(canRecord && rec != null)) add("Close" to onClose)
     }
     val status = when {
         rec?.state == DvrState.Recording -> "  ·  ● Recording now"
@@ -292,14 +311,29 @@ fun RecordDialog(
         reminder != null -> "  ·  ⏰ Reminder set"
         else -> ""
     }
-    ChoicePanel(
-        title = program.title + episodeTag(program.season, program.episode),
-        subtitle = "${channel.name}  ·  ${span(program.startTime, program.endTime)}$status",
-        choices = choices,
-        message = message,
-        onClose = onClose,
-    )
+    androidx.compose.runtime.key(editing) {
+        ChoicePanel(
+            title = if (editing) "Edit this menu" else program.title + episodeTag(program.season, program.episode),
+            subtitle = if (editing) "OK shows or hides an option in this pop-up" else "${channel.name}  ·  ${span(program.startTime, program.endTime)}$status",
+            choices = choices,
+            message = if (editing) null else message,
+            onClose = if (editing) ({ editing = false }) else onClose,
+        )
+    }
 }
+
+/** The hold-OK pop-up's options that can be hidden ("✎ Edit this menu"). */
+private val HoldKinds = listOf(
+    "start" to "Start over",
+    "goto" to "Go to film / show",
+    "catchup" to "Search catch-up",
+    "record" to "Record this programme",
+    "series" to "Record series",
+    "remind" to "Remind me",
+    "request" to "Request (Seerr)",
+    "fav" to "Add to / remove from favourites",
+    "details" to "Details",
+)
 
 private sealed interface DvrRow {
     data class Header(val text: String) : DvrRow

@@ -1,5 +1,7 @@
 package io.github.petebutty.viewarr.ui.media
 
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.ui.draw.alpha
 import android.graphics.Bitmap
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -79,10 +81,10 @@ class Scrubber {
 
 /** The buttons under the seek bar. */
 /** [Guide]: Live TV hub only, first (the film goes to the corner, the TV guide opens). */
-enum class PlayerButton { Guide, PlayPause, Stop, Details, Audio, Subtitles, Info, SwitchPlayer, Settings }
+enum class PlayerButton { Guide, PlayPause, Stop, Details, Audio, Subtitles, Info, SwitchPlayer, Episodes, Sync, Sleep, Movies, Shows, Recordings, Search, Transparency, TvSettings, Settings }
 
 /** A control under the seek bar: an icon, with its name shown under it when focused. */
-class OsdButton(val icon: androidx.compose.ui.graphics.vector.ImageVector, val label: String, val groupEnd: Boolean = false)
+class OsdButton(val icon: androidx.compose.ui.graphics.vector.ImageVector, val label: String, val groupEnd: Boolean = false, /** Hidden (shown dimmed while editing). */ val dim: Boolean = false)
 
 fun PlayerButton.osd(paused: Boolean, infoOn: Boolean, otherPlayer: String) = OsdButton(
     when (this) {
@@ -93,6 +95,15 @@ fun PlayerButton.osd(paused: Boolean, infoOn: Boolean, otherPlayer: String) = Os
         PlayerButton.Subtitles -> io.github.petebutty.viewarr.ui.common.AppIcons.Subtitles
         PlayerButton.Info -> io.github.petebutty.viewarr.ui.common.AppIcons.Stats
         PlayerButton.Settings -> io.github.petebutty.viewarr.ui.common.AppIcons.Settings
+        PlayerButton.Transparency -> io.github.petebutty.viewarr.ui.common.AppIcons.Opacity
+        PlayerButton.Search -> io.github.petebutty.viewarr.ui.common.AppIcons.Search
+        PlayerButton.Episodes -> io.github.petebutty.viewarr.ui.common.AppIcons.Episodes
+        PlayerButton.Sync -> io.github.petebutty.viewarr.ui.common.AppIcons.Equalizer
+        PlayerButton.Sleep -> io.github.petebutty.viewarr.ui.common.AppIcons.Bedtime
+        PlayerButton.Movies -> io.github.petebutty.viewarr.ui.common.AppIcons.Movie
+        PlayerButton.Shows -> io.github.petebutty.viewarr.ui.common.AppIcons.Tv
+        PlayerButton.Recordings -> io.github.petebutty.viewarr.ui.common.AppIcons.Recordings
+        PlayerButton.TvSettings -> io.github.petebutty.viewarr.ui.common.AppIcons.Tune
         PlayerButton.Guide -> io.github.petebutty.viewarr.ui.common.AppIcons.Guide
         PlayerButton.SwitchPlayer -> io.github.petebutty.viewarr.ui.common.AppIcons.Swap
     },
@@ -135,6 +146,11 @@ class PlayerMenu {
     var row by androidx.compose.runtime.mutableIntStateOf(0)
     var card by androidx.compose.runtime.mutableIntStateOf(0)
     var lastKey by androidx.compose.runtime.mutableLongStateOf(0L)
+    /** Editing the buttons (hold OK on one): OK shows / hides, hold OK picks one up ([carrying]) to move with Left / Right. */
+    var editing by mutableStateOf(false)
+    var carrying by mutableStateOf(false)
+    // An OK pressed on a button, not yet let go: a tap presses it on release, a hold edits.
+    private var btnOkDown = false
     /** Where Play / Pause is among the buttons (after the TV guide button, when it's there). */
     var home = 0
     /** Where the TV guide button is (-1: none). */
@@ -143,7 +159,7 @@ class PlayerMenu {
      * Opens on the TV guide button, as live TV's controls do (no TV guide button: on the seek bar, with Play / Pause
      * highlighted below it); not the button used last time.
      */
-    fun show() { onEpisodes = false; episodesOnly = false; cardOkDown = false; scOkDown = false; open = true; onBar = guideAt < 0; button = if (guideAt >= 0) guideAt else home; onShortcuts = false; onRows = false; scMoving = false; scOptions = null; scRows = null; touch() }
+    fun show() { editing = false; carrying = false; btnOkDown = false; onEpisodes = false; episodesOnly = false; cardOkDown = false; scOkDown = false; open = true; onBar = guideAt < 0; button = if (guideAt >= 0) guideAt else home; onShortcuts = false; onRows = false; scMoving = false; scOptions = null; scRows = null; touch() }
     fun touch() { lastKey = System.currentTimeMillis() }
 
     /**
@@ -152,6 +168,8 @@ class PlayerMenu {
      */
     fun handle(
         e: androidx.compose.ui.input.key.KeyEvent, buttons: List<PlayerButton>, beginScrub: (dir: Int, repeat: Int) -> Unit, press: (PlayerButton) -> Unit, upFromBar: () -> Unit = {},
+        /** Editing the buttons: show / hide one, move one ([Int]: -1 left, 1 right). */
+        toggleButton: (PlayerButton) -> Unit = {}, moveButton: (PlayerButton, Int) -> Unit = { _, _ -> },
         shortcutCount: Int = 0, pickShortcut: (Int) -> Unit = {},
         /** The number of cards in each of a shortcut's rows, and opening one (row, card). */
         rowSizes: (Int) -> List<Int> = { emptyList() }, pickCard: (Int, Int) -> Unit = { _, _ -> },
@@ -236,6 +254,13 @@ class PlayerMenu {
             // Up from the seek bar: pause, with what's playing (its synopsis) on screen.
             onBar && a == io.github.petebutty.viewarr.ui.common.RemoteAction.Up -> if (down && repeat == 0) upFromBar()
             onBar && a == io.github.petebutty.viewarr.ui.common.RemoteAction.Ok -> Unit
+            // Editing: a picked-up button moves with Left / Right; Up / Down stay on the buttons.
+            !onBar && editing && carrying && (a == io.github.petebutty.viewarr.ui.common.RemoteAction.Left || a == io.github.petebutty.viewarr.ui.common.RemoteAction.Right) -> if (down) {
+                val dir = if (a == io.github.petebutty.viewarr.ui.common.RemoteAction.Left) -1 else 1
+                if (button + dir in buttons.indices) { buttons.getOrNull(button)?.let { moveButton(it, dir) }; button += dir }
+            }
+            !onBar && editing && (a == io.github.petebutty.viewarr.ui.common.RemoteAction.Up || a == io.github.petebutty.viewarr.ui.common.RemoteAction.Down) -> Unit
+            !onBar && editing && a == io.github.petebutty.viewarr.ui.common.RemoteAction.Left -> if (down) button = (button - 1).coerceAtLeast(0)
             !onBar && a == io.github.petebutty.viewarr.ui.common.RemoteAction.Left -> if (down) { if (button == 0) { if (repeat == 0) { open = false; leftFromFirst() } } else button -= 1 }
             !onBar && a == io.github.petebutty.viewarr.ui.common.RemoteAction.Right -> if (down) button = (button + 1).coerceAtMost(buttons.lastIndex)
             !onBar && a == io.github.petebutty.viewarr.ui.common.RemoteAction.Up -> if (down) onBar = true
@@ -243,7 +268,15 @@ class PlayerMenu {
                 if (episodeCount > 0) { onEpisodes = true; episodesOnly = false; episode = 0 }
                 else if (shortcutCount > 0) { onShortcuts = true; shortcut = shortcut.coerceAtMost(shortcutCount - 1) }
             }
-            !onBar && a == io.github.petebutty.viewarr.ui.common.RemoteAction.Ok -> if (down && repeat == 0) buttons.getOrNull(button)?.let(press)
+            // A tap presses the button (on release); a hold starts editing, or while editing picks it up / puts it down.
+            !onBar && a == io.github.petebutty.viewarr.ui.common.RemoteAction.Ok -> when {
+                down && repeat == 0 -> btnOkDown = true
+                down && btnOkDown -> { btnOkDown = false; if (!editing) editing = true else carrying = !carrying }
+                !down && btnOkDown -> {
+                    btnOkDown = false
+                    buttons.getOrNull(button)?.let { b -> if (!editing) press(b) else if (carrying) carrying = false else toggleButton(b) }
+                }
+            }
             else -> return false
         }
         return true
@@ -260,6 +293,15 @@ fun PlayerButton.label(paused: Boolean, infoOn: Boolean, otherPlayer: String) = 
     PlayerButton.SwitchPlayer -> "Switch to $otherPlayer"
     PlayerButton.Stop -> "Stop"
     PlayerButton.Settings -> "Settings"
+    PlayerButton.Transparency -> "Transparency"
+    PlayerButton.Search -> "Search"
+    PlayerButton.Episodes -> "Episodes"
+    PlayerButton.Sync -> "Audio sync: " + io.github.petebutty.viewarr.playback.AvSync.label()
+    PlayerButton.Sleep -> io.github.petebutty.viewarr.playback.SleepTimer.label()
+    PlayerButton.Movies -> "Movies"
+    PlayerButton.Shows -> "Shows"
+    PlayerButton.Recordings -> "Recordings"
+    PlayerButton.TvSettings -> "TV settings"
     PlayerButton.Guide -> "TV guide"
 }
 
@@ -279,6 +321,10 @@ fun PlayerOsd(
     /** The controls (opened with OK): button labels, which is highlighted, and whether the seek bar has focus. */
     buttons: List<OsdButton>? = null,
     buttonFocus: Int = -1,
+    /** The buttons are being edited (hold OK on one), for the hint line. */
+    editingButtons: Boolean = false,
+    /** The picture / sound / frame rate badges, as live TV's info bar has them. */
+    quality: io.github.petebutty.viewarr.ui.player.StreamQuality? = null,
     barFocused: Boolean = false,
     /** The live TV shortcuts under the buttons (Down from them), [shortcutFocus] highlighted. */
     shortcuts: List<io.github.petebutty.viewarr.ui.player.LiveShortcut>? = null,
@@ -298,7 +344,7 @@ fun PlayerOsd(
     from: String? = null,
 ) {
     val scrubbing = scrubMs != null
-    // Settings → Playback → Player controls size.
+    // Settings → Appearance → Info bar & controls → Player controls size.
     val k = AppColors.palette.controlsScale
     fun d(v: Int) = (v * k).dp
     fun t(v: Int) = (v * (0.5f + k / 2)).sp
@@ -336,6 +382,7 @@ fun PlayerOsd(
                     Text(state, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = AppColors.OnAccent,
                         modifier = Modifier.background(AppColors.Accent, RoundedCornerShape(3.dp)).padding(horizontal = 6.dp, vertical = 1.dp))
                 }
+                io.github.petebutty.viewarr.ui.player.QualityBadges(quality)
             },
             title = if (title.contains(" · ")) title.substringAfter(" · ") else title,
             progress = {
@@ -387,6 +434,7 @@ fun PlayerOsd(
                         val pip = "" // Picture-in-picture for films is off for now.
                         Text(
                             when {
+                                editingButtons -> "Editing buttons  ·  OK: show / hide  ·  hold OK: pick up, ◀ ▶ move  ·  Back: done"
                                 episodes != null -> "◀ ▶ episodes  ·  OK: play it  ·  ▲ back"
                                 scrubbing -> "◀ ▶ move  ·  OK: jump here  ·  Back: cancel"
                                 buttons != null && barFocused -> "◀ ▶ seek  ·  ▼ options  ·  ▲ pause + details$pip"
@@ -404,11 +452,19 @@ fun PlayerOsd(
                 }
             },
         )
-        if (buttons != null) Row(Modifier.padding(top = d(14)), verticalAlignment = Alignment.Top) {
+        // Scrolls sideways when there are more buttons than fit, keeping the highlighted one in view.
+        val btnScroll = androidx.compose.foundation.rememberScrollState()
+        val itemPx = with(androidx.compose.ui.platform.LocalDensity.current) { d(72).toPx() }
+        LaunchedEffect(buttonFocus, buttons?.size) {
+            if (buttonFocus < 0) return@LaunchedEffect
+            val target = (buttonFocus * itemPx - btnScroll.viewportSize / 2f + itemPx / 2f).toInt().coerceIn(0, btnScroll.maxValue)
+            btnScroll.scrollTo(target)
+        }
+        if (buttons != null) Row(Modifier.padding(top = d(14)).horizontalScroll(btnScroll), verticalAlignment = Alignment.Top) {
             buttons.forEachIndexed { i, b ->
                 val on = i == buttonFocus
                 // Icons only; the focused one's name underneath (so each is still easy to learn).
-                androidx.compose.foundation.layout.Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(d(72))) {
+                androidx.compose.foundation.layout.Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(d(72)).then(if (b.dim) Modifier.alpha(0.4f) else Modifier)) {
                     Box(
                         Modifier.size(d(48)).background(if (on) AppColors.Accent else Color.White.copy(alpha = 0.14f), androidx.compose.foundation.shape.CircleShape),
                         contentAlignment = Alignment.Center,

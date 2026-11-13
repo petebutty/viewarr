@@ -117,13 +117,29 @@ class GuideViewModel @Inject constructor(
 
 
     val sync = repo.sync
-    val groups = repo.observeGroups().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    // In your order (hold OK on a group in the menu → move); groups not placed yet keep the guide's order after them.
+    val groups = combine(repo.observeGroups(), repo.groupOrder) { g, order ->
+        if (order.isEmpty()) g else g.withIndex().sortedBy { (i, x) -> order.indexOf(x.name).let { if (it < 0) order.size + i else it } }.map { it.value }
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    /** Moves a channel group one place up ([dir] -1) or down (1) in the menu. */
+    fun moveGroup(id: Int, dir: Int) {
+        val names = groups.value.map { it.name }.toMutableList()
+        val i = groups.value.indexOfFirst { it.id == id }; val j = i + dir
+        if (i < 0 || j !in names.indices) return
+        java.util.Collections.swap(names, i, j)
+        repo.setGroupOrder(names)
+    }
 
     private val _groupId = MutableStateFlow<Int?>(null)
     val groupId = _groupId.asStateFlow()
 
-    val channels: StateFlow<List<ChannelListItem>> = _groupId
-        .flatMapLatest { repo.observeChannels(it) }
+    /** Favourite channels (uuids); the ★ Favourites group is [FAVOURITES]. */
+    val favourites = repo.favourites
+    fun toggleFavourite(ch: ChannelListItem): Boolean = repo.toggleFavourite(ch.uuid)
+
+    val channels: StateFlow<List<ChannelListItem>> = combine(_groupId, repo.favourites) { g, f -> g to f }
+        .flatMapLatest { (g, f) -> if (g == FAVOURITES) repo.observeChannelsIn(f.toList()) else repo.observeChannels(g) }
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     private val _now = MutableStateFlow(System.currentTimeMillis())
@@ -136,15 +152,19 @@ class GuideViewModel @Inject constructor(
         _groupId,
         _cursor.map { it.row / BLOCK }.distinctUntilChanged(),
         _cursor.map { it.windowStart }.distinctUntilChanged(),
-    ) { g, block, ws -> Triple(g, block, ws) }
-        .flatMapLatest { (g, block, ws) ->
-            repo.observeProgramBlock(
+        repo.favourites,
+    ) { g, block, ws, f -> listOf(g, block, ws, f) }
+        .flatMapLatest { l ->
+            val g = l[0] as Int?; val block = l[1] as Int; val ws = l[2] as Long
+            @Suppress("UNCHECKED_CAST") val f = l[3] as Set<String>
+            (if (g == FAVOURITES) repo.observeProgramBlockIn(f.toList(), blockOffset(block), BLOCK * 3, ws - BUFFER_MS, ws + VISIBLE_MS + BUFFER_MS)
+            else repo.observeProgramBlock(
                 groupId = g,
                 offset = blockOffset(block),
                 count = BLOCK * 3,
                 start = ws - BUFFER_MS,
                 end = ws + VISIBLE_MS + BUFFER_MS,
-            ).map { rows -> rows.groupBy { it.channelId } }
+            )).map { rows -> rows.groupBy { it.channelId } }
         }
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
 
@@ -155,7 +175,7 @@ class GuideViewModel @Inject constructor(
             // collectLatest: a new source (another server, a playlist) cancels the old one's sync, which otherwise
             // held the guide until it finished (its 45 MB guide) and the new one never showed until a rescan.
             // Then checked every 15 minutes while Viewarr is open, so a guide left running is fetched again on time
-            // (Settings → Playback → TV guide refresh).
+            // (Settings → Live TV → TV guide refresh).
             sessions.session.filterNotNull().distinctUntilChanged().collectLatest { s ->
                 while (true) {
                     repo.syncIfStale(s, io.github.petebutty.viewarr.ui.theme.AppColors.palette.guideRefreshMs)
@@ -195,7 +215,7 @@ class GuideViewModel @Inject constructor(
 
     /**
      * Up / Down a row ([delta] rows; a page with the channel buttons). Past the last channel or above the first
-     * (Settings → Appearance → End of a list): [ends] 0 loops on round, 1 jumps to the other end on a [fresh] press
+     * (Settings → Live TV → TV guide → End of a list): [ends] 0 loops on round, 1 jumps to the other end on a [fresh] press
      * (holding the button stops at the end), 2 stops.
      */
     fun moveVertical(delta: Int, ends: Int = 2, fresh: Boolean = true): Boolean {
@@ -223,7 +243,7 @@ class GuideViewModel @Inject constructor(
         val next = if (current != null) list.firstOrNull { it.startTime >= current.endTime }
         else list.firstOrNull { it.startTime > c.focusTime }
         val target = next?.startTime ?: (c.focusTime + STEP_MS)
-        if (target > _now.value + MAX_FORWARD_MS) return
+        if (target > _now.value + maxForwardMs()) return
         var ws = c.windowStart
         while (target >= ws + VISIBLE_MS - STEP_MS) ws += STEP_MS
         _cursor.value = c.copy(focusTime = target, windowStart = ws)
@@ -253,7 +273,7 @@ class GuideViewModel @Inject constructor(
     fun jumpBy(deltaMs: Long) {
         val c = _cursor.value
         val now = _now.value
-        val t = (c.focusTime + deltaMs).coerceIn(now - MAX_PAST_MS, now + MAX_FORWARD_MS)
+        val t = (c.focusTime + deltaMs).coerceIn(now - MAX_PAST_MS, now + maxForwardMs())
         if (t == c.focusTime) return
         _cursor.value = c.copy(focusTime = t, windowStart = floorToStep(t))
         ensurePast()
@@ -506,6 +526,10 @@ class GuideViewModel @Inject constructor(
         _cursor.update { it.copy(focusTime = t, windowStart = floorToStep(t)) }
     }
 
+    private val pastInFlight = java.util.concurrent.atomic.AtomicInteger(0)
+    /** Earlier programmes are being fetched (going back through the guide): Left at the loaded start waits for them. */
+    val loadingPast: Boolean get() = pastInFlight.get() > 0
+
     private fun ensurePast() {
         val c = _cursor.value
         val syncedFrom = repo.syncedFrom()
@@ -524,7 +548,8 @@ class GuideViewModel @Inject constructor(
                 val chunkStart = chunk
                 for (key in keys) {
                     if (!fetchedPast.add("$key|$chunkStart")) continue
-                    launch { repo.loadPastChunk(s, key, chunkStart, chunkStart + CHUNK_MS) }
+                    pastInFlight.incrementAndGet()
+                    launch { try { repo.loadPastChunk(s, key, chunkStart, chunkStart + CHUNK_MS) } finally { pastInFlight.decrementAndGet() } }
                 }
                 chunk += CHUNK_MS
             }
@@ -542,7 +567,10 @@ class GuideViewModel @Inject constructor(
         const val STEP_MS = 30 * 60_000L
         const val VISIBLE_MS = 150 * 60_000L
         private const val BUFFER_MS = 90 * 60_000L
-        private const val MAX_FORWARD_MS = 34 * 3_600_000L
+        /** A couple of hours short of what's fetched, so the last programmes aren't cut off. */
+        private fun maxForwardMs() = io.github.petebutty.viewarr.ui.theme.AppColors.palette.guideForwardMs - 2 * 3_600_000L
+        /** The ★ Favourites group's id (real groups are positive). */
+        const val FAVOURITES = -2
         private const val MAX_PAST_MS = 3 * 24 * 3_600_000L
         private const val CHUNK_MS = 6 * 3_600_000L
         private const val BLOCK = 10

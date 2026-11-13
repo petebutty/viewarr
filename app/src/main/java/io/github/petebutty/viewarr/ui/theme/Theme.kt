@@ -20,6 +20,7 @@ data class Palette(val main: Color, val highlight: Color, val transparency: Floa
     /** Title pages: the parts switched off in Settings → Appearance (TitleParts ids). */ val titleHidden: Set<String> = emptySet(),
     /** The main menu's order (between Live TV and Settings): "Movies", "svc:Netflix", "Live now"… (hold OK in the menu to edit). */ val menuOrder: List<String> = emptyList(),
     /** The ratings' order on title pages ("IMDb", "RT", "Trakt"…; Settings → Appearance → Ratings). */ val ratingsOrder: List<String> = emptyList(),
+    /** The info bars' button order, per bar ("live", "film"): button ids (hold OK on a button to edit). */ val barOrder: Map<String, List<String>> = emptyMap(),
     /** Small display / behaviour options (UiOpts names → chosen index; 0 = the default). */ val opts: Map<String, Int> = emptyMap()) {
     fun shows(part: String) = part !in titleHidden
     fun opt(name: String) = opts[name] ?: UiOpts.defaults[name] ?: 0
@@ -38,6 +39,9 @@ data class Palette(val main: Color, val highlight: Color, val transparency: Floa
     /** Player controls (seek bar area and buttons) scale: Medium, Small, Large (the original size). */
     /** Settings → Appearance → Info bar size / Preview cards. */
     val infoBarScale get() = floatArrayOf(1f, 0.85f, 0.72f, 1.12f)[opt(UiOpts.INFOBAR_SIZE).coerceIn(0, 3)]
+    /** A library poster's width (dp): Small matches the rows' posters. */
+    val libraryPosterDp get() = floatArrayOf(100f, 116f, 88f, 136f)[opt(UiOpts.LIBRARY_POSTERS).coerceIn(0, 3)]
+    val infoBarWidth get() = floatArrayOf(1f, 0.9f, 0.8f, 0.7f, 0.6f)[opt(UiOpts.INFOBAR_WIDTH).coerceIn(0, 4)]
     val cardScale get() = floatArrayOf(1f, 0.8f, 0.65f, 1.15f)[opt(UiOpts.CARD_SIZE).coerceIn(0, 3)]
     val controlsScale get() = floatArrayOf(0.8f, 0.65f, 1f)[opt(UiOpts.CONTROLS_SIZE).coerceIn(0, 2)]
     val controlsMs get() = longArrayOf(4_000, 3_000, 6_000, 10_000)[opt(UiOpts.CONTROLS_TIME).coerceIn(0, 3)]
@@ -46,9 +50,12 @@ data class Palette(val main: Color, val highlight: Color, val transparency: Floa
     val zapDelayMs get() = opt(UiOpts.ZAP_DELAY).coerceIn(0, 20) * 100L
         val upNextSeconds get() = (opts[UiOpts.UP_NEXT_S] ?: opts[UiOpts.UP_NEXT]?.let { intArrayOf(20, 10, 30, 60)[it.coerceIn(0, 3)] / 5 } ?: 4).coerceIn(0, 36) * 5
     val textScale get() = floatArrayOf(1f, 0.9f, 1.12f, 1.25f)[opt(UiOpts.TEXT_SIZE).coerceIn(0, 3)]
-    /** Settings → Playback → TV guide refresh: how old the guide may get (null: only Refresh channels & guide). */
+    /** Settings → Live TV → TV guide refresh: how old the guide may get (null: only Refresh channels & guide). */
     /** How long to rest on a channel browsed in the info bar before it changes (null: only on OK). */
     val browseDelayMs: Long? get() = when (opt(UiOpts.BROWSE_DELAY)) { 1 -> 300L; 2 -> 800L; 3 -> 1_000L; 4 -> 1_500L; 5 -> 2_000L; 6 -> null; else -> 500L }
+    /** How far ahead the guide reaches: Settings → Live TV → TV guide days ahead. */
+    val hideAllChannels: Boolean get() = opt(UiOpts.GROUP_ALL) == 1
+    val guideForwardMs: Long get() = UiOpts.guideForwardMs(opt(UiOpts.GUIDE_DAYS))
     val guideRefreshMs: Long? get() = longArrayOf(4, 2, 8, 12, 24, 0)[opt(UiOpts.GUIDE_REFRESH).coerceIn(0, 5)].takeIf { it > 0 }?.times(3_600_000L)
     /** Title pages: the ratings in the order chosen (Settings → Appearance → Ratings). */
     fun ratingRank(source: String): Int = ratingsOrder.indexOf(source).let { if (it < 0) 100 + TitleParts.ratings.indexOfFirst { r -> r.first == source }.coerceAtLeast(0) else it }
@@ -101,12 +108,16 @@ val ThemePresets = listOf(
 val MainColourChoices = listOf(
     Color(0xFF0E1016), Color(0xFF1B2766), Color(0xFF121418), Color(0xFF0D3640), Color(0xFF2A1B4D),
     Color(0xFF2B1515), Color(0xFF10301F), Color(0xFF2E2E36), Color(0xFF3A1D33), Color(0xFF000000),
+    // Brighter blues (the pre-glass Classic blue look, asked back for): Ocean blue and Sky blue.
+    Color(0xFF173F80), Color(0xFF2357B0),
 )
 
 // Softer than the first set (the brightest glared on the glass); Orange, the Viewarr highlight, stays as it was.
 val HighlightChoices = listOf(
     Color(0xFF2AAFC4), Color(0xFFE0577A), Color(0xFF4A9FD4), Color(0xFF5B82D6), Color(0xFF2E9E91), Color(0xFFA47ED8),
     Color(0xFFF97316), Color(0xFF3E9E66), Color(0xFFD9A93A), Color(0xFFD9566C),
+    // The bright cyan the Classic blue look had (just off the old value, which is read as the softer cyan).
+    Color(0xFF20C6E8),
 )
 
 /** The first set's brighter highlights, each to its softer one (a highlight picked before still counts as chosen). */
@@ -206,6 +217,9 @@ object UiOpts {
     const val GLASS_TINT = "glass_tint"
     /** How often the TV guide is fetched again while Viewarr is open (and on starting). */
     const val GUIDE_REFRESH = "guide_refresh"
+    /** How far ahead the TV guide is fetched (and can be scrolled). */
+    const val GUIDE_DAYS = "guide_days"
+    fun guideForwardMs(choice: Int): Long = intArrayOf(72, 24, 120, 168)[choice.coerceIn(0, 3)] * 3_600_000L
     /** The guide and channel list: "S15E4" after programme names, or not. */
     const val GUIDE_EPISODE = "guide_episode"
     /** The menu: a heading on each list ("LIVE TV · CHANNEL GROUPS", "MOVIES"…), so groups and libraries aren't confused. */
@@ -222,6 +236,12 @@ object UiOpts {
     const val MENU_RAIL = "menu_rail"
     /** A red "● LIVE" on the channel groups' All channels. */
     const val MENU_LIVE_MARK = "menu_live_mark"
+    /** Live TV's channel groups: the "All channels" group shown, or hidden (the guide then opens on the first group). */
+    const val GROUP_ALL = "group_all"
+    /** Lists following the highlight: instant (no trail when going fast) or a smooth slide. */
+    const val LIST_SCROLL = "list_scroll"
+    /** Up / Down (and Channel + / −) while watching live TV: change channel, or browse in the info bar (OK changes, or on stopping). */
+    const val LIVE_UPDOWN = "live_updown"
     /** The menu's "Right › open its list" / "‹ Left: main menu" hints. */
     const val MENU_HINTS = "menu_hints"
     /** Browsing channels in the info bar (Remote buttons: "Next channel in the info bar"): how long to rest on one before it changes. */
@@ -240,6 +260,10 @@ object UiOpts {
     const val INFOBAR_SIZE = "infobar_size"
     /** The preview cards in the info bar's rows (next episodes, shortcuts): their size. */
     const val CARD_SIZE = "card_size"
+    /** The info bar's width: the whole screen, or narrower and centred at the bottom. */
+    const val INFOBAR_WIDTH = "infobar_width"
+    /** A library's grid: how big the posters are (how many fit across). */
+    const val LIBRARY_POSTERS = "library_posters"
     const val BANNER_GLASS = "banner_glass"
     /** The glass's strength for the info bar and every pop-up, as a slider: 0 the clearest … 10 solid. */
     const val POPUP_GLASS = "popup_glass"
@@ -315,6 +339,9 @@ object UiOpts {
         MENU_TINT to listOf("Off", "On"),
         MENU_RAIL to listOf("Off", "On"),
         MENU_LIVE_MARK to listOf("Off", "On"),
+        GROUP_ALL to listOf("Shown", "Hidden"),
+        LIST_SCROLL to listOf("Instant", "Smooth"),
+        LIVE_UPDOWN to listOf("Change channel", "Browse in the info bar, OK changes", "Browse in the info bar, changes when you stop"),
         MENU_HEAD_SOURCE to listOf("On", "Off"),
         MENU_GROUP_ICON to listOf("Off", "On"),
         MENU_HINTS to listOf("On", "Off"),
@@ -323,9 +350,12 @@ object UiOpts {
         MUSIC_SAVER to listOf("After 2 minutes", "After 5 minutes", "After 10 minutes", "Off"),
         MUSIC_LYRICS to listOf("On", "Off"),
         INFOBAR_SIZE to listOf("Normal", "Compact", "Small", "Large"),
+        LIBRARY_POSTERS to listOf("Small (as the rows)", "Normal", "Smaller", "Large"),
+        INFOBAR_WIDTH to listOf("Full width", "90%", "80%", "70%", "60%"),
         CARD_SIZE to listOf("Normal", "Small", "Smaller", "Large"),
         MUSIC_ART to listOf("Square cover", "Spinning vinyl record", "Spinning CD", "Round cover, turning slowly", "Cover with a reflection"),
         BROWSE_DELAY to listOf("0.5 seconds", "0.3 seconds", "0.8 seconds", "1 second", "1.5 seconds", "2 seconds", "Only when I press OK"),
+        GUIDE_DAYS to listOf("3 days", "1 day", "5 days", "7 days"),
         GUIDE_REFRESH to listOf("Every 4 hours", "Every 2 hours", "Every 8 hours", "Every 12 hours", "Once a day", "Only when I ask"),
         BANNER_GLASS to listOf("Medium", "Light", "Dark"),
         POPUP_GLASS to (0..10).map { if (it == 10) "Solid" else "${100 - (30 + it * 7)}% see-through" },
@@ -367,7 +397,7 @@ object UiOpts {
         ZAP_DELAY to (0..20).map { if (it == 0) "No wait" else "%.1f seconds".format(it / 10f) },
         STILL_WATCHING to listOf("Never", "After 2 hours", "After 3 hours", "After 4 hours", "After 6 hours"),
         LOW_MEMORY to listOf("Off", "On"),
-        DATE_ORDER to listOf("Day first (Tue 10 Nov)", "Month first (Tue, Nov 10)"),
+        DATE_ORDER to listOf("Day first (Tue 10 Nov)", "Month first (Tue, Nov 10)", "Numbers, day first (Tue 10/11)", "Numbers, month first (Tue 11/10)"),
         TIME_FORMAT to listOf("24-hour (19:30)", "12-hour (7:30 pm)"),
     )
 }

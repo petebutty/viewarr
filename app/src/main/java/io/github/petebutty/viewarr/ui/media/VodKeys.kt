@@ -23,6 +23,9 @@ interface VodRemote {
 class VodHooks(
     val buttons: List<PlayerButton>,
     val press: (PlayerButton) -> Unit,
+    /** Editing the controls' buttons (hold OK on one): show / hide, and move one place (-1 / 1). */
+    val toggleButton: (PlayerButton) -> Unit = {},
+    val moveButton: (PlayerButton, Int) -> Unit = { _, _ -> },
     /** Settings → Remote → Left / Right. */
     val seekMs: Long,
     val showOsd: () -> Unit,
@@ -120,6 +123,7 @@ class VodKeys(private val scrub: Scrubber, private val menu: PlayerMenu) {
                 e, h.buttons,
                 beginScrub = { dir, rep -> scrub.begin(p.positionMs); scrub.step(dir, rep, p.durationMs); h.showOsd() },
                 press = h.press,
+                toggleButton = h.toggleButton, moveButton = h.moveButton,
                 // Up from the seek bar: pause, with what's playing (its synopsis) on screen.
                 upFromBar = { p.pause(); h.showDetails(); menu.open = false },
                 leftFromFirst = { VodHost.openMenu() },
@@ -188,6 +192,7 @@ class VodKeys(private val scrub: Scrubber, private val menu: PlayerMenu) {
             io.github.petebutty.viewarr.data.settings.BtnAction.MediaInfo -> h.press(PlayerButton.Info)
             io.github.petebutty.viewarr.data.settings.BtnAction.SwitchPlayer -> h.press(PlayerButton.SwitchPlayer)
             io.github.petebutty.viewarr.data.settings.BtnAction.Settings -> h.press(PlayerButton.Settings)
+            io.github.petebutty.viewarr.data.settings.BtnAction.Transparency -> h.press(PlayerButton.Transparency)
             io.github.petebutty.viewarr.data.settings.BtnAction.TimeTitle -> h.showOsd()
             io.github.petebutty.viewarr.data.settings.BtnAction.SeekBar -> { scrub.begin(p.positionMs); h.showOsd() }
             // An episode with more after it: the bar with the next episodes; otherwise (a film) the seek bar.
