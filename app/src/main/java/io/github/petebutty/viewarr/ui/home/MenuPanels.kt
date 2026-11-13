@@ -112,7 +112,11 @@ internal fun MediaMenuPanel(
         return
     }
     // (The highlight goes onto "home" itself, not the list as a whole: see RecordingsPanel.)
+    // Back from a library's categories: the list opens already at that library (it used to start at the top and
+    // scroll itself down to it).
+    val startAt = lastLib?.let { k -> libs.indexOfFirst { it.key == k } }?.takeIf { it >= 0 }?.let { (it + 2 - 3).coerceAtLeast(0) } ?: 0
     LazyColumn(
+        state = androidx.compose.foundation.lazy.rememberLazyListState(initialFirstVisibleItemIndex = startAt),
         verticalArrangement = Arrangement.spacedBy(1.dp), contentPadding = PaddingValues(bottom = 24.dp),
     ) {
         item(key = "home") {

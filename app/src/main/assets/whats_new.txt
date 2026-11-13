@@ -1,9 +1,6 @@
 # Shown once, the first time a new version opens (not on a fresh install). Keep it to the few things worth knowing.
 # Lines starting with "- " are the points; the first line without "#" or "-" is the heading.
-A new tour, channel browsing and a tidier menu
-- A new tour of how Viewarr works, and before setting up, three pages on what you'll need to have ready
-- Browse channels in the info bar: set a button to "Next channel in the info bar" and the channel changes only when you stop on one (Playback → Browsing channels)
-- The menu: hints that say what Right does, headings on each list, and optional colour edges, tints and an icon column (Appearance → Main menu)
-- Home page & menu is one list per type, each row showing where it comes from; rows can be moved
-- Music: a spinning vinyl or CD on Now Playing, lyrics, the queue, a sleep timer, song radio, favourites, artist pages with top songs and similar artists, a screensaver and new visualiser styles
-- Next episodes show their release date, darker when not out yet; hold Play to pick a source; square guide corners are back; many focus fixes
+Smaller info bar, tidier menus
+- Info bar size and Preview cards (Settings → Appearance → Live TV): make the info bar and its rows smaller, for live TV and films alike
+- The menus open already in place, without scrolling themselves up or down
+- Colour tint now covers the whole menu; Settings keeps the plain glass

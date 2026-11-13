@@ -189,7 +189,15 @@ internal fun InfoBarPanel(modifier: Modifier, content: @Composable androidx.comp
         .padding(start = 40.dp, end = 40.dp, bottom = 28.dp)
         .glass()
         .padding(horizontal = 24.dp, vertical = 18.dp)
-    Column(outer, verticalArrangement = Arrangement.spacedBy(10.dp), content = content)
+    // Settings → Appearance → Info bar size: everything in the bar (text, buttons, the preview rows) drawn smaller or
+    // larger together, by drawing it at a different scale, so it keeps its proportions.
+    val k = AppColors.palette.infoBarScale
+    val d = androidx.compose.ui.platform.LocalDensity.current
+    androidx.compose.runtime.CompositionLocalProvider(
+        androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(d.density * k, d.fontScale),
+    ) {
+        Column(outer, verticalArrangement = Arrangement.spacedBy(10.dp), content = content)
+    }
 }
 
 /**

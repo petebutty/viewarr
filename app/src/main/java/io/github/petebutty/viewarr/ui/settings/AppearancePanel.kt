@@ -183,6 +183,8 @@ fun AppearanceSettingsScreen(onBack: () -> Unit, vm: AppearanceViewModel = hiltV
                 SettingItem("Progress bars", "The bar showing how far through each programme on now is: on every channel, only the channel you're watching, or none.", progressChoices,
                     progressChoices[palette.progressBars.coerceIn(0, 2)]) { c -> vm.setProgressBars((c as Choice).value as Int) },
                 optItem(opts, "Channel logos", "Logos beside the channel names.", io.github.petebutty.viewarr.ui.theme.UiOpts.CHANNEL_LOGOS),
+                optItem(opts, "Info bar size", "How big the info bar is drawn over live TV and films: its text, buttons and preview rows together. Smaller covers less of the picture.", io.github.petebutty.viewarr.ui.theme.UiOpts.INFOBAR_SIZE),
+                optItem(opts, "Preview cards", "The size of the cards in the info bar's rows (next episodes, shortcuts).", io.github.petebutty.viewarr.ui.theme.UiOpts.CARD_SIZE),
                 optItem(opts, "Episode numbers", "Series and episode numbers after programme names (\"S15E4\") in the guide and the channel list.", io.github.petebutty.viewarr.ui.theme.UiOpts.GUIDE_EPISODE),
                 optItem(opts, "End of a list", "The TV guide, the channel list and its groups, past the last channel (or above the first). Jump to the other end: one more press goes to the top (holding the button stops at the end, so a long scroll doesn't fly round). Stop: nothing more.", io.github.petebutty.viewarr.ui.theme.UiOpts.LIST_ENDS),
                 optItem(opts, "Catch-up icons", "The replay icon on past programmes you can watch again, and beside channels that have catch-up. Catch-up still works with it off.", io.github.petebutty.viewarr.ui.theme.UiOpts.CATCHUP_ICONS),

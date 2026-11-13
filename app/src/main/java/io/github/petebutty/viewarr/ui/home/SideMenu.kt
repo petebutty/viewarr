@@ -325,7 +325,12 @@ internal fun MenuOverlay(
     val besidePreview = fullPage && previewOn
     Box(Modifier.fillMaxSize()) {
     Row(Modifier.fillMaxSize().graphicsLayer { alpha = if (besidePreview) 0f else 1f }) {
-    Row(Modifier.fillMaxHeight().onSizeChanged { onWidth(it.width) }.background(stripColour)) {
+    // Settings → Appearance → Main menu → Colour tint: the whole menu's glass (both panels, so they always match) in the
+    // colour of the section you're on.
+    val tintOn = AppColors.palette.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.MENU_TINT) == 1 && !fullPage
+    Row(Modifier.fillMaxHeight().onSizeChanged { onWidth(it.width) }.background(stripColour)
+        // (Not Settings: a grey tint just looked washed out; it keeps the plain glass.)
+        .then(if (tintOn && section != Section.Settings) Modifier.background(sectionColour(section).copy(alpha = 0.10f)) else Modifier)) {
         // Left again: the main list appears beside the groups.
         // (As wide as the list beside it: the strip stays one width whichever of the two shows, so the page doesn't move.)
         // One panel at a time (as TiviMate): the main list, or the list of the entry you went into, swapped in the
@@ -399,7 +404,7 @@ internal fun MenuOverlay(
             // Hints sit at the top of each panel, under the logo here (fixed: the list scrolls under it, not the hint).
             if (!editingMain && AppColors.palette.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.MENU_HINTS) == 0)
                 Text(rightHint, fontSize = 12.sp, color = AppColors.TextSecondary, maxLines = 1, modifier = Modifier.padding(start = 12.dp, bottom = 10.dp).offset(y = (-10).dp))
-            Column(Modifier.weight(1f).verticalScroll(androidx.compose.foundation.rememberScrollState()), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Column(Modifier.weight(1f).verticalScroll(MenuScrolls.main), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             // Settings → Appearance → Movies & Shows off: a live-TV-only menu.
             // The main list: Live TV, then the rest in your order (hold OK on one to edit the menu here), then Settings.
             // (Settings → Appearance → Main menu switches entries on and off too.)
@@ -554,8 +559,6 @@ internal fun MenuOverlay(
         // list beside them.
         val subHidden = single && mainShown && (!subListFocused || forceMain)
         if (mainShown && !subHidden) Box(Modifier.width(1.dp).fillMaxHeight().background(divider))
-        // Settings → Appearance → Main menu → Colour tint: the list's glass in its section's colour.
-        val tintOn = AppColors.palette.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.MENU_TINT) == 1 && !fullPage && !(editingMain && serviceOn != null)
         val subHint = single && !mainShown && !fullPage && AppColors.palette.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.MENU_HINTS) == 0
         // Room at the top for the hint (and the heading under it, in the padding as before).
         val subTop = if (subHint) 40.dp else 24.dp
@@ -563,7 +566,6 @@ internal fun MenuOverlay(
             Modifier
                 .width(if (subHidden) 0.dp else 230.dp)
                 .fillMaxHeight()
-                .then(if (tintOn) Modifier.background(sectionColour(section).copy(alpha = 0.10f)) else Modifier)
                 .onFocusChanged { subListFocused = it.hasFocus }
                 // Any other list (Music, Search): a Left nothing in it used brings the main list back.
                 .onKeyEvent { e ->
@@ -953,7 +955,7 @@ internal fun Modifier.rightIgnored(): Modifier = onPreviewKeyEvent { e -> e.key 
 @Composable
 internal fun SettingsPanel(playbackItem: FocusRequester, onPlayback: () -> Unit, addonsItem: FocusRequester, onAddons: () -> Unit, remoteItem: FocusRequester, onRemote: () -> Unit, navigationItem: FocusRequester, onNavigation: () -> Unit, sportsItem: FocusRequester, onSports: () -> Unit, updatesItem: FocusRequester, onUpdates: () -> Unit, aboutItem: FocusRequester, onAbout: () -> Unit, session: Session?, sync: SyncState, firstItem: FocusRequester, appearanceItem: FocusRequester, onAppearance: () -> Unit, homeRowsItem: FocusRequester, onHomeRows: () -> Unit, pluginsItem: FocusRequester, onPlugins: () -> Unit, onAccounts: () -> Unit, onRefresh: () -> Unit, onSignOut: () -> Unit) {
     // Scrolls: the list is taller than the screen with the Dispatcharr sync items.
-    Column(Modifier.verticalScroll(androidx.compose.foundation.rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Column(Modifier.verticalScroll(MenuScrolls.settings), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(session?.let { "Signed in as ${it.username}" } ?: "Live TV not set up", fontSize = 15.sp, color = AppColors.TextPrimary, modifier = Modifier.padding(horizontal = 12.dp))
         session?.let { Text(it.serverUrl, fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(horizontal = 12.dp)) }
         when (sync) {
@@ -1044,11 +1046,21 @@ internal fun sectionColour(s: Section): Color = when (s) {
     Section.Music -> Color(0xFF22C55E)
     Section.Recordings -> Color(0xFFF59E0B)
     Section.Search -> Color(0xFF94A3B8)
-    Section.Settings -> Color(0xFF64748B)
+    // Settings: the highlight colour (its edge bar); it has no tint of its own.
+    Section.Settings -> AppColors.Accent
 }
 
 /** Each section's mark (headings and the icon column). */
 internal fun sectionIcon(s: Section): String = when (s) {
     Section.Tv -> "📺"; Section.Movies -> "🎬"; Section.Shows -> "📼"; Section.Music -> "♪"
     Section.Recordings -> "⏺"; Section.Search -> "🔍"; Section.Settings -> "⚙"
+}
+
+/**
+ * Where the main list and the Settings list were scrolled to, kept while Viewarr is open: the menu opens already in
+ * place, rather than starting at the top and scrolling itself to the highlighted entry each time.
+ */
+internal object MenuScrolls {
+    val main = androidx.compose.foundation.ScrollState(0)
+    val settings = androidx.compose.foundation.ScrollState(0)
 }

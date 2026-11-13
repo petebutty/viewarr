@@ -672,6 +672,8 @@ const val OSD_CARD_H = 99
 /** The film player's card: drawn exactly as live TV's, highlighted by the player (it has no focus of its own). */
 @Composable
 fun OsdCardStatic(p: OsdPoster, highlighted: Boolean, widthDp: Int = OSD_CARD_W) {
+    // Settings → Appearance → Preview cards.
+    @Suppress("NAME_SHADOWING") val widthDp = (widthDp * AppColors.palette.cardScale).toInt()
     // The same gentle grow as live TV's focused card (the TV Surface's own animation), not a jump.
     val grow by androidx.compose.animation.core.animateFloatAsState(if (highlighted) 1.05f else 1f, label = "card")
     Column(Modifier.width(widthDp.dp)) {
@@ -696,12 +698,14 @@ private fun PosterCard(p: OsdPoster, enabled: Boolean, modifier: Modifier = Modi
     LaunchedEffect(CardMenu.open == null) {
         if (held && CardMenu.open == null) { held = false; awaitFrame(); runCatching { self.requestFocus() } }
     }
-    Column(Modifier.width(OSD_CARD_W.dp)) {
+    // Settings → Appearance → Preview cards.
+    val k = AppColors.palette.cardScale
+    Column(Modifier.width((OSD_CARD_W * k).dp)) {
         Surface(
             onClick = p.onClick,
             onLongClick = if (p.options.isEmpty()) null else ({ held = true; CardMenu.open = p }),
             enabled = enabled,
-            modifier = modifier.focusRequester(self).size(OSD_CARD_W.dp, OSD_CARD_H.dp).onFocusChanged { on = it.isFocused },
+            modifier = modifier.focusRequester(self).size((OSD_CARD_W * k).dp, (OSD_CARD_H * k).dp).onFocusChanged { on = it.isFocused },
             scale = ClickableSurfaceDefaults.scale(scale = 1f, focusedScale = 1.05f, pressedScale = 1f),
             shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
             border = ClickableSurfaceDefaults.border(

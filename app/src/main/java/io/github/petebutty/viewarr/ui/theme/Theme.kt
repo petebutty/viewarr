@@ -36,6 +36,9 @@ data class Palette(val main: Color, val highlight: Color, val transparency: Floa
     val serverPreviews get() = opt(UiOpts.SEEK_PREVIEWS) != 2
     val boxPreviews get() = opt(UiOpts.SEEK_PREVIEWS) == 0 && !lowMemory
     /** Player controls (seek bar area and buttons) scale: Medium, Small, Large (the original size). */
+    /** Settings → Appearance → Info bar size / Preview cards. */
+    val infoBarScale get() = floatArrayOf(1f, 0.85f, 0.72f, 1.12f)[opt(UiOpts.INFOBAR_SIZE).coerceIn(0, 3)]
+    val cardScale get() = floatArrayOf(1f, 0.8f, 0.65f, 1.15f)[opt(UiOpts.CARD_SIZE).coerceIn(0, 3)]
     val controlsScale get() = floatArrayOf(0.8f, 0.65f, 1f)[opt(UiOpts.CONTROLS_SIZE).coerceIn(0, 2)]
     val controlsMs get() = longArrayOf(4_000, 3_000, 6_000, 10_000)[opt(UiOpts.CONTROLS_TIME).coerceIn(0, 3)]
     /** Settings → Playback → Next episode countdown: 0–180 s in 5 s steps (the older four-choice setting carries over). */
@@ -233,6 +236,10 @@ object UiOpts {
     const val MUSIC_LYRICS = "music_lyrics"
     /** Music: how Now Playing shows the artwork (a cover, a spinning record or CD…). */
     const val MUSIC_ART = "music_art"
+    /** The info bar (live TV and films, its controls and preview rows): how big all of it is drawn. */
+    const val INFOBAR_SIZE = "infobar_size"
+    /** The preview cards in the info bar's rows (next episodes, shortcuts): their size. */
+    const val CARD_SIZE = "card_size"
     const val BANNER_GLASS = "banner_glass"
     /** The glass's strength for the info bar and every pop-up, as a slider: 0 the clearest … 10 solid. */
     const val POPUP_GLASS = "popup_glass"
@@ -315,6 +322,8 @@ object UiOpts {
         MUSIC_VIS to listOf("Bars", "Mirrored bars", "Wave", "Dots", "Off"),
         MUSIC_SAVER to listOf("After 2 minutes", "After 5 minutes", "After 10 minutes", "Off"),
         MUSIC_LYRICS to listOf("On", "Off"),
+        INFOBAR_SIZE to listOf("Normal", "Compact", "Small", "Large"),
+        CARD_SIZE to listOf("Normal", "Small", "Smaller", "Large"),
         MUSIC_ART to listOf("Square cover", "Spinning vinyl record", "Spinning CD", "Round cover, turning slowly", "Cover with a reflection"),
         BROWSE_DELAY to listOf("0.5 seconds", "0.3 seconds", "0.8 seconds", "1 second", "1.5 seconds", "2 seconds", "Only when I press OK"),
         GUIDE_REFRESH to listOf("Every 4 hours", "Every 2 hours", "Every 8 hours", "Every 12 hours", "Once a day", "Only when I ask"),
