@@ -20,6 +20,9 @@ import io.github.petebutty.viewarr.data.remote.services.long
 import io.github.petebutty.viewarr.data.remote.services.obj
 import io.github.petebutty.viewarr.data.remote.services.str
 import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.coroutineScope
@@ -138,7 +141,26 @@ class CatalogRepository @Inject constructor(
     /** Background work that outlives a screen (copying Trakt's history to Plex). */
     private val appScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO)
 
+    /**
+     * What one person's or provider's lookups found, forgotten when the Live TV source or profile changes (profiles are
+     * Dispatcharr users, each with their own sign-ins): otherwise the last one's IPTV films, Plex copies and episodes
+     * (Plex keys are bare numbers, so they'd point at a different title on the new main server) and Trakt lists stayed.
+     */
+    private fun clearPersonalCaches() {
+        xcCache = null
+        copyCache.clear()
+        plexEpisodeCache.clear()
+        traktWatchlist.clear()
+        _traktWatched.value = null
+    }
+
     init {
+        appScope.launch {
+            sessions.session.map { it?.id }.distinctUntilChanged().drop(1).collect { clearPersonalCaches() }
+        }
+        appScope.launch {
+            store.accounts.map { listOf(it.plex?.token, it.trakt != null, it.jellyfin?.token, it.emby?.token) }.distinctUntilChanged().drop(1).collect { clearPersonalCaches() }
+        }
         // Trakt watched history: checked soon after start and every half hour (copied to Plex too, if that's on).
         appScope.launch {
             kotlinx.coroutines.delay(5_000)
@@ -591,8 +613,18 @@ class CatalogRepository @Inject constructor(
 
     // ------------------------------------------------------------------ Trakt
 
-    private suspend fun freshTrakt(auth: TraktAuth): TraktAuth {
-        if (auth.expiresAt - System.currentTimeMillis() > 3_600_000) return auth
+    /** One refresh at a time: Trakt's refresh tokens work once, so two at once (Movies and Shows loading together) left
+     *  the second with a spent token and Trakt signed out. */
+    private val traktRefreshLock = kotlinx.coroutines.sync.Mutex()
+
+    private suspend fun freshTrakt(cached: TraktAuth): TraktAuth = traktRefreshLock.withLock {
+        // The saved login, not the caller's copy (another call may just have refreshed it).
+        val auth = store.current().trakt ?: cached
+        if (auth.expiresAt - System.currentTimeMillis() > 3_600_000) return@withLock auth
+        refreshTrakt(auth)
+    }
+
+    private suspend fun refreshTrakt(auth: TraktAuth): TraktAuth {
         val r = runCatching {
             http.post("https://api.trakt.tv/oauth/token", buildJsonObject {
                 put("refresh_token", auth.refreshToken)
@@ -647,6 +679,37 @@ class CatalogRepository @Inject constructor(
         if (!r.ok) return null
         val items = r.body.asArray().mapNotNull { traktItem(it, type, "Trakt") }
         return MediaRow("trakt-reco-${type.name}", "Recommended for you", enrich(a, items))
+    }
+
+    /**
+     * Continue watching from Trakt, from your most recent plays (Trakt's history, from any app that scrobbles to it):
+     * each show watched lately, at the next episode after the last one you watched (Trakt's own "next episode"). Shows
+     * you're up to date with drop out. Films: none (a film in your history has been finished).
+     */
+    suspend fun traktContinue(type: MediaType): List<MediaItem> = coroutineScope {
+        if (type != MediaType.Show) return@coroutineScope emptyList()
+        val a = store.current()
+        val t = a.trakt?.let { freshTrakt(it) } ?: return@coroutineScope emptyList()
+        val r = runCatching { http.get("https://api.trakt.tv/sync/history/episodes?limit=80", trakt.headers(t.accessToken)) }.getOrNull()
+        if (r == null || !r.ok) return@coroutineScope emptyList()
+        // The shows in the order you last watched them.
+        val shows = r.body.asArray().map { it.child("show") }.distinctBy { it.child("ids").int("trakt") }.take(15)
+        val limit = kotlinx.coroutines.sync.Semaphore(4)
+        val items = shows.map { show ->
+            async {
+                val id = show.child("ids").int("trakt") ?: return@async null
+                val p = limit.withPermit {
+                    runCatching { http.get("https://api.trakt.tv/shows/$id/progress/watched?specials=false", trakt.headers(t.accessToken)) }.getOrNull()
+                }?.takeIf { it.ok } ?: return@async null
+                val next = p.body.child("next_episode") ?: return@async null
+                val s = next.int("season") ?: return@async null
+                val e = next.int("number") ?: return@async null
+                traktItem(show, MediaType.Show, "Trakt")?.let { item ->
+                    item.copy(key = item.key + ":trakt-next", nextSeason = s, nextEpisode = e, subtitle = "S$s · E$e  " + next.str("title").orEmpty())
+                }
+            }
+        }.awaitAll().filterNotNull()
+        enrich(a, items)
     }
 
     fun inTraktWatchlist(item: MediaItem) = item.tmdbId?.let { "${item.type.name}:$it" in traktWatchlist } == true
@@ -890,86 +953,6 @@ class CatalogRepository @Inject constructor(
         return r.body.array("Items").mapNotNull { g -> val id = g.str("Id") ?: return@mapNotNull null; id to (g.str("Name") ?: id) }
     }
 
-    suspend fun libraryPage(
-        lib: MediaLibrary, type: MediaType, sort: LibrarySort, start: Int, size: Int, query: String = "",
-        genre: String? = null, unwatched: Boolean = false,
-    ): Pair<List<MediaItem>, Int>? {
-        val q = query.trim()
-        val a = store.current()
-        if (lib.source == PROVIDER_LIBRARY) return providerPage(type, sort, start, size, q, genre)
-        if (lib.server != null) {
-            val p = plexServers(a).firstOrNull { it.machineId == lib.server } ?: return null
-            val c = runCatching {
-                plexGet(a, p, "/library/sections/${lib.id}/all?sort=${sort.plex}&includeGuids=1&X-Plex-Container-Start=$start&X-Plex-Container-Size=$size" +
-                    (if (q.isNotEmpty()) "&title=${enc(q)}" else "") +
-                    (if (genre != null) "&genre=${enc(genre)}" else "") +
-                    (if (unwatched) (if (type == MediaType.Movie) "&unwatched=1" else "&unwatchedLeaves=1") else ""))
-            }.getOrNull() ?: return null
-            val items = c.array("Metadata").mapNotNull { plexItem(p, it, type) }
-            return items to (c.int("totalSize") ?: c.int("size") ?: items.size)
-        }
-        val emby = lib.source == "Emby"
-        val srv = (if (emby) a.emby else a.jellyfin) ?: return null
-        val kind = if (type == MediaType.Movie) "Movie" else "Series"
-        val (by, order) = sort.jellyfin
-        val r = runCatching {
-            http.get(
-                "${srv.serverUrl}/Users/${srv.userId}/Items?ParentId=${enc(lib.id)}&IncludeItemTypes=$kind&Recursive=true" +
-                    "&SortBy=$by&SortOrder=$order&StartIndex=$start&Limit=$size&Fields=ProviderIds,Overview,ProductionYear" +
-                    (if (q.isNotEmpty()) "&SearchTerm=${enc(q)}" else "") +
-                    (if (genre != null) "&GenreIds=${enc(genre)}" else "") +
-                    (if (unwatched) "&IsPlayed=false" else ""),
-                mediaServers.headers(emby, a.deviceId, srv.token),
-            )
-        }.getOrNull()?.takeIf { it.ok } ?: return null
-        val items = r.body.array("Items").mapNotNull { serverItem(srv, it, type, lib.source) }
-        return items to (r.body.int("TotalRecordCount") ?: items.size)
-    }
-
-    /**
-     * A–Z: how many titles (in A–Z order, with the same search and filters) come before [letter] ('#' = the start).
-     * Null when the server can't say (IPTV provider libraries).
-     */
-    suspend fun libraryLetterStart(
-        lib: MediaLibrary, type: MediaType, letter: Char, query: String = "", genre: String? = null, unwatched: Boolean = false,
-    ): Int? {
-        if (letter == '#') return 0
-        val q = query.trim()
-        val a = store.current()
-        if (lib.source == PROVIDER_LIBRARY) return null
-        if (lib.server != null) {
-            val p = plexServers(a).firstOrNull { it.machineId == lib.server } ?: return null
-            // Plex counts titles by first character, in A–Z order.
-            val c = runCatching {
-                plexGet(a, p, "/library/sections/${lib.id}/firstCharacter?type=${if (type == MediaType.Movie) 1 else 2}" +
-                    (if (q.isNotEmpty()) "&title=${enc(q)}" else "") +
-                    (if (genre != null) "&genre=${enc(genre)}" else "") +
-                    (if (unwatched) (if (type == MediaType.Movie) "&unwatched=1" else "&unwatchedLeaves=1") else ""))
-            }.getOrNull() ?: return null
-            var before = 0
-            for (d in c.array("Directory")) {
-                val t = (d.str("title") ?: d.str("key") ?: "").uppercase()
-                val first = t.firstOrNull() ?: continue
-                if (first.isLetter() && first >= letter) break
-                before += d.int("size") ?: 0
-            }
-            return before
-        }
-        val emby = lib.source == "Emby"
-        val srv = (if (emby) a.emby else a.jellyfin) ?: return null
-        val kind = if (type == MediaType.Movie) "Movie" else "Series"
-        val r = runCatching {
-            http.get(
-                "${srv.serverUrl}/Users/${srv.userId}/Items?ParentId=${enc(lib.id)}&IncludeItemTypes=$kind&Recursive=true&Limit=0" +
-                    "&NameLessThan=${enc(letter.toString())}" +
-                    (if (q.isNotEmpty()) "&SearchTerm=${enc(q)}" else "") +
-                    (if (genre != null) "&GenreIds=${enc(genre)}" else "") +
-                    (if (unwatched) "&IsPlayed=false" else ""),
-                mediaServers.headers(emby, a.deviceId, srv.token),
-            )
-        }.getOrNull()?.takeIf { it.ok } ?: return null
-        return r.body.int("TotalRecordCount")
-    }
 
     // ---- Library sorting and filtering (what each server offers, and loading with any of it)
 

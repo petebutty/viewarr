@@ -42,7 +42,7 @@ object SettingsMap {
             Section("TV guide", "How the TV guide and the channel list look.",
                 r(A, "Live TV", "Channel numbers", "Channel logos", "Programme corners", "Progress bars", "Episode numbers", "Catch-up icons", "Programme pictures")),
             Section("Info bar & controls", "The bar over live TV and films (when you change channel or press OK / Info), and the film controls.",
-                r(A, "Live TV", "Info bar size", "Info bar width", "Preview cards", "Info bar: channel number", "Info bar: episode numbers", "Info bar: picture quality", "Info bar: frame rate") +
+                r(A, "Live TV", "Info bar style", "Info bar corners", "Info bar size", "Info bar width", "Preview cards", "Info bar: channel number", "Info bar: episode numbers", "Info bar: picture quality", "Info bar: frame rate", "Rows under the info bar") +
                     r(P, "Player", "Player controls size")),
             Section("Menu", "How the menu on the left looks: headings, colours, hints and marks.",
                 r(A, "Main menu", "List headings", "Source in the Live TV heading", "Colour edge", "Colour tint", "Icon column", "Left / Right hints", "TV mark on channel groups", "LIVE mark") +
@@ -70,7 +70,7 @@ object SettingsMap {
         )),
         Page(PLAYBACK, "Playback", listOf(
             Section("Player", "Which player plays films, shows and recordings, and how it behaves.",
-                r(P, "Player", "Player", "Video view", "Resume", "Controls stay up for", "Seek-bar previews", "mpv decoding")),
+                r(P, "Player", "Player", "Video view", "Resume", "Time on the right", "Controls stay up for", "Seek-bar previews", "mpv decoding")),
             Section("Video", "Matching the TV's frame rate, picture size and smoothness.", all(P, "Video")),
             Section("Audio", "Language, surround sound and volume.", all(P, "Audio")),
             Section("Subtitles", "When subtitles show, and in which language.", r(P, "Subtitles", "Show subtitles", "Language")),
@@ -81,7 +81,7 @@ object SettingsMap {
         )),
         Page(NAVIGATION, "Menu & navigation", listOf(
             Section("Start", "What you see when Viewarr opens.", all(N, "Start")),
-            Section("Menu", "Opening the side menu and going into its lists.", r(N, "Menu", "Menu opens on", "Right on a library")),
+            Section("Menu", "Opening the side menu and going into its lists.", r(N, "Menu", "Menu opens on")),
             Section("What the menu lists", "What's listed in the menu on the left. Live TV and Settings are always there; streaming services appear once your addons' rows have loaded.",
                 all(A, "Main menu")),
             Section("Poster rows", "Moving around the rows of posters on Movies, Shows and title pages.", all(N, "Poster rows")),

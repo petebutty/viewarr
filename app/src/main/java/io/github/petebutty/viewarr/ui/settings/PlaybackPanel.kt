@@ -51,6 +51,7 @@ fun playbackCategories(vm: PlaybackSettingsViewModel = hiltViewModel(), opts: Ui
                 item("Player", "The built-in player is lighter and handles surround sound best. If it can't play a file, Viewarr switches to mpv by itself. Choose mpv to use it for everything.", k.ENGINE, choices<io.github.petebutty.viewarr.data.settings.PlayerEngine>(), s.engine),
                 item("Video view", "Standard: the box's own video hardware shows the film (lighter, HDR and Dolby Vision as the file has them, a smooth glide into the corner). Compatible: drawn by Viewarr, for a box where Standard leaves the picture black.", k.VIDEO_VIEW, choices<io.github.petebutty.viewarr.data.settings.VideoView>(), s.videoView),
                 item("Resume", "Carry on where you stopped last time, or always start at the beginning.", k.RESUME, choices<io.github.petebutty.viewarr.data.settings.ResumeMode>(), s.resume),
+                optItem(opts, "Time on the right", "Under the seek bar of films and episodes: how long is left (15:05 left), the time it ends (Ends at 21:43, in your time format), or both.", io.github.petebutty.viewarr.ui.theme.UiOpts.FILM_TIME_RIGHT),
                 optItem(opts, "Controls stay up for", "How long the seek bar and buttons stay on screen after a button press.", io.github.petebutty.viewarr.ui.theme.UiOpts.CONTROLS_TIME),
                 optItem(opts, "Player controls size", "How big the seek bar, title and buttons are while a film or episode plays. Smaller sizes cover less of the picture.", io.github.petebutty.viewarr.ui.theme.UiOpts.CONTROLS_SIZE),
                 optItem(opts, "Seek-bar previews", "Pictures above the seek bar. Without the server's own, the box reads the film a second time to make them: \"Server's only\" or Off saves bandwidth and memory.", io.github.petebutty.viewarr.ui.theme.UiOpts.SEEK_PREVIEWS),
@@ -139,6 +140,9 @@ fun playbackCategories(vm: PlaybackSettingsViewModel = hiltViewModel(), opts: Ui
         SettingCategory(
             "Troubleshooting", "Tools for when something doesn't play right.",
             listOf(
+                // Locked and uploaded only on Send; the code it gives is what to share in Discord.
+                SettingItem("Send a report", "Something not working? This sends what Viewarr was doing to the developer, with passwords, keys, addresses and names taken out, and gives you a short code to share in Discord.",
+                    listOf(ReportLabel("")), ReportLabel(""), action = { ReportUi.open = true }, onSelect = {}),
                 item("Show playback info", "Shows the video and audio format, decoder and dropped frames while playing.", k.STATS, choices<io.github.petebutty.viewarr.data.settings.StatsOverlay>(), s.stats),
                 optItem(opts, "Low-memory mode", "For boxes with 1–2 GB. Turns off the heavy extras across the app (box-made seek previews, guide pictures, logos, wallpaper, artwork, trailers, multi-view, extra ratings); their settings show as locked until it's off. Try it if Viewarr is slow or closes.", io.github.petebutty.viewarr.ui.theme.UiOpts.LOW_MEMORY),
             ),

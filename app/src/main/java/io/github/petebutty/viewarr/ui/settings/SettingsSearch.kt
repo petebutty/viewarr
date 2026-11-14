@@ -61,7 +61,7 @@ fun SettingsSearchScreen(
     val words = query.trim().lowercase().split(Regex("\\s+")).filter { it.isNotEmpty() }
     fun matches(text: String) = words.isNotEmpty() && words.all { text.lowercase().contains(it) }
     // Names first, then explanations; the pages with their own screens after.
-    val hits = index.filter { matches(it.title + " " + it.section) }.ifEmpty { emptyList() } +
+    val hits = index.filter { matches(it.title + " " + it.section) } +
         index.filter { !matches(it.title + " " + it.section) && matches(it.description) }
     val otherHits = others.filter { matches(it.title + " " + it.words) }
     Box(Modifier.fillMaxSize().appBackground(readable = true)) {

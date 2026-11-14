@@ -214,6 +214,12 @@ fun AppRoot(vm: AppViewModel = hiltViewModel()) {
                 })
             }
         }
+        // Settings → Appearance → Rows under the info bar, over everything.
+        io.github.petebutty.viewarr.ui.settings.InfoRowsEditor.open?.let { pl ->
+            io.github.petebutty.viewarr.ui.settings.InfoRowsScreen(start = pl, onClose = { io.github.petebutty.viewarr.ui.settings.InfoRowsEditor.open = null })
+        }
+        // Settings → Troubleshooting → Send a report, over everything.
+        if (io.github.petebutty.viewarr.ui.settings.ReportUi.open) io.github.petebutty.viewarr.ui.settings.ReportScreen(onClose = { io.github.petebutty.viewarr.ui.settings.ReportUi.open = false })
         if (splashAlpha > 0f) Box(Modifier.fillMaxSize().graphicsLayer { alpha = splashAlpha }) {
             io.github.petebutty.viewarr.ui.common.ViewarrSplash()
         }

@@ -25,7 +25,7 @@ These are the **Viewarr** buttons (the default). Where the **TiviMate** preset d
 | Films & shows | Left at the start of a row, or Back | The menu |
 | Film player | OK | The info bar with the controls. Left from the first button: the menu, over the film. |
 | Film player | Down, then Left / Right, OK | Seek bar with previews: move, then jump there |
-| Film player | Down (shows) | The next episodes, with their release dates |
+| Film player | Down from the buttons | The rows under the info bar: next episodes (shows) and the rows you choose; Down / Up between them |
 | Film player | Back | Close what's open (controls, details), then keep playing in the window top left while you browse |
 | Film player | Stop (or the Stop button) | Stop (your place is saved) |
 | Film player | Info | The poster, episode and synopsis |

@@ -91,6 +91,8 @@ fun MpvPlayer(
 
     var position by remember { mutableDoubleStateOf(0.0) }
     var duration by remember { mutableDoubleStateOf(0.0) }
+    /** How far ahead mpv has loaded (seconds into the film), for the seek bar's buffer. */
+    var cachedTo by remember { mutableDoubleStateOf(0.0) }
     var paused by remember { mutableStateOf(false) }
     var buffering by remember { mutableStateOf(true) }
     /** Waiting on the network (not a seek: a seek that never finishes is what a stalled soundtrack looks like). */
@@ -165,8 +167,10 @@ fun MpvPlayer(
             override fun eventProperty(property: String, value: Double) {
                 main.post {
                     when (property) {
-                        "time-pos" -> { position = value; if (value > 0) buffering = false }
+                        // (Every frame from mpv: only a quarter-second step redraws the controls, not 25–60 a second.)
+                        "time-pos" -> { if (kotlin.math.abs(value - position) >= 0.25 || value < position) position = value; if (value > 0) buffering = false }
                         "duration" -> duration = value
+                        "demuxer-cache-time" -> cachedTo = value
                     }
                 }
             }
@@ -178,6 +182,7 @@ fun MpvPlayer(
         mpv.addObserver(observer)
         mpv.observeProperty("time-pos", MPVLib.MPV_FORMAT_DOUBLE)
         mpv.observeProperty("duration", MPVLib.MPV_FORMAT_DOUBLE)
+        mpv.observeProperty("demuxer-cache-time", MPVLib.MPV_FORMAT_DOUBLE)
         mpv.observeProperty("pause", MPVLib.MPV_FORMAT_FLAG)
         mpv.observeProperty("paused-for-cache", MPVLib.MPV_FORMAT_FLAG)
         mpv.observeProperty("seeking", MPVLib.MPV_FORMAT_FLAG)
@@ -202,16 +207,18 @@ fun MpvPlayer(
     val activity = context as? android.app.Activity
     // The info bar's Audio sync (mpv's own audio delay; later is positive, as in AvSync).
     LaunchedEffect(mpv, io.github.petebutty.viewarr.playback.AvSync.ms) {
-        runCatching { MPVLib.setPropertyDouble("audio-delay", io.github.petebutty.viewarr.playback.AvSync.ms / 1000.0) }
+        runCatching { mpv.setPropertyDouble("audio-delay", io.github.petebutty.viewarr.playback.AvSync.ms / 1000.0) }
     }
-    LaunchedEffect(mpv, settings.frameRate) {
+    // (Once per film: keyed on the setting too, changing it from the TV settings panel ran this again, un-pausing a
+    // paused film and switching the TV mid-playback.)
+    LaunchedEffect(mpv) {
         if (!settings.frameRate.films) return@LaunchedEffect
         if (activity == null) { runCatching { mpv.setPropertyBoolean("pause", false) }; return@LaunchedEffect }
         // mpv was started paused (configure): switching the TV mid-playback stalls HDMI audio on Amlogic boxes.
         try {
             repeat(80) {
                 delay(250)
-                val fps = runCatching { MPVLib.getPropertyDouble("container-fps") }.getOrNull()
+                val fps = runCatching { mpv.getPropertyDouble("container-fps") }.getOrNull()
                 if (fps != null && fps > 0) {
                     val previous = io.github.petebutty.viewarr.playback.FrameRateMatcher.match(activity, fps.toFloat())
                     if (previous != null) { restoreMode = previous; delay(2_000) }
@@ -265,7 +272,7 @@ fun MpvPlayer(
         if (settings.stats != io.github.petebutty.viewarr.data.settings.StatsOverlay.On && !menu.infoOn) { stats = ""; return@LaunchedEffect }
         while (true) {
             stats = runCatching {
-                fun p(k: String) = MPVLib.getPropertyString(k)
+                fun p(k: String) = mpv.getPropertyString(k)
                 listOfNotNull(
                     "Video: ${p("video-codec") ?: "?"}  ${p("video-params/w") ?: "?"}×${p("video-params/h") ?: "?"}  ${p("container-fps")?.take(6) ?: "?"} fps",
                     "Decoder: ${p("hwdec-current")?.takeIf { it.isNotBlank() && it != "no" } ?: "software"}",
@@ -286,10 +293,10 @@ fun MpvPlayer(
                 hasNext = NextUp.episode != null, countdownMs = nextCountdown, onNext = { NextUp.play() })
         }
     }
-    // Progress to Plex/Trakt every 15 s while playing.
+    // Progress to Plex/Trakt every 10 s while playing.
     LaunchedEffect(mpv) {
         while (true) {
-            delay(15_000)
+            delay(10_000)
             if (!paused && position > 0) onProgress("playing", (position * 1000).toLong(), (duration * 1000).toLong())
         }
     }
@@ -353,10 +360,13 @@ fun MpvPlayer(
     // Live TV hub: the TV guide first (live TV comes first there).
     // As you've arranged them (hold OK on one to edit; see BarLayout).
     val barAppearance: io.github.petebutty.viewarr.ui.settings.AppearanceViewModel = androidx.hilt.navigation.compose.hiltViewModel()
+    val barOpts: io.github.petebutty.viewarr.ui.settings.UiOptsViewModel = androidx.hilt.navigation.compose.hiltViewModel()
     val allButtons = listOfNotNull(if (hubOn) PlayerButton.Guide else null, PlayerButton.PlayPause, PlayerButton.Stop, PlayerButton.Details, PlayerButton.Audio, PlayerButton.Subtitles, PlayerButton.Info, if (onSwitchPlayer != null) PlayerButton.SwitchPlayer else null,
         // (Episodes: only with more to come.)
+        // (Previous / Next episode: extras for shows, each only when there is one.)
+        if (NextUp.previous != null) PlayerButton.PrevEpisode else null, if (NextUp.episode != null) PlayerButton.NextEpisode else null,
         if (NextUp.upcoming.isNotEmpty()) PlayerButton.Episodes else null, PlayerButton.Sync, PlayerButton.Sleep, PlayerButton.Movies, PlayerButton.Shows, PlayerButton.Recordings,
-        PlayerButton.Search, PlayerButton.Transparency, PlayerButton.TvSettings, PlayerButton.Settings)
+        PlayerButton.Search, PlayerButton.Transparency, PlayerButton.BarStyle, PlayerButton.TvSettings, PlayerButton.Settings)
     val buttons = io.github.petebutty.viewarr.ui.common.BarLayout.arrange(allButtons, { io.github.petebutty.viewarr.ui.common.BarLayout.filmId(it.name) }, menu.editing)
     menu.home = buttons.indexOf(PlayerButton.PlayPause).coerceAtLeast(0)
     menu.guideAt = buttons.indexOf(PlayerButton.Guide)
@@ -367,9 +377,13 @@ fun MpvPlayer(
             PlayerButton.Subtitles -> { tracksSubs = true; tracksOpen = true }
             PlayerButton.Transparency -> { menu.open = false; transOpen = true; return }
             PlayerButton.TvSettings -> { menu.open = false; tvOpen = true; return }
+            // The next info bar style, shown at once on this bar.
+            PlayerButton.BarStyle -> io.github.petebutty.viewarr.ui.common.BarLayout.nextStyle(barOpts::set)
             // Search over the film: it carries on in the corner (as the remote's Search).
             PlayerButton.Search -> { menu.open = false; VodHost.minimise(); VodHost.openSearch(); return }
-            PlayerButton.Episodes -> { menu.onEpisodes = true; menu.episodesOnly = false; menu.episode = 0 }
+            PlayerButton.Episodes -> FilmShortcuts.openEpisodes(menu, only = false)
+            PlayerButton.PrevEpisode -> { menu.open = false; NextUp.playPrevious() }
+            PlayerButton.NextEpisode -> { menu.open = false; NextUp.play() }
             PlayerButton.Sync -> { menu.open = false; syncOpen = true; return }
             PlayerButton.Sleep -> io.github.petebutty.viewarr.playback.SleepTimer.cycle(((duration * 1000).toLong() - (position * 1000).toLong()).takeIf { it > 0 }?.let { System.currentTimeMillis() + it })
             // A page over the film (it carries on in the corner).
@@ -525,12 +539,13 @@ fun MpvPlayer(
             stream.title, (position * 1000).toLong(), (duration * 1000).toLong(), paused, buffering,
             scrub.targetMs, thumbs, Modifier.align(Alignment.BottomCenter), logo = art?.logo,
             from = stream.from,
+            bufferedMs = (cachedTo * 1000).toLong(),
             // The badges: the film's own picture, frame rate and sound, as mpv reads them.
             quality = runCatching {
                 io.github.petebutty.viewarr.ui.player.StreamQuality(
-                    MPVLib.getPropertyInt("height") ?: 0,
-                    (MPVLib.getPropertyDouble("container-fps") ?: 0.0).toFloat(),
-                    MPVLib.getPropertyInt("audio-params/channel-count") ?: 0,
+                    mpv.getPropertyInt("height") ?: 0,
+                    (mpv.getPropertyDouble("container-fps") ?: 0.0).toFloat(),
+                    mpv.getPropertyInt("audio-params/channel-count") ?: 0,
                 )
             }.getOrNull(),
             buttons = if (menu.open) buttons.map { b ->
@@ -552,7 +567,8 @@ fun MpvPlayer(
             shortcuts = if (menu.open && menu.onShortcuts) io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.items.map { it.first } else null,
             shortcutFocus = menu.shortcut, shortcutMoving = menu.scMoving,
             shortcutsHint = false,
-            episodes = if (menu.open && menu.onEpisodes) NextUp.cards() else null,
+            downRows = if (menu.open && menu.onEpisodes) FilmShortcuts.downRows(menu.withNext) else null,
+            downRow = menu.downRow,
             episodeFocus = menu.episode,
             rows = if (menu.open && menu.onRows) io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.rowsFor(menu.shortcut) else null,
             rowFocus = menu.row, cardFocus = menu.card,
@@ -597,7 +613,8 @@ private fun spdifFormats(context: android.content.Context): String {
 /** mpv options that must be set before init(). */
 private fun configure(mpv: MpvHandle, context: android.content.Context, stream: VodStream, s: PlaybackSettings) {
     val dir = context.filesDir.absolutePath
-    fun opt(k: String, v: String) { if (mpv.setOptionString(k, v) < 0) Log.w(TAG, "option $k=$v rejected") }
+    // (Only the option's name is logged, not its value: headers can carry logins.)
+    fun opt(k: String, v: String) { if (mpv.setOptionString(k, v) < 0) Log.w(TAG, "option $k rejected") }
     opt("config", "no")
     opt("config-dir", dir)
     opt("gpu-shader-cache-dir", context.cacheDir.absolutePath)
@@ -670,23 +687,43 @@ private fun configure(mpv: MpvHandle, context: android.content.Context, stream: 
  * libmpv 0.5.x is one process-wide player with static calls; this wraps it so the screen code reads like an object.
  * Only one MpvPlayer is ever on screen, and it destroys mpv when it leaves.
  */
+/**
+ * The one mpv (libmpv is a single global instance: asking for a second while one is alive ends the app). A new handle
+ * destroys the one before it first (the next episode's player is made before the old one's clean-up runs); a handle
+ * that's been replaced, or destroyed, ignores every call, its own late clean-up included, so it can't touch the new one.
+ */
 class MpvHandle(context: android.content.Context) {
-    init { MPVLib.create(context) }
-    fun init() = MPVLib.init()
-    fun destroy() = MPVLib.destroy()
-    fun attachSurface(s: Surface) = MPVLib.attachSurface(s)
-    fun detachSurface() = MPVLib.detachSurface()
-    fun command(args: Array<String>) = MPVLib.command(args)
-    fun setOptionString(k: String, v: String): Int = MPVLib.setOptionString(k, v)
-    fun getPropertyInt(k: String): Int? = MPVLib.getPropertyInt(k)
-    fun getPropertyBoolean(k: String): Boolean? = MPVLib.getPropertyBoolean(k)
-    fun getPropertyString(k: String): String? = MPVLib.getPropertyString(k)
-    fun setPropertyInt(k: String, v: Int) = MPVLib.setPropertyInt(k, v)
-    fun setPropertyBoolean(k: String, v: Boolean) = MPVLib.setPropertyBoolean(k, v)
-    fun setPropertyString(k: String, v: String) = MPVLib.setPropertyString(k, v)
-    fun observeProperty(k: String, format: Int) = MPVLib.observeProperty(k, format)
+    init {
+        synchronized(MpvHandle) {
+            if (current != null) { runCatching { MPVLib.detachSurface() }; runCatching { MPVLib.destroy() }; current = null }
+            MPVLib.create(context)
+            current = this
+        }
+    }
+    /** Still the mpv in use (not replaced or destroyed). */
+    val alive: Boolean get() = current === this
+    private inline fun <T> ifAlive(fallback: T, block: () -> T): T = if (alive) block() else fallback
+    fun init() = ifAlive(Unit) { MPVLib.init() }
+    fun destroy() = synchronized(MpvHandle) { if (alive) { MPVLib.destroy(); current = null } }
+    fun attachSurface(s: Surface) = ifAlive(Unit) { MPVLib.attachSurface(s) }
+    fun detachSurface() = ifAlive(Unit) { MPVLib.detachSurface() }
+    fun command(args: Array<String>) = ifAlive(Unit) { MPVLib.command(args) }
+    fun setOptionString(k: String, v: String): Int = ifAlive(-1) { MPVLib.setOptionString(k, v) }
+    fun getPropertyInt(k: String): Int? = ifAlive(null) { MPVLib.getPropertyInt(k) }
+    fun getPropertyDouble(k: String): Double? = ifAlive(null) { MPVLib.getPropertyDouble(k) }
+    fun getPropertyBoolean(k: String): Boolean? = ifAlive(null) { MPVLib.getPropertyBoolean(k) }
+    fun getPropertyString(k: String): String? = ifAlive(null) { MPVLib.getPropertyString(k) }
+    fun setPropertyInt(k: String, v: Int) = ifAlive(Unit) { MPVLib.setPropertyInt(k, v) }
+    fun setPropertyDouble(k: String, v: Double) = ifAlive(Unit) { MPVLib.setPropertyDouble(k, v) }
+    fun setPropertyBoolean(k: String, v: Boolean) = ifAlive(Unit) { MPVLib.setPropertyBoolean(k, v) }
+    fun setPropertyString(k: String, v: String) = ifAlive(Unit) { MPVLib.setPropertyString(k, v) }
+    fun observeProperty(k: String, format: Int) = ifAlive(Unit) { MPVLib.observeProperty(k, format) }
     fun addObserver(o: MPVLib.EventObserver) = MPVLib.addObserver(o)
     fun removeObserver(o: MPVLib.EventObserver) = MPVLib.removeObserver(o)
+
+    companion object {
+        @Volatile private var current: MpvHandle? = null
+    }
 }
 
 private fun iso3(code: String) = runCatching { java.util.Locale(code).isO3Language }.getOrDefault(code)

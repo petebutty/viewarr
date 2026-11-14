@@ -17,7 +17,8 @@ object Dates {
     /** Numbers only (10/11/2026), day first (2) or month first (3). */
     private val numeric get() = order >= 2
     private val twelve get() = AppColors.palette.opt(UiOpts.TIME_FORMAT) == 1
-    private val cache = HashMap<String, DateTimeFormatter>()
+    // Shared with background work (repositories format dates off the main thread).
+    private val cache = java.util.concurrent.ConcurrentHashMap<String, DateTimeFormatter>()
     private fun f(p: String) = cache.getOrPut(p) { DateTimeFormatter.ofPattern(p, Locale.UK) }
 
     /** 19:30 / 7:30 pm */

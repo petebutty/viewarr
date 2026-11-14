@@ -37,7 +37,7 @@ You can also do this from the menu itself with **Edit menus** (see [Getting arou
 **Movies** and **Shows** in the menu list your Plex, Jellyfin and Emby libraries, plus **IPTV Movies** and **IPTV Shows** (your provider's films and series through Dispatcharr). IPTV titles get pages found on TMDB by name when the provider gives no id. Your rows are tucked under **Jump to a row**.
 
 - Going into a list slides the one before it away, like the guide's channel groups.
-- **Right on a library** lists what you can jump straight into: its categories (IPTV), genres, collections, decades, years, studios or age ratings. Change this in **Settings → Menu & navigation → Right on a library**. OK always opens the whole library.
+- **My Library** in the main menu lists every library on all your servers (films and shows together, under each server's name: your Plex servers, Jellyfin / Emby, IPTV), then your music. Moving onto one shows it behind; OK or Right goes into it, with Sort, Filter (genres, years…) and A–Z. Movies and Shows themselves are the discovery pages: their home rows, catalogues and Jump to a row. Which libraries show, and their order, are set in Settings → Home page & menu (or Edit menus). *(0.28.1 and later.)*
 
 A library is one continuous grid with:
 
@@ -110,14 +110,30 @@ Addons with their own titles (no IMDb or TMDB id, such as fan edits) get proper 
 - **Hold OK on a button** to arrange them: OK shows or hides one, hold OK picks it up and **Left / Right** move it, **Back** finishes. Play / Pause always stays. It's one arrangement with live TV's controls, so changing either changes both. *(0.28.0 and later.)*
 - The remote's **Play/Pause** button pauses.
 - The remote's **Info** button (or **Details**) shows the poster, episode and synopsis. These also appear by themselves a moment after you pause.
+- The seek bar shows how much is **loaded ahead** (lighter grey in front of what's played): a slow stream shows the grey only just ahead.
 - **Down**, then **Left / Right** and **OK**: move along the seek bar with preview pictures and jump there. Previews come from Plex, Emby or Jellyfin when the server made them; otherwise the box makes them from the film itself (**Settings → Playback → Seek-bar previews**).
 - **OK**, then **Left** on the first button opens the menu over the film.
 
 **Settings → Playback** also sets how long the controls stay up (**Controls stay up for**) and how big they are (**Player controls size**).
 
-### Next episodes
+### Next episodes and the rows under the bar
 
-Watching a show, press **Down** to see the next episodes in the info bar, with their release dates. Episodes not out yet are darker and say **Not out yet**. **OK** plays one.
+Watching a show, press **Down** from the buttons to see the next episodes in the info bar, with their release dates. Episodes not out yet are darker and say **Not out yet**. **OK** plays one.
+
+More rows can go under it, in your order: Continue watching (everything together, or just IPTV, Trakt, or Plex / Jellyfin), Recent and Favourite channels, Recordings, Recently added, Your watchlist and **More like this**. Choose them in **Settings → Appearance → Info bar & controls → Rows under the info bar**. One row shows at a time (**2 of 4** beside its name); **Down / Up** move between them. The title playing isn't listed in its own Continue watching.
+
+**Previous episode** and **Next episode** buttons can be added to the bar (hold OK on a button → OK on them, marked *not added*). They show while an episode plays, and say which episode they'll play.
+
+### Watch progress for IPTV
+
+Dispatcharr and IPTV providers don't remember where you stopped, so Viewarr does it on the box, for each profile:
+
+- Films and episodes from IPTV **resume** where you left off (saved every 10 seconds and when you stop).
+- Past the credits (or 90% through, where the credits aren't known) counts as **watched**: episodes get their tick, and the show's **Play** moves on to the next episode, into the next season when one ends.
+- **Continue watching on IPTV** joins the Movies and Shows rows (combined with your servers' Continue watching when rows are combined).
+- Hold OK on a film for **Mark as watched / not watched** and **Remove from Continue watching**; hold OK on an episode for **Mark as watched**.
+
+It stays on that box: another box keeps its own. *(0.28.2 and later.)*
 
 ### Skip intro and next episode
 
@@ -191,6 +207,7 @@ Press OK on it to move to the next choice.
 Sign in to Trakt in **Settings → Accounts & sources → Trakt** (a code to approve on your phone).
 
 - Watch progress is sent back to Plex, Jellyfin / Emby and Trakt.
+- **Continue watching (Trakt)**, a row for under the info bar: the shows you've watched lately (in any app that tells Trakt), each at its next episode.
 - Your **Trakt watched history** comes back: episodes and films you've watched anywhere get their tick, and Play / Resume carries on from the furthest place any of them knows.
 - **Sync with Trakt now** is in **Settings → Accounts & sources → Trakt**, with an optional **Copy watched to Plex** (it marks on your Plex servers what Trakt says you've watched, and never un-marks anything).
 

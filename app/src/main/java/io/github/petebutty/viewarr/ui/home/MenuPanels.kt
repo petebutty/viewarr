@@ -63,6 +63,14 @@ internal fun MediaMenuPanel(
     type: MediaType, focusRequester: FocusRequester, onCount: (MediaType, Int) -> Unit, onOpenPage: () -> Unit,
     catsFor: io.github.petebutty.viewarr.data.media.MediaLibrary? = null,
     onCats: (io.github.petebutty.viewarr.data.media.MediaLibrary?) -> Unit = {},
+    /** A library highlighted in the list (true) or left (false): Left on it opens its lists (the menu handles Left). */
+    onLibraryFocus: (io.github.petebutty.viewarr.data.media.MediaLibrary, Boolean) -> Unit = { _, _ -> },
+    /** In a library's lists, a level down: Left steps back there, not to the menu. (Unused now: one level.) */
+    onCatsInner: (Boolean) -> Unit = {},
+    /** Every library on your servers, films and shows (Left on a library lists them all). */
+    allLibraries: List<Pair<MediaType, io.github.petebutty.viewarr.data.media.MediaLibrary>> = emptyList(),
+    /** Opens one of them (switching to Shows for a shows library). */
+    onOpenLibrary: (MediaType, io.github.petebutty.viewarr.data.media.MediaLibrary) -> Unit = { _, _ -> },
     rightMode: io.github.petebutty.viewarr.data.settings.MenuLibraryRight = io.github.petebutty.viewarr.data.settings.MenuLibraryRight.Categories,
     editing: Boolean = false,
     onEditing: (Boolean) -> Unit = {},
@@ -115,13 +123,6 @@ internal fun MediaMenuPanel(
         MenuListEditor(media, type, startAt = lastLib, onDone = { onEditing(false) })
         return
     }
-    if (catsFor != null) {
-        LibraryCategories(media, type, catsFor, rightMode.groups, browse,
-            onPick = { group, v -> media.openLibraryAt(catsFor, type, group, v); onCats(null); onOpenPage() },
-            onNone = { media.openLibrary(catsFor, type); onCats(null); onOpenPage() },
-            onHover = { group, v -> preview { media.openLibraryAt(catsFor, type, group, v) } })
-        return
-    }
     // (The highlight goes onto "home" itself, not the list as a whole: see RecordingsPanel.)
     // Back from a library's categories: the list opens already at that library (it used to start at the top and
     // scroll itself down to it).
@@ -135,23 +136,25 @@ internal fun MediaMenuPanel(
             MenuItem(text = home, selected = browse == null && current == null, onClick = go,
                 modifier = Modifier.focusRequester(focusRequester).onFocusChanged { if (it.isFocused) preview { media.openLibrary(null, type); media.jumpTo(null) } }.rightDoes(go))
         }
-        if (libs.isNotEmpty()) item(key = "h-lib") {
+        // Your libraries are in My Library now; here only while editing the menu (their order and on / off are
+        // what My Library shows).
+        if (libs.isNotEmpty() && editMode) item(key = "h-lib") {
             MenuGroupLabel("Libraries")
         }
-        items(libs, key = { "l-" + it.key }) { lib ->
+        items(if (editMode) libs else emptyList(), key = { "l-" + it.key }) { lib ->
             val go = { media.openLibrary(lib, type); onOpenPage() }
             // Right: the library's categories / genres / collections in this column (Settings → Remote → Menu).
-            val right = if (rightMode == io.github.petebutty.viewarr.data.settings.MenuLibraryRight.Open) go else { { lastLib = lib.key; onCats(lib) } }
+            // Right: straight in, as everywhere (Left on it lists all your libraries instead).
+            val right = go
             MenuItem(
                 text = lib.title,
-                trailing = lib.source.removePrefix("Plex · ").takeIf { libs.map { l -> l.source }.distinct().size > 1 }
-                    ?: if (rightMode != io.github.petebutty.viewarr.data.settings.MenuLibraryRight.Open) "›" else null,
+                trailing = lib.source.removePrefix("Plex · ").takeIf { libs.map { l -> l.source }.distinct().size > 1 },
                 selected = browse?.library?.key == lib.key,
                 onClick = go,
                 // Hold OK: edit this list, on this library.
                 onLongClick = if (editMode) ({ lastLib = lib.key; onEditing(true) }) else null,
                 modifier = Modifier.focusRequester(libFocus.getOrPut(lib.key) { FocusRequester() })
-                    .onFocusChanged { if (it.isFocused) preview { media.openLibrary(lib, type) } }.rightDoes(right),
+                    .onFocusChanged { onLibraryFocus(lib, it.isFocused); if (it.isFocused) preview { media.openLibrary(lib, type) } }.rightDoes(right),
             )
         }
         // The page's rows are on the page itself; here they're folded away under one entry (OK / Right opens it),
@@ -198,9 +201,25 @@ internal fun MenuListEditor(media: MediaViewModel, type: MediaType, startAt: Str
     var follow by remember { mutableStateOf<String?>(startAt ?: "done") }
     // Back that put a picked-up entry down: its release mustn't also finish editing.
     var backUp by remember { mutableStateOf(false) }
+    val editorList = androidx.compose.foundation.lazy.rememberLazyListState()
     LaunchedEffect(follow, libs.map { it.first.key to it.second }, rows.map { it.first.id }) {
         val key = follow ?: return@LaunchedEffect
         awaitFrame(); awaitFrame()
+        // Moved past the top or bottom: scroll it back into view first (it went off screen, or was dropped from the
+        // list and the highlight jumped to Done).
+        if (key != "done") {
+            val keys = buildList {
+                add("done"); add("hint")
+                if (libs.isNotEmpty()) add("h-lib"); libs.forEach { add("l-" + it.first.key) }
+                if (rows.isNotEmpty()) add("h-rows"); rows.forEach { add("r-" + it.first.id) }
+            }
+            val idx = keys.indexOf("l-$key").takeIf { it >= 0 } ?: keys.indexOf("r-" + key.removePrefix("row:"))
+            val info = editorList.layoutInfo
+            if (idx >= 0 && info.visibleItemsInfo.none { it.index == idx && it.offset >= info.viewportStartOffset && it.offset + it.size <= info.viewportEndOffset }) {
+                runCatching { editorList.scrollToItem((idx - 2).coerceAtLeast(0)) }
+                awaitFrame()
+            }
+        }
         if (key == "done" || runCatching { focus[key]?.requestFocus() }.isFailure) runCatching { doneFocus.requestFocus() }
         follow = null
     }
@@ -208,7 +227,7 @@ internal fun MenuListEditor(media: MediaViewModel, type: MediaType, startAt: Str
     val off = libs.filter { it.second }.map { it.first.key }
     val rowIds = rows.map { it.first.id }.toSet()
     // Opened by holding OK on a library: that held OK, let go, mustn't switch the library off.
-    LazyColumn(Modifier.ignoreHeldOk(), verticalArrangement = Arrangement.spacedBy(1.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
+    LazyColumn(Modifier.ignoreHeldOk(), state = editorList, verticalArrangement = Arrangement.spacedBy(1.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
         item(key = "done") {
             MenuItem(text = "✓ Done", selected = false, onClick = onDone, modifier = Modifier.focusRequester(doneFocus).rightDoes(onDone))
         }
@@ -286,58 +305,50 @@ internal fun MenuListEditor(media: MediaViewModel, type: MediaType, startAt: Str
 }
 
 /**
- * The menu's third column: one library's categories (IPTV), genres or collections, "All" first. OK or Right opens the
- * library on that one; Left / Back go back to the library list (MenuOverlay). [onNone]: it has none, so it just opens.
+ * The menu's My Library: every library on all your servers (films and shows together), under each server's name,
+ * then your music. Moving onto one shows it behind (after a short pause); OK or Right goes into it. The libraries'
+ * order and which are shown follow Settings → Home page & menu (and Edit menus).
  */
 @Composable
-internal fun LibraryCategories(
-    media: MediaViewModel, type: MediaType, lib: io.github.petebutty.viewarr.data.media.MediaLibrary, groups: List<String>,
-    browse: MediaViewModel.LibraryBrowse?,
-    onPick: (String, io.github.petebutty.viewarr.data.media.FilterValue?) -> Unit, onNone: () -> Unit,
-    /** Moving onto one: the page behind shows the library on it (MediaMenuPanel waits a moment first). */
-    onHover: (String, io.github.petebutty.viewarr.data.media.FilterValue?) -> Unit = { _, _ -> },
+internal fun LibraryMenuPanel(
+    focusRequester: FocusRequester,
+    libraries: List<Pair<MediaType, io.github.petebutty.viewarr.data.media.MediaLibrary>>,
+    musicSources: List<String>,
+    onHover: (MediaType, io.github.petebutty.viewarr.data.media.MediaLibrary) -> Unit,
+    onOpen: (MediaType, io.github.petebutty.viewarr.data.media.MediaLibrary) -> Unit,
+    onMusic: () -> Unit,
 ) {
-    var cats by remember(lib.key, groups) { mutableStateOf<Pair<String, List<io.github.petebutty.viewarr.data.media.FilterValue>>?>(null) }
-    var loaded by remember(lib.key, groups) { mutableStateOf(false) }
-    LaunchedEffect(lib.key, groups) {
-        cats = media.menuCategories(lib, type, groups)
-        loaded = true
-        if (cats == null) onNone()
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    var hoverJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    fun hover(t: MediaType, lib: io.github.petebutty.viewarr.data.media.MediaLibrary) {
+        hoverJob?.cancel(); hoverJob = scope.launch { kotlinx.coroutines.delay(450); onHover(t, lib) }
     }
-    val first = remember { FocusRequester() }
-    val c = cats
-    // The one showing now (this library, this filter), else All.
-    val currentId = c?.let { (g, _) -> browse?.takeIf { it.library.key == lib.key }?.query?.filters?.get(g)?.firstOrNull()?.id }
-    LaunchedEffect(c != null) {
-        if (c == null) return@LaunchedEffect
-        awaitFrame(); awaitFrame()
-        runCatching { first.requestFocus() }
-    }
-    if (c == null) {
-        // Holds focus while loading (it would otherwise drop out of the menu).
-        Box(Modifier.focusRequester(first).focusable()) {
-            Column {
-                MenuGroupLabel(lib.title, first = true)
-                Text(if (loaded) "Nothing to list here" else "Loading…", fontSize = 15.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(12.dp))
+    val byServer = libraries.groupBy { it.second.source }
+    LazyColumn(verticalArrangement = Arrangement.spacedBy(1.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
+        if (libraries.isEmpty() && musicSources.isEmpty()) item(key = "none") {
+            MenuItem(text = "Loading your libraries…", selected = false, dim = true, onClick = {}, modifier = Modifier.focusRequester(focusRequester))
+        }
+        var firstDone = false
+        byServer.entries.forEachIndexed { gi, (server, ls) ->
+            item(key = "s-$server") { MenuGroupLabel(server.removePrefix("Plex · ").ifBlank { "Library" }, first = gi == 0) }
+            val sorted = ls.sortedBy { if (it.first == MediaType.Movie) 0 else 1 }
+            items(sorted.size, key = { "a-" + sorted[it].first.name + sorted[it].second.key }) { i ->
+                val (t, lib) = sorted[i]
+                val go = { hoverJob?.cancel(); onOpen(t, lib) }
+                MenuItem(
+                    text = lib.title, trailing = if (t == MediaType.Movie) "Films" else "Shows", selected = false, onClick = go,
+                    modifier = (if (gi == 0 && i == 0) Modifier.focusRequester(focusRequester) else Modifier)
+                        .onFocusChanged { if (it.isFocused) hover(t, lib) }.rightDoes(go),
+                )
             }
+            firstDone = true
         }
-        LaunchedEffect(Unit) { awaitFrame(); runCatching { first.requestFocus() } }
-        return
-    }
-    val (group, values) = c
-    val startIdx = values.indexOfFirst { it.id == currentId }.let { if (it < 0) 0 else it + 1 }
-    val listState = androidx.compose.foundation.lazy.rememberLazyListState(initialFirstVisibleItemIndex = (startIdx - 3).coerceAtLeast(0))
-    LazyColumn(state = listState, verticalArrangement = Arrangement.spacedBy(1.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
-        item(key = "h") { MenuGroupLabel(lib.title, first = true) }
-        item(key = "all") {
-            val go = { onPick(group, null) }
-            MenuItem(text = "All", selected = currentId == null && browse?.library?.key == lib.key, onClick = go,
-                modifier = (if (startIdx == 0) Modifier.focusRequester(first) else Modifier).onFocusChanged { if (it.isFocused) onHover(group, null) }.rightDoes(go))
-        }
-        itemsIndexed(values, key = { _, v -> "c-" + v.id }) { i, v ->
-            val go = { onPick(group, v) }
-            MenuItem(text = v.label, selected = v.id == currentId, onClick = go,
-                modifier = (if (startIdx == i + 1) Modifier.focusRequester(first) else Modifier).onFocusChanged { if (it.isFocused) onHover(group, v) }.rightDoes(go))
+        if (musicSources.isNotEmpty()) {
+            item(key = "s-music") { MenuGroupLabel("Music", first = !firstDone) }
+            itemsIndexed(musicSources, key = { i, n -> "m-$i-$n" }) { _, name ->
+                MenuItem(text = name, trailing = "Music", selected = false, onClick = onMusic,
+                    modifier = (if (!firstDone && name == musicSources.first()) Modifier.focusRequester(focusRequester) else Modifier).rightDoes(onMusic))
+            }
         }
     }
 }

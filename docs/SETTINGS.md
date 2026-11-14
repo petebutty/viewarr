@@ -49,7 +49,7 @@ Everything to do with how Viewarr looks, in sections:
 | **Wallpaper** | None, one of sixteen built-in designs, or the artwork of the programme you've highlighted. |
 | **Glass & transparency** | **Glass**, **Glass colour**, **Guide**, **Wallpaper dimming**, **Pop-up glass** and the info bar's **border**. |
 | **TV guide** | Channel numbers, logos, **Programme corners**, progress bars, episode numbers, catch-up icons and programme pictures. |
-| **Info bar & controls** | **Info bar size** and **width**, **Preview cards**, the channel number, episode numbers, picture-quality and frame-rate badges, and **Player controls size**. |
+| **Info bar & controls** | **Info bar style** (Glass, Square glass, Pill, Fade, Full-width bar or Minimal) and **corners**, **Info bar size** and **width**, **Preview cards**, **Rows under the info bar** (which rows each player shows when you press Down, and their order, with a preview), the channel number, episode numbers, picture-quality and frame-rate badges, and **Player controls size**. |
 | **Menu** | Headings, colour edge and tint, the icon column, hints, the TV and LIVE marks, and **Button hints**. |
 | **Posters** | **Library posters** size, **Where it's from** and **Progress bars**. |
 | **Title pages** | What a title page shows, and **Age ratings**. |
@@ -71,7 +71,7 @@ Every button on your remote, and what it does in the TV guide, on live TV, in fi
 | Section | Settings |
 |---|---|
 | **Start** | **App opens on**: live TV (**Last channel** plays the channel you watched last, full screen), the TV guide, or one of your libraries. |
-| **Menu** | **Menu opens on** (the current page's own list, or the main list) and **Right on a library**. |
+| **Menu** | **Menu opens on** (the current page's own list, or the main list). |
 | **What the menu lists** | Which entries the main menu shows (Live now, Sports, Movies, Shows, Music, Recordings, Search and your streaming services). |
 | **Poster rows** | **Moving between rows** and **Poster position**. |
 
@@ -91,7 +91,7 @@ How the guide and info bar look is in **Appearance**. See [Live TV](LIVE-TV.md).
 
 | Section | What it covers |
 |---|---|
-| **Player** | **Player** (built-in or mpv), **Video view**, **Resume**, **Controls stay up for**, **Seek-bar previews**, **mpv decoding**. |
+| **Player** | **Player** (built-in or mpv), **Video view**, **Resume**, **Time on the right** (time left, ends at, or both), **Controls stay up for**, **Seek-bar previews**, **mpv decoding**. |
 | **Video** | **Match frame rate** (Off, Films and episodes, Live TV, or Both), **Picture size**, **Deinterlace**. |
 | **Audio** | **Language**, **Surround passthrough**, **Channels**, **Night mode**, **Volume boost**, **Lip sync**. |
 | **Subtitles** | **Show subtitles** and **Language** (how they look is in Appearance). |

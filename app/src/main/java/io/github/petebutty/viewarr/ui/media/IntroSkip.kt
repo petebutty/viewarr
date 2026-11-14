@@ -29,6 +29,10 @@ object NextUp {
     /** The episodes after the one playing (the rest of its season, then the start of the next): Down in the player. */
     var upcoming by mutableStateOf<List<io.github.petebutty.viewarr.data.media.EpisodeInfo>>(emptyList())
     var playEpisode: (io.github.petebutty.viewarr.data.media.EpisodeInfo) -> Unit = {}
+    /** The episode before the one playing (into the previous season at a season's start), for the Previous episode
+     *  button; null: the first episode, or not a show. */
+    var previous by mutableStateOf<io.github.petebutty.viewarr.data.media.EpisodeInfo?>(null)
+    var playPrevious: () -> Unit = {}
     /** [upcoming] as the info bar's cards (the show's picture where an episode has none). */
     fun cards(): List<io.github.petebutty.viewarr.ui.player.OsdPoster> = upcoming.map { ep ->
         io.github.petebutty.viewarr.ui.player.OsdPoster(

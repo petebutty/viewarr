@@ -36,7 +36,7 @@ All of these are in **Settings → Appearance → TV guide**.
 
 Press **Left** from the start of the guide (or **Hold Back**) to see your channel groups. Moving through them changes the guide behind as you go. **OK** picks one and takes you back into the guide. **Left** again brings the main menu.
 
-**Hold OK** on a group to pick it up, then **Up / Down** to move it and OK (or Back) to put it down. Your order is kept for each Live TV source. *(0.28.0 and later.)*
+**Hold OK** on a group for **↕ Move** (then Up / Down, and OK or Back to put it down) or **✕ Hide from this list**; ★ Favourites and All channels can be hidden the same way. Hidden groups gather at the end under **Hidden groups**; OK on one shows it again. Hiding only takes it out of the list: its channels stay in All channels, by number and in links. Your order and hidden groups are kept for each Live TV source. *(0.28.1 and later.)*
 
 Don't need **All channels**? Hide it in **Settings → Live TV → "All channels" group**. The groups then start with your own, and the guide opens on the first of them.
 
@@ -90,7 +90,15 @@ The info bar shows the channel, what's on now and next, and badges for the strea
 - **Info bar: picture quality**: badges for the picture (HD · FHD · 4K, or 720p · 1080p · 2160p, or off) and 5.1 sound.
 - **Info bar: frame rate**: a badge with the stream's frames per second.
 - **Info bar size**: Normal, Compact, Small or Large. Smaller covers less of the picture.
-- **Preview cards**: the size of the cards in the bar's rows (next episodes, shortcuts).
+- **Preview cards**: the size of the cards in the bar's rows (next episodes, shortcuts). Live TV and films use the same size.
+
+### Rows under the info bar
+
+Press **Down** from the info bar's buttons for rows of channels and titles to jump to. You choose which rows, and their order, separately for live TV and for films & shows, in **Settings → Appearance → Info bar & controls → Rows under the info bar** (Up to switch between Live TV and Films & shows; OK turns a row on or off; hold OK and Up / Down to move one; a preview shows how they'll look).
+
+- **On live TV**: Continue watching (everything together, or just IPTV, Trakt, or Plex / Jellyfin), **Recent channels** (on to start with), **Favourite channels**, **On now in this group**, **Coming up on this channel**, Recordings, Recently added and Your watchlist.
+- One row shows at a time, with **2 of 4** beside its name. **Down / Up** move between rows, **Left / Right** along one, **OK** watches or opens it, **Back** returns to the buttons. Rows with nothing in them are left out.
+- From a film, picking a channel stops the film and switches to it. *(0.28.2 and later.)*
 
 ### Arranging the info bar's buttons
 
@@ -100,7 +108,7 @@ Hold OK on any button in the controls (OK while watching) to edit them, right th
 - **Hold OK** picks it up; **Left / Right** move it; OK puts it down.
 - **Back** (or **Done** at the end) finishes.
 
-**Extra buttons** show in edit mode marked *not added*: OK adds one (OK again removes it). They are **Favourite** (add or remove this channel), **Last channel**, **Audio sync** (the sound up to 300 ms earlier or later, starting from Settings → Playback → Lip sync), **Sleep timer** (each press: 15, 30, 60 or 90 minutes, the end of the programme, off; then everything stops), **Movies**, **Shows** and **Recordings** (the page, with the channel in the corner), **TV settings** (frame rate matching, picture size, deinterlace, surround passthrough, channels, night mode and volume boost, changed over the picture with OK, with the TV's current mode shown at the top), and for films **Episodes** (the next episodes row).
+**Extra buttons** show in edit mode marked *not added*: OK adds one (OK again removes it). They are **Favourite** (add or remove this channel), **Last channel**, **Audio sync** (the sound up to 300 ms earlier or later, starting from Settings → Playback → Lip sync), **Sleep timer** (each press: 15, 30, 60 or 90 minutes, the end of the programme, off; then everything stops), **Movies**, **Shows** and **Recordings** (the page, with the channel in the corner), **Info bar style** (each press switches the bar to the next style: Glass, Square, Pill, Fade, Full-width, Minimal), **TV settings** (frame rate matching, picture size, deinterlace, surround passthrough, channels, night mode and volume boost, changed over the picture with OK, with the TV's current mode shown at the top), and for films **Episodes** (the next episodes row).
 
 The TV guide button always stays. The arrangement is shared with the film and episode controls, so both bars stay the same; live TV's extras (Aspect, Source, Record, Multi-view) keep their places in it, and you can edit it from either bar. *(0.28.0 and later.)*
 

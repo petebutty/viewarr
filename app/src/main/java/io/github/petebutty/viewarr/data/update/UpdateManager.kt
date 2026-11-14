@@ -193,6 +193,13 @@ class UpdateManager @Inject constructor(
             return
         }
         _state.value = UpdateState.Installing(release)
+        // Copying the APK into the installer is done off the main thread (on a slow box a big APK risked "not responding"
+        // right at install time); a session that fails part-way is let go.
+        kotlin.concurrent.thread(name = "viewarr-install") { installNow(release, file) }
+    }
+
+    private fun installNow(release: Release, file: java.io.File) {
+        var sessionId = -1
         runCatching {
             val installer = context.packageManager.packageInstaller
             val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL).apply {
@@ -202,6 +209,7 @@ class UpdateManager @Inject constructor(
                 if (Build.VERSION.SDK_INT >= 31) setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED)
             }
             val id = installer.createSession(params)
+            sessionId = id
             installer.openSession(id).use { session ->
                 session.openWrite("viewarr.apk", 0, file.length()).use { out ->
                     file.inputStream().use { it.copyTo(out) }
@@ -212,6 +220,7 @@ class UpdateManager @Inject constructor(
                 session.commit(PendingIntent.getBroadcast(context, id, intent, flags).intentSender)
             }
         }.onFailure {
+            if (sessionId >= 0) runCatching { context.packageManager.packageInstaller.abandonSession(sessionId) }
             Log.w(TAG, "install failed: ${it.message}")
             _state.value = UpdateState.Failed("Android couldn't start the install (${it.message}).", release)
         }
@@ -257,14 +266,21 @@ class UpdateManager @Inject constructor(
     }
 }
 
+/** Numbers first (any count of parts); with the same numbers, a pre-release ("0.29.0-beta.1") comes before the release. */
 internal fun compareVersions(a: String, b: String): Int {
-    val pa = a.split('.', '-').map { it.toIntOrNull() ?: 0 }
-    val pb = b.split('.', '-').map { it.toIntOrNull() ?: 0 }
+    val ca = a.removePrefix("v").substringBefore('-'); val cb = b.removePrefix("v").substringBefore('-')
+    val pa = ca.split('.').map { it.toIntOrNull() ?: 0 }
+    val pb = cb.split('.').map { it.toIntOrNull() ?: 0 }
     for (i in 0 until maxOf(pa.size, pb.size)) {
         val c = (pa.getOrElse(i) { 0 }).compareTo(pb.getOrElse(i) { 0 })
         if (c != 0) return c
     }
-    return 0
+    val preA = a.contains('-'); val preB = b.contains('-')
+    return when {
+        preA == preB -> 0
+        preA -> -1
+        else -> 1
+    }
 }
 
 internal fun isNewer(candidate: String, current: String) = compareVersions(candidate, current) > 0

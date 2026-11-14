@@ -110,11 +110,15 @@ class AccessLoader @Inject constructor(
         if (s == null || s.isDirect) { apply(true, emptySet(), true); return }
         val key = "u:" + s.id
         // Last known first, so a locked-down profile doesn't flash everything while Dispatcharr answers.
-        prefs.getString(key, null)?.split('|')?.let { p ->
-            if (p.size == 3) apply(p[0] == "1", p[1].split(',').filter { it.isNotBlank() }.toSet(), p[2] == "1")
-        }
+        val cached = prefs.getString(key, null)?.split('|')?.takeIf { it.size == 3 }
+        cached?.let { p -> apply(p[0] == "1", p[1].split(',').filter { it.isNotBlank() }.toSet(), p[2] == "1") }
         val me = runCatching { http.get(s.serverUrl.trimEnd('/') + "/api/accounts/users/me/", mapOf("X-API-Key" to s.apiKey)) }.getOrNull()
-        if (me == null || !me.ok) return
+        if (me == null || !me.ok) {
+            // Nothing known about this user and Dispatcharr not answering: the usual limits, not the last user's (an
+            // admin's everything-unlocked carried over to whoever was switched to).
+            if (cached == null) Perms.from(null).let { d -> apply(false, d.locks, d.record) }
+            return
+        }
         val admin = (me.body.int("user_level") ?: 0) >= 10
         val props = me.body.child("custom_properties") as? JsonObject
         val perms = Perms.from(props)

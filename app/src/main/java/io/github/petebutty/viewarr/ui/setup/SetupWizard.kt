@@ -565,7 +565,13 @@ private fun WizardField(
                     else -> false
                 }
             },
-        visualTransformation = if (password) PasswordVisualTransformation() else VisualTransformation.None,
+        // Passwords: all dots. API keys and tokens: dots except the last 4 characters, so it's clear which key it is
+        // (and what you've just typed) without the whole key on screen for anyone in the room, or a photo, to see.
+        visualTransformation = when {
+            password -> PasswordVisualTransformation()
+            Regex("(?i)\\b(api key|token|secret)\\b").containsMatchIn(label) -> MaskAllButLast(4)
+            else -> VisualTransformation.None
+        },
         keyboardOptions = KeyboardOptions(
             keyboardType = if (noSuggestions && label.contains("key", ignoreCase = true)) KeyboardType.Password else keyboardType,
             imeAction = imeAction,
@@ -645,4 +651,13 @@ private fun bodyFor(state: SetupUiState) = when (state.step) {
     SetupStep.Music -> "A Music section with your albums, artists and playlists, a visualiser while it plays, and music in search. It's off unless you turn it on here: then choose which servers' music to use, and add Navidrome if you have it."
     SetupStep.Navidrome -> "Viewarr looks for Navidrome on your network (port 4533). Then your username and password; only a secure token is kept, never the password."
     SetupStep.Done -> "Everything you connected is ready. You can change any of it in Settings → Accounts & sources."
+}
+
+/** A key shown as dots except its last [keep] characters ("••••••••3f9a"). */
+internal class MaskAllButLast(private val keep: Int) : VisualTransformation {
+    override fun filter(text: androidx.compose.ui.text.AnnotatedString): androidx.compose.ui.text.input.TransformedText {
+        val n = text.length
+        val shown = if (n <= keep) text.text else "\u2022".repeat(n - keep) + text.text.takeLast(keep)
+        return androidx.compose.ui.text.input.TransformedText(androidx.compose.ui.text.AnnotatedString(shown), androidx.compose.ui.text.input.OffsetMapping.Identity)
+    }
 }

@@ -242,6 +242,14 @@ object UiOpts {
     const val LIST_SCROLL = "list_scroll"
     /** Up / Down (and Channel + / −) while watching live TV: change channel, or browse in the info bar (OK changes, or on stopping). */
     const val LIVE_UPDOWN = "live_updown"
+    /** Live TV controls → Down: the Recent channels row, or nothing. */
+    const val INFOBAR_RECENT = "infobar_recent"
+    /** The info bar's look (live TV and films): glass panel, square, pill, a fade from the bottom, a full-width bar, minimal. */
+    const val INFOBAR_STYLE = "infobar_style"
+    /** Films and episodes: the right-hand time under the seek bar: time left, when it ends, or both. */
+    const val FILM_TIME_RIGHT = "film_time_right"
+    /** Its corners, for the rounded styles. */
+    const val INFOBAR_CORNERS = "infobar_corners"
     /** The menu's "Right › open its list" / "‹ Left: main menu" hints. */
     const val MENU_HINTS = "menu_hints"
     /** Browsing channels in the info bar (Remote buttons: "Next channel in the info bar"): how long to rest on one before it changes. */
@@ -341,6 +349,10 @@ object UiOpts {
         MENU_LIVE_MARK to listOf("Off", "On"),
         GROUP_ALL to listOf("Shown", "Hidden"),
         LIST_SCROLL to listOf("Instant", "Smooth"),
+        INFOBAR_RECENT to listOf("On", "Off"),
+        FILM_TIME_RIGHT to listOf("Time left (15:05 left)", "Ends at (ends at 21:43)", "Both (15:05 left · ends 21:43)"),
+        INFOBAR_STYLE to listOf("Glass", "Square glass", "Pill", "Fade", "Full-width bar", "Minimal"),
+        INFOBAR_CORNERS to listOf("Medium", "Small", "Large"),
         LIVE_UPDOWN to listOf("Change channel", "Browse in the info bar, OK changes", "Browse in the info bar, changes when you stop"),
         MENU_HEAD_SOURCE to listOf("On", "Off"),
         MENU_GROUP_ICON to listOf("Off", "On"),

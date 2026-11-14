@@ -92,6 +92,7 @@ fun VodPlayer(
     DisposableEffect(thumbs) { onDispose { thumbs?.close() } }
     // The app's own controls (as mpv's): state read from the player a few times a second.
     var positionMs by remember { mutableStateOf(0L) }
+    var bufferedMs by remember { mutableStateOf(0L) }
     var durationMs by remember { mutableStateOf(0L) }
     var paused by remember { mutableStateOf(false) }
     var buffering by remember { mutableStateOf(true) }
@@ -165,6 +166,7 @@ fun VodPlayer(
                 hasNext = NextUp.episode != null, countdownMs = nextCountdown, onNext = { NextUp.play() })
             positionMs = player.currentPosition
             durationMs = player.duration.coerceAtLeast(0)
+            bufferedMs = player.bufferedPosition
             paused = !player.playWhenReady
             buffering = player.playbackState == Player.STATE_BUFFERING || player.playbackState == Player.STATE_IDLE
             now = System.currentTimeMillis()
@@ -173,7 +175,7 @@ fun VodPlayer(
     }
     LaunchedEffect(player) {
         while (true) {
-            kotlinx.coroutines.delay(15_000)
+            kotlinx.coroutines.delay(10_000)
             if (player.isPlaying) onProgress("playing", player.currentPosition, player.duration.coerceAtLeast(0))
         }
     }
@@ -220,6 +222,8 @@ fun VodPlayer(
 
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 if (player.playbackState == Player.STATE_ENDED) return
+                // Stopped only to load (a skip, a slow stream) isn't a pause: Trakt got a pause and a start for each.
+                if (!isPlaying && player.playWhenReady) return
                 onProgress(if (isPlaying) "playing" else "paused", player.currentPosition, player.duration.coerceAtLeast(0))
             }
 
@@ -237,8 +241,12 @@ fun VodPlayer(
                     onProgress("stopped", player.duration.coerceAtLeast(0), player.duration.coerceAtLeast(0))
                     NextUp.play(); return
                 }
-                if (state == Player.STATE_ENDED) onClose()
-                if (state == Player.STATE_ENDED) onProgress("stopped", player.duration.coerceAtLeast(0), player.duration.coerceAtLeast(0))
+                // The end reported first: closing clears what's playing, and the report then went nowhere (no 100% to
+                // Plex / Jellyfin / Trakt, and no next-up countdown after).
+                if (state == Player.STATE_ENDED) {
+                    onProgress("stopped", player.duration.coerceAtLeast(0), player.duration.coerceAtLeast(0))
+                    onClose()
+                }
             }
 
             override fun onPlayerError(e: PlaybackException) {
@@ -246,7 +254,9 @@ fun VodPlayer(
                 val fb = stream.fallback
                 if (fb != null && !usedFallback) {
                     usedFallback = true
-                    val at = player.currentPosition.takeIf { it > 0 } ?: fb.resumeMs
+                    // Where it had got to, else where this one was meant to start ("From the start" and the Resume
+                    // setting count here too).
+                    val at = player.currentPosition.takeIf { it > 0 } ?: startAt
                     player.setMediaItem(mediaItem(fb.url, hls = fb.url.contains(".m3u8")), at)
                     player.prepare()
                     player.playWhenReady = true
@@ -256,7 +266,9 @@ fun VodPlayer(
                 if (!retriedAsHls && (e.errorCode == PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED ||
                         e.errorCode == PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED)) {
                     retriedAsHls = true
-                    player.setMediaItem(mediaItem(stream.url, hls = true), stream.resumeMs)
+                    // (The address that just failed: the fallback's, once that's in use.)
+                    val failed = if (usedFallback) stream.fallback?.url ?: stream.url else stream.url
+                    player.setMediaItem(mediaItem(failed, hls = true), player.currentPosition.takeIf { it > 0 } ?: startAt)
                     player.prepare()
                     player.playWhenReady = true
                     return
@@ -351,10 +363,13 @@ fun VodPlayer(
     // Live TV hub: the TV guide first (live TV comes first there).
     // As you've arranged them (hold OK on one to edit; see BarLayout).
     val barAppearance: io.github.petebutty.viewarr.ui.settings.AppearanceViewModel = androidx.hilt.navigation.compose.hiltViewModel()
+    val barOpts: io.github.petebutty.viewarr.ui.settings.UiOptsViewModel = androidx.hilt.navigation.compose.hiltViewModel()
     val allButtons = listOfNotNull(if (hubOn) PlayerButton.Guide else null, PlayerButton.PlayPause, PlayerButton.Stop, PlayerButton.Details, PlayerButton.Audio, PlayerButton.Subtitles, PlayerButton.Info, if (onSwitchPlayer != null) PlayerButton.SwitchPlayer else null,
         // (Episodes: only with more to come.)
+        // (Previous / Next episode: extras for shows, each only when there is one.)
+        if (NextUp.previous != null) PlayerButton.PrevEpisode else null, if (NextUp.episode != null) PlayerButton.NextEpisode else null,
         if (NextUp.upcoming.isNotEmpty()) PlayerButton.Episodes else null, PlayerButton.Sync, PlayerButton.Sleep, PlayerButton.Movies, PlayerButton.Shows, PlayerButton.Recordings,
-        PlayerButton.Search, PlayerButton.Transparency, PlayerButton.TvSettings, PlayerButton.Settings)
+        PlayerButton.Search, PlayerButton.Transparency, PlayerButton.BarStyle, PlayerButton.TvSettings, PlayerButton.Settings)
     val buttons = io.github.petebutty.viewarr.ui.common.BarLayout.arrange(allButtons, { io.github.petebutty.viewarr.ui.common.BarLayout.filmId(it.name) }, menu.editing)
     menu.home = buttons.indexOf(PlayerButton.PlayPause).coerceAtLeast(0)
     menu.guideAt = buttons.indexOf(PlayerButton.Guide)
@@ -365,9 +380,13 @@ fun VodPlayer(
             PlayerButton.Subtitles -> { tracksSubs = true; tracksOpen = true }
             PlayerButton.Transparency -> { menu.open = false; transOpen = true; return }
             PlayerButton.TvSettings -> { menu.open = false; tvOpen = true; return }
+            // The next info bar style, shown at once on this bar.
+            PlayerButton.BarStyle -> io.github.petebutty.viewarr.ui.common.BarLayout.nextStyle(barOpts::set)
             // Search over the film: it carries on in the corner (as the remote's Search).
             PlayerButton.Search -> { menu.open = false; VodHost.minimise(); VodHost.openSearch(); return }
-            PlayerButton.Episodes -> { menu.onEpisodes = true; menu.episodesOnly = false; menu.episode = 0 }
+            PlayerButton.Episodes -> FilmShortcuts.openEpisodes(menu, only = false)
+            PlayerButton.PrevEpisode -> { menu.open = false; NextUp.playPrevious() }
+            PlayerButton.NextEpisode -> { menu.open = false; NextUp.play() }
             PlayerButton.Sync -> { menu.open = false; syncOpen = true; return }
             PlayerButton.Sleep -> io.github.petebutty.viewarr.playback.SleepTimer.cycle((player.duration - player.currentPosition).takeIf { it > 0 }?.let { System.currentTimeMillis() + it })
             // A page over the film (it carries on in the corner).
@@ -506,6 +525,7 @@ fun VodPlayer(
         if (!mini && started && (paused || buffering || now < osdUntil || scrub.active || menu.open)) PlayerOsd(
             stream.title, positionMs, durationMs, paused, buffering, scrub.targetMs, thumbs, Modifier.align(Alignment.BottomCenter), logo = art?.logo,
             from = stream.from,
+            bufferedMs = bufferedMs,
             // The badges: the film's own picture, frame rate and sound, as the player reads them.
             quality = player.videoFormat?.let { v -> io.github.petebutty.viewarr.ui.player.StreamQuality(v.height, v.frameRate.takeIf { it > 0 } ?: countedFps ?: 0f, player.audioFormat?.channelCount ?: 0) },
             buttons = if (menu.open) buttons.map { b ->
@@ -527,7 +547,8 @@ fun VodPlayer(
             shortcuts = if (menu.open && menu.onShortcuts) io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.items.map { it.first } else null,
             shortcutFocus = menu.shortcut, shortcutMoving = menu.scMoving,
             shortcutsHint = false,
-            episodes = if (menu.open && menu.onEpisodes) NextUp.cards() else null,
+            downRows = if (menu.open && menu.onEpisodes) FilmShortcuts.downRows(menu.withNext) else null,
+            downRow = menu.downRow,
             episodeFocus = menu.episode,
             rows = if (menu.open && menu.onRows) io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge.rowsFor(menu.shortcut) else null,
             rowFocus = menu.row, cardFocus = menu.card,

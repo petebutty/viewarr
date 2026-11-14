@@ -185,6 +185,8 @@ data class WatchTarget(
     val imdbId: String? = null,
     val season: Int? = null,
     val episode: Int? = null,
+    /** Played from IPTV (Dispatcharr / Xtream VOD): the title, so where you stopped is kept on the box (LocalWatchStore). */
+    val iptv: MediaItem? = null,
 )
 
 /** One stream an addon offered for a title. */

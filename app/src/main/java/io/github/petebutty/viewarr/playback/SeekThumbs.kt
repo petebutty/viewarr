@@ -319,6 +319,9 @@ private class RangeSource(url: String, private val headers: Map<String, String>)
     }
     private val target: String
     private val length: Long
+    /** The stream's headers (logins) only go to its own server, not to another host a redirect points to. */
+    private val origin = runCatching { URL(url).host }.getOrNull()
+    private fun headersFor(u: String) = if (runCatching { URL(u).host }.getOrNull() == origin) headers else emptyMap()
 
     init {
         var u = url
@@ -327,7 +330,7 @@ private class RangeSource(url: String, private val headers: Map<String, String>)
             val c = (URL(u).openConnection() as HttpURLConnection).apply {
                 instanceFollowRedirects = false
                 connectTimeout = 10_000; readTimeout = 20_000
-                headers.forEach { (k, v) -> setRequestProperty(k, v) }
+                headersFor(u).forEach { (k, v) -> setRequestProperty(k, v) }
                 setRequestProperty("Range", "bytes=0-0")
             }
             try {
@@ -364,7 +367,7 @@ private class RangeSource(url: String, private val headers: Map<String, String>)
         val end = minOf(start + block, length) - 1
         val c = (URL(target).openConnection() as HttpURLConnection).apply {
             connectTimeout = 10_000; readTimeout = 20_000
-            headers.forEach { (k, v) -> setRequestProperty(k, v) }
+            headersFor(target).forEach { (k, v) -> setRequestProperty(k, v) }
             setRequestProperty("Range", "bytes=$start-$end")
         }
         try {

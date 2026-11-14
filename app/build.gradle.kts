@@ -9,7 +9,7 @@ plugins {
     alias(libs.plugins.hilt)
 }
 
-// Private, never committed: secrets.properties (Trakt client id) and keystore.properties (release signing).
+// Private, never committed: secrets.properties (Trakt client id, report notice channel) and keystore.properties (release signing).
 fun props(name: String) = Properties().apply {
     val f = rootProject.file(name)
     if (f.exists()) f.inputStream().use { load(it) }
@@ -25,12 +25,14 @@ android {
         applicationId = "io.github.petebutty.viewarr"
         minSdk = 26
         targetSdk = 34
-        versionCode = 47
-        versionName = "0.28.0"
+        versionCode = 49
+        versionName = "0.28.2"
         // Trakt device login needs a client id from your own Trakt app (trakt.tv/oauth/applications). Blank = no Trakt.
         // Android TV boxes are ARM; leaving out x86 keeps the APK smaller.
         ndk { abiFilters += listOf("armeabi-v7a", "arm64-v8a") }
         buildConfigField("String", "TRAKT_CLIENT_ID", "\"${secrets.getProperty("traktClientId", "")}\"")
+        // Send a report's notice channel (ntfy topic): private, so it isn't in the public code. Empty: no notice is sent.
+        buildConfigField("String", "REPORT_NOTIFY", "\"${secrets.getProperty("reportNotify", "")}\"")
     }
 
     signingConfigs {

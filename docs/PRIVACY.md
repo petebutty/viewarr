@@ -6,6 +6,7 @@ Viewarr has no analytics, no ads and no servers of its own. It talks only to the
 
 - **Your sign-ins** (server addresses, logins, API keys and tokens) are stored on the TV, encrypted with the Android Keystore, and left out of Android backups.
 - **Your settings**, for each profile.
+- **Watch progress for IPTV films and episodes** (where you stopped, and what you've finished), for each profile, because Dispatcharr and Xtream don't keep it. It stays on the TV: up to 400 entries per profile, the oldest dropped first.
 - **Each Live TV source's TV guide** (the three most recent sources keep theirs, so switching is quick). With an IPTV login or playlist, groups you leave out with **Choose groups** aren't stored at all.
 - **Artwork** (posters, logos, backdrops) and other caches, and **downloaded updates**.
 
@@ -60,3 +61,11 @@ The microphone is only used while voice search is listening (after you press the
 ## Sharing with friends
 
 **Sign-in details for another house** shows an outside address and that person's API key, for you to send them. Change the key in Dispatcharr at any time to cut them off. Your Trakt and Plex sign-ins are never handed out to other profiles.
+
+## Send a report
+
+**Settings → Troubleshooting → Send a report** is the one thing that sends anything to Viewarr's developer, and only when you press **Send**:
+
+- What's in it: Viewarr's version, the box's model, Android version, memory and screen, which *kinds* of sources you use (Dispatcharr, IPTV login, M3U playlist), and the last part of Viewarr's own log. You see it before sending.
+- What's taken out first: passwords, API keys, tokens, server addresses (also server names inside error messages), IP addresses, email addresses, usernames, and the login that IPTV stream addresses carry. The log does include the names of films and episodes you've played recently.
+- It's locked on the box with the developer's public key, so only the developer can open it, then uploaded to a free file host ([litterbox.catbox.moe](https://litterbox.catbox.moe)) that deletes it after 72 hours. You get a short code (such as `VR-abc123`) to share. The developer also gets a notification ([ntfy.sh](https://ntfy.sh)) with just that code, the Viewarr version and the box's model, nothing else.

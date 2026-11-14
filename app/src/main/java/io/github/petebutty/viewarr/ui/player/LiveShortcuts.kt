@@ -105,6 +105,14 @@ object LiveShortcutsBridge {
     /** A shortcut's rows (as on live TV), else the default ones (Continue watching…). */
     var previewFor: (String) -> List<OsdRow>? = { null }
     var defaultRows: List<OsdRow> = emptyList()
+    /**
+     * The film players' rows under the info bar (Settings → Rows under the info bar), as (row kind's id, row), in order;
+     * built by the home screen. "next" (the episodes after this one) isn't here: the player adds its own in its place.
+     */
+    private val filmRowsState = androidx.compose.runtime.mutableStateOf<List<Pair<String, OsdRow>>>(emptyList())
+    var filmRows: List<Pair<String, OsdRow>>
+        get() = filmRowsState.value
+        set(v) { if (filmRowsState.value != v) filmRowsState.value = v }
     /** Hold OK → Choose rows: each shortcut's chosen rows by name, in order (set by the home screen). */
     private val chosenState = androidx.compose.runtime.mutableStateOf<Map<String, List<String>>>(emptyMap())
     var chosen: Map<String, List<String>>

@@ -221,13 +221,31 @@ internal object LiveQuality {
 /** The info bar's panel: the one bar for live TV and films alike (the info bar, and the controls with their buttons inside it). */
 @Composable
 internal fun InfoBarPanel(modifier: Modifier, content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
-    // One look: the glass panel, inset from the edges, everything inside it.
-    // Settings → Appearance → Info bar width: narrower bars are centred at the bottom.
-    val outer = modifier
-        .fillMaxWidth(AppColors.palette.infoBarWidth)
-        .padding(start = 40.dp, end = 40.dp, bottom = 28.dp)
-        .glass()
-        .padding(horizontal = 24.dp, vertical = 18.dp)
+    // Settings → Appearance → Info bar & controls → Info bar style (and corners); Info bar width: narrower bars are
+    // centred at the bottom (the fade and the full-width bar always span the screen).
+    val p = AppColors.palette
+    val w = p.infoBarWidth
+    val r = when (p.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.INFOBAR_CORNERS)) { 1 -> 10.dp; 2 -> 28.dp; else -> 18.dp }
+    val bg = AppColors.tinted(AppColors.Background)
+    val glassAlpha = 0.3f + 0.07f * p.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.POPUP_GLASS).coerceIn(0, 10)
+    val outer = when (p.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.INFOBAR_STYLE)) {
+        // Square glass: the same panel, sharp corners.
+        1 -> modifier.fillMaxWidth(w).padding(start = 40.dp, end = 40.dp, bottom = 28.dp).glass(radius = 0.dp).padding(horizontal = 24.dp, vertical = 18.dp)
+        // Pill: fully rounded ends, floating a little higher.
+        2 -> modifier.fillMaxWidth(w).padding(start = 56.dp, end = 56.dp, bottom = 40.dp).glass(radius = 56.dp).padding(horizontal = 40.dp, vertical = 20.dp)
+        // Fade: no panel, a dark fade up from the bottom edge, the text straight on the picture.
+        3 -> modifier.fillMaxWidth()
+            .background(androidx.compose.ui.graphics.Brush.verticalGradient(0f to Color.Transparent, 0.3f to bg.copy(alpha = glassAlpha * 0.7f), 1f to bg.copy(alpha = minOf(1f, glassAlpha + 0.25f))))
+            .padding(start = 64.dp, end = 64.dp, top = 64.dp, bottom = 36.dp)
+        // Full-width bar: edge to edge along the bottom, square, no border (a classic TV box).
+        4 -> modifier.fillMaxWidth().background(bg.copy(alpha = glassAlpha)).padding(horizontal = 64.dp, vertical = 20.dp)
+        // Minimal: just the text and buttons, a soft shade behind for reading.
+        5 -> modifier.fillMaxWidth(w)
+            .background(androidx.compose.ui.graphics.Brush.verticalGradient(0f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.45f)))
+            .padding(start = 64.dp, end = 64.dp, top = 28.dp, bottom = 30.dp)
+        // Glass (the Viewarr look): the panel inset from the edges, everything inside it.
+        else -> modifier.fillMaxWidth(w).padding(start = 40.dp, end = 40.dp, bottom = 28.dp).glass(radius = r).padding(horizontal = 24.dp, vertical = 18.dp)
+    }
     // Settings → Appearance → Info bar size: everything in the bar (text, buttons, the preview rows) drawn smaller or
     // larger together, by drawing it at a different scale, so it keeps its proportions.
     val k = AppColors.palette.infoBarScale

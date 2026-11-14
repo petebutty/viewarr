@@ -1,5 +1,8 @@
+@file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+
 package io.github.petebutty.viewarr.ui.home
 
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.verticalScroll
@@ -85,6 +88,8 @@ internal fun MenuOverlay(
     onSettings: Boolean = false,
     /** Open on the main list (Live TV, Movies…), whatever "Menu opens on" says. */
     onMain: Boolean = false,
+    /** Open with My Library highlighted (Left from a library's page). */
+    onLibrary: Boolean = false,
     /** Search panel: search for this (null: an empty search), or by voice. */
     onSearchFor: (String?) -> Unit = {},
     onVoiceSearch: () -> Unit = {},
@@ -119,7 +124,7 @@ internal fun MenuOverlay(
     val channels by vm.channels.collectAsStateWithLifecycle()
     val sync by vm.sync.collectAsStateWithLifecycle()
     var section by remember {
-        mutableStateOf(if (onSettings) Section.Settings else if (channelsPanel != null) Section.Tv else when (page) { Page.Tv -> Section.Tv; Page.Movies -> Section.Movies; Page.Shows -> Section.Shows; Page.Music -> Section.Music; Page.Recordings -> Section.Recordings; Page.Search -> Section.Search })
+        mutableStateOf(if (onSettings) Section.Settings else if (onLibrary) Section.Library else if (channelsPanel != null) Section.Tv else when (page) { Page.Tv -> Section.Tv; Page.Movies -> Section.Movies; Page.Shows -> Section.Shows; Page.Music -> Section.Music; Page.Recordings -> Section.Recordings; Page.Search -> Section.Search })
     }
     var showAppearance by remember { mutableStateOf(false) }
     // Settings → Live TV, Troubleshooting and Search settings (the pages SettingsMap lays out, and the search over them).
@@ -250,7 +255,8 @@ internal fun MenuOverlay(
                 channelsPanel != null -> groupsFocus.requestFocus()
                 // From the guide: the channel groups (on the group being shown) whatever "Menu opens on" says; Left
                 // again reaches the main list.
-                page == Page.Tv && session != null -> groupsFocus.requestFocus()
+                // (The group shown may be one hidden from the list, which then has no highlight to take: the main list.)
+                page == Page.Tv && session != null -> if (runCatching { groupsFocus.requestFocus() }.isFailure) revealMain()
                 remote.menuOpensOn != MenuOpensOn.PageList -> navFocus.getValue(section).requestFocus()
                 // Music, Movies, Shows, Recordings: that page's own list beside the main one (Left again reaches it).
                 page == Page.Music || page == Page.Movies || page == Page.Shows || (page == Page.Recordings && recordingsCount > 0) ->
@@ -266,6 +272,8 @@ internal fun MenuOverlay(
             Section.Settings -> runCatching { settingsFirst.requestFocus() }
             Section.Movies -> onOpenPage(Page.Movies)
             Section.Shows -> onOpenPage(Page.Shows)
+            // My Library: into its list of libraries (moving through them shows each behind).
+            Section.Library -> runCatching { recentFocus.requestFocus() }
             Section.Recordings -> onOpenPage(Page.Recordings)
             Section.Music -> onOpenPage(Page.Music)
             Section.Search -> onOpenPage(Page.Search)
@@ -285,6 +293,14 @@ internal fun MenuOverlay(
     LaunchedEffect(subListFocused) { forceMain = false; if (subListFocused && section != Section.Settings) showMain = false }
     val moviesMedia: io.github.petebutty.viewarr.ui.media.MediaViewModel = androidx.hilt.navigation.compose.hiltViewModel(key = "media-Movie")
     val showsMedia: io.github.petebutty.viewarr.ui.media.MediaViewModel = androidx.hilt.navigation.compose.hiltViewModel(key = "media-Show")
+    // Every library on your servers, films and shows (Left on a library in Movies' / Shows' list lists them all).
+    LaunchedEffect(Unit) { moviesMedia.loadLibraries(MediaType.Movie); showsMedia.loadLibraries(MediaType.Show) }
+    val movieLibs by moviesMedia.libraries.collectAsStateWithLifecycle()
+    val showLibs by showsMedia.libraries.collectAsStateWithLifecycle()
+    val allLibs = movieLibs.orEmpty().map { MediaType.Movie to it } + showLibs.orEmpty().map { MediaType.Show to it }
+    val libMusicVm: io.github.petebutty.viewarr.ui.music.MusicViewModel = androidx.hilt.navigation.compose.hiltViewModel()
+    val libMusicAll by libMusicVm.sources.collectAsStateWithLifecycle()
+    val libMusicSources = libMusicAll.filter { it.on }.map { it.name }
     // A service's rows being moved (its rows list beside it).
     var carryingRow by remember { mutableStateOf<String?>(null) }
     fun endEditMain() {
@@ -372,6 +388,7 @@ internal fun MenuOverlay(
                     add(Section.Tv)
                     if (!AppColors.palette.hideMedia && AppColors.palette.shows("menu:Movies")) add(Section.Movies)
                     if (!AppColors.palette.hideMedia && AppColors.palette.shows("menu:Shows")) add(Section.Shows)
+                    if (!AppColors.palette.hideMedia && AppColors.palette.shows("menu:Library")) add(Section.Library)
                     if (musicMenuOn && AppColors.palette.shows("menu:Music")) add(Section.Music)
                     if (AppColors.palette.shows("menu:Recordings")) add(Section.Recordings)
                     if (AppColors.palette.shows("menu:Search")) add(Section.Search)
@@ -416,6 +433,7 @@ internal fun MenuOverlay(
                     Section.Tv -> "Right ›  channel groups"
                     Section.Movies -> "Right ›  go into Movies"
                     Section.Shows -> "Right ›  go into Shows"
+                    Section.Library -> "Right ›  your libraries"
                     Section.Music -> "Right ›  your music"
                     Section.Recordings -> "Right ›  go into Recordings"
                     Section.Search -> "Right ›  search"
@@ -433,12 +451,12 @@ internal fun MenuOverlay(
             val appearanceVm: io.github.petebutty.viewarr.ui.settings.AppearanceViewModel = androidx.hilt.navigation.compose.hiltViewModel()
             val movable = buildList {
                 addAll(liveEntries)
-                if (!AppColors.palette.hideMedia) { add(Section.Movies.name); add(Section.Shows.name) }
+                if (!AppColors.palette.hideMedia) { add(Section.Movies.name); add(Section.Shows.name); add(Section.Library.name) }
                 services.forEach { add("svc:" + it.first) }
                 if (musicMenuOn) add(Section.Music.name)
                 add(Section.Recordings.name); add(Section.Search.name)
             }
-            val order = AppColors.palette.menuOrder
+            val order = io.github.petebutty.viewarr.ui.common.PendingOrder.get("menu", AppColors.palette.menuOrder)
             val ordered = movable.withIndex().sortedBy { (i, id) -> order.indexOf(id).let { if (it < 0) order.size + i else it } }.map { it.value }
             fun visible(id: String) = AppColors.palette.shows("menu:$id")
             fun labelOf(id: String) = when { id in liveEntries -> id; id.startsWith("svc:") -> id.removePrefix("svc:"); else -> Section.valueOf(id).label }
@@ -509,6 +527,9 @@ internal fun MenuOverlay(
             sectionItem(Section.Tv)
             (if (editingMain) ordered else ordered.filter(::visible)).forEach { id ->
                 androidx.compose.runtime.key(id) {
+                    // A picked-up entry moving past the top or bottom: the list follows it (focus staying on the same
+                    // entry as it moves doesn't scroll by itself, so it went off screen).
+                    val bring = remember { androidx.compose.foundation.relocation.BringIntoViewRequester() }
                     when {
                         // Editing: every entry, On / Off; the one picked up says so.
                         editingMain -> MenuItem(
@@ -519,6 +540,7 @@ internal fun MenuOverlay(
                             onClick = { if (carryingMain == id) carryingMain = null else appearanceVm.setTitlePart("menu:$id", !visible(id)) },
                             onLongClick = { carryingMain = if (carryingMain == id) null else id },
                             modifier = Modifier.focusRequester(mainFocus.getOrPut(id) { FocusRequester() })
+                                .bringIntoViewRequester(bring)
                                 .onFocusChanged {
                                     if (!it.isFocused) return@onFocusChanged
                                     // Its own list beside it: a service's rows, Movies' or Shows' list.
@@ -541,7 +563,10 @@ internal fun MenuOverlay(
                                     carryingMain == id && (e.key == Key.DirectionUp || e.key == Key.DirectionDown) -> {
                                         val list = ordered.toMutableList()
                                         val i = list.indexOf(id); val j = i + if (e.key == Key.DirectionUp) -1 else 1
-                                        if (j in list.indices) { list[i] = list[j]; list[j] = id; appearanceVm.setMenuOrder(list); mainFollow = null; mainFollow = id }
+                                        if (j in list.indices) {
+                                            list[i] = list[j]; list[j] = id; io.github.petebutty.viewarr.ui.common.PendingOrder.set("menu", list); appearanceVm.setMenuOrder(list); mainFollow = null; mainFollow = id
+                                            menuScope.launch { awaitFrame(); awaitFrame(); runCatching { bring.bringIntoView() } }
+                                        }
                                         true
                                     }
                                     else -> false
@@ -610,12 +635,11 @@ internal fun MenuOverlay(
                 .onPreviewKeyEvent { e ->
                     if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                     when {
-                        // In a library's categories: Left goes back to the library list (it slides back in).
-                        e.key == Key.DirectionLeft && menuCats != null -> { menuCats = null; true }
+                        // (Left from any list: the main menu, below.)
                         // Editing the list: Left finishes (a library being moved is put down where it is).
                         e.key == Key.DirectionLeft && menuEditing -> { menuEditing = false; true }
                         // Left goes back to this section's menu entry, not whichever one is geometrically closest.
-                        e.key == Key.DirectionLeft && (section == Section.Tv || section == Section.Movies || section == Section.Shows || section == Section.Recordings ||
+                        e.key == Key.DirectionLeft && (section == Section.Tv || section == Section.Movies || section == Section.Shows || section == Section.Library || section == Section.Recordings ||
                             (section == Section.Settings && !showAppearance && !showRemote && !showNavigation && !showSports && !showPlayback && !showAddons && !showUpdates && !showAbout && !showHomeRows && !showPlugins && !showLive && !showTrouble && !showSearchSettings)) -> {
                             revealMain()
                             true
@@ -731,6 +755,12 @@ internal fun MenuOverlay(
                     onHover = { previewGroup(it) },
                     favouriteCount = vm.favourites.collectAsStateWithLifecycle().value.size,
                     onMove = { id, dir -> vm.moveGroup(id, dir) },
+                    hidden = vm.menuHiddenGroups.collectAsStateWithLifecycle().value,
+                    onHide = { name, h ->
+                        vm.setGroupMenuHidden(name, h)
+                        // ★ Favourites hidden while on it: back to all channels.
+                        if (h && name == FAV_HIDDEN && vm.groupId.value == io.github.petebutty.viewarr.ui.guide.GuideViewModel.FAVOURITES) vm.selectGroup(null)
+                    },
                 )
                 Section.Settings -> SettingsPanel(
                     playbackItem = playbackItem,
@@ -803,6 +833,20 @@ internal fun MenuOverlay(
                 Section.Music -> MusicMenuPanel(
                     focusRequester = recentFocus,
                     onOpenPage = { onOpenPage(Page.Music) },
+                )
+                Section.Library -> LibraryMenuPanel(
+                    focusRequester = recentFocus,
+                    libraries = allLibs,
+                    musicSources = libMusicSources,
+                    onHover = { t, lib ->
+                        (if (t == MediaType.Movie) moviesMedia else showsMedia).openLibrary(lib, t)
+                        onHoverPage(if (t == MediaType.Movie) Page.Movies else Page.Shows)
+                    },
+                    onOpen = { t, lib ->
+                        (if (t == MediaType.Movie) moviesMedia else showsMedia).openLibrary(lib, t)
+                        onOpenPage(if (t == MediaType.Movie) Page.Movies else Page.Shows)
+                    },
+                    onMusic = { onOpenPage(Page.Music) },
                 )
                 Section.Search -> SearchMenuPanel(onSearch = onSearchFor, onVoice = onVoiceSearch, focus = recentFocus, musicOn = musicMenuOn)
                 Section.Recordings -> RecordingsPanel(
@@ -944,7 +988,10 @@ internal fun MenuOverlay(
 @Composable
 internal fun GroupList(sourcesVm: io.github.petebutty.viewarr.ui.settings.LiveSourcesViewModel, focusRequester: FocusRequester, groups: List<GroupWithCount>, allCount: Int?, selectedId: Int?, onSelect: (Int?) -> Unit, onHover: (Int?) -> Unit = {}, favouriteCount: Int = 0,
     /** Hold OK on a group: pick it up; Up / Down move it ([Int] id, -1 / 1), OK or Back put it down. */
-    onMove: ((Int, Int) -> Unit)? = null) {
+    onMove: ((Int, Int) -> Unit)? = null,
+    /** Groups hidden from this list (names), and hiding / showing one. */
+    hidden: Set<String> = emptySet(),
+    onHide: ((String, Boolean) -> Unit)? = null) {
     // Several Live TV sources (Dispatcharr instances, IPTV logins, playlists): the active one heads the list; OK
     // opens the others to switch to.
     val saved by sourcesVm.saved.collectAsStateWithLifecycle()
@@ -954,17 +1001,39 @@ internal fun GroupList(sourcesVm: io.github.petebutty.viewarr.ui.settings.LiveSo
     val showSources = saved.size > 1 && io.github.petebutty.viewarr.data.profiles.Access.can(io.github.petebutty.viewarr.data.profiles.Lock.SOURCES)
     val head = if (showSources) 1 + (if (sourcesOpen) saved.size - 1 else 0) else 0
     val hideAll = AppColors.palette.hideAllChannels
+    // Hidden from this list (hold OK → Hide): left out here, gathered at the end.
+    val shownGroups = groups.filter { it.name !in hidden }
+    val hiddenGroups = groups.filter { it.name in hidden }
     // ★ Favourites heads the groups once there are any (hold OK on a channel: Add to favourites).
-    val favRow = if (favouriteCount > 0) 1 else 0
+    // ★ Favourites and All channels can be hidden from the list too (hold OK → Hide).
+    val favHidden = FAV_HIDDEN in hidden
+    val favRow = if (favouriteCount > 0 && !favHidden) 1 else 0
+    val uiOpts: io.github.petebutty.viewarr.ui.settings.UiOptsViewModel = androidx.hilt.navigation.compose.hiltViewModel()
+    fun hideAllChannels(h: Boolean) = uiOpts.set(io.github.petebutty.viewarr.ui.theme.UiOpts.GROUP_ALL, if (h) 1 else 0)
     val selectedIndex = head + when (selectedId) {
         null -> favRow
         io.github.petebutty.viewarr.ui.guide.GuideViewModel.FAVOURITES -> 0
-        else -> favRow + groups.indexOfFirst { it.id == selectedId } + if (hideAll) 0 else 1
+        else -> favRow + shownGroups.indexOfFirst { it.id == selectedId } + if (hideAll) 0 else 1
     }
     val state = rememberLazyListState(initialFirstVisibleItemIndex = maxOf(0, selectedIndex - 3))
     val selectedFocus = focusRequester
     var moving by remember { mutableStateOf<Int?>(null) }
-    androidx.activity.compose.BackHandler(enabled = moving != null) { moving = null }
+    // Hold OK on a group: its options (Move, Hide) open under it; the hidden ones gather at the end, folded.
+    var optionsFor by remember { mutableStateOf<Int?>(null) }
+    var showHidden by remember { mutableStateOf(false) }
+    androidx.activity.compose.BackHandler(enabled = moving != null || optionsFor != null) { moving = null; optionsFor = null }
+    // A picked-up group moving past the top or bottom: the list follows it (the highlight stays on the same group as
+    // it moves, which doesn't scroll by itself, so it went off screen).
+    LaunchedEffect(shownGroups.map { it.id }, moving) {
+        val id = moving ?: return@LaunchedEffect
+        val idx = head + favRow + (if (hideAll) 0 else 1) + shownGroups.indexOfFirst { it.id == id }.coerceAtLeast(0)
+        awaitFrame()
+        val info = state.layoutInfo
+        val seen = info.visibleItemsInfo.firstOrNull { it.index == idx }
+        if (seen == null || seen.offset < info.viewportStartOffset || seen.offset + seen.size > info.viewportEndOffset) {
+            runCatching { state.scrollToItem((idx - 3).coerceAtLeast(0)) }
+        }
+    }
     LazyColumn(state = state, verticalArrangement = Arrangement.spacedBy(1.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
         if (showSources) {
             item(key = "source") {
@@ -982,27 +1051,36 @@ internal fun GroupList(sourcesVm: io.github.petebutty.viewarr.ui.settings.LiveSo
                 )
             }
         }
-        if (favouriteCount > 0) item(key = "fav") {
+        if (favouriteCount > 0 && !favHidden) item(key = "fav") {
+            Column {
             GroupItem(
                 name = "★  Favourites",
                 count = favouriteCount,
                 selected = selectedId == io.github.petebutty.viewarr.ui.guide.GuideViewModel.FAVOURITES,
                 modifier = (if (selectedId == io.github.petebutty.viewarr.ui.guide.GuideViewModel.FAVOURITES) Modifier.focusRequester(selectedFocus) else Modifier).onFocusChanged { if (it.isFocused) onHover(io.github.petebutty.viewarr.ui.guide.GuideViewModel.FAVOURITES) },
+                onLongClick = if (onHide != null) ({ optionsFor = if (optionsFor == io.github.petebutty.viewarr.ui.guide.GuideViewModel.FAVOURITES) null else io.github.petebutty.viewarr.ui.guide.GuideViewModel.FAVOURITES }) else null,
                 onClick = { onSelect(io.github.petebutty.viewarr.ui.guide.GuideViewModel.FAVOURITES) },
             )
+            if (optionsFor == io.github.petebutty.viewarr.ui.guide.GuideViewModel.FAVOURITES && onHide != null) HideOption { optionsFor = null; onHide(FAV_HIDDEN, true) }
+            }
         }
         // Settings → Live TV → "All channels" group: hidden leaves just your groups.
         if (!hideAll) item(key = "all") {
+            Column {
             GroupItem(
                 name = "All channels" + if (AppColors.palette.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.MENU_LIVE_MARK) == 1) "  🔴 LIVE" else "",
                 count = allCount,
                 selected = selectedId == null,
                 modifier = (if (selectedId == null) Modifier.focusRequester(selectedFocus) else Modifier).onFocusChanged { if (it.isFocused) onHover(null) },
+                onLongClick = if (onHide != null) ({ optionsFor = if (optionsFor == ALL_ID) null else ALL_ID }) else null,
                 onClick = { onSelect(null) },
             )
+            if (optionsFor == ALL_ID && onHide != null) HideOption { optionsFor = null; hideAllChannels(true) }
+            }
         }
-        items(groups, key = { it.id }) { g ->
+        items(shownGroups, key = { it.id }) { g ->
             val carried = moving == g.id
+            Column {
             GroupItem(
                 name = if (carried) "↕  ${g.name}" else g.name,
                 count = g.channelCount,
@@ -1019,9 +1097,37 @@ internal fun GroupList(sourcesVm: io.github.petebutty.viewarr.ui.settings.LiveSo
                             else -> false
                         }
                     },
-                onLongClick = onMove?.let { { moving = if (carried) null else g.id } },
+                // Hold OK: Move or Hide, under it.
+                onLongClick = if (onMove != null || onHide != null) ({ moving = null; optionsFor = if (optionsFor == g.id) null else g.id }) else null,
                 onClick = { if (moving != null) moving = null else onSelect(g.id) },
             )
+            if (optionsFor == g.id) {
+                val moveFocus = remember { FocusRequester() }
+                LaunchedEffect(Unit) { awaitFrame(); runCatching { moveFocus.requestFocus() } }
+                if (onMove != null) MenuItem(text = "      ↕  Move", selected = false, compact = true, dim = true,
+                    onClick = { optionsFor = null; moving = g.id }, modifier = Modifier.focusRequester(moveFocus).rightIgnored())
+                if (onHide != null) MenuItem(text = "      ✕  Hide from this list", selected = false, compact = true, dim = true,
+                    onClick = { optionsFor = null; onHide(g.name, true) }, modifier = (if (onMove == null) Modifier.focusRequester(moveFocus) else Modifier).rightIgnored())
+            }
+            }
+        }
+        // Hidden groups, folded at the end: OK on one shows it in the list again.
+        val hiddenCount = hiddenGroups.size + (if (hideAll) 1 else 0) + (if (favHidden && favouriteCount > 0) 1 else 0)
+        if (hiddenCount > 0 && onHide != null) {
+            item(key = "hidden") {
+                MenuItem(text = "Hidden groups ($hiddenCount)", trailing = if (showHidden) "▴" else "▾", selected = false, dim = true,
+                    onClick = { showHidden = !showHidden }, modifier = Modifier.rightIgnored())
+            }
+            if (showHidden && favHidden && favouriteCount > 0) item(key = "hid-fav") {
+                MenuItem(text = "      ★  Favourites", trailing = "Show", selected = false, dim = true, compact = true, onClick = { onHide(FAV_HIDDEN, false) }, modifier = Modifier.rightIgnored())
+            }
+            if (showHidden && hideAll) item(key = "hid-all") {
+                MenuItem(text = "      All channels", trailing = "Show", selected = false, dim = true, compact = true, onClick = { hideAllChannels(false) }, modifier = Modifier.rightIgnored())
+            }
+            if (showHidden) items(hiddenGroups, key = { "hid-" + it.id }) { g ->
+                MenuItem(text = "      " + g.name, trailing = "Show", selected = false, dim = true, compact = true,
+                    onClick = { onHide(g.name, false) }, modifier = Modifier.rightIgnored())
+            }
         }
     }
 }
@@ -1140,6 +1246,7 @@ internal fun sectionColour(s: Section): Color = when (s) {
     Section.Tv -> Color(0xFFEF4444)
     Section.Movies -> Color(0xFF3B82F6)
     Section.Shows -> Color(0xFFA855F7)
+    Section.Library -> Color(0xFF14B8A6)
     Section.Music -> Color(0xFF22C55E)
     Section.Recordings -> Color(0xFFF59E0B)
     Section.Search -> Color(0xFF94A3B8)
@@ -1149,7 +1256,7 @@ internal fun sectionColour(s: Section): Color = when (s) {
 
 /** Each section's mark (headings and the icon column). */
 internal fun sectionIcon(s: Section): String = when (s) {
-    Section.Tv -> "📺"; Section.Movies -> "🎬"; Section.Shows -> "📼"; Section.Music -> "♪"
+    Section.Tv -> "📺"; Section.Movies -> "🎬"; Section.Shows -> "📼"; Section.Library -> "📚"; Section.Music -> "♪"
     Section.Recordings -> "⏺"; Section.Search -> "🔍"; Section.Settings -> "⚙"
 }
 
@@ -1160,4 +1267,18 @@ internal fun sectionIcon(s: Section): String = when (s) {
 internal object MenuScrolls {
     val main = androidx.compose.foundation.ScrollState(0)
     val settings = androidx.compose.foundation.ScrollState(0)
+}
+
+/** The hidden-groups entry standing for ★ Favourites (not a real group name). */
+// (A name no real group has. It was "\u0000favourites", but a NUL can't be written into the settings file safely.)
+internal const val FAV_HIDDEN = "★ favourites (hidden)"
+/** optionsFor's stand-in for All channels (real groups have positive ids; Favourites is GuideViewModel.FAVOURITES). */
+private const val ALL_ID = -3
+
+/** Hold OK on ★ Favourites / All channels: just Hide (they can't be moved). */
+@Composable
+private fun HideOption(onHide: () -> Unit) {
+    val f = remember { FocusRequester() }
+    LaunchedEffect(Unit) { awaitFrame(); runCatching { f.requestFocus() } }
+    MenuItem(text = "      ✕  Hide from this list", selected = false, compact = true, dim = true, onClick = onHide, modifier = Modifier.focusRequester(f).rightIgnored())
 }

@@ -1,5 +1,7 @@
 # Troubleshooting
 
+**Something not working?** Settings → Troubleshooting → **Send a report**, then share the code it gives you in the Discord. It tells the developer what Viewarr was doing, with passwords, keys, addresses and names taken out (see [Privacy](PRIVACY.md#send-a-report)).
+
 Practical fixes for the most common problems. Problems during setup (the phone can't reach the TV, sign-in errors) are covered in the [setup guide](SETUP.md#5-troubleshooting).
 
 ## No channels, or the guide is empty

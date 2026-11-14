@@ -12,7 +12,8 @@ The menu is see-through on every page. It slides the page and the picture aside 
 - **Up / Down** move through the entries, and the page behind changes straight away: Live TV, Live now, Sports, Movies, Shows, your streaming services (such as Netflix or Disney+), Music and Recordings.
 - **Right** (or **OK**) goes into the highlighted entry:
   - **Live TV**: its channel groups. Moving through them changes the guide behind as you go; OK picks one and takes you into the guide.
-  - **Movies** and **Shows**: your libraries, with your rows tucked under **Jump to a row**.
+  - **Movies** and **Shows**: their home page, with your rows tucked under **Jump to a row**.
+  - **My Library**: every library on all your servers and your music; moving through them shows each behind.
   - **Recordings**, **Music** and the streaming services: straight into the page.
 - **Left** or **Back** steps back one level at a time. On the main list, Back first goes to **Live TV**, and then closes the menu.
 
@@ -85,6 +86,6 @@ Below these, each menu entry (Live now, Sports, Movies, Shows, Music, Recordings
 
 - **Button hints**: a small pill at the bottom of the screen says what the buttons do where you are. Choose **First few times**, **Always** or **Off** in **Settings → Appearance → Menu → Button hints**.
 - **Settings explain themselves**: a line at the top of Settings describes the highlighted entry, and every section says what it covers.
-- **Settings → Menu & navigation** sets where Viewarr opens (**App opens on**), where the menu opens (**Menu opens on**), what **Right on a library** does, and how poster rows behave. See [Settings](SETTINGS.md#menu--navigation).
+- **Settings → Menu & navigation** sets where Viewarr opens (**App opens on**), where the menu opens (**Menu opens on**), and how poster rows behave. See [Settings](SETTINGS.md#menu--navigation).
 - **Search** pops up over any screen: hold **Menu (≡)** or use the remote's search button. See [Films & shows](FILMS-AND-SHOWS.md#search).
 - **The tour** from the first run can be seen again any time from **Settings → About → Show the tour**.

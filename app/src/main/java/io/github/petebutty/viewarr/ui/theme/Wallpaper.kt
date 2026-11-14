@@ -161,10 +161,17 @@ fun WallpaperLoader() {
             context.imageLoader.execute(ImageRequest.Builder(context).data(url).size(1280, 720).allowHardware(false).build())
         }.getOrNull() as? SuccessResult ?: return
         val bmp = runCatching { result.drawable.toBitmap().asImageBitmap() }.getOrNull() ?: return
-        layer.previous = layer.image
+        // A soft cross-fade from the last picture (it only runs once the highlight has rested, so it doesn't cost
+        // frames while moving through the guide; a newer pick cancels it and fades on from where it was).
+        layer.previous = layer.image ?: layer.previous
         layer.image = bmp
-        // Straight in (a fade cost frames while moving through the guide).
-        layer.fade = 1f
+        layer.fade = 0f
+        val start = androidx.compose.runtime.withFrameNanos { it }
+        while (layer.fade < 1f) {
+            val now = androidx.compose.runtime.withFrameNanos { it }
+            layer.fade = ((now - start) / 700_000_000f).coerceIn(0f, 1f)
+        }
+        layer.previous = null
     }
     LaunchedEffect(Unit) {
         snapshotFlow { AppColors.palette.wallpaperMode to Wallpaper.selected }.collectLatest { (mode, selected) ->

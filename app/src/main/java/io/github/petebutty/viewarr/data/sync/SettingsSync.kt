@@ -336,9 +336,12 @@ class SettingsSync @Inject constructor(
             } else {
                 val incoming = runCatching { json.decodeFromString(Accounts.serializer(), plain) }.getOrNull()
                 if (incoming != null) {
-                    val me = accounts.current().deviceId
-                    // Away addresses stay if the copy has none (it was saved before they were set).
-                accounts.update { cur -> incoming.copy(deviceId = me, away = incoming.away.ifEmpty { cur.away }) }
+                    // Away addresses stay if the copy has none (it was saved before they were set). Trakt: whichever login
+                    // is newer (its refresh token works once: an older copy from another TV signed Trakt out here).
+                    accounts.update { cur ->
+                        val trakt = listOfNotNull(cur.trakt, incoming.trakt).maxByOrNull { it.expiresAt }
+                        incoming.copy(deviceId = cur.deviceId, away = incoming.away.ifEmpty { cur.away }, trakt = if (incoming.trakt == null) null else trakt)
+                    }
                     restored = true
                 }
             }

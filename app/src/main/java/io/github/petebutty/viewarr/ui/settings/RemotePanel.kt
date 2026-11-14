@@ -393,7 +393,6 @@ fun navigationCategories(vm: RemoteViewModel = hiltViewModel(), opts: UiOptsView
             "Menu", "The side menu (Left on the first poster, or hold Back). Going into a list slides the one before it away to the left; Left or Back brings it back, one level at a time, then Back closes the menu.",
             listOf(
                 item("Menu opens on", "Open on the current page's own list (channel groups, catalogues), or on the main list.", k.MENU_OPENS_ON, all<MenuOpensOn>(), s.menuOpensOn),
-                item("Right on a library", "In the menu's Movies and Shows lists: Right on a library lists what to jump straight into: its categories (IPTV) or genres, collections, decades, years, studios / networks or age ratings. Or Right just opens it. OK always opens the whole library.", k.MENU_LIBRARY_RIGHT, all<io.github.petebutty.viewarr.data.settings.MenuLibraryRight>(), s.menuLibraryRight),
                 optItem(opts, "Button hints", "A small pill at the bottom of the screen saying what the buttons do there: the first few times on each screen, always, or off.", io.github.petebutty.viewarr.ui.theme.UiOpts.BUTTON_HINTS),
             ),
         ),

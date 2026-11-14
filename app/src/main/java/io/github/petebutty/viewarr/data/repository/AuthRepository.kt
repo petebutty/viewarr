@@ -184,6 +184,11 @@ class AuthRepository @Inject constructor(
         Result.failure(IllegalStateException("Can't reach the server. Check your connection."))
     } catch (e: IllegalStateException) {
         Result.failure(e)
+    } catch (e: kotlinx.coroutines.CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        // Anything else (a web page or other reply where Dispatcharr's was expected, a bad address): a message, not a crash.
+        Result.failure(IllegalStateException("That server didn't answer like Dispatcharr. Check the address."))
     }
 
     /** Signs in with an API key copied from Dispatcharr (the user's edit form → API Key → copy). */
@@ -203,6 +208,11 @@ class AuthRepository @Inject constructor(
         Result.failure(IllegalStateException("Can't reach the server. Check your connection."))
     } catch (e: IllegalStateException) {
         Result.failure(e)
+    } catch (e: kotlinx.coroutines.CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        // Anything else (a web page or other reply where Dispatcharr's was expected, a bad address): a message, not a crash.
+        Result.failure(IllegalStateException("That server didn't answer like Dispatcharr. Check the address."))
     }
 
     /** Signs out of the active Live TV source; another saved one, if any, takes over. */

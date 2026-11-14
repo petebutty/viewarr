@@ -29,9 +29,10 @@ Viewarr doesn't provide any content. It plays only what your own servers and acc
 - **No Dispatcharr?** Use an IPTV provider's Xtream Codes login or an M3U playlist, and save several sources.
 - **Films and shows** from Plex, Jellyfin, Emby, your addons and your IPTV provider, with Netflix-style rows, full libraries with sort, filter and A–Z, and your **streaming services** in the menu.
 - **One Play button** that picks the best copy you have; hold OK on Play to choose the source yourself.
+- **Watch progress for IPTV films and shows** too: Resume, watched ticks and Continue watching, kept on the box for each profile (Dispatcharr and Xtream keep none).
 - **Skip intro, next episode** and a **mini player** that keeps a film going while you browse.
 - **Music** from Navidrome, Plex, Jellyfin or Emby, with lyrics, the queue, song radio, artist pages and a spinning vinyl Now Playing.
-- **An info bar you arrange yourself**: show, hide and move its buttons, and add extras such as Favourite, Last channel, Audio sync, a Sleep timer and TV settings. Browse channels in it without changing until you press OK.
+- **An info bar you arrange yourself**: show, hide and move its buttons, and add extras such as Favourite, Last channel, Audio sync, a Sleep timer and TV settings. Browse channels in it without changing until you press OK. Press Down for **rows you choose** under it: next episodes, Continue watching, favourite or recent channels, what's on now and more.
 - **Frame rate matching** for films and live TV (the TV switches to 50 Hz for UK channels), with frame-rate badges on the info bar.
 - **Every remote button your way**, with TiviMate and Viewarr presets.
 - **Profiles** for everyone in the house, sharing with friends in another house, and your setup saved on Dispatcharr.
@@ -90,7 +91,7 @@ cd viewarr
 
 Optional private files in the project root (they're git-ignored):
 
-- `secrets.properties`: `traktClientId=…` from your own app at [trakt.tv/oauth/applications](https://trakt.tv/oauth/applications). Use `urn:ietf:wg:oauth:2.0:oob` as the redirect URI. Without this file, Trakt isn't offered.
+- `secrets.properties`: `traktClientId=…` from your own app at [trakt.tv/oauth/applications](https://trakt.tv/oauth/applications). Use `urn:ietf:wg:oauth:2.0:oob` as the redirect URI. Without this file, Trakt isn't offered. Optional: `reportNotify=<ntfy topic>` for Send a report's notices to you (left out, reports still work, no notice is sent).
 - `keystore.properties`: `storeFile`, `storePassword`, `keyAlias` and `keyPassword` for your release signing key. Without it, builds are signed with the debug key.
 
 ## Privacy

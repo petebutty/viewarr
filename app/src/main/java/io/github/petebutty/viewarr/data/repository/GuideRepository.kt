@@ -131,6 +131,19 @@ class GuideRepository @Inject constructor(
     fun observeProgramBlockIn(uuids: List<String>, offset: Int, count: Int, start: Long, end: Long) =
         _db.flatMapLatest { it.guideDao().observeProgramBlockIn(uuids, offset, count, start, end) }
 
+    /** Groups hidden from the channel groups list (hold OK → Hide), by name, per source. Their channels stay (All
+     *  channels, numbers, links): only the list entry goes. Unlike "Choose groups", which leaves a group out entirely. */
+    private val _menuHiddenGroups = MutableStateFlow(loadMenuHidden())
+    val menuHiddenGroups = _menuHiddenGroups.asStateFlow()
+    // (Favourites hidden used to be saved as "\u0000favourites": read as the new marker, see SideMenu FAV_HIDDEN.)
+    private fun loadMenuHidden(): Set<String> = prefs.getStringSet(k("menu_hidden_groups"), emptySet()).orEmpty()
+        .map { if (it == "\u0000favourites") "★ favourites (hidden)" else it }.toSet()
+    fun setGroupMenuHidden(name: String, hidden: Boolean) {
+        val now = _menuHiddenGroups.value.let { if (hidden) it + name else it - name }
+        prefs.edit().putStringSet(k("menu_hidden_groups"), now).apply()
+        _menuHiddenGroups.value = now
+    }
+
     /** The channel groups' order as you've set it (hold OK on a group → move), by name; per Live TV source. */
     private val _groupOrder = MutableStateFlow(loadGroupOrder())
     val groupOrder = _groupOrder.asStateFlow()
@@ -206,6 +219,7 @@ class GuideRepository @Inject constructor(
         _db.value = dbs.get(id)
         _favourites.value = loadFavourites()
         _groupOrder.value = loadGroupOrder()
+        _menuHiddenGroups.value = loadMenuHidden()
         _generation.value++
     }
 
@@ -317,6 +331,7 @@ class GuideRepository @Inject constructor(
             _generation.value++
             _sync.value = SyncState.Idle
         } catch (e: CancellationException) {
+            _sync.value = SyncState.Idle // (stopped part-way: the "Updating…" note mustn't stay up)
             throw e
         } catch (e: Exception) {
             _sync.value = SyncState.Failed("Couldn't update the TV guide: ${e.message ?: e.javaClass.simpleName}")
@@ -425,6 +440,7 @@ class GuideRepository @Inject constructor(
             _generation.value++
             _sync.value = SyncState.Idle
         } catch (e: CancellationException) {
+            _sync.value = SyncState.Idle // (stopped part-way: the "Updating…" note mustn't stay up)
             throw e
         } catch (e: Exception) {
             _sync.value = SyncState.Failed("Couldn't update channels from your provider: ${e.message ?: e.javaClass.simpleName}")
@@ -482,6 +498,7 @@ class GuideRepository @Inject constructor(
             _generation.value++
             _sync.value = SyncState.Idle
         } catch (e: CancellationException) {
+            _sync.value = SyncState.Idle // (stopped part-way: the "Updating…" note mustn't stay up)
             throw e
         } catch (e: Exception) {
             _sync.value = SyncState.Failed("Couldn't load your playlist: ${e.message ?: e.javaClass.simpleName}")

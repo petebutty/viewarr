@@ -46,6 +46,7 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -101,6 +102,8 @@ fun PlayerOsd(
     onSearch: (() -> Unit)? = null,
     /** The home screen's extra buttons (shown once added to the bar). */
     extraButtons: List<BarExtra> = emptyList(),
+    /** Down from the buttons (no shortcuts row): these rows, e.g. Recent channels, as the film player's next episodes. */
+    downRows: List<OsdRow> = emptyList(),
     /** Channel list, guide and wallpaper transparency, adjusted over the picture. */
     onTransparency: (() -> Unit)? = null,
     /** Down from the buttons: your shortcuts (libraries, rows, Music…; Settings → Navigation → Live TV shortcuts). */
@@ -265,8 +268,12 @@ fun PlayerOsd(
 
         // The same icon buttons as the film / show player's controls (the focused one's name underneath).
         var showShortcuts by remember { mutableStateOf(false) }
+        // In the rows under the buttons (Recent channels): which one; -1 on the buttons.
+        var downRow by remember { androidx.compose.runtime.mutableIntStateOf(-1) }
+        androidx.activity.compose.BackHandler(enabled = downRow >= 0) { downRow = -1; runCatching { firstFocus.requestFocus() } }
         // Editing the buttons (hold OK on one): OK shows / hides, hold OK picks one up to move, Back or Done finishes.
         val appearance: io.github.petebutty.viewarr.ui.settings.AppearanceViewModel = androidx.hilt.navigation.compose.hiltViewModel()
+        val barOpts: io.github.petebutty.viewarr.ui.settings.UiOptsViewModel = androidx.hilt.navigation.compose.hiltViewModel()
         var editing by remember { mutableStateOf(false) }
         var carrying by remember { mutableStateOf<String?>(null) }
         androidx.activity.compose.BackHandler(enabled = editing) { if (carrying != null) carrying = null else editing = false }
@@ -276,7 +283,10 @@ fun PlayerOsd(
             Modifier.padding(top = 6.dp).horizontalScroll(androidx.compose.foundation.rememberScrollState()).onPreviewKeyEvent { e ->
                 // Down from the buttons: the shortcuts row.
                 if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionDown && editing) true
-                else if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionDown && shortcuts.isNotEmpty() && popup == null) { showShortcuts = true; true } else false
+                else if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionDown && shortcuts.isNotEmpty() && popup == null) { showShortcuts = true; true }
+                // No shortcuts row: Down opens the rows under the buttons (Recent channels).
+                else if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionDown && shortcuts.isEmpty() && downRows.isNotEmpty() && popup == null && downRow < 0) { onActivity(); downRow = 0; true }
+                else false
             },
             verticalAlignment = Alignment.Top,
         ) {
@@ -300,6 +310,9 @@ fun PlayerOsd(
                 onMultiView?.let { add(LiveBtn("multiview", io.github.petebutty.viewarr.ui.common.AppIcons.Grid, "Multi-view", it)) }
                 extraButtons.forEach { add(LiveBtn(it.id, it.icon, it.label, it.onClick)) }
                 add(LiveBtn("sync", io.github.petebutty.viewarr.ui.common.AppIcons.Equalizer, "Audio sync: " + io.github.petebutty.viewarr.playback.AvSync.label()) { popup = OsdPopup.Sync })
+                add(LiveBtn("barstyle", io.github.petebutty.viewarr.ui.common.AppIcons.Style, io.github.petebutty.viewarr.ui.common.BarLayout.styleLabel()) {
+                    io.github.petebutty.viewarr.ui.common.BarLayout.nextStyle(barOpts::set)
+                })
                 add(LiveBtn("tvsettings", io.github.petebutty.viewarr.ui.common.AppIcons.Tune, "TV settings") { tvOpen = true })
                 add(LiveBtn("sleep", io.github.petebutty.viewarr.ui.common.AppIcons.Bedtime, io.github.petebutty.viewarr.playback.SleepTimer.label(now)) { io.github.petebutty.viewarr.playback.SleepTimer.cycle(current?.endTime) })
                 onSearch?.let { add(LiveBtn("search", io.github.petebutty.viewarr.ui.common.AppIcons.Search, "Search", it)) }
@@ -486,6 +499,16 @@ fun PlayerOsd(
                 if (r < 0) { browsing = null; runCatching { (shortcuts.getOrNull(focusedRaw)?.first?.id?.let { scFocus[it] } ?: shortcutFocus).requestFocus() } }
             })
         }
+        // Recent channels (and any other rows) under the buttons: Up from the first goes back to the buttons.
+        if (shortcuts.isEmpty() && downRows.isNotEmpty() && downRow >= 0) PosterRows(downRows, downRow, onRow = { r ->
+            onActivity()
+            if (r < 0) { downRow = -1; runCatching { firstFocus.requestFocus() } } else downRow = r.coerceAtMost(downRows.lastIndex)
+        })
+        if (shortcuts.isEmpty() && downRows.isNotEmpty() && AppColors.palette.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.BUTTON_HINTS) != 2) Text(
+            if (downRow >= 0) "◀ ▶ move  ·  OK: watch  ·  ▲ buttons  ·  Back: buttons" else "▼ ${downRows.first().title.lowercase()}  ·  ◀ ▶ buttons  ·  OK: choose  ·  Back: close",
+            fontSize = 12.sp, color = Color.White.copy(alpha = 0.7f), maxLines = 1,
+            modifier = Modifier.padding(top = 8.dp),
+        )
         // What the buttons do where you are (as the film player's line): the shortcuts are found with Down, which
         // nothing said; in them, Down for their rows and hold OK for Move / Refresh / Hide (Settings → Appearance →
         // Button hints off: none).
@@ -538,7 +561,7 @@ private fun PosterRows(rows: List<OsdRow>, current: Int, more: Boolean = false, 
                 }
             },
     ) {
-        OsdRowHeading(row.title, rows.getOrNull(r + 1)?.title, more)
+        OsdRowHeading(row.title, rows.getOrNull(r + 1)?.title, more, position = if (rows.size > 1) "${r + 1} of ${rows.size}" else null)
         androidx.compose.runtime.key(r) {
             // Room round the cards for the highlighted one's slight growth (it was cut off at the row's left edge),
             // pulled back by the same amount so the first card still lines up with the row's name.
@@ -723,10 +746,12 @@ fun OsdCardCaption(p: OsdPoster, highlighted: Boolean) {
 
 /** A row's heading: its name, then the next row's (or that there are more on the shortcut's own page). */
 @Composable
-fun OsdRowHeading(title: String, next: String?, more: Boolean = false) {
+fun OsdRowHeading(title: String, next: String?, more: Boolean = false, position: String? = null) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(title, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
-        if (next != null) Text("   ·   Down: $next", fontSize = 12.sp, color = AppColors.TextSecondary)
+        // Several rows under the info bar: where you are among them ("2 of 4").
+        if (position != null) Text("   $position", fontSize = 12.sp, color = AppColors.TextSecondary)
+        if (next != null && position == null) Text("   ·   Down: $next", fontSize = 12.sp, color = AppColors.TextSecondary)
         else if (more) Text("   ·   More rows: open the shortcut", fontSize = 12.sp, color = AppColors.TextSecondary)
     }
 }
@@ -851,7 +876,8 @@ private fun Pill(icon: androidx.compose.ui.graphics.vector.ImageVector, label: S
 @Composable
 private fun LiveProgress(program: GuideProgram, now: Long, highlighted: Boolean = false, marker: Float? = null) {
     val fraction = ((now - program.startTime).toFloat() / (program.endTime - program.startTime)).coerceIn(0f, 1f)
-    Row(verticalAlignment = Alignment.CenterVertically) {
+    // The bar takes all the room, "… min left" right after it at the end, whatever the info bar's width.
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         // The rewind marker: the bar up to it in the highlight colour, from it to live dimmed, and a white knob on it.
         androidx.compose.foundation.layout.BoxWithConstraints(Modifier.weight(1f).height(14.dp), contentAlignment = Alignment.CenterStart) {
             Box(Modifier.fillMaxWidth().height(if (highlighted) 6.dp else 4.dp).background(Color(0x44FFFFFF), RoundedCornerShape(2.dp))) {

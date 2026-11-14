@@ -86,19 +86,30 @@ class AccountStore @Inject constructor(
     @ApplicationContext private val context: Context,
     private val json: Json,
 ) {
-    val accounts: Flow<Accounts> = context.accountsStore.data.map { prefs ->
-        prefs[BLOB]?.let(KeystoreCipher::decrypt)?.let { runCatching { json.decodeFromString<Accounts>(it) }.getOrNull() }
-            ?: Accounts()
-    }
+    private fun decode(blob: String?): Accounts? =
+        blob?.let(KeystoreCipher::decrypt)?.let { runCatching { json.decodeFromString<Accounts>(it) }.getOrNull() }
+
+    // Nothing saved yet: one device id for this run (a new one on every read signed Plex / Jellyfin in under an id
+    // that was never used again).
+    val accounts: Flow<Accounts> = context.accountsStore.data.map { prefs -> decode(prefs[BLOB]) ?: Accounts(deviceId = firstRunDeviceId) }
 
     /** null = never recorded (installs from before the wizard had optional steps). */
     val setupComplete: Flow<Boolean?> = context.accountsStore.data.map { it[SETUP_COMPLETE] }
 
     suspend fun current(): Accounts = accounts.first()
 
+    /**
+     * Read, change and write in one step (two at once, e.g. a Trakt refresh and a Plex server refresh, lost one of them).
+     * Saved sign-ins that can't be read right now (the box's key store failing for a moment) are never written over
+     * with a blank copy: the change is skipped instead.
+     */
     suspend fun update(transform: (Accounts) -> Accounts) {
-        val next = transform(current())
-        context.accountsStore.edit { it[BLOB] = KeystoreCipher.encrypt(json.encodeToString(Accounts.serializer(), next)) }
+        context.accountsStore.edit { prefs ->
+            val blob = prefs[BLOB]
+            val now = decode(blob)
+            if (blob != null && now == null) { android.util.Log.w("AccountStore", "saved accounts unreadable; change skipped"); return@edit }
+            prefs[BLOB] = KeystoreCipher.encrypt(json.encodeToString(Accounts.serializer(), transform(now ?: Accounts(deviceId = firstRunDeviceId))))
+        }
     }
 
     suspend fun setSetupComplete(done: Boolean) {
@@ -114,3 +125,6 @@ class AccountStore @Inject constructor(
         val SETUP_COMPLETE = booleanPreferencesKey("setup_complete")
     }
 }
+
+/** The device id used before anything is saved (kept for the whole run, then saved with the first sign-in). */
+private val firstRunDeviceId: String by lazy { UUID.randomUUID().toString() }

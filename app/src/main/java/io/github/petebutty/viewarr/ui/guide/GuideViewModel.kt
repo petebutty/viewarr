@@ -64,8 +64,10 @@ class GuideViewModel @Inject constructor(
     private var eventGroupNames: Set<String>? = null
     private suspend fun eventGroups(): Set<String> {
         eventGroupNames?.let { return it }
-        val fromPlugin = runCatching { plugins.installed() }.getOrNull()
-            ?.firstOrNull { it.key == "event_channel_managarr" && it.enabled }
+        // (Only a real answer is kept: a failed lookup is asked again next time, not stuck on the fallback all session.)
+        val installed = runCatching { plugins.installed() }.getOrNull() ?: return emptySet()
+        val fromPlugin = installed
+            .firstOrNull { it.key == "event_channel_managarr" && it.enabled }
             ?.settings?.get("channel_groups")?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.content }
             ?.split(',')?.map { it.trim().lowercase() }?.filter { it.isNotEmpty() }?.toSet().orEmpty()
         return fromPlugin.also { eventGroupNames = it }
@@ -122,10 +124,35 @@ class GuideViewModel @Inject constructor(
         if (order.isEmpty()) g else g.withIndex().sortedBy { (i, x) -> order.indexOf(x.name).let { if (it < 0) order.size + i else it } }.map { it.value }
     }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
+    /**
+     * The group to show [ch] in when it isn't in the one on screen: All channels, or (with All channels hidden) its own
+     * group. (Switching to All channels while it was hidden was undone at once by the home screen, so typed numbers,
+     * search and reminders went nowhere.)
+     */
+    private fun groupToShow(ch: ChannelListItem): Int? =
+        if (io.github.petebutty.viewarr.ui.theme.AppColors.palette.hideAllChannels) groups.value.firstOrNull { it.name == ch.groupName }?.id else null
+
+    /** Groups hidden from the channel groups list (their channels stay). */
+    val menuHiddenGroups = repo.menuHiddenGroups
+    fun setGroupMenuHidden(name: String, hidden: Boolean) {
+        repo.setGroupMenuHidden(name, hidden)
+        // The group on show hidden: back to all channels.
+        if (hidden && groups.value.firstOrNull { it.id == _groupId.value }?.name == name) selectGroup(null)
+    }
+
     /** Moves a channel group one place up ([dir] -1) or down (1) in the menu. */
     fun moveGroup(id: Int, dir: Int) {
-        val names = groups.value.map { it.name }.toMutableList()
-        val i = groups.value.indexOfFirst { it.id == id }; val j = i + dir
+        // From the order as just changed (not the shown list, a moment behind: a quick second press then moved it
+        // back, so the group flicked about).
+        val order = repo.groupOrder.value
+        val shown = groups.value
+        val sorted = if (order.isEmpty()) shown else shown.withIndex().sortedBy { (i, g) -> order.indexOf(g.name).let { if (it < 0) order.size + i else it } }.map { it.value }
+        val names = sorted.map { it.name }.toMutableList()
+        // Past groups hidden from the list (moving over one did nothing you could see).
+        val hiddenNow = repo.menuHiddenGroups.value
+        val i = sorted.indexOfFirst { it.id == id }
+        var j = i + dir
+        while (j in sorted.indices && sorted[j].name in hiddenNow) j += dir
         if (i < 0 || j !in names.indices) return
         java.util.Collections.swap(names, i, j)
         repo.setGroupOrder(names)
@@ -171,6 +198,11 @@ class GuideViewModel @Inject constructor(
     private val fetchedPast = HashSet<String>()
 
     init {
+        // A shorter list (the last favourite removed, a smaller group): the highlight stays on its last channel rather
+        // than past the end (nothing highlighted, a blank info panel).
+        viewModelScope.launch {
+            channels.collect { list -> if (list.isNotEmpty() && _cursor.value.row > list.lastIndex) _cursor.update { it.copy(row = list.lastIndex) } }
+        }
         viewModelScope.launch {
             // collectLatest: a new source (another server, a playlist) cancels the old one's sync, which otherwise
             // held the guide until it finished (its 45 MB guide) and the new one never showed until a rescan.
@@ -273,7 +305,12 @@ class GuideViewModel @Inject constructor(
     fun jumpBy(deltaMs: Long) {
         val c = _cursor.value
         val now = _now.value
-        val t = (c.focusTime + deltaMs).coerceIn(now - MAX_PAST_MS, now + maxForwardMs())
+        // A whole day: the same time of day on the next / previous date (24 h is an hour off on clock-change days).
+        val target = if (deltaMs == DAY_MS || deltaMs == -DAY_MS) {
+            val z = java.time.Instant.ofEpochMilli(c.focusTime).atZone(java.time.ZoneId.systemDefault())
+            (if (deltaMs > 0) z.plusDays(1) else z.minusDays(1)).toInstant().toEpochMilli()
+        } else c.focusTime + deltaMs
+        val t = target.coerceIn(now - MAX_PAST_MS, now + maxForwardMs())
         if (t == c.focusTime) return
         _cursor.value = c.copy(focusTime = t, windowStart = floorToStep(t))
         ensurePast()
@@ -303,17 +340,13 @@ class GuideViewModel @Inject constructor(
             val wanted = number.toDouble()
             channels.value.firstOrNull { it.number == wanted }?.let { return@launch onResult(it) }
             val hit = repo.observeChannels(null).first().firstOrNull { it.number == wanted }
-            if (hit != null && _groupId.value != null) {
-                _groupId.value = null
-                channels.first { list -> list.any { it.id == hit.id } }
+            if (hit != null && channels.value.none { it.id == hit.id }) {
+                _groupId.value = groupToShow(hit)
+                kotlinx.coroutines.withTimeoutOrNull(3_000) { channels.first { list -> list.any { it.id == hit.id } } }
             }
             onResult(hit)
         }
     }
-
-    /** Switching sources while watching: the new source's channels, and its last-watched channel. */
-    suspend fun channelsFor(session: io.github.petebutty.viewarr.data.session.Session) = repo.channelsFor(session)
-    fun lastChannelOfSource(): Int? = repo.lastChannel()
 
     suspend fun channelById(id: Int): ChannelListItem? = allChannelsById()[id]
 
@@ -503,7 +536,7 @@ class GuideViewModel @Inject constructor(
                 kotlinx.coroutines.withTimeoutOrNull(3_000) { channels.first { list -> list.any { it.id == channelId } } }
             }
             if (channels.value.none { it.id == channelId }) {
-                _groupId.value = null
+                _groupId.value = repo.observeChannels(null).first().firstOrNull { it.id == channelId }?.let(::groupToShow)
                 kotlinx.coroutines.withTimeoutOrNull(3_000) { channels.first { list -> list.any { it.id == channelId } } }
             }
             selectChannel(channelId)
@@ -513,8 +546,8 @@ class GuideViewModel @Inject constructor(
     fun reveal(channel: ChannelListItem, onReady: () -> Unit) {
         viewModelScope.launch {
             if (channels.value.none { it.id == channel.id }) {
-                _groupId.value = null
-                channels.first { list -> list.any { it.id == channel.id } }
+                _groupId.value = groupToShow(channel)
+                kotlinx.coroutines.withTimeoutOrNull(3_000) { channels.first { list -> list.any { it.id == channel.id } } }
             }
             onReady()
         }
@@ -538,7 +571,8 @@ class GuideViewModel @Inject constructor(
         viewModelScope.launch {
             val s = sessions.session.first() ?: return@launch
             val all = channels.value
-            val from = maxOf(0, c.row - BLOCK)
+            // (The cursor can point past a shorter list after a group change: kept inside it.)
+            val from = (c.row - BLOCK).coerceIn(0, all.size)
             val keys = all.subList(from, minOf(all.size, from + BLOCK * 3))
                 .filter { it.guideKey != it.uuid }
                 .map { it.guideKey }
@@ -572,6 +606,7 @@ class GuideViewModel @Inject constructor(
         /** The ★ Favourites group's id (real groups are positive). */
         const val FAVOURITES = -2
         private const val MAX_PAST_MS = 3 * 24 * 3_600_000L
+        const val DAY_MS = 86_400_000L
         private const val CHUNK_MS = 6 * 3_600_000L
         private const val BLOCK = 10
 

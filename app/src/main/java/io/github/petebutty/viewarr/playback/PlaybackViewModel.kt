@@ -660,7 +660,8 @@ class PlaybackViewModel @Inject constructor(
             }
             return
         }
-        if (p.isPlaying) p.pause() else p.play()
+        // (By what was asked for, not whether it's moving: while catch-up was loading, Pause did nothing.)
+        p.playWhenReady = !p.playWhenReady
         _paused.value = !p.playWhenReady
     }
 
@@ -671,7 +672,8 @@ class PlaybackViewModel @Inject constructor(
 
     /** Releases the stream (and the provider connection) when the app goes to the background. */
     fun pause() {
-        retryJob?.cancel()
+        // (A channel change, catch-up seek or stall check still waiting would start the stream again in the background.)
+        retryJob?.cancel(); zapJob?.cancel(); seekJob?.cancel(); stallJob?.cancel()
         player?.let { p -> _catchup.value?.let { c -> _position.value = (catchupOffset + p.currentPosition) to (c.endTime - c.startTime) } }
         player?.stop()
     }
@@ -688,7 +690,7 @@ class PlaybackViewModel @Inject constructor(
     }
 
     fun stop() {
-        retryJob?.cancel()
+        retryJob?.cancel(); zapJob?.cancel(); seekJob?.cancel(); stallJob?.cancel()
         player?.stop()
         _channel.value = null
         _catchup.value = null

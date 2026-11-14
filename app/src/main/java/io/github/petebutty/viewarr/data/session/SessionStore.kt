@@ -76,7 +76,11 @@ class SessionStore @Inject constructor(@ApplicationContext private val context: 
     /** Removes a saved source (not the active one: sign out of that, or switch first). */
     suspend fun forget(id: String) {
         context.sessionDataStore.edit { prefs ->
-            val list = prefs[SAVED]?.let(KeystoreCipher::decrypt)?.let { decode(it) }.orEmpty().filter { it.id != id }
+            // (Saved list there but unreadable for a moment: left alone rather than replaced with an empty one.)
+            val raw = prefs[SAVED]
+            val plain = raw?.let(KeystoreCipher::decrypt)
+            if (raw != null && plain == null) return@edit
+            val list = plain?.let { decode(it) }.orEmpty().filter { it.id != id }
             prefs[SAVED] = KeystoreCipher.encrypt(encode(list))
         }
     }
@@ -133,7 +137,10 @@ class SessionStore @Inject constructor(@ApplicationContext private val context: 
     suspend fun rename(id: String, name: String?) {
         val active = session.first()
         context.sessionDataStore.edit { prefs ->
-            val list = prefs[SAVED]?.let(KeystoreCipher::decrypt)?.let { decode(it) }.orEmpty()
+            val raw = prefs[SAVED]
+            val plain = raw?.let(KeystoreCipher::decrypt)
+            if (raw != null && plain == null) return@edit
+            val list = plain?.let { decode(it) }.orEmpty()
                 .map { if (it.id == id) it.copy(name = name) else it }
             prefs[SAVED] = KeystoreCipher.encrypt(encode(list))
             if (active?.id == id) { if (name != null) prefs[NAME] = name else prefs.remove(NAME) }

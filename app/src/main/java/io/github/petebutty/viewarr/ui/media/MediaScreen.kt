@@ -44,6 +44,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.DisposableEffect
@@ -81,6 +82,8 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import coil.imageLoader
+import kotlinx.coroutines.async
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontWeight
@@ -303,7 +306,9 @@ fun MediaScreen(
         // As the catalogues' pages: the top-left window (live TV, or the highlighted title's trailer) with its details
         // beside it, and the library's grid below.
         browse?.let { b -> Column(Modifier.fillMaxSize()) {
-            if (!io.github.petebutty.viewarr.ui.common.LiveBehind.on) Hero(
+            // (The header stays while scrolling: banner and trailer always there.)
+            val heroOn = !io.github.petebutty.viewarr.ui.common.LiveBehind.on
+            if (heroOn) Hero(
                 item = focused,
                 type = type,
                 trailerItem = focused,
@@ -312,6 +317,7 @@ fun MediaScreen(
                 librarySourcesOf = vm::librarySources,
                 logoOf = vm::logoFor,
                 ratingsOf = vm::ratingsFor,
+                height = 206.dp,
             )
             Box(Modifier.fillMaxWidth().weight(1f)) {
             LibraryGrid(
@@ -327,7 +333,7 @@ fun MediaScreen(
                 onOpen = { vm.open(it) },
                 onLong = { quick = it },
                 onLeftEdge = onOpenMenu,
-                withHero = !io.github.petebutty.viewarr.ui.common.LiveBehind.on,
+                withHero = heroOn,
             )
             }
         } }
@@ -456,19 +462,54 @@ private fun Hero(
     librarySourcesOf: (suspend (MediaItem) -> String?)? = null,
     logoOf: (suspend (MediaItem) -> String?)? = null,
     ratingsOf: (suspend (MediaItem) -> List<io.github.petebutty.viewarr.data.media.RatingBadge>)? = null,
+    /** How tall: 212 on the Movies / Shows / service pages (the rows come up a little, the second row's ratings no longer cut
+     *  off); library pages a little shorter still. The preview window (20 + 180) fits in either. */
+    height: androidx.compose.ui.unit.Dp = 212.dp,
 ) {
-    val inLibrary by produceState<String?>(null, item?.key) {
+    // The highlighted title's details (logo, ratings, where it's from) fetched together, the logo's picture loaded
+    // too, then shown at once with a fade (they used to pop in one by one as each arrived). A slow one doesn't hold
+    // the rest up: after a second they show without it, and it slips in when it comes.
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val extras by produceState<HeroExtras?>(null, item?.key) {
         value = null
         val i = item ?: return@produceState
-        if (librarySourcesOf != null && i.origin !in LIBRARY_ORIGINS && !i.origin.startsWith("Plex")) value = librarySourcesOf(i)
+        delay(120) // (moving along a row: only for the one you stop on)
+        val logosOn = AppColors.palette.shows(io.github.petebutty.viewarr.ui.theme.TitleParts.LOGO) && !AppColors.palette.lowMemory
+        val tp = io.github.petebutty.viewarr.ui.theme.TitleParts
+        val ratingsWanted = ratingsOf != null && !AppColors.palette.lowMemory && tp.ratings.any { (src, _) -> src != "TMDB" && AppColors.palette.shows(tp.rating(src)) }
+        val logoA = async {
+            val url = if (logoOf != null && logosOn) runCatching { logoOf(i) }.getOrNull() else null
+            // The picture itself, so it's ready when the details show.
+            if (url != null) runCatching { context.imageLoader.execute(coil.request.ImageRequest.Builder(context).data(url).size(coil.size.Size.ORIGINAL).build()) }
+            url
+        }
+        val ratingsA = async { if (ratingsWanted) runCatching { ratingsOf!!(i) }.getOrNull().orEmpty() else emptyList() }
+        val libA = async {
+            if (librarySourcesOf != null && i.origin !in LIBRARY_ORIGINS && !i.origin.startsWith("Plex")) runCatching { librarySourcesOf(i) }.getOrNull() else null
+        }
+        val until = System.currentTimeMillis() + 1_000
+        suspend fun <T> waitFor(d: kotlinx.coroutines.Deferred<T>): T? = kotlinx.coroutines.withTimeoutOrNull((until - System.currentTimeMillis()).coerceAtLeast(1)) { d.await() }
+        val logo = waitFor(logoA); val ratings = waitFor(ratingsA); val lib = waitFor(libA)
+        value = HeroExtras(i.key, logo, ratings.orEmpty(), lib)
+        // Late ones, when they come.
+        if (logo == null) logoA.await()?.let { l -> value = value?.copy(logo = l) }
+        if (ratings == null) value = value?.copy(ratings = ratingsA.await())
+        if (lib == null) libA.await()?.let { l -> value = value?.copy(inLibrary = l) }
     }
+    val ready = extras?.key == item?.key && item != null
+    // Gone the moment the title changes (a new one starts at 0 in that same frame: fading the old out let the new name
+    // flash up first), then one fade in once its logo, ratings and library check are in.
+    val detailsAnim = remember(item?.key) { androidx.compose.animation.core.Animatable(0f) }
+    LaunchedEffect(item?.key, ready) { if (ready) detailsAnim.animateTo(1f, androidx.compose.animation.core.tween(700)) }
+    val detailsAlpha = detailsAnim.value
+    val inLibrary = extras?.inLibrary
     // The Movies / Shows background: the highlighted title's backdrop.
     LaunchedEffect(item?.backdrop) { item?.backdrop?.let { io.github.petebutty.viewarr.ui.theme.Wallpaper.title = it } }
     // On the Movies and Shows pages the artwork fills the whole page (drawn by the page's background), so the
     // hero doesn't draw its own copy (it left a seam where it ended).
     val pageArt = io.github.petebutty.viewarr.ui.theme.Wallpaper.titlePages > 0 || io.github.petebutty.viewarr.ui.common.LiveBehind.on
     // (Clipped: a tall logo with a long description ran down over the library's heading and search box below.)
-    Box(Modifier.fillMaxWidth().height(232.dp).clipToBounds()) {
+    Box(Modifier.fillMaxWidth().height(height).clipToBounds()) {
         if (!pageArt) item?.backdrop?.let { url ->
             AsyncImage(
                 model = url,
@@ -495,23 +536,19 @@ private fun Hero(
         Column(Modifier.padding(start = if (besidePreview) 356.dp else 48.dp, top = 26.dp, end = 48.dp).fillMaxWidth(if (besidePreview) 0.75f else 0.5f)) {
             Text(if (type == MediaType.Movie) "Movies" else "Shows", fontSize = 14.sp, color = AppColors.Accent)
             Spacer(Modifier.height(8.dp))
-            if (item != null) {
-                TitleLogo(item, logoOf, height = 54.dp, maxWidth = 340.dp, fontSize = 26, waitMs = 300)
+            val ex = extras
+            if (item != null) Column(Modifier.graphicsLayer { alpha = detailsAlpha }) {
+                // (The logo already fetched and its picture loaded: shown straight from there.)
+                val exLogo = ex?.takeIf { it.key == item.key }?.logo
+                val logoFn: (suspend (MediaItem) -> String?)? = if (ex?.key == item.key) ({ _: MediaItem -> exLogo }) else null
+                TitleLogo(item, logoFn, height = 54.dp, maxWidth = 340.dp, fontSize = 26)
                 Spacer(Modifier.height(6.dp))
                 Text(
                     inLibrary?.let { where -> metaLine(item.copy(origin = "$where · via ${item.origin}")) } ?: metaLine(item),
                     fontSize = 14.sp, color = AppColors.TextSecondary, maxLines = 1,
                 )
-                // IMDb / Rotten Tomatoes / Trakt for the highlighted title (after a short rest on it).
-                val heroRatings by produceState<List<io.github.petebutty.viewarr.data.media.RatingBadge>>(emptyList(), item.key) {
-                    value = emptyList()
-                    if (ratingsOf == null) return@produceState
-                    // All but TMDB's switched off (Settings → Appearance → Ratings): nothing to fetch.
-                    val tp = io.github.petebutty.viewarr.ui.theme.TitleParts
-                    if (AppColors.palette.lowMemory || tp.ratings.none { (src, _) -> src != "TMDB" && AppColors.palette.shows(tp.rating(src)) }) return@produceState
-                    delay(600)
-                    value = ratingsOf(item)
-                }
+                // IMDb / Rotten Tomatoes / Trakt for the highlighted title (fetched with the rest, above).
+                val heroRatings = ex?.takeIf { it.key == item.key }?.ratings.orEmpty()
                 if (heroRatings.isNotEmpty()) {
                     Spacer(Modifier.height(6.dp))
                     RatingsLine(null, null, heroRatings)
@@ -529,6 +566,9 @@ private fun Hero(
     }
 }
 
+/** The header's details for one title, fetched together (see Hero). */
+private data class HeroExtras(val key: String, val logo: String?, val ratings: List<io.github.petebutty.viewarr.data.media.RatingBadge>, val inLibrary: String?)
+
 /** Settings → Appearance → Library posters: how wide each poster is (Small: the rows' own 100 dp, so they match). */
 private val GRID_POSTER_DP get() = io.github.petebutty.viewarr.ui.theme.AppColors.palette.libraryPosterDp
 
@@ -537,6 +577,7 @@ private val GRID_POSTER_DP get() = io.github.petebutty.viewarr.ui.theme.AppColor
  * choices along the top. The last card goes to the next page, the first (after page 1) to the previous one.
  */
 @Composable
+@OptIn(ExperimentalFoundationApi::class)
 private fun LibraryGrid(
     b: MediaViewModel.LibraryBrowse,
     vm: MediaViewModel,
@@ -545,6 +586,8 @@ private fun LibraryGrid(
     focused: MediaItem?,
     onFocus: (MediaItem) -> Unit,
     onHasFocus: (Boolean) -> Unit,
+    /** The row of the highlighted poster (0: the first), for folding the header away below the first row. */
+    onFocusRow: (Int) -> Unit = {},
     searching: Boolean,
     onSearchFocus: (Boolean) -> Unit,
     onOpen: (MediaItem) -> Unit,
@@ -604,8 +647,10 @@ private fun LibraryGrid(
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().padding(top = if (withHero) 0.dp else 24.dp)) {
             Row(Modifier.padding(horizontal = 48.dp), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(b.library.title, fontSize = 24.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                // The library's name and what it is on one line (two lines took room from the posters).
+                Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                    Text(b.library.title, fontSize = 22.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(end = 12.dp))
                     val sortLabel = b.options?.sorts?.firstOrNull { it.id == b.query.sort }?.label
                     Text(
                         when {
@@ -617,7 +662,8 @@ private fun LibraryGrid(
                                 sortLabel?.let { "$it ${if (b.query.desc) "↓" else "↑"}" },
                             ).joinToString("  ·  ")
                         },
-                        fontSize = 13.sp, color = AppColors.TextSecondary, maxLines = 1,
+                        fontSize = 13.sp, color = AppColors.TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
                     )
                 }
                 // Keyed by library: another library starts with an empty box.
@@ -647,7 +693,7 @@ private fun LibraryGrid(
                 }
                 item(key = "clear") { FilterChip("Clear all", clear = true) { vm.clearFilters() } }
             }
-            if (withHero) Spacer(Modifier.height(8.dp)) else Text(
+            if (withHero) Spacer(Modifier.height(4.dp)) else Text(
                 focused?.takeIf { f -> b.items.any { it.key == f.key } }?.let { "${it.title}   ${metaLine(it)}" } ?: " ",
                 fontSize = 15.sp, color = AppColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(start = 48.dp, end = 48.dp, top = 10.dp, bottom = 6.dp),
@@ -663,19 +709,32 @@ private fun LibraryGrid(
                 val usable = wDp - 48f - (if (b.canLetters) 12f + 40f else 48f) + 12f
                 gridColumns = (usable / (GRID_POSTER_DP + 12f)).toInt().coerceIn(4, 12)
             }) {
+                // The highlighted row snaps to the top of the grid: each Down / Up moves exactly one whole row, and
+                // the row you're on is never cut off (the app's usual resting place, a third of the way down, left
+                // too little room under the header: half a poster per press, the row half hidden).
+                val rowTop = with(density) { 4.dp.toPx() }
+                val gridSpec = remember(rowTop) {
+                    object : BringIntoViewSpec {
+                        override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float {
+                            val d = offset - rowTop
+                            return if (kotlin.math.abs(d) < 1f) 0f else d
+                        }
+                    }.followingSetting()
+                }
+                CompositionLocalProvider(LocalBringIntoViewSpec provides gridSpec) {
                 androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
                     columns = androidx.compose.foundation.lazy.grid.GridCells.Fixed(gridColumns),
                     state = gridState,
                     modifier = Modifier.weight(1f).fillMaxHeight().onFocusChanged { onHasFocus(it.hasFocus) },
                     contentPadding = PaddingValues(start = 48.dp, end = if (b.canLetters) 12.dp else 48.dp, top = 4.dp, bottom = 60.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     items(count, key = { it }) { i ->
                         val item = b.item(i)
                         val col = i % gridColumns
                         val m = Modifier.focusRequester(cell(i))
-                            .onFocusChanged { if (it.isFocused) { vm.setLastIndex(b.version, i); item?.let(onFocus) } }
+                            .onFocusChanged { if (it.isFocused) { vm.setLastIndex(b.version, i); onFocusRow(i / gridColumns); item?.let(onFocus) } }
                             .onPreviewKeyEvent { e ->
                                 // Back in the grid: up to the toolbar (sort, filter, search), keeping your place; Back
                                 // again from there leaves the library.
@@ -695,6 +754,7 @@ private fun LibraryGrid(
                         if (item != null) PosterCard(item = item, modifier = m, onClick = { onOpen(item) }, onLongClick = { onLong(item) }, fill = true)
                         else PlaceholderPoster(m)
                     }
+                }
                 }
                 if (b.canLetters) AlphabetRail(
                     // Which letters have titles is only known sorted by title (else every letter is offered).
@@ -1148,7 +1208,25 @@ private fun DetailScreen(
                         // else S1 E1; from the best source (as a film's Play). Episodes for picking one.
                         val canPlay = onPlex || onServer || onProvider || ui.hasAddons
                         val next = item.nextSeason?.let { sn -> item.nextEpisode?.let { en -> Triple(sn, en, item.progress != null) } } ?: ui.nextUp
-                        if (canPlay) {
+                        // The episode you're up to not out yet (a new season part-way through): the button says when it
+                        // is, rather than trying to play it and failing. Its air date is in the season's episodes,
+                        // which the page loads for that season.
+                        val upDate = next?.let { n -> ui.episodes?.takeIf { ui.season == n.first }?.firstOrNull { it.number == n.second }?.airDate }
+                            ?.let { runCatching { java.time.LocalDate.parse(it.take(10)) }.getOrNull() }
+                            ?.takeIf { it.isAfter(java.time.LocalDate.now()) }
+                        if (canPlay && next != null && upDate != null) {
+                            val today = java.time.LocalDate.now()
+                            val whenOut = when {
+                                upDate == today.plusDays(1) -> "tomorrow"
+                                upDate.isBefore(today.plusDays(7)) -> upDate.format(java.time.format.DateTimeFormatter.ofPattern("EEEE", java.util.Locale.UK))
+                                else -> upDate.format(io.github.petebutty.viewarr.ui.theme.Dates.day)
+                            }
+                            // OK: the episodes (that one shows "Not out yet"), not a play that can only fail.
+                            Button(onClick = vm::openEpisodes, modifier = (Modifier.focusRequester(playFocus)).free()) {
+                                androidx.compose.material3.Icon(io.github.petebutty.viewarr.ui.common.AppIcons.Clock, null, modifier = Modifier.padding(end = 6.dp).size(20.dp), tint = androidx.tv.material3.LocalContentColor.current)
+                                Text("S${next.first} · E${next.second} out $whenOut")
+                            }
+                        } else if (canPlay) {
                             val label = when {
                                 next == null -> "Play S1 · E1"
                                 next.third -> "Resume S${next.first} · E${next.second}"
@@ -1244,7 +1322,11 @@ private fun DetailScreen(
 private fun EpisodesPanel(ui: DetailUi, vm: MediaViewModel, onPlex: Boolean) {
     val item = ui.detail.item
     // Watched on Plex, Jellyfin / Emby, or anywhere Trakt knows about.
-    fun watched(s: Int, e: Int) = ui.plexEpisodes[s to e]?.watched == true || ui.serverEpisodes[s to e]?.watched == true || (s to e) in ui.traktEpisodes
+    // Watched here from IPTV too (kept on the box).
+    val localEntries by vm.localWatch.entries.collectAsState()
+    val localEps = remember(localEntries, item.key) { vm.localWatch.episodesOf(item) }
+    fun watched(s: Int, e: Int) = ui.plexEpisodes[s to e]?.watched == true || ui.serverEpisodes[s to e]?.watched == true || (s to e) in ui.traktEpisodes ||
+        localEps[s to e]?.watched == true
     val episodeFocus = remember { FocusRequester() }
     val target = ui.episodes?.let { eps ->
         val next = if (item.nextSeason == ui.season) eps.indexOfFirst { it.number == item.nextEpisode } else -1
@@ -1446,7 +1528,14 @@ private fun TracksDialog(
 private fun EpisodeActionsFor(ui: DetailUi, vm: MediaViewModel) {
     val ep = ui.episode ?: return
     val plex = ui.plexEpisodes[ep.season to ep.number]
+    // IPTV: watched / not watched kept on the box (resume too: "Resume from IPTV").
+    val onIptv = (ep.season to ep.number) in ui.providerEpisodes
+    val localEntries by vm.localWatch.entries.collectAsState()
+    val local = remember(localEntries, ui.detail.item.key) { vm.localWatch.episodesOf(ui.detail.item) }[ep.season to ep.number]
     EpisodeActions(
+        providerLabel = if (local != null && local.viewOffsetMs > 0 && !local.watched) "Resume from IPTV" else "Play from IPTV",
+        markLabel = if (!onIptv) null else if (local?.watched == true) "Mark as not watched" else "Mark as watched",
+        onMark = { vm.markIptvEpisode(ui.detail.item, ep.season, ep.number, local?.watched != true); vm.pickEpisode(null) },
         title = "S${ep.season} · E${ep.number}  ${ep.name}",
         plexLabel = plex?.let { if (it.viewOffsetMs > 0 && !it.watched) "Resume on Plex" else "Play on Plex" },
         onProvider = if ((ep.season to ep.number) in ui.providerEpisodes) ({ vm.playProviderEpisode(ep.season, ep.number) }) else null,
@@ -1471,7 +1560,11 @@ private fun EpisodeActionsFor(ui: DetailUi, vm: MediaViewModel) {
 @Composable
 private fun InlineEpisodes(ui: DetailUi, vm: MediaViewModel, free: Boolean, entry: FocusRequester, up: FocusRequester, down: FocusRequester, onHover: (io.github.petebutty.viewarr.data.media.EpisodeInfo) -> Unit = {}) {
     val item = ui.detail.item
-    fun watched(s: Int, e: Int) = ui.plexEpisodes[s to e]?.watched == true || ui.serverEpisodes[s to e]?.watched == true || (s to e) in ui.traktEpisodes
+    // Watched here from IPTV too (kept on the box).
+    val localEntries by vm.localWatch.entries.collectAsState()
+    val localEps = remember(localEntries, item.key) { vm.localWatch.episodesOf(item) }
+    fun watched(s: Int, e: Int) = ui.plexEpisodes[s to e]?.watched == true || ui.serverEpisodes[s to e]?.watched == true || (s to e) in ui.traktEpisodes ||
+        localEps[s to e]?.watched == true
     // Opens on the season you're up to (once that's known; a few seconds at most), else the first.
     val latest by androidx.compose.runtime.rememberUpdatedState(ui)
     LaunchedEffect(ui.seasons.size, ui.nextUpChecked) {
@@ -1595,6 +1688,9 @@ private fun EpisodeActions(
     title: String,
     plexLabel: String?,
     onProvider: (() -> Unit)? = null,
+    providerLabel: String = "Play from IPTV",
+    markLabel: String? = null,
+    onMark: () -> Unit = {},
     serverLabel: String? = null,
     onServer: () -> Unit = {},
     hasAddons: Boolean,
@@ -1614,9 +1710,10 @@ private fun EpisodeActions(
             fun m(): Modifier = if (!firstUsed) { firstUsed = true; Modifier.focusRequester(first) } else Modifier
             plexLabel?.let { io.github.petebutty.viewarr.ui.common.MenuItem(text = it, selected = false, onClick = onPlex, modifier = m()) }
             serverLabel?.let { io.github.petebutty.viewarr.ui.common.MenuItem(text = it, selected = false, onClick = onServer, modifier = m()) }
-            onProvider?.let { io.github.petebutty.viewarr.ui.common.MenuItem(text = "Play from IPTV", selected = false, onClick = it, modifier = m()) }
+            onProvider?.let { io.github.petebutty.viewarr.ui.common.MenuItem(text = providerLabel, selected = false, onClick = it, modifier = m()) }
             if (hasAddons) io.github.petebutty.viewarr.ui.common.MenuItem(text = if (searching) "Searching…" else "Search addons", selected = false, onClick = onSearch, modifier = m())
             if (plexLabel == null && serverLabel == null && onProvider == null && !hasAddons) Text("This episode isn't in Plex or on IPTV, and no addon is connected.", fontSize = 13.sp, color = AppColors.TextSecondary)
+            markLabel?.let { io.github.petebutty.viewarr.ui.common.MenuItem(text = it, selected = false, onClick = onMark, modifier = m()) }
             io.github.petebutty.viewarr.ui.common.MenuItem(text = "Close", selected = false, onClick = onClose, modifier = m())
             message?.let { Text(it, fontSize = 13.sp, color = AppColors.Accent, modifier = Modifier.padding(top = 8.dp)) }
         }
@@ -1743,6 +1840,20 @@ private fun QuickOptions(item: MediaItem, vm: MediaViewModel, onTrailer: () -> U
                     selected = false,
                     dim = !canAsk,
                     onClick = { if (canAsk) { onClose(); vm.requestOnSeerr(item) } },
+                )
+            }
+            // IPTV keeps no history: watched / not watched kept on the box (films; episodes on the title page).
+            val iptv by produceState(false, item.key) { value = !show && vm.hasIptv(item) }
+            val localEntries by vm.localWatch.entries.collectAsState()
+            if (iptv) {
+                val done = remember(localEntries, item.key) { vm.localWatch.isWatched(item) }
+                io.github.petebutty.viewarr.ui.common.MenuItem(
+                    text = if (done) "Mark as not watched" else "Mark as watched", selected = false,
+                    onClick = { onClose(); vm.markIptvWatched(item, !done) },
+                )
+                if (item.origin == "IPTV" && item.progress != null) io.github.petebutty.viewarr.ui.common.MenuItem(
+                    text = "Remove from Continue watching", selected = false,
+                    onClick = { onClose(); vm.hideIptv(item) },
                 )
             }
             // A show you're done with: out of Continue watching (and Upcoming episodes) for good, and dropped on Trakt.

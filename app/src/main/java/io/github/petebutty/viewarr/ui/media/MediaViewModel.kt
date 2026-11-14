@@ -89,6 +89,8 @@ class MediaViewModel @Inject constructor(
     private val themeStore: io.github.petebutty.viewarr.data.settings.ThemeStore,
     /** Each library's sort and filters (per profile). */
     private val libraryViews: io.github.petebutty.viewarr.data.media.LibraryViews,
+    /** IPTV watch progress kept on the box (the provider keeps none). */
+    val localWatch: io.github.petebutty.viewarr.data.local.LocalWatchStore,
 ) : ViewModel() {
     /** Seerr: where this title stands (null = Seerr not set up, or the title has no TMDB id). */
     suspend fun seerrStatus(item: MediaItem): io.github.petebutty.viewarr.data.remote.services.SeerrService.Status? {
@@ -176,7 +178,13 @@ class MediaViewModel @Inject constructor(
     /** The rows a dropped show leaves: Continue watching (any server) and Upcoming episodes. */
     private fun dropsFrom(row: io.github.petebutty.viewarr.data.media.MediaRow) =
         row.group == "deck" || row.title.startsWith("Continue watching") || row.id.contains("-resume-") || row.id.startsWith("upcoming-")
-    private val shownRows = kotlinx.coroutines.flow.combine(_rows, mergeRows, droppedShows) { r0, merge, dropped ->
+    /** Films / Shows: Settings → Home rows decides order and which are shown. Search results are left alone. */
+    private val layoutType = MutableStateFlow<MediaType?>(null)
+    private val shownRows = kotlinx.coroutines.flow.combine(_rows, mergeRows, droppedShows, localWatch.rowEntries, layoutType) { r00, merge, dropped, local, type ->
+        // Continue watching (IPTV): kept on the box, so it joins the page's rows here (Movies / Shows, not search).
+        val iptv = type?.let { t -> localWatch.continueItems(t, local) }.orEmpty()
+        val r0 = if (iptv.isEmpty() || type == null || r00.rows.isEmpty()) r00
+            else r00.copy(rows = listOf(io.github.petebutty.viewarr.data.media.MediaRow("iptv-resume-${type.name}", "Continue watching on IPTV", iptv, group = "deck")) + r00.rows)
         val r = if (dropped.isEmpty()) r0 else r0.copy(rows = r0.rows.map { row ->
             if (dropsFrom(row)) row.copy(items = row.items.filterNot { isDropped(it, dropped) }) else row
         }.filter { it.items.isNotEmpty() || !dropsFrom(it) })
@@ -210,8 +218,6 @@ class MediaViewModel @Inject constructor(
     }
     /** A row opened from the menu that's switched off on the page: shown on the page anyway until Home is picked. */
     private val openedFromMenu = MutableStateFlow<String?>(null)
-    /** Films / Shows: Settings → Home rows decides order and which are shown. Search results are left alone. */
-    private val layoutType = MutableStateFlow<MediaType?>(null)
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     private val layout = layoutType.flatMapLatest { t -> if (t == null) kotlinx.coroutines.flow.flowOf(null) else rowLayouts.layout(t) }
     /** Search: the filter buttons under the box. */
@@ -313,13 +319,18 @@ class MediaViewModel @Inject constructor(
 
     /** Moves a row one place up (-1) or down (1) among the rows matching [among] (a service's), keeping the rest. */
     fun moveRowAmong(id: String, dir: Int, among: (io.github.petebutty.viewarr.data.media.MediaRow) -> Boolean) {
-        val full = orderedRows.value.first.map { it.id }.toMutableList()
-        val members = orderedRows.value.first.filter(among).map { it.id }
+        // From the order as just changed (the shown one is a moment behind: a quick second press moved it back).
+        val byId = orderedRows.value.first.associateBy { it.id }
+        val saved = byId.keys.toList()
+        val key = "rows:" + layoutType.value
+        val full = io.github.petebutty.viewarr.ui.common.PendingOrder.get(key, saved).takeIf { it.toSet() == saved.toSet() }.orEmpty().ifEmpty { saved }.toMutableList()
+        val members = full.filter { r -> byId[r]?.let(among) == true }
         val at = members.indexOf(id)
         val other = members.getOrNull(at + dir) ?: return
         val i = full.indexOf(id); val j = full.indexOf(other)
         if (i < 0 || j < 0) return
         full[i] = other; full[j] = id
+        io.github.petebutty.viewarr.ui.common.PendingOrder.set(key, full)
         setRowOrder(full)
     }
 
@@ -357,6 +368,23 @@ class MediaViewModel @Inject constructor(
     }
     private val _playing = Playing()
     val playing = _playing.flow.asStateFlow()
+    /**
+     * The episode before S[s] E[e]: the one before in the season, else the previous season's last (from the episode
+     * lists your servers / IPTV have, else TMDB's season sizes). Null for the very first.
+     */
+    private fun previousEpisode(s: Int, e: Int): io.github.petebutty.viewarr.data.media.EpisodeInfo? {
+        val d = _detail.value
+        fun named(season: Int, number: Int) = d?.episodes?.firstOrNull { it.season == season && it.number == number }
+            ?: io.github.petebutty.viewarr.data.media.EpisodeInfo(season, number, "Episode $number", null, null, null, null)
+        if (e > 1) return named(s, e - 1)
+        if (s <= 1 || d == null) return null
+        val known = (d.plexEpisodes.keys + d.serverEpisodes.keys + d.providerEpisodes.keys).filter { it.first == s - 1 }.maxOfOrNull { it.second }
+        val last = known ?: d.seasons.firstOrNull { it.number == s - 1 }?.episodes
+        return last?.takeIf { it > 0 }?.let { named(s - 1, it) }
+    }
+
+    /** This one set NextUp (the next episode and the row of what's next) for what it's playing. */
+    private var ownsNextUp = false
     // An episode starts: find the one after it now, so the player can offer it over the credits (Skip credits plays
     // it; the countdown starts before the end) rather than only after the episode has closed.
     init {
@@ -365,10 +393,18 @@ class MediaViewModel @Inject constructor(
                 val w = stream?.watch
                 val s = w?.season; val e = w?.episode
                 if (stream == null || w?.type != MediaType.Show || s == null || e == null) {
-                    if (stream == null || io.github.petebutty.viewarr.ui.media.NextUp.forUrl != stream.url) { io.github.petebutty.viewarr.ui.media.NextUp.episode = null; io.github.petebutty.viewarr.ui.media.NextUp.upcoming = emptyList(); io.github.petebutty.viewarr.ui.media.NextUp.forUrl = stream?.url }
+                    // Something else playing (a film) clears it; nothing playing clears it only in the one that filled it:
+                // Movies, Shows, Search… each watch their own playing, and one starting up (playing nothing) cleared a
+                // show's next episodes just after they'd been found on its first play.
+                if ((stream != null && io.github.petebutty.viewarr.ui.media.NextUp.forUrl != stream.url) || (stream == null && ownsNextUp)) { ownsNextUp = false; io.github.petebutty.viewarr.ui.media.NextUp.previous = null; io.github.petebutty.viewarr.ui.media.NextUp.episode = null; io.github.petebutty.viewarr.ui.media.NextUp.upcoming = emptyList(); io.github.petebutty.viewarr.ui.media.NextUp.forUrl = stream?.url }
                     return@collect
                 }
                 io.github.petebutty.viewarr.ui.media.NextUp.forUrl = stream.url
+                ownsNextUp = true
+                // The episode before (the Previous episode button).
+                val prev = previousEpisode(s, e)
+                io.github.petebutty.viewarr.ui.media.NextUp.previous = prev
+                io.github.petebutty.viewarr.ui.media.NextUp.playPrevious = { prev?.let { playNextOf(it) } }
                 io.github.petebutty.viewarr.ui.media.NextUp.episode = null
                 io.github.petebutty.viewarr.ui.media.NextUp.upcoming = emptyList()
                 // The row of what's next (Down in the player): found alongside the next episode.
@@ -647,6 +683,20 @@ class MediaViewModel @Inject constructor(
         viewModelScope.launch { _continueItems.value = runCatching { repo.continueWatching(type) }.getOrDefault(emptyList()) }
     }
 
+    /** Continue watching from Trakt (shows you've watched lately, at their next episode), for the rows under the info bars; refreshed after 5 min. */
+    private val _traktContinue = MutableStateFlow<List<MediaItem>?>(null)
+    val traktContinue = kotlinx.coroutines.flow.combine(_traktContinue, droppedShows) { items, dropped -> items?.filterNot { isDropped(it, dropped) } }
+        .stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, null)
+    private var traktContinueAt = 0L
+    fun loadTraktContinue(type: MediaType) {
+        if (_traktContinue.value != null && System.currentTimeMillis() - traktContinueAt < 5 * 60_000L) return
+        traktContinueAt = System.currentTimeMillis()
+        viewModelScope.launch { _traktContinue.value = runCatching { repo.traktContinue(type) }.getOrDefault(emptyList()) }
+    }
+
+    /** The title playing's "More like this" (its page's recommendations), for the film player's rows. */
+    fun similarToPlaying(): List<MediaItem> = _detail.value?.detail?.similar.orEmpty()
+
     /** The menu's Movies / Shows panel: newest titles in your libraries (loaded once, refreshed every 10 min). */
     private val _recent = MutableStateFlow<List<MediaItem>?>(null)
     val recent = _recent.asStateFlow()
@@ -728,24 +778,6 @@ class MediaViewModel @Inject constructor(
     fun setLastIndex(version: Int, i: Int) { lastIndex = i; lastIndexVersion = version }
     fun lastIndexFor(version: Int) = if (lastIndexVersion == version) lastIndex else null
 
-    /** Opens a library as you last left it (its sort and filters), or (null) goes back to the page's rows. */
-    /**
-     * The menu's third column (Settings → Remote & navigation → Menu → Right on a library): [lib]'s categories (IPTV),
-     * genres or collections, as the filter group they belong to and its values. Null while loading or when it has none.
-     */
-    private val menuCatCache = HashMap<String, Pair<String, List<io.github.petebutty.viewarr.data.media.FilterValue>>>()
-    suspend fun menuCategories(lib: io.github.petebutty.viewarr.data.media.MediaLibrary, type: MediaType, groups: List<String>): Pair<String, List<io.github.petebutty.viewarr.data.media.FilterValue>>? {
-        val cacheKey = lib.key + "|" + type.name + "|" + groups.joinToString(",")
-        menuCatCache[cacheKey]?.let { return it }
-        val options = runCatching { repo.libraryOptions(lib, type) }.getOrNull() ?: return null
-        val ids = options.filters.filter { !it.toggle }.map { it.id }
-        // The library hasn't that one (IPTV has only categories; Jellyfin no decades): its categories / genres instead.
-        val want = groups + listOf("category", "genre", "Genres")
-        val group = want.firstOrNull { it in ids } ?: return null
-        val values = runCatching { repo.filterValues(lib, type, group) }.getOrNull().orEmpty()
-        if (values.isEmpty()) return null
-        return (group to values).also { menuCatCache[cacheKey] = it }
-    }
 
     /**
      * Opens [library] with just [value] of filter [group] (null: all of it), keeping the library's other filters and
@@ -1020,7 +1052,9 @@ class MediaViewModel @Inject constructor(
                 // episode watched yet name nothing "on deck", and Trakt may not know: the next was S1 E1 after E1).
                 launch {
                     val said = runCatching { repo.nextEpisodeFor(full.item, copies) }.getOrNull()
-                    val next = said ?: run {
+                    // Watched from IPTV on this box: carry on from the last episode played here.
+                    val local = localWatch.nextUp(full.item)
+                    val next = said ?: local ?: run {
                         val plex = plexEps.await(); val server = serverEps.await()
                         val trakt = runCatching { repo.traktWatched(); repo.traktEpisodesOf(full.item) }.getOrDefault(emptySet())
                         val all = (plex.keys + server.keys).filter { it.first > 0 }.sortedWith(compareBy({ it.first }, { it.second }))
@@ -1175,7 +1209,7 @@ class MediaViewModel @Inject constructor(
         if (d.detail.item.type == MediaType.Show) return openEpisodes()
         val ref = d.copies?.firstOrNull { it.source == io.github.petebutty.viewarr.data.media.PROVIDER }?.ref ?: return
         viewModelScope.launch {
-            val stream = repo.providerMovie(ref, d.detail.item.title, watchTarget(d.detail.item, null, null))
+            val stream = repo.providerMovie(ref, d.detail.item.title, iptvTarget(d.detail.item, null, null))?.withLocalResume(d.detail.item, null, null)
             if (stream == null) _detail.update { it?.copy(message = "Couldn't open this from IPTV.") }
             else { _detail.update { it?.copy(message = null) }; _playing.value = stream }
         }
@@ -1191,8 +1225,8 @@ class MediaViewModel @Inject constructor(
         }
         _detail.update { it?.copy(message = null, episode = null) }
         _playing.value = io.github.petebutty.viewarr.data.media.VodStream(
-            url = url, title = "${d.detail.item.title} · S$season · E$episode", watch = watchTarget(d.detail.item, season, episode),
-            boxPreviews = false, from = "IPTV",
+            url = url, title = "${d.detail.item.title} · S$season · E$episode", watch = iptvTarget(d.detail.item, season, episode),
+            boxPreviews = false, from = "IPTV", resumeMs = localWatch.resumeMs(d.detail.item, season, episode),
         )
     }
 
@@ -1344,7 +1378,7 @@ class MediaViewModel @Inject constructor(
             }
             copies.firstOrNull { it.source == io.github.petebutty.viewarr.data.media.PROVIDER }?.ref?.let { ref ->
                 _detail.update { it?.copy(message = "Opening from IPTV…") }
-                val stream = runCatching { repo.providerMovie(ref, item.title, watchTarget(item, null, null)) }.getOrNull()
+                val stream = runCatching { repo.providerMovie(ref, item.title, iptvTarget(item, null, null))?.withLocalResume(item, null, null) }.getOrNull()
                 if (stream != null) { _detail.update { it?.copy(message = null) }; _playing.value = stream; return@launch }
             }
             _detail.update {
@@ -1454,10 +1488,29 @@ class MediaViewModel @Inject constructor(
         _upNext.value = null
         endedNearEnd = null
         nextStartedAt = System.currentTimeMillis()
-        val d = _detail.value ?: return
+        playNextOf(next)
+    }
+
+    /**
+     * The next episode, from wherever it is: Plex, Jellyfin / Emby, the addons (best stream), else IPTV. Only for the
+     * show that was playing (with the film in the corner, the page may be another show's by now); nothing to play it
+     * from: the player closes rather than waiting on a black screen.
+     */
+    private fun playNextOf(next: io.github.petebutty.viewarr.data.media.EpisodeInfo) {
+        val d = _detail.value
+        val was = _playing.value?.watch
+        val sameShow = d != null && (was == null || (was.tmdbId != null && was.tmdbId == d.detail.item.tmdbId) ||
+            (was.imdbId != null && was.imdbId == d.detail.item.imdbId) || (was.tmdbId == null && was.imdbId == null))
+        if (d == null || !sameShow) { stopPlaying(); return }
         _detail.update { it?.copy(episode = next) }
-        if (d.plexEpisodes.containsKey(next.season to next.number)) playPlexEpisode(next.season, next.number)
-        else if (d.hasAddons) searchEpisode(next, forceAuto = true)
+        val key = next.season to next.number
+        when {
+            d.plexEpisodes.containsKey(key) -> playPlexEpisode(next.season, next.number)
+            d.serverEpisodes.containsKey(key) -> playServerEpisode(next.season, next.number)
+            d.hasAddons -> searchEpisode(next, forceAuto = true)
+            d.providerEpisodes.containsKey(key) -> playProviderEpisode(next.season, next.number)
+            else -> stopPlaying()
+        }
     }
 
     fun cancelUpNext() { _upNext.value = null }
@@ -1468,21 +1521,49 @@ class MediaViewModel @Inject constructor(
         _upNext.value = null
         val d = _detail.value ?: return
         _detail.update { it?.copy(episode = next) }
-        if (d.plexEpisodes.containsKey(next.season to next.number)) playPlexEpisode(next.season, next.number)
-        else if (d.hasAddons) searchEpisode(next, forceAuto = true)
+        val key = next.season to next.number
+        when {
+            d.plexEpisodes.containsKey(key) -> playPlexEpisode(next.season, next.number)
+            d.serverEpisodes.containsKey(key) -> playServerEpisode(next.season, next.number)
+            d.hasAddons -> searchEpisode(next, forceAuto = true)
+            d.providerEpisodes.containsKey(key) -> playProviderEpisode(next.season, next.number)
+        }
     }
 
     private fun watchTarget(item: MediaItem, season: Int?, episode: Int?) =
         io.github.petebutty.viewarr.data.media.WatchTarget(item.type, tmdbId = item.tmdbId, imdbId = item.imdbId, season = season, episode = episode)
 
+    /** IPTV: as [watchTarget], plus the title so where you stop is kept on the box. */
+    private fun iptvTarget(item: MediaItem, season: Int?, episode: Int?) = watchTarget(item, season, episode).copy(iptv = item)
+
+    /** IPTV films / episodes carry on from where you stopped on this box (the provider doesn't remember). */
+    private fun io.github.petebutty.viewarr.data.media.VodStream.withLocalResume(item: MediaItem, season: Int?, episode: Int?) =
+        if (resumeMs > 0) this else copy(resumeMs = localWatch.resumeMs(item, season, episode))
+
     /** Player progress → Plex timeline and Trakt scrobble. Trakt only hears about changes (start/pause/stop). */
     private var lastState = ""
-    fun reportProgress(state: String, positionMs: Long, durationMs: Long) {
-        val target = _playing.value?.watch ?: return
+    private var localSavedAt = 0L
+    /** A show's episodes by TMDB's season counts (when the provider's own list isn't known). */
+    private fun DetailUi.seasonEpisodeKeys(): Set<Pair<Int, Int>> =
+        seasons.filter { it.number > 0 && it.episodes > 0 }.flatMap { s -> (1..s.episodes).map { s.number to it } }.toSet()
+    fun reportProgress(stream: io.github.petebutty.viewarr.data.media.VodStream, state: String, positionMs: Long, durationMs: Long) {
+        val target = stream.watch ?: return
         // Set straight away (not in the coroutine): the player closes right after reporting the end.
         if (state == "stopped" && durationMs > 0 && positionMs >= durationMs * 0.95 && System.currentTimeMillis() - nextStartedAt > 5_000) endedNearEnd = target
         // The TV home screen's Watch Next row follows: once the servers have the new position, refresh it.
         if (state == "stopped") viewModelScope.launch { kotlinx.coroutines.delay(5_000); watchNext.refresh() }
+        // IPTV: kept on the box when paused or stopped, and every 10 s while playing (in case the box is switched off).
+        target.iptv?.let { item ->
+            val now = System.currentTimeMillis()
+            if (state != "playing" || now - localSavedAt > 9_000) {
+                localSavedAt = now
+                // The credits (the end, when known) and the show's real episodes (to find the next one).
+                val credits = (stream.markers + io.github.petebutty.viewarr.data.media.FoundMarkers.byUrl[stream.url].orEmpty())
+                    .firstOrNull { it.kind == io.github.petebutty.viewarr.data.media.SkipMarker.Kind.Credits }?.startMs
+                val eps = _detail.value?.takeIf { it.detail.item.key == item.key }?.let { d -> d.providerEpisodes.keys.ifEmpty { d.seasonEpisodeKeys() } }.orEmpty()
+                viewModelScope.launch { runCatching { localWatch.record(item, target.season, target.episode, positionMs, durationMs, credits, eps) } }
+            }
+        }
         viewModelScope.launch {
             target.plexRatingKey?.let { repo.reportPlex(it, state, positionMs, durationMs) }
             if (target.serverSource != null && target.serverItemId != null) repo.reportServer(target.serverSource, target.serverItemId, state, positionMs)
@@ -1497,6 +1578,29 @@ class MediaViewModel @Inject constructor(
     }
 
     // ---- Quick options (hold OK on a poster)
+
+    /** Whether [item] can be played from IPTV (offers Mark as watched / unwatched, kept on the box). */
+    suspend fun hasIptv(item: MediaItem): Boolean = item.origin == "IPTV" ||
+        runCatching { repo.copiesOf(item) }.getOrDefault(emptyList()).any { it.source == io.github.petebutty.viewarr.data.media.PROVIDER }
+
+    /** Mark a film watched / not watched on this box (IPTV keeps nothing itself). */
+    fun markIptvWatched(item: MediaItem, watched: Boolean) {
+        viewModelScope.launch {
+            localWatch.setWatched(item, watched)
+            _notice.value = if (watched) "Marked ${item.title} as watched." else "Marked ${item.title} as not watched."
+        }
+    }
+
+    /** One episode watched / not watched on this box (the title page's episode options). */
+    fun markIptvEpisode(item: MediaItem, season: Int, episode: Int, watched: Boolean) {
+        viewModelScope.launch { localWatch.setWatched(item, watched, season, episode) }
+    }
+
+    /** Out of Continue watching on IPTV (played again, it comes back). */
+    fun hideIptv(item: MediaItem) {
+        viewModelScope.launch { localWatch.hide(item); _notice.value = "Removed ${item.title} from Continue watching." }
+    }
+
 
     /** A short note shown at the bottom of Movies / Shows (e.g. "Added to your watchlist"). */
     private val _notice = MutableStateFlow<String?>(null)

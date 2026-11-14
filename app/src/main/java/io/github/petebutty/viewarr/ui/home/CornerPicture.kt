@@ -68,7 +68,6 @@ internal fun BoxScope.CornerHighlight(
     /** Leaving it with nothing on the page above it to land on: the page's own starting point. */
     onLeave: () -> Unit = {},
 ) {
-    val focusManager = LocalFocusManager.current
     val (cw, ch) = CornerPicture.size()
     val at = CornerPicture.corner()
     val left = at == 1 || at == 3
@@ -78,9 +77,10 @@ internal fun BoxScope.CornerHighlight(
     val edge = CornerPicture.inset.second
     var button by remember { mutableIntStateOf(0) }
     var okDown by remember { mutableStateOf(false) }
-    // Off the picture, onto the page just above it (below it, in a top corner): on screen, so the highlight can be seen.
-    // (Sideways found whatever was nearest, on a title page often something out of view.) Nothing there: the page's own.
-    fun back() { if (!focusManager.moveFocus(if (top) FocusDirection.Down else FocusDirection.Up)) onLeave() }
+    // Off the picture: back to the page's own place (the guide, or the page's last highlighted item). Asking Compose to
+    // find "whatever is above" searched by laying out a long list or library grid beyond the screen, which on a Shield
+    // took over 5 s: Android closed Viewarr as not responding (2026-11-14). Sideways found far-off items too.
+    fun back() { onLeave() }
     fun act(full: Boolean) { back(); if (full) onFullScreen() else onClose() }
     // A film's player is drawn over everything (this included), and its video clears what's under it: its highlight
     // goes just outside the picture (border around it, buttons above / below), or it couldn't be seen.

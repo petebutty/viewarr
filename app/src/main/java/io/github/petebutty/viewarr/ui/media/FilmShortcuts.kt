@@ -14,7 +14,6 @@ import io.github.petebutty.viewarr.ui.player.ShortcutOptions
  * both players (the built-in one and mpv), so they always behave alike.
  */
 internal object FilmShortcuts {
-    fun count(hubOn: Boolean) = if (hubOn) LiveShortcutsBridge.items.size else 0
 
     /** OK on a shortcut: Refresh (and Sports) work where you are; the rest stop the film (its place kept) and open. */
     fun pick(menu: PlayerMenu, i: Int) {
@@ -46,8 +45,44 @@ internal object FilmShortcuts {
         card(menu, r, c)?.let { if (it.options.isNotEmpty()) CardMenu.open = it else open(menu, it) }
     }
 
+    private const val NEXT_TITLE = "Next episodes"
+
+    /**
+     * The rows under the film bar, in the order chosen (Settings → Rows under the info bar): next episodes (an episode
+     * playing) from the player itself, the rest built by the home screen. [withNext]: the Episodes button opened them,
+     * so next episodes is there (first) even when it isn't chosen.
+     */
+    fun downRows(withNext: Boolean = false): List<io.github.petebutty.viewarr.ui.player.OsdRow> {
+        val next = NextUp.cards().takeIf { NextUp.upcoming.isNotEmpty() && it.isNotEmpty() }?.let { io.github.petebutty.viewarr.ui.player.OsdRow(NEXT_TITLE, it) }
+        val kinds = io.github.petebutty.viewarr.ui.common.InfoRows.active(io.github.petebutty.viewarr.ui.common.InfoRows.FILM)
+        val rows = kinds.mapNotNull { k ->
+            if (k == io.github.petebutty.viewarr.ui.common.InfoRows.Kind.NEXT) next
+            else LiveShortcutsBridge.filmRows.firstOrNull { it.first == k.id }?.second
+        }
+        return if (withNext && next != null && rows.none { it.title == NEXT_TITLE }) listOf(next) + rows else rows
+    }
+
+    fun downSizes(menu: PlayerMenu) = downRows(menu.withNext).map { it.items.size }
+
+    /** Where next episodes is among the rows (the Episodes button lands there); -1: none. */
+    fun nextIndex(withNext: Boolean) = downRows(withNext).indexOfFirst { it.title == NEXT_TITLE }
+
+    /** Opens the rows on next episodes (the Episodes button / remote action). */
+    fun openEpisodes(menu: PlayerMenu, only: Boolean) {
+        menu.withNext = true
+        menu.onEpisodes = true; menu.episodesOnly = only; menu.episode = 0
+        menu.downRow = nextIndex(true).coerceAtLeast(0)
+    }
+
+    /** OK on a card under the bar: an episode plays next; anything else opens (the film makes way, or stops). */
+    fun pickDown(menu: PlayerMenu, r: Int, c: Int) {
+        val row = downRows(menu.withNext).getOrNull(r) ?: return
+        if (row.title == NEXT_TITLE) NextUp.upcoming.getOrNull(c)?.let { NextUp.playEpisode(it) }
+        else row.items.getOrNull(c)?.let { open(menu, it) }
+    }
+
     private fun open(menu: PlayerMenu, card: io.github.petebutty.viewarr.ui.player.OsdPoster) {
-        menu.open = false; menu.onShortcuts = false; menu.onRows = false
+        menu.open = false; menu.onShortcuts = false; menu.onRows = false; menu.onEpisodes = false
         // (Playing another: that replaces it. Anything else: this film stops, its place kept.)
         if (!card.plays) VodHost.close()
         card.onClick()

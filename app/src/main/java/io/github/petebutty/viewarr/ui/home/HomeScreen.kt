@@ -145,6 +145,7 @@ import io.github.petebutty.viewarr.ui.player.LiveShortcut
 import io.github.petebutty.viewarr.ui.player.LiveShortcuts
 import io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge
 import io.github.petebutty.viewarr.ui.player.OsdPoster
+import io.github.petebutty.viewarr.ui.common.InfoRows.Kind as RowKind
 import io.github.petebutty.viewarr.ui.player.OsdRow
 import io.github.petebutty.viewarr.ui.player.RowSets
 import io.github.petebutty.viewarr.ui.player.ShortcutColours
@@ -162,13 +163,14 @@ internal enum class Section(val label: String, val available: Boolean) {
     Tv("Live TV", true),
     Movies("Movies", true),
     Shows("Shows", true),
+    /** Every library on your servers (Plex, Jellyfin, Emby, IPTV) and your music, in one list. */
+    Library("My Library", true),
     Music("Music", true),
     Recordings("Recordings", true),
     Search("Search", true),
     Settings("Settings", true),
 }
 
-internal val LogoFont = FontFamily(Font(R.font.poppins_bold))
 
 /** What fills the screen behind the menu. */
 enum class Page { Tv, Movies, Shows, Music, Recordings, Search }
@@ -223,13 +225,16 @@ fun HomeScreen(
     LaunchedEffect(Unit) {
         val told = HashSet<String>()
         var first = true
+        // The recordings arrive a moment after start: what's already there then isn't news (the first look used to see
+        // an empty list, so every old failed recording popped up 15 s later, one after another).
+        kotlinx.coroutines.withTimeoutOrNull(60_000) { dvr.recordings.first { it.isNotEmpty() } }
         while (true) {
             val now = System.currentTimeMillis()
             val names = dvr.channels.value
             for (r in dvr.recordings.value) {
                 val ch = names[r.channelId]?.name?.let { " · $it" }.orEmpty()
                 val note = when {
-                    r.state == DvrState.Failed -> "⚠  Recording failed: ${r.title}$ch"
+                    r.state == DvrState.Failed && r.end > now - 12 * 3_600_000L -> "⚠  Recording failed: ${r.title}$ch"
                     r.end in (now - 120_000)..now -> "✓  Recorded: ${r.title}$ch"
                     r.start in (now - 120_000)..now && r.end > now -> "●  Recording now: ${r.title}$ch"
                     else -> null
@@ -326,9 +331,11 @@ fun HomeScreen(
     }
     // Held Back with nothing playing: the menu opens on its main list (not the page's own list).
     var menuOnMain by remember { mutableStateOf(false) }
+    // A library (from My Library) on screen: Left opens the menu on My Library.
+    var menuOnLibrary by remember { mutableStateOf(false) }
     // However the menu closed (a page or film picked in it, not only Back), the next one opens the normal way: on the
     // page's own list (Left from the guide: the channel groups), not on the main list a held Back / film menu asked for.
-    LaunchedEffect(menuOpen) { if (!menuOpen) menuOnMain = false }
+    LaunchedEffect(menuOpen) { if (!menuOpen) { menuOnMain = false; menuOnLibrary = false } }
     val searchMedia: MediaViewModel = hiltViewModel(key = "media-search")
     val fromStartScope = rememberCoroutineScope()
     // Leaving full screen (guide, another page) ends multi-view; it mustn't reappear next time.
@@ -350,7 +357,7 @@ fun HomeScreen(
     val groupsForAll by vm.groups.collectAsStateWithLifecycle()
     val groupForAll by vm.groupId.collectAsStateWithLifecycle()
     LaunchedEffect(AppColors.palette.hideAllChannels, groupForAll, groupsForAll.isNotEmpty()) {
-        if (AppColors.palette.hideAllChannels && groupForAll == null) groupsForAll.firstOrNull()?.let { vm.selectGroup(it.id) }
+        if (AppColors.palette.hideAllChannels && groupForAll == null) groupsForAll.firstOrNull { it.name !in vm.menuHiddenGroups.value }?.let { vm.selectGroup(it.id) }
     }
     // The last favourite removed while on ★ Favourites: back to all channels (or the first group, as above).
     val favsNow by vm.favourites.collectAsStateWithLifecycle()
@@ -361,6 +368,9 @@ fun HomeScreen(
     // last scrolled to, nor the group browsed since).
     LaunchedEffect(fullscreen) {
         if (!fullscreen && page == Page.Tv) playing?.let { vm.returnTo(it.id, playingGroup) }
+        // Into full screen with the guide on another group (one picked from the menu): back to the playing channel's,
+        // so Up / Down (and the channel list) step from it, not from the first channel of the group being looked at.
+        if (fullscreen) playing?.let { p -> if (vm.channels.value.none { it.id == p.id }) vm.returnTo(p.id, playingGroup) }
     }
     val programs by vm.programs.collectAsStateWithLifecycle()
     // The guide only keeps programmes for the channels near where it's scrolled to. The channel you're watching
@@ -404,15 +414,6 @@ fun HomeScreen(
     }
 
     // Live TV moved to another source: what was playing belongs to the old one (its picture froze), so stop it.
-    var lastSource by remember { mutableStateOf(session?.id) }
-    LaunchedEffect(session?.id) {
-        val now = session?.id
-        val previous = lastSource
-        lastSource = now
-        if (previous == null || now == previous || session == null) return@LaunchedEffect
-        // What's playing carries on (full screen, or the guide's preview); the guide and channel list show the new
-        // source's channels, and only picking one changes the channel.
-    }
 
     fun showOsd(audio: Boolean = false) {
         osdAudio = audio
@@ -804,7 +805,8 @@ fun HomeScreen(
     LaunchedEffect(digitsToken) {
         if (digits.isEmpty() && digitsMessage == null) return@LaunchedEffect
         delay(if (digitsMessage != null) 3_000 else 1_800)
-        if (digitsMessage != null) digitsMessage = null else tuneTyped()
+        // (A note that came up while a number was being typed: cleared, and the number still tuned, not left on screen.)
+        if (digitsMessage != null) { digitsMessage = null; if (digits.isNotEmpty()) tuneTyped() } else tuneTyped()
     }
 
     // Watch Next cards on the TV home screen: brought up to date a little after start-up (servers answer slowly
@@ -1420,6 +1422,106 @@ fun HomeScreen(
         ).filter { it.items.isNotEmpty() }
     } }
 
+    // ---- The rows under the info bars (Settings → Appearance → Info bar & controls → Rows under the info bar): built
+    // here for live TV, and for the film players (shared through LiveShortcutsBridge.filmRows). Down from the buttons.
+    val localWatchEntries by moviesVm.localWatch.rowEntries.collectAsStateWithLifecycle()
+    val traktMovies by moviesVm.traktContinue.collectAsStateWithLifecycle()
+    val traktShows by showsVm.traktContinue.collectAsStateWithLifecycle()
+    val groupChannels by vm.channels.collectAsStateWithLifecycle()
+    // The film / episode playing: left out of the Continue watching rows (it was the first card of its own row).
+    val playingMovie by moviesVm.playing.collectAsStateWithLifecycle()
+    val playingShow by showsVm.playing.collectAsStateWithLifecycle()
+    val playingWatch = (playingShow ?: playingMovie)?.watch?.takeIf { VodHost.active }
+    val liveKinds = io.github.petebutty.viewarr.ui.common.InfoRows.active(io.github.petebutty.viewarr.ui.common.InfoRows.LIVE)
+    val filmKinds = io.github.petebutty.viewarr.ui.common.InfoRows.active(io.github.petebutty.viewarr.ui.common.InfoRows.FILM)
+    val wantedKinds = (liveKinds + filmKinds).toSet()
+    // What the chosen rows need, fetched once the controls are up (or a film is playing).
+    LaunchedEffect(osdVisible, VodHost.active, wantedKinds) {
+        if (!osdVisible && !VodHost.active) return@LaunchedEffect
+        if (wantedKinds.any { it == RowKind.CONTINUE || it == RowKind.CONTINUE_SERVERS }) { moviesVm.loadContinue(MediaType.Movie); showsVm.loadContinue(MediaType.Show) }
+        if (wantedKinds.any { it == RowKind.CONTINUE || it == RowKind.CONTINUE_TRAKT }) showsVm.loadTraktContinue(MediaType.Show) // (shows only: see traktContinue)
+        if (RowKind.RECENTLY_ADDED in wantedKinds) { moviesVm.loadRecent(MediaType.Movie); showsVm.loadRecent(MediaType.Show) }
+        if (RowKind.WATCHLIST in wantedKinds) { moviesVm.load(MediaType.Movie); showsVm.load(MediaType.Show) }
+    }
+    // A channel as a card (logo, what's on now); OK watches it ([plays]: from a film, which then makes way).
+    fun channelCard(ch: ChannelListItem, prefix: String, chNow: Long, plays: Boolean = false) = OsdPoster(
+        key = "$prefix-${ch.id}", title = ch.name,
+        subtitle = GuideViewModel.programAt(programsOf(ch), chNow)?.let { displayTitle(it) },
+        image = channelLogo(session?.serverUrl.orEmpty(), ch), logo = true,
+        progress = GuideViewModel.programAt(programsOf(ch), chNow)?.let { p -> ((chNow - p.startTime).toFloat() / (p.endTime - p.startTime).coerceAtLeast(1)).coerceIn(0f, 1f) },
+    ) {
+        osdVisible = false
+        playback.play(ch, sessionNow)
+        vm.selectChannel(ch.id)
+        if (plays) fullscreen = true
+        showBanner()
+    }
+    fun mixTitles(a: List<MediaItem>, b: List<MediaItem>) =
+        (0 until maxOf(a.size, b.size)).flatMap { i -> listOfNotNull(a.getOrNull(i), b.getOrNull(i)) }
+            .distinctBy { it.tmdbId?.let { id -> "${it.type}:$id" } ?: it.key }.take(20)
+    /** One row of [kind], for [player] (null: nothing in it, or the player builds it itself: next episodes). */
+    fun infoRow(kind: io.github.petebutty.viewarr.ui.common.InfoRows.Kind, player: String): OsdRow? {
+        val film = player == io.github.petebutty.viewarr.ui.common.InfoRows.FILM
+        val chNow = System.currentTimeMillis()
+        fun notPlaying(l: List<MediaItem>) = playingWatch?.let { w ->
+            l.filterNot { it.type == w.type && ((w.tmdbId != null && it.tmdbId == w.tmdbId) || (w.imdbId != null && it.imdbId == w.imdbId)) }
+        } ?: l
+        val iptv = notPlaying(mixTitles(moviesVm.localWatch.continueItems(MediaType.Movie, localWatchEntries), moviesVm.localWatch.continueItems(MediaType.Show, localWatchEntries)))
+        val servers = notPlaying(mixTitles(continueMovies.orEmpty(), continueShows.orEmpty()))
+        val traktAll = notPlaying(mixTitles(traktMovies.orEmpty(), traktShows.orEmpty()))
+        val row = when (kind) {
+            RowKind.NEXT -> return null
+            // The film / show playing's page: its recommendations.
+            RowKind.SIMILAR -> OsdRow("More like this", (if (showsVm.playing.value != null) showsVm else moviesVm).similarToPlaying().take(20).map { titleCard(it) })
+            RowKind.CONTINUE -> OsdRow("Continue watching", (servers + iptv + traktAll).distinctBy { it.tmdbId?.let { id -> "${it.type}:$id" } ?: it.key }.take(25).map { titleCard(it, resume = true) })
+            RowKind.CONTINUE_IPTV -> OsdRow("Continue watching on IPTV", iptv.map { titleCard(it, resume = true) })
+            RowKind.CONTINUE_TRAKT -> OsdRow("Continue watching on Trakt", traktAll.map { titleCard(it, resume = true) })
+            RowKind.CONTINUE_SERVERS -> OsdRow("Continue watching on your servers", servers.map { titleCard(it, resume = true) })
+            RowKind.RECENT_CHANNELS -> OsdRow("Recent channels", remote.recentChannels.filter { film || it != playing?.id }.mapNotNull { allChannels[it] }.take(15).map { channelCard(it, "rc", chNow, film) })
+            RowKind.FAVOURITES -> OsdRow("Favourite channels", allChannels.values.filter { it.uuid in favsNow }.sortedBy { it.number ?: Double.MAX_VALUE }.take(40).map { channelCard(it, "fav", chNow, film) })
+            RowKind.ON_NOW -> OsdRow("On now" + (playing?.groupName?.let { " in $it" } ?: ""), groupChannels.filter { it.id != playing?.id }.take(40).map { channelCard(it, "on", chNow) })
+            RowKind.COMING_UP -> {
+                val ch = playing
+                OsdRow("Coming up on ${ch?.name ?: "this channel"}", ch?.let { c ->
+                    programsOf(c).filter { it.startTime > chNow }.sortedBy { it.startTime }.take(12).map { p ->
+                        OsdPoster(key = "up-${c.id}-${p.startTime}", title = displayTitle(p), subtitle = Dates.time(p.startTime) + "–" + Dates.time(p.endTime),
+                            image = channelLogo(session?.serverUrl.orEmpty(), c), logo = true) {
+                            osdVisible = false; LiveShortcutsBridge.openGuide()
+                        }
+                    }
+                }.orEmpty())
+            }
+            RowKind.RECORDINGS -> {
+                val chans = dvr.channels.value
+                OsdRow("Recordings", dvrRecordings.filter { it.state == DvrState.Recorded || it.state == DvrState.Recording }.sortedByDescending { it.start }.take(20).map { rec ->
+                    OsdPoster(key = "r:${rec.id}", title = rec.title,
+                        subtitle = listOfNotNull(rec.season?.let { "S$it" }, rec.episode?.let { "E$it" }, Dates.dayTime(rec.start)).joinToString(" · "),
+                        image = chans[rec.channelId]?.let { channelLogo(session?.serverUrl.orEmpty(), it) }, logo = true,
+                    ) { osdVisible = false; openPage(Page.Recordings, keepLive = false) }
+                })
+            }
+            RowKind.RECENTLY_ADDED -> OsdRow("Recently added", mixTitles(recentMovies.orEmpty(), recentShows.orEmpty()).map { titleCard(it) })
+            RowKind.WATCHLIST -> OsdRow("Your watchlist", mixTitles(
+                movieMenuRows.rows.firstOrNull { it.id.startsWith("trakt-watchlist") }?.items.orEmpty(),
+                showMenuRows.rows.firstOrNull { it.id.startsWith("trakt-watchlist") }?.items.orEmpty(),
+            ).map { titleCard(it) })
+        }
+        return row.takeIf { it.items.isNotEmpty() }
+    }
+    val infoRowsStamp = listOf(liveKinds, filmKinds, remote.recentChannels, playing?.id, allChannels, programs, ownStamp, favsNow, groupChannels,
+        continueMovies, continueShows, recentMovies, recentShows, traktMovies, traktShows, localWatchEntries, dvrRecordings, movieMenuRows, showMenuRows, now, session?.serverUrl, VodHost.active, playingWatch)
+    // Built only while they can be seen (the live controls up, or a film playing): every channel card looks up what's on,
+    // which was being done every 30 s for rows nobody could see.
+    val liveRowsWanted = osdVisible
+    val filmRowsWanted = VodHost.active
+    val liveInfoRows: List<OsdRow> = remember(infoRowsStamp, liveRowsWanted) {
+        if (!liveRowsWanted) emptyList() else liveKinds.mapNotNull { infoRow(it, io.github.petebutty.viewarr.ui.common.InfoRows.LIVE) }
+    }
+    val filmInfoRows: List<Pair<String, OsdRow>> = remember(infoRowsStamp, filmRowsWanted) {
+        if (!filmRowsWanted) emptyList() else filmKinds.mapNotNull { k -> infoRow(k, io.github.petebutty.viewarr.ui.common.InfoRows.FILM)?.let { k.id to it } }
+    }
+    SideEffect { LiveShortcutsBridge.filmRows = filmInfoRows }
+
     // ---- The corner picture, highlighted (Settings → Live TV → Highlight the corner picture): at the page's edge,
     // pressing towards it moves onto it; then Full screen or Close (Left / Right, OK).
     val cornerFocus = remember { FocusRequester() }
@@ -1761,7 +1863,17 @@ fun HomeScreen(
                 cornerHasFocus = cornerFocused,
                 focusRequester = mediaFocus,
                 focusEnabled = !menuOpen && !cornerFocused && !showAccounts && !quickSearch && !sportsOpen,
-                onOpenMenu = { menuOpen = true },
+                // Left from Movies / Shows: straight to the main menu (their own list is only "home" and "Jump to a
+                // row" now). A library open (from My Library): the menu on My Library. A service's page: its rows.
+                onOpenMenu = {
+                    val mvm = if (page == Page.Movies) moviesVm else showsVm
+                    when {
+                        mvm.currentRowSet.value != null -> Unit
+                        mvm.browse.value != null -> { menuOnLibrary = true; menuOnMain = true }
+                        else -> menuOnMain = true
+                    }
+                    menuOpen = true
+                },
                 onBack = {
                     if (VodHost.active && VodHost.mini) { VodHost.expand(); return@MediaScreen }
                     // The channel in the corner: back to it. Otherwise your Back setting (not always back to live TV).
@@ -2103,6 +2215,8 @@ fun HomeScreen(
                     // No shortcut row under the buttons any more: every library and service is in the menu on the left.
                     shortcuts = emptyList(),
                     posterRows = emptyList(),
+                    // (Settings → Appearance → Info bar & controls → Info bar: recent channels.)
+                    downRows = liveInfoRows,
                     previewFor = previewFor,
                     onHideShortcut = { sc -> hideShortcut(sc) },
                     onMoveShortcut = { sc, d -> moveShortcut(sc, d) },
@@ -2186,6 +2300,7 @@ fun HomeScreen(
                 },
                 onSettings = menuOnSettings,
                 onMain = menuOnMain,
+                onLibrary = menuOnLibrary,
                 onSearchFor = { q -> searchStart = q; searchVoice = false; openPage(Page.Search) },
                 onVoiceSearch = { searchStart = null; searchVoice = true; openPage(Page.Search) },
                 onClose = { menuOpen = false; menuOnSettings = false; menuOnMain = false },

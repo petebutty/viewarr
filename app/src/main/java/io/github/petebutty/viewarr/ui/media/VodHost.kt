@@ -31,7 +31,9 @@ class VodSource(
     val playing: StateFlow<VodStream?>,
     val art: StateFlow<PlayerArt?>,
     val onClose: () -> Unit,
-    val onProgress: (state: String, positionMs: Long, durationMs: Long) -> Unit = { _, _, _ -> },
+    /** Progress for [stream]: always the one that reported it (the old episode's last "stopped" arrives after the next
+     *  one has started, and was being counted against the new one). */
+    val onProgress: (stream: VodStream, state: String, positionMs: Long, durationMs: Long) -> Unit = { _, _, _, _ -> },
 )
 
 /**
@@ -217,7 +219,7 @@ fun VodHostLayer() {
             // A new film or episode gets a fresh player and picture surface. Without this the old screen's
             // surface stayed attached to the old player: the picture froze and only the new one's sound played.
             androidx.compose.runtime.key(s) {
-                PlayerHost(stream = s, onClose = { src.onClose(); VodHost.afterStop() }, art = art, onProgress = src.onProgress)
+                PlayerHost(stream = s, onClose = { src.onClose(); VodHost.afterStop() }, art = art, onProgress = { st, p, d -> src.onProgress(s, st, p, d) })
             }
           }
         }
