@@ -51,8 +51,8 @@ class NewsViewModel @Inject constructor(val feeds: NewsFeeds) : androidx.lifecyc
     private var loading: Job? = null
     /** Tickers on screen now: the feeds are only fetched while one is (switched off: no polling at all). */
     private var users = 0
-    fun shown() { users++ }
-    fun hidden() { users = (users - 1).coerceAtLeast(0); if (users == 0) { loading?.cancel(); loading = null; loadingFor = null } }
+    fun shown() { users++; LiveScores.onScreen++ }
+    fun hidden() { users = (users - 1).coerceAtLeast(0); LiveScores.onScreen = (LiveScores.onScreen - 1).coerceAtLeast(0); if (users == 0) { loading?.cancel(); loading = null; loadingFor = null } }
     private var misses = 0
     private var loadingFor: List<NewsFeed>? = null
 
@@ -68,16 +68,30 @@ class NewsViewModel @Inject constructor(val feeds: NewsFeeds) : androidx.lifecyc
                 if (list.isNotEmpty() || headlines.isEmpty()) headlines = list
                 // Nothing came: tried again less and less often (45 s, 90 s… up to 10 min), never hammering a dead feed.
                 misses = if (list.isEmpty()) misses + 1 else 0
-                delay(if (list.isEmpty()) minOf(45_000L shl (misses - 1).coerceIn(0, 4), 10 * 60_000L) else 10 * 60_000L)
+                // (With Live scores on: every minute, for the scores; the web feeds are only fetched every 10 minutes
+                // anyway, NewsFeeds keeping their copies.)
+                val scores = on.any { it.id == NewsFeeds.LIVE_SCORES }
+                delay(if (list.isEmpty() && !scores) minOf(45_000L shl (misses - 1).coerceIn(0, 4), 10 * 60_000L) else if (scores) 60_000L else 10 * 60_000L)
             }
         }
     }
 }
 
+/**
+ * Goals and other moments for the ticker (the plugin's score alerts): the next thing to scroll across, ahead of the
+ * news. With no ticker on screen (or Live scores off) they show as a banner instead (ServerSports decides).
+ */
+object LiveScores {
+    val pending = androidx.compose.runtime.mutableStateListOf<String>()
+    /** Tickers on screen now. */
+    var onScreen by androidx.compose.runtime.mutableIntStateOf(0)
+    val feed by lazy { NewsFeed(NewsFeeds.LIVE_SCORES, "Live scores", "viewarr://scores", true, TickerStyle.SkySports) }
+}
+
 /** The news ticker's settings (Settings → Appearance → News ticker), read from the app's options. */
 object Ticker {
-    /** Built-in feeds on until you change them. */
-    private val defaultOn = setOf("bbc-news", "sky-sports")
+    /** Built-in feeds on until you change them (Live scores only shows anything while your teams play). */
+    private val defaultOn = setOf("bbc-news", "sky-sports", NewsFeeds.LIVE_SCORES)
     fun feedOn(id: String) = when (AppColors.palette.opt(UiOpts.newsFeedKey(id))) { 1 -> true; 2 -> false; else -> id in defaultOn }
     fun style(f: NewsFeed): TickerStyle = AppColors.palette.opt(UiOpts.newsStyleKey(f.id)).let { if (it in 1..TickerStyle.entries.size) TickerStyle.entries[it - 1] else f.defaultStyle }
     val withInfoBar get() = AppColors.palette.opt(UiOpts.NEWS_INFOBAR) == 1
@@ -107,11 +121,16 @@ fun NewsTicker(modifier: Modifier = Modifier, vm: NewsViewModel = hiltViewModel(
     androidx.compose.runtime.DisposableEffect(vm) { vm.shown(); onDispose { vm.hidden() } }
     LaunchedEffect(on) { vm.keep(on) }
     val headlines = vm.headlines
-    if (headlines.isEmpty()) return
-    var index by remember { mutableIntStateOf(vm.index % headlines.size) }
+    // A goal / kick-off / full time waiting: shown next, ahead of the news (LiveScores).
+    var override by remember { mutableStateOf<Headline?>(null) }
+    if (headlines.isEmpty() && override == null && LiveScores.pending.isEmpty()) return
+    var index by remember { mutableIntStateOf(if (headlines.isEmpty()) 0 else vm.index % headlines.size) }
     // Goes up with every headline shown (index alone stays 0 → 0 with a single headline, and it stopped for good).
     var run by remember { mutableIntStateOf(0) }
-    val h = headlines[index % headlines.size]
+    LaunchedEffect(LiveScores.pending.size) {
+        if (override == null && LiveScores.pending.isNotEmpty()) { override = Headline(LiveScores.feed, LiveScores.pending.removeAt(0)); run++ }
+    }
+    val h = override ?: headlines.getOrNull(index % headlines.size.coerceAtLeast(1)) ?: return
     val (labelBg, labelFg, stripBg, stripFg) = Ticker.colours(Ticker.style(h.feed))
     val density = androidx.compose.ui.platform.LocalDensity.current
     var boxW by remember { mutableIntStateOf(0) }
@@ -124,8 +143,10 @@ fun NewsTicker(modifier: Modifier = Modifier, vm: NewsViewModel = hiltViewModel(
         val pxPerSec = with(density) { Ticker.speed.dp.toPx() }
         val ms = ((boxW + textW) / pxPerSec * 1000f).toInt().coerceAtLeast(1_000)
         x.animateTo(-textW.toFloat(), androidx.compose.animation.core.tween(ms, easing = androidx.compose.animation.core.LinearEasing))
-        index = (index + 1) % headlines.size
-        vm.index = index
+        if (override != null) override = null
+        else if (headlines.isNotEmpty()) { index = (index + 1) % headlines.size; vm.index = index }
+        // (A moment waiting: next, before the news carries on.)
+        if (LiveScores.pending.isNotEmpty()) override = Headline(LiveScores.feed, LiveScores.pending.removeAt(0))
         run++
     }
     Row(modifier.height(34.dp).background(stripBg), verticalAlignment = Alignment.CenterVertically) {

@@ -30,6 +30,8 @@ class NewsFeeds @Inject constructor(@ApplicationContext context: Context, privat
     private val prefs = context.getSharedPreferences("news_feeds", Context.MODE_PRIVATE)
 
     val builtIn = listOf(
+        // Your teams' live scores and goals (the Viewarr plugin on Dispatcharr): only while one is playing.
+        NewsFeed(LIVE_SCORES, "Live scores", "viewarr://scores", true, TickerStyle.SkySports),
         NewsFeed("bbc-news", "BBC News", "https://feeds.bbci.co.uk/news/rss.xml", true, TickerStyle.Bbc),
         NewsFeed("bbc-sport", "BBC Sport", "https://feeds.bbci.co.uk/sport/rss.xml", true, TickerStyle.Bbc),
         NewsFeed("bbc-scot-fb", "BBC Scottish Football", "https://feeds.bbci.co.uk/sport/football/scottish/rss.xml", true, TickerStyle.Bbc),
@@ -74,6 +76,8 @@ class NewsFeeds @Inject constructor(@ApplicationContext context: Context, privat
 
     /** A feed's headlines (newest first), from the last 10 minutes' copy if there is one. */
     suspend fun headlines(f: NewsFeed): List<String> {
+        // Not a feed on the web: the live scores the plugin shares (data/sync/ServerSports), fresh each time.
+        if (f.id == LIVE_SCORES) return io.github.petebutty.viewarr.data.sync.ServerSports.scoreLines
         cache[f.url]?.takeIf { System.currentTimeMillis() - it.first < 10 * 60_000L }?.let { return it.second }
         val list = fetch(f.url)
         if (list.isNotEmpty()) cache[f.url] = System.currentTimeMillis() to list
@@ -104,5 +108,9 @@ class NewsFeeds @Inject constructor(@ApplicationContext context: Context, privat
         .replace("&amp;", "&")
         .replace(Regex("\\s+"), " ").trim()
 
-    private companion object { const val CUSTOM = "custom" }
+    companion object {
+        private const val CUSTOM = "custom"
+        /** The built-in Live scores feed (goals and scores from the plugin while your teams play). */
+        const val LIVE_SCORES = "live-scores"
+    }
 }

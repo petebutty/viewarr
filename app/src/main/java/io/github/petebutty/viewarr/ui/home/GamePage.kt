@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import io.github.petebutty.viewarr.ui.theme.Tokens
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -79,8 +80,9 @@ internal fun GamePageHost(hub: SportsHub, besidePreview: Boolean) {
     // (Its fallback channel goes with it when the page closes, so the next game's page can't pick it up.)
     DisposableEffect(g.id) { onDispose { if (hub.openGame?.first?.id != g.id) hub.openChannel = null } }
     // Live: fetched again every minute while the page is open (score, goals, cards).
+    var detailsTried by remember(g.id) { mutableStateOf(false) }
     val details by produceState<GameDetails?>(null, g.id) {
-        while (true) { value = hub.sportsVm.gameInfo.details(g) ?: value; if (g.state != "in") break; delay(60_000) }
+        while (true) { value = hub.sportsVm.gameInfo.details(g) ?: value; detailsTried = true; if (g.state != "in") break; delay(60_000) }
     }
     val first = remember { FocusRequester() }
     val detailsFocus = remember { FocusRequester() }
@@ -99,7 +101,7 @@ internal fun GamePageHost(hub: SportsHub, besidePreview: Boolean) {
             .trapFocus(),
         contentAlignment = Alignment.Center,
     ) {
-        Column(Modifier.fillMaxWidth(0.9f).fillMaxHeight(0.92f).background(AppColors.Panel, RoundedCornerShape(16.dp)).padding(28.dp)) {
+        Column(Modifier.fillMaxWidth(0.9f).fillMaxHeight(0.92f).background(AppColors.Panel, RoundedCornerShape(Tokens.PopupRadius)).padding(28.dp)) {
             // The header and buttons clear of the live window in the top-left corner (it covered the first buttons:
             // Watch, Remind me. Peter, 2026-11-16); the details below use the whole width. ([besidePreview]: worked out
             // where the page is drawn, live TV or a film in the corner; it was set only by the Sports page and never
@@ -136,7 +138,11 @@ internal fun GamePageHost(hub: SportsHub, besidePreview: Boolean) {
                     if (watchCh != null && g.state != "post" && (started || ch == null)) add("Watch" to { hub.closeGame(); hub.watch(watchCh) })  // (closeGame: focus back on its game first, not lost to the menu)
                     if (g.state == "pre" && !started) {
                         if (ch != null) {
-                            add("Remind me" to { hub.dvr.remind(ch.first, ch.second); hub.toast("We'll remind you: ${g.title} on ${ch.first.name}") })
+                            val r = reminders.firstOrNull { it.channelId == ch.first.id && it.start == ch.second.startTime }
+                            add((if (r != null) "✓ Reminder" else "Remind me") to {
+                                if (r != null) { hub.dvr.forget(r.id); hub.toast("Reminder cancelled: ${g.title}") }
+                                else { hub.dvr.remind(ch.first, ch.second); hub.toast("🔔 Reminder set: ${g.title} on ${ch.first.name}") }
+                            })
                             add("Record" to { hub.dvr.record(ch.first, ch.second); gw.markDone(g.id); hub.toast("Recording ${g.title} on ${ch.first.name}") })
                         } else {
                             // A channel known without the guide (listings, club stream): reminded at kick-off on it. Else
@@ -188,7 +194,8 @@ internal fun GamePageHost(hub: SportsHub, besidePreview: Boolean) {
                 },
             ) {
                 val d = details
-                if (d == null) Text("Getting the line-ups, form and table…", fontSize = 14.sp, color = AppColors.TextSecondary)
+                // (A failed fetch said "Getting…" for ever. UI review, 2026-11-18.)
+                if (d == null) Text(if (detailsTried) "Couldn't get the details (ESPN isn't answering). Back to close." else "Getting the line-ups, form and table…", fontSize = 14.sp, color = AppColors.TextSecondary)
                 else Row(Modifier.fillMaxWidth().verticalScroll(scroll), horizontalArrangement = Arrangement.spacedBy(28.dp)) {
                     // 1: form, top scorers, this season's meetings, the ground.
                     Column(Modifier.weight(1f)) {

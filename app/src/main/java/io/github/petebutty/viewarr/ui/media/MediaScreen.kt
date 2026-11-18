@@ -1,21 +1,15 @@
 package io.github.petebutty.viewarr.ui.media
 
-import io.github.petebutty.viewarr.ui.common.glass
-import io.github.petebutty.viewarr.ui.common.instantFocusScale
-import io.github.petebutty.viewarr.ui.common.popupScroll
 import io.github.petebutty.viewarr.ui.common.followingSetting
 import io.github.petebutty.viewarr.ui.theme.appBackground
 
-import io.github.petebutty.viewarr.ui.common.ignoreHeldOk
 import io.github.petebutty.viewarr.ui.common.trapFocus
 import io.github.petebutty.viewarr.ui.common.stopAtRight
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.gestures.animateScrollBy
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.focusGroup
 import io.github.petebutty.viewarr.ui.library.AlphabetRail
 import io.github.petebutty.viewarr.ui.library.FilterChip
@@ -28,8 +22,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -39,6 +33,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -48,8 +43,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.foundation.relocation.bringIntoViewRequester
+import androidx.compose.runtime.SideEffect
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -95,10 +94,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.tv.material3.Border
 import io.github.petebutty.viewarr.ui.common.Button
 import androidx.tv.material3.ClickableSurfaceDefaults
-import androidx.tv.material3.OutlinedButton
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import io.github.petebutty.viewarr.data.media.MediaItem
@@ -118,26 +115,19 @@ import io.github.petebutty.viewarr.data.media.PersonInfo
 import io.github.petebutty.viewarr.data.media.RatingBadge
 import io.github.petebutty.viewarr.data.media.Review
 import io.github.petebutty.viewarr.data.media.TitleTracks
-import io.github.petebutty.viewarr.data.remote.services.SeerrService
 import io.github.petebutty.viewarr.data.trailers.TrailerRepository
 import io.github.petebutty.viewarr.ui.common.AppIcons
 import io.github.petebutty.viewarr.ui.common.BackLayer
 import io.github.petebutty.viewarr.ui.common.LiveBehind
 import io.github.petebutty.viewarr.ui.common.MenuItem
 import io.github.petebutty.viewarr.ui.common.PosterImage
-import io.github.petebutty.viewarr.ui.theme.Dates
 import io.github.petebutty.viewarr.ui.theme.TitleParts
-import io.github.petebutty.viewarr.ui.theme.UiOpts
 import io.github.petebutty.viewarr.ui.theme.Wallpaper
-import io.github.petebutty.viewarr.ui.common.ViewarrPopup
 import io.github.petebutty.viewarr.ui.common.AppPill
 import io.github.petebutty.viewarr.ui.common.CardAspect
 import io.github.petebutty.viewarr.ui.common.FocusCard
-import io.github.petebutty.viewarr.ui.common.OptionsPopup
-import io.github.petebutty.viewarr.ui.common.PopupOption
 import io.github.petebutty.viewarr.ui.common.PopupPanel
 import io.github.petebutty.viewarr.ui.common.PopupTitle
-import io.github.petebutty.viewarr.ui.common.RoundIconButton
 import io.github.petebutty.viewarr.ui.common.SearchField
 import io.github.petebutty.viewarr.ui.common.VoiceButton
 import io.github.petebutty.viewarr.ui.common.leftOpens
@@ -168,6 +158,9 @@ fun MediaScreen(
     val state by vm.rows.collectAsStateWithLifecycle()
     val jump by vm.jump.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
+    // The page's name over the title: My Library's and a network's pages draw on this screen too (UI review, 2026-11-18).
+    val setNow = vm.currentRowSet.collectAsStateWithLifecycle().value
+    val heroLabel = when { setNow == io.github.petebutty.viewarr.ui.media.MyLibrary.SET -> "My Library"; setNow != null && setNow.startsWith("name:") -> setNow.removePrefix("name:"); else -> null }
     val scope = rememberCoroutineScope()
     val detail by vm.detail.collectAsStateWithLifecycle()
     val playingStream by vm.playing.collectAsStateWithLifecycle()
@@ -179,6 +172,8 @@ fun MediaScreen(
     val browse by vm.browse.collectAsStateWithLifecycle()
     var focused by remember { mutableStateOf<MediaItem?>(null) }
     var lastCard by remember { mutableStateOf<String?>(null) }
+    // The card a title was opened from (Back returns to it; see below).
+    var openedCard by remember { mutableStateOf<String?>(null) }
     var hasFocus by remember { mutableStateOf(false) }
     // Waiting a moment before swapping the hero keeps fast scrolling smooth on the weak box.
     // (Followed through snapshotFlow, not read here: reading it rebuilt the whole page on every move.)
@@ -191,8 +186,10 @@ fun MediaScreen(
     var librarySearching by remember { mutableStateOf(false) }
     // The library grid looks after its own focus (first title, the one you came back to, A–Z jumps).
     // Rows arrive after the screen opens: grab focus once there's something to focus.
-    LaunchedEffect(state.rows.isNotEmpty(), focusEnabled, detail == null) {
-        if (searchHeader != null || !focusEnabled || detail != null || state.rows.isEmpty() || hasFocus) return@LaunchedEffect
+    // (Not under a full-screen film: the page and the film took the highlight off each other in turn.)
+    val covered = VodHost.covering
+    LaunchedEffect(state.rows.isNotEmpty(), focusEnabled, detail == null, covered) {
+        if (searchHeader != null || !focusEnabled || covered || detail != null || state.rows.isEmpty() || hasFocus) return@LaunchedEffect
         awaitFrame()
         awaitFrame()
         runCatching { focusRequester.requestFocus() }
@@ -203,29 +200,26 @@ fun MediaScreen(
     // Sideways: keep the focused poster at the row's left edge (no half-cut poster on the left).
     val leftPad = with(LocalDensity.current) { 48.dp.toPx() }
     val defaultSpec = LocalBringIntoViewSpec.current
-    val leftSpec = remember(leftPad) {
-        object : BringIntoViewSpec {
-            override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float {
-                val d = offset - leftPad
-                return if (kotlin.math.abs(d) < 1f) 0f else d
-            }
-        }
-    }
+    val leftSpec = remember(leftPad) { insetSpec(leftPad) }
     val rowSpec = if (remote.rowAlign == RowAlign.Free) defaultSpec else leftSpec
     // Each row remembers its scroll and focused poster, even after it scrolls out of view and is disposed.
     val rowStates = remember(type) { HashMap<String, LazyListState>() }
     val rowPos = remember(type) { androidx.compose.runtime.mutableStateMapOf<String, Int>() }
     val titleSpace = with(LocalDensity.current) { 28.dp.toPx() }
-    val topAligned = remember(titleSpace) {
-        object : BringIntoViewSpec {
-            override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float {
-                val d = offset - titleSpace
-                return if (kotlin.math.abs(d) < 1f) 0f else d
-            }
-        }
-    }
+    val topAligned = remember(titleSpace) { insetSpec(titleSpace) }
 
-    val rows = state.rows
+    // (A row with nothing in it isn't drawn: it left an empty gap with a title that the highlight couldn't reach.)
+    val rows = remember(state.rows) { state.rows.filter { it.items.isNotEmpty() } }
+    // Cinema: one page-tall row at a time; Viewarr style: two rows a page (the list below says how they turn).
+    val cinemaRows = AppColors.palette.heroStyle == 1 && searchHeader == null
+    val pairRows = AppColors.palette.heroStyle == 0 && searchHeader == null && !LiveBehind.on
+    // Scrolling the list to a row by hand: lined up as the page turns are (a pair's first row, the title's room
+    // above it), or the next page turn started from a half-turned page.
+    val scrollRow: suspend (Int) -> Unit = { i ->
+        val target = if (pairRows) i - i % 2 else i
+        val rest = if (pairRows) titleSpace.toInt() else 0
+        runCatching { listState.scrollToItem(target, -rest) }
+    }
     // Where focus is in the rows, for Back (Netflix): first back to the top row's first poster, then leave.
     var focusedRow by remember { androidx.compose.runtime.mutableIntStateOf(0) }
     var focusedIndex by remember { androidx.compose.runtime.mutableIntStateOf(0) }
@@ -241,11 +235,17 @@ fun MediaScreen(
             scope.launch { awaitFrame(); awaitFrame(); runCatching { focusRequester.requestFocus() } }
             return@BackHandler
         }
-        // Search, a person's films and shows: Back to the results.
+        // Search, a person's films and shows: Back to the results, on the card the person (or the title whose cast
+        // they were in) was opened from; it used to land on the first poster.
         if (personShown != null) {
             vm.closePerson()
-            lastCard = null
-            scope.launch { listState.scrollToItem(0); awaitFrame(); awaitFrame(); runCatching { focusRequester.requestFocus() } }
+            lastCard = openedCard ?: lastCard
+            openedCard = null
+            scope.launch {
+                awaitFrame()
+                // (The results as the list draws them: fresh from the model, the empty rows left out.)
+                focusCard(vm.rows.value.rows.filter { it.items.isNotEmpty() }, lastCard, listState, rowStates, cinemaRows || pairRows, scrollRow, focusRequester)
+            }
             return@BackHandler
         }
         val top = rows.firstOrNull()
@@ -291,19 +291,21 @@ fun MediaScreen(
     }
     // Back from a title opened from the rows: straight back to that poster. Without this, focus fell to whichever
     // poster grabbed it first as the title page went (the first card of the row above) and stayed there.
-    var openedCard by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(detail == null) {
         if (detail != null || browse != null) return@LaunchedEffect
         val key = openedCard ?: return@LaunchedEffect
-        openedCard = null
         val rowIndex = rows.indexOfFirst { r -> r.items.any { cardId(r, it) == key } }
-        if (rowIndex < 0) return@LaunchedEffect
+        // A person's page opened from the title (the title closed for it, its rows gone): the card is kept for Back
+        // from the person.
+        if (rowIndex < 0) { if (personShown == null) openedCard = null; return@LaunchedEffect }
+        openedCard = null
         lastCard = key
-        if (listState.layoutInfo.visibleItemsInfo.none { it.index == rowIndex }) runCatching { listState.scrollToItem(rowIndex) }
-        awaitFrame(); awaitFrame()
-        runCatching { focusRequester.requestFocus() }
+        focusCard(rows, key, listState, rowStates, cinemaRows || pairRows, scrollRow, focusRequester)
     }
+    // Where the highlight goes into the rows: the card you were on; else the row you were on (one put in above it
+    // moved the rows under the highlight); else the first row's first poster.
     val entryCard = lastCard?.takeIf { key -> rows.any { r -> r.items.any { cardId(r, it) == key } } }
+        ?: rows.getOrNull(focusedRow)?.let { r -> r.items.getOrNull(rowPos[r.id] ?: 0)?.let { cardId(r, it) } }
         ?: rows.firstOrNull()?.let { r -> r.items.firstOrNull()?.let { cardId(r, it) } }
     // Rows keep arriving after the page opens (slow servers, many libraries) and can be put in above the one you're
     // on, which drops focus: the remote then does nothing until a direction is pressed. Take it back by itself.
@@ -311,17 +313,16 @@ fun MediaScreen(
     // keep the list at its top so the first row (e.g. search's "In your library") is the one you see.
     LaunchedEffect(rows.firstOrNull()?.id) { if (!hasFocus && rows.isNotEmpty()) runCatching { listState.scrollToItem(0) } }
     val upNextShown by vm.upNext.collectAsStateWithLifecycle()
-    LaunchedEffect(hasFocus, focusEnabled, detail == null, quick == null, quickTrailer == null, playing == null, rows.size, upNextShown == null) {
-        if (searchHeader != null || upNextShown != null || hasFocus || !focusEnabled || detail != null || quick != null || quickTrailer != null || playing != null) return@LaunchedEffect
+    LaunchedEffect(hasFocus, focusEnabled, covered, detail == null, quick == null, quickTrailer == null, playing == null, rows.size, upNextShown == null) {
+        if (searchHeader != null || upNextShown != null || hasFocus || !focusEnabled || covered || detail != null || quick != null || quickTrailer != null || playing != null) return@LaunchedEffect
         if (rows.isEmpty() || browse != null) return@LaunchedEffect
         delay(400)
         if (hasFocus) return@LaunchedEffect
-        // The poster that takes focus has to be on screen: bring its row in first.
-        val rowIndex = rows.indexOfFirst { r -> r.items.any { cardId(r, it) == entryCard } }.coerceAtLeast(0)
-        if (listState.layoutInfo.visibleItemsInfo.none { it.index == rowIndex }) runCatching { listState.scrollToItem(rowIndex) }
-        awaitFrame(); awaitFrame()
-        runCatching { focusRequester.requestFocus() }
+        // The poster that takes focus has to be on screen: bring its row (and it, along the row) in first.
+        focusCard(rows, entryCard, listState, rowStates, cinemaRows || pairRows, scrollRow, focusRequester)
     }
+    // Trailers rest while a pop-up (hold OK), the full-screen trailer or a film (full screen or in the corner) is up.
+    val quiet = quick == null && quickTrailer == null && !VodHost.active
 
     // Movies and Shows: the highlighted title's artwork fills the page, whatever the wallpaper setting.
     if (searchHeader == null) androidx.compose.runtime.DisposableEffect(Unit) {
@@ -349,52 +350,51 @@ fun MediaScreen(
         }
         // As the catalogues' pages: the top-left window (live TV, or the highlighted title's trailer) with its details
         // beside it, and the library's grid below.
-        browse?.let { b -> Column(Modifier.fillMaxSize()) {
-            // (The header stays while scrolling: banner and trailer always there.)
-            val heroOn = !LiveBehind.on
-            if (heroOn) Hero(
-                item = focused,
-                type = type,
-                trailerItem = focused,
-                trailerActive = focusEnabled && hasFocus && detail == null && playing == null,
-                trailers = vm.trailers,
-                librarySourcesOf = vm::librarySources,
-                logoOf = vm::logoFor,
-                ratingsOf = vm::ratingsFor,
-                height = 206.dp,
-            )
-            Box(Modifier.fillMaxWidth().weight(1f)) {
-            LibraryGrid(
-                b = b,
-                vm = vm,
+        browse?.let { b ->
+            LibraryPage(
+                b = b, vm = vm, type = type, heroLabel = heroLabel, focused = focused,
+                trailerOk = focusEnabled && !covered && hasFocus && detail == null && playing == null && quiet,
                 focusRequester = focusRequester,
-                focusEnabled = focusEnabled && detail == null && playing == null && quick == null,
-                focused = focused,
-                onFocus = { item -> focused = item },
-                onHasFocus = { hasFocus = it },
+                gridEnabled = focusEnabled && detail == null && playing == null && quick == null,
                 searching = librarySearching,
                 onSearchFocus = { librarySearching = it },
-                onOpen = { vm.open(it) },
+                onFocus = { item -> focused = item },
+                onHasFocus = { hasFocus = it },
                 onLong = { quick = it },
                 onLeftEdge = onOpenMenu,
-                withHero = heroOn,
             )
-            }
-        } }
+        }
         if (browse == null) Column(Modifier.fillMaxSize()) {
             val personInfo by vm.personInfo.collectAsStateWithLifecycle()
             val pi = personInfo?.takeIf { personShown != null }
-            if (pi != null) PersonHeader(pi) else if (searchHeader != null) searchHeader() else Hero(
+            SideEffect { PosterTrailer.repo = vm.trailers }
+            PublishPosterTrailerActive(focusEnabled && !covered && hasFocus && detail == null && playing == null && quiet)
+            PageHeader(
+                person = pi, searchHeader = searchHeader, type = type, heroLabel = heroLabel,
                 item = hero ?: rows.firstOrNull()?.items?.firstOrNull(),
-                type = type,
                 // Only the poster you've stopped on plays: not the first-row fallback, nor while anything covers the rows.
                 trailerItem = hero,
-                trailerActive = focusEnabled && hasFocus && detail == null && playing == null,
-                trailers = vm.trailers,
-                librarySourcesOf = vm::librarySources,
-                logoOf = vm::logoFor,
-                ratingsOf = vm::ratingsFor,
+                trailerOk = focusEnabled && !covered && hasFocus && detail == null && playing == null && quiet,
+                vm = vm,
             )
+            // Cinema: one page-tall row at a time, the posters along the bottom. Moving to another row turns the
+            // page: the list glides so that row's top is at the top (its posters at the bottom), eased over a third of
+            // a second; nothing else ever scrolls it (Left / Right along a row pulled the rows up, Peter, 2026-11-18).
+            // Viewarr style: two rows a page (Peter, 2026-11-18: the next row's title peeked out at the bottom). Rows go
+            // in pairs: a gap after every second row so the next pair starts a page down, and Down / Up move a pair
+            // at a time; the list never scrolls on its own otherwise. (cinemaRows / pairRows are set above the rows.)
+            var listHeightPx by remember { mutableStateOf(0) }
+            val rowHeightsPx = remember { mutableStateMapOf<Int, Int>() }
+            val gapPx = with(LocalDensity.current) { RowGap.roundToPx() }
+            LaunchedEffect(cinemaRows, pairRows, focusedRow) {
+                if (!cinemaRows && !pairRows) return@LaunchedEffect
+                val target = if (cinemaRows) focusedRow else focusedRow - focusedRow % 2
+                val rest = if (cinemaRows) 0f else titleSpace
+                val info = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == target }
+                // (Quick and smooth, Peter: a third of a second.)
+                if (info != null) listState.animateScrollBy(info.offset - rest, androidx.compose.animation.core.tween(320, easing = androidx.compose.animation.core.FastOutSlowInEasing))
+                else listState.animateScrollToItem(target, -rest.toInt())
+            }
             when {
                 searchHeader != null && rows.isEmpty() && state.done -> searchFooter?.invoke()
                 rows.isEmpty() && !state.done -> Text(
@@ -405,20 +405,49 @@ fun MediaScreen(
                     "Nothing to show yet. Connect Plex, TMDB, Trakt or an addon in Settings → Accounts & sources.",
                     color = AppColors.TextSecondary, modifier = Modifier.padding(start = 48.dp, top = 12.dp, end = 48.dp),
                 )
-                else -> CompositionLocalProvider(LocalBringIntoViewSpec provides remember(topAligned) { topAligned.followingSetting() }, LocalButtonsFree provides (detail == null && playing == null)) { LazyColumn(
+                else -> CompositionLocalProvider(
+                    LocalBringIntoViewSpec provides remember(topAligned, cinemaRows, pairRows) {
+                        if (cinemaRows || pairRows) CinemaNoScroll else topAligned.followingSetting()
+                    },
+                    LocalButtonsFree provides (detail == null && playing == null),
+                ) {
+                    LazyColumn(
                     state = listState,
-                    modifier = Modifier.fillMaxWidth().weight(1f).onFocusChanged { hasFocus = it.hasFocus },
-                    // Room below the last row so it can also scroll up to the top (no half row left above it).
-                    contentPadding = PaddingValues(bottom = 150.dp),
+                    modifier = Modifier.fillMaxWidth().weight(1f).onFocusChanged { hasFocus = it.hasFocus }.onSizeChanged { listHeightPx = it.height }
+                        // Play / Pause on the remote while the corner trailer plays: that trailer full screen.
+                        .onPreviewKeyEvent { e ->
+                            val playKey = e.key == Key.MediaPlayPause || e.key == Key.MediaPlay
+                            if (playKey && e.type == KeyEventType.KeyDown && HeroTrailer.showing && focused != null) { quickTrailer = focused; true } else false
+                        },
+                    // Room below the last row so it can also scroll up to the top (no half row left above it). Pairs
+                    // with an odd row count: enough under the lone last row for its page to line up like the others.
+                    contentPadding = PaddingValues(bottom = when {
+                        cinemaRows -> 0.dp
+                        pairRows && rows.size % 2 == 1 -> with(LocalDensity.current) {
+                            maxOf(150.dp, (listHeightPx - (rowHeightsPx[rows.lastIndex] ?: 0) - titleSpace.toInt()).coerceAtLeast(0).toDp())
+                        }
+                        else -> 150.dp
+                    }),
                     verticalArrangement = Arrangement.spacedBy(RowGap),
                 ) {
                     itemsIndexed(rows, key = { _, it -> it.id }) { index, row ->
+                        // Cinema (big top panel): each row the whole height left, so one row shows at a time, no half
+                        // row under it (Peter, 2026-11-18); Down brings the next one up.
+                        // (Its posters along the bottom of the screen, the backdrop above them, as Nuvio.)
+                        // (Pairs: the room under an odd row that puts the next pair exactly a page down.)
+                        val pairGap = if (pairRows && index % 2 == 1) with(LocalDensity.current) {
+                            (listHeightPx - (rowHeightsPx[index - 1] ?: 0) - (rowHeightsPx[index] ?: 0) - 2 * gapPx).coerceAtLeast(0).toDp()
+                        } else 0.dp
+                        Box(if (cinemaRows) Modifier.fillParentMaxHeight().padding(bottom = 10.dp) else Modifier.padding(bottom = pairGap), contentAlignment = Alignment.BottomStart) {
+                        Box(if (pairRows) Modifier.onSizeChanged { rowHeightsPx[index] = it.height } else Modifier) {
                         PosterRow(
                             row = row,
                             rowSpec = rowSpec,
                             state = rowStates.getOrPut(row.id) { LazyListState() },
                             entryIndex = if (remote.rowMemory == RowMemory.First) 0 else (rowPos[row.id] ?: 0).coerceAtMost(row.items.lastIndex),
-                            resetOnLeave = remote.rowMemory == RowMemory.First,
+                            // (Not while a title is open over the rows: Back to its poster found the row wound back
+                            // to the start and the poster gone.)
+                            resetOnLeave = remote.rowMemory == RowMemory.First && detail == null,
                             onFocusIndex = {
                                 rowPos[row.id] = it
                                 focusedRow = index
@@ -437,6 +466,8 @@ fun MediaScreen(
                             },
                             onOpen = { openedCard = lastCard; vm.open(it) },
                         )
+                        }
+                        }
                     }
                     searchFooter?.let { footer -> item(key = "search-footer") { footer() } }
                 } }
@@ -444,22 +475,13 @@ fun MediaScreen(
         }
         // While a film plays, the title page (and its stream list) is set aside so it can't hold the remote.
         if (playing == null) detail?.let { d ->
-            DetailScreen(
-                ui = d,
-                vm = vm,
+            TitlePageLayer(
+                ui = d, vm = vm,
                 // Not while the menu (hold Back), search or Accounts is over it: its focus trap kept the remote
-                // here, under the menu. Focus comes back to Play when they close.
-                active = playing == null && (focusEnabled || cornerHasFocus),
-                onSearch = vm::searchAddons,
-                onPickStream = vm::playStream,
-                onCloseStreams = vm::closeStreams,
-                onWatchlist = vm::toggleWatchlist,
-                onLeftEdge = onOpenMenu,
-                onClose = {
-                    vm.close()
-                    // Back to the title it was opened from (More like this) keeps focus on that page.
-                    if (vm.detail.value == null) runCatching { focusRequester.requestFocus() }
-                },
+                // here, under the menu. Focus comes back to Play when they close. (Nor under the next episode's
+                // countdown: the trap kept the highlight off its buttons.)
+                active = playing == null && upNextShown == null && (focusEnabled || cornerHasFocus),
+                onLeftEdge = onOpenMenu, focusRequester = focusRequester,
             )
         }
         if (playing == null && detail == null) quick?.let { item ->
@@ -479,27 +501,152 @@ fun MediaScreen(
                 scope.launch { awaitFrame(); runCatching { focusRequester.requestFocus() } }
             })
         }
-        val notice by vm.notice.collectAsStateWithLifecycle()
-        notice?.let { text ->
-            LaunchedEffect(text) { delay(3_000); vm.clearNotice() }
-            Text(
-                text, fontSize = 16.sp, color = AppColors.TextPrimary,
-                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 40.dp)
-                    .glass(24.dp)
-                    .padding(horizontal = 24.dp, vertical = 10.dp),
+        MediaNotice(vm)
+        if (playing == null) upNextShown?.let { UpNextOverlay(it.episode, onPlay = vm::playUpNext, onCancel = vm::cancelUpNext) }
+    }
+}
+
+/**
+ * The top of the Movies / Shows / search page: a person's details, search's own header, or the highlighted title's hero
+ * (Cinema's taller), or Lite's one line when the hero is off. [trailerItem] / [trailerOk]: what may play a trailer now.
+ */
+@Composable
+private fun PageHeader(
+    person: PersonInfo?, searchHeader: (@Composable () -> Unit)?, type: MediaType, heroLabel: String?,
+    item: MediaItem?, trailerItem: MediaItem?, trailerOk: Boolean, vm: MediaViewModel,
+) {
+    if (person != null) PersonHeader(person) else if (searchHeader != null) searchHeader() else if (AppColors.palette.heroStyle != 2) Hero(
+        item = item,
+        type = type,
+        label = heroLabel,
+        trailerItem = trailerItem,
+        trailerActive = trailerOk && !PosterTrailer.on,
+        trailers = vm.trailers,
+        librarySourcesOf = vm::librarySources,
+        logoOf = vm::logoFor,
+        ratingsOf = vm::ratingsFor,
+        height = if (AppColors.palette.heroStyle == 1) 296.dp else 212.dp,
+    ) else LiteStrip(type, item, heroLabel)
+}
+
+/**
+ * A library's page (menu → Movies / Shows → a library): the header (banner and trailer, always there while the grid
+ * scrolls) above the grid. [trailerOk]: the highlighted poster may play a trailer now; [gridEnabled]: the grid may take
+ * focus (nothing over it).
+ */
+@Composable
+private fun LibraryPage(
+    b: MediaViewModel.LibraryBrowse,
+    vm: MediaViewModel,
+    type: MediaType,
+    heroLabel: String?,
+    focused: MediaItem?,
+    trailerOk: Boolean,
+    focusRequester: FocusRequester,
+    gridEnabled: Boolean,
+    searching: Boolean,
+    onSearchFocus: (Boolean) -> Unit,
+    onFocus: (MediaItem) -> Unit,
+    onHasFocus: (Boolean) -> Unit,
+    onLong: (MediaItem) -> Unit,
+    onLeftEdge: () -> Unit,
+) {
+    Column(Modifier.fillMaxSize()) {
+        // (The header stays while scrolling: banner and trailer always there.)
+        val heroOn = !LiveBehind.on && AppColors.palette.heroStyle != 2
+        // Trailers in the poster: whether the highlighted poster may play one now.
+        SideEffect { PosterTrailer.repo = vm.trailers }
+        PublishPosterTrailerActive(trailerOk)
+        if (heroOn) Hero(
+            item = focused,
+            type = type,
+            label = heroLabel,
+            trailerItem = focused,
+            trailerActive = trailerOk && !PosterTrailer.on,
+            trailers = vm.trailers,
+            librarySourcesOf = vm::librarySources,
+            logoOf = vm::logoFor,
+            ratingsOf = vm::ratingsFor,
+            height = if (AppColors.palette.heroStyle == 1) 290.dp else 206.dp,
+        )
+        Box(Modifier.fillMaxWidth().weight(1f)) {
+            LibraryGrid(
+                b = b,
+                vm = vm,
+                focusRequester = focusRequester,
+                focusEnabled = gridEnabled,
+                focused = focused,
+                onFocus = onFocus,
+                onHasFocus = onHasFocus,
+                searching = searching,
+                onSearchFocus = onSearchFocus,
+                onOpen = { vm.open(it) },
+                onLong = onLong,
+                onLeftEdge = onLeftEdge,
+                withHero = heroOn,
             )
         }
-        val upNext by vm.upNext.collectAsStateWithLifecycle()
-        if (playing == null) upNext?.let { UpNextOverlay(it.episode, onPlay = vm::playUpNext, onCancel = vm::cancelUpNext) }
+    }
+}
+
+/** The title page over the rows, with its model's actions wired. */
+@Composable
+private fun TitlePageLayer(ui: DetailUi, vm: MediaViewModel, active: Boolean, onLeftEdge: () -> Unit, focusRequester: FocusRequester) {
+    androidx.compose.runtime.key(ui.detail.item.key) {
+        DetailScreen(
+            ui = ui,
+            vm = vm,
+            active = active,
+            onSearch = vm::searchAddons,
+            onPickStream = vm::playStream,
+            onCloseStreams = vm::closeStreams,
+            onWatchlist = vm::toggleWatchlist,
+            onLeftEdge = onLeftEdge,
+            onClose = {
+                vm.close()
+                // Back to the title it was opened from (More like this) keeps focus on that page.
+                if (vm.detail.value == null) runCatching { focusRequester.requestFocus() }
+            },
+        )
+    }
+}
+
+/** Brings what's focused to [inset] px from the list's start edge (no scrolling when it's already within a pixel of it). */
+@OptIn(ExperimentalFoundationApi::class)
+private fun insetSpec(inset: Float) = object : BringIntoViewSpec {
+    override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float {
+        val d = offset - inset
+        return if (kotlin.math.abs(d) < 1f) 0f else d
     }
 }
 
 private fun cardId(row: MediaRow, item: MediaItem) = row.id + "|" + item.key
 
+/**
+ * The highlight onto the card [key] (one of [rows], by [cardId]): its row scrolled in if it's off screen (always
+ * lined up afresh when the rows turn by the page, [paged]), then the card along its row (one opened deep in a row
+ * had been let go while the title was up, so there was nothing to highlight), then [focus] once both are drawn.
+ */
+private suspend fun focusCard(
+    rows: List<MediaRow>, key: String?, listState: LazyListState, rowStates: Map<String, LazyListState>, paged: Boolean,
+    scrollRow: suspend (Int) -> Unit, focus: FocusRequester,
+) {
+    val rowIndex = rows.indexOfFirst { r -> r.items.any { cardId(r, it) == key } }.coerceAtLeast(0)
+    val row = rows.getOrNull(rowIndex)
+    if (paged || listState.layoutInfo.visibleItemsInfo.none { it.index == rowIndex }) scrollRow(rowIndex)
+    val i = row?.items?.indexOfFirst { cardId(row, it) == key } ?: -1
+    val along = row?.let { rowStates[it.id] }
+    if (i >= 0 && along != null && along.layoutInfo.visibleItemsInfo.none { it.index == i }) runCatching { along.scrollToItem(i) }
+    awaitFrame(); awaitFrame()
+    runCatching { focus.requestFocus() }
+}
+
 @Composable
 private fun Hero(
     item: MediaItem?,
     type: MediaType,
+    /** The page's name over the title: "My Library", a network's name; null: Movies / Shows by [type]. */
+    label: String? = null,
     trailerItem: MediaItem? = null,
     trailerActive: Boolean = false,
     trailers: TrailerRepository? = null,
@@ -572,44 +719,67 @@ private fun Hero(
         }
         // The top-left window, always in the same place (the guide's preview place): live TV when a channel's on
         // (drawn by the home screen), otherwise the highlighted title's picture with its trailer playing over it.
-        val besidePreview = !LiveBehind.on
+        // (Trailers in the poster: no corner window, so the details start at the left edge. Peter, 2026-11-18.)
+        val besidePreview = !LiveBehind.on && !PosterTrailer.on
+        // The trailer's window: nothing there until a trailer plays (it fades in), the page's background picture
+        // showing through instead of a second copy of it in a box (Peter, 2026-11-18).
+        // The trailer window at the top right (Peter, 2026-11-18: the title logo and description belong at the left,
+        // where the live TV window used to push them from): a dimmed still of the title until its trailer fades in.
         if (besidePreview && !LiveBehind.preview) Box(
-            Modifier.padding(start = 12.dp, top = 20.dp).size(width = 320.dp, height = 180.dp).clip(RoundedCornerShape(8.dp)).background(Color.Black.copy(alpha = 0.35f)),
+            Modifier.align(Alignment.TopEnd).padding(end = Tokens.Gutter, top = 20.dp).size(width = 320.dp, height = 180.dp).clip(RoundedCornerShape(8.dp)),
         ) {
-            item?.backdrop?.let { AsyncImage(model = it, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
-            if (trailers != null) TrailerPreview(item = trailerItem, active = trailerActive, trailers = trailers, modifier = Modifier.fillMaxSize())
+            item?.backdrop?.let { AsyncImage(model = it, contentDescription = null, contentScale = ContentScale.Crop, alpha = 0.45f, modifier = Modifier.fillMaxSize()) }
+            if (trailers != null) TrailerPreview(item = trailerItem, active = trailerActive, trailers = trailers, modifier = Modifier.fillMaxSize(), onShowing = { HeroTrailer.showing = it })
+            // While it plays: how to see it full screen (hold OK on the poster → Trailer does the same).
+            if (HeroTrailer.showing) Text("⏯  Full screen", fontSize = 11.sp, color = Color.White, maxLines = 1,
+                modifier = Modifier.align(Alignment.BottomEnd).padding(6.dp).background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(6.dp)).padding(horizontal = 6.dp, vertical = 2.dp))
         }
-        Column(Modifier.padding(start = if (besidePreview) Tokens.BesideWindowStart else Tokens.Gutter, top = 26.dp, end = Tokens.Gutter).fillMaxWidth(if (besidePreview) 0.75f else 0.5f)) {
-            Text(if (type == MediaType.Movie) "Movies" else "Shows", fontSize = 14.sp, color = AppColors.Accent)
+        // From the left edge; with the live TV window up at the top left, over at the right, right-aligned (Peter, 2026-11-18).
+        val endSide = LiveBehind.preview
+        val align = if (endSide) androidx.compose.ui.text.style.TextAlign.End else null
+        val colAlign = if (endSide) Alignment.End else Alignment.Start
+        Column(
+            Modifier.align(if (endSide) Alignment.TopEnd else Alignment.TopStart)
+                .padding(start = Tokens.Gutter, top = 26.dp, end = Tokens.Gutter)
+                .fillMaxWidth(if (endSide) 0.58f else if (besidePreview) 0.6f else 0.5f),
+            horizontalAlignment = colAlign,
+        ) {
+            Text(label ?: if (type == MediaType.Movie) "Movies" else "Shows", fontSize = 14.sp, color = AppColors.Accent, textAlign = align)
             Spacer(Modifier.height(8.dp))
             val ex = extras
-            if (item != null) Column(Modifier.graphicsLayer { alpha = detailsAlpha }) {
+            // (Cinema: the details rise a little as they fade in, eased, for a cleaner change between titles.)
+            val rise = if (AppColors.palette.heroStyle == 1) 1f - androidx.compose.animation.core.FastOutSlowInEasing.transform(detailsAlpha) else 0f
+            if (item != null) Column(Modifier.graphicsLayer { alpha = detailsAlpha; translationY = rise * 18.dp.toPx() }, horizontalAlignment = colAlign) {
                 // (The logo already fetched and its picture loaded: shown straight from there.)
                 val exLogo = ex?.takeIf { it.key == item.key }?.logo
                 val logoFn: (suspend (MediaItem) -> String?)? = if (ex?.key == item.key) ({ _: MediaItem -> exLogo }) else null
-                TitleLogo(item, logoFn, height = 54.dp, maxWidth = 340.dp, fontSize = 26)
+                if (AppColors.palette.heroStyle == 1) TitleLogo(item, logoFn, height = 84.dp, maxWidth = 460.dp, fontSize = 34, known = exLogo, end = endSide)
+                else TitleLogo(item, logoFn, height = 54.dp, maxWidth = 340.dp, fontSize = 26, known = exLogo, end = endSide)
                 Spacer(Modifier.height(6.dp))
                 Text(
                     inLibrary?.let { where -> metaLine(item.copy(origin = "$where · via ${item.origin}")) } ?: metaLine(item),
-                    fontSize = 14.sp, color = AppColors.TextSecondary, maxLines = 1,
+                    fontSize = 14.sp, color = AppColors.TextSecondary, maxLines = 1, textAlign = align,
                 )
                 // IMDb / Rotten Tomatoes / Trakt for the highlighted title (fetched with the rest, above).
                 val heroRatings = ex?.takeIf { it.key == item.key }?.ratings.orEmpty()
                 // (One line of ratings here, the ones that don't fit left off: wrapping onto a second line pushed the
                 // description out of the hero's height, cut off mid-line. Peter, 2026-11-17.)
-                if (heroRatings.isNotEmpty()) {
+                // (Cinema: no ratings; the title as its logo, its details and the description. Peter, 2026-11-18.)
+                val cinemaHero = AppColors.palette.heroStyle == 1
+                if (heroRatings.isNotEmpty() && !cinemaHero) {
                     Spacer(Modifier.height(6.dp))
                     RatingsLine(null, heroRatings, oneLine = true)
                 }
                 item.subtitle?.let {
                     Spacer(Modifier.height(4.dp))
-                    Text(it, fontSize = 14.sp, color = AppColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(it, fontSize = 14.sp, color = AppColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = align)
                 }
                 // Ratings and a subtitle (or the shorter library hero): one line of description, so it all fits.
                 val roomy = heroRatings.isEmpty() || (item.subtitle == null && height >= 212.dp)
                 item.overview?.let {
                     Spacer(Modifier.height(10.dp))
-                    Text(it, fontSize = 14.sp, lineHeight = 20.sp, color = AppColors.TextPrimary, maxLines = if (roomy) 2 else 1, overflow = TextOverflow.Ellipsis)
+                    Text(it, fontSize = if (cinemaHero) 15.sp else 14.sp, lineHeight = if (cinemaHero) 22.sp else 20.sp, color = AppColors.TextPrimary,
+                        maxLines = if (cinemaHero) 3 else if (roomy) 2 else 1, overflow = TextOverflow.Ellipsis, textAlign = align)
                 }
             }
         }
@@ -648,6 +818,7 @@ private fun LibraryGrid(
     // mini player beside it), so each poster is the same size as everywhere else.
     var gridColumns by remember { androidx.compose.runtime.mutableIntStateOf(8) }
     val density = androidx.compose.ui.platform.LocalDensity.current
+    val gridScope = rememberCoroutineScope()
     val gridState = remember(b.library.key, b.version) { androidx.compose.foundation.lazy.grid.LazyGridState() }
     val cells = remember(b.library.key, b.version) { HashMap<Int, FocusRequester>() }
     fun cell(i: Int) = cells.getOrPut(i) { FocusRequester() }
@@ -709,28 +880,12 @@ private fun LibraryGrid(
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().padding(top = if (withHero) 0.dp else 24.dp)) {
             Row(Modifier.padding(horizontal = 48.dp), verticalAlignment = Alignment.CenterVertically) {
-                // The library's name and what it is on one line (two lines took room from the posters).
-                Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
-                    Text(b.library.title, fontSize = 22.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(end = 12.dp))
-                    val sortLabel = b.options?.sorts?.firstOrNull { it.id == b.query.sort }?.label
-                    Text(
-                        when {
-                            b.failed -> "The server didn't answer. Press Back and try again."
-                            b.total < 0 -> "Loading…"
-                            else -> listOfNotNull(
-                                b.library.source,
-                                "${"%,d".format(b.total)} ${if (b.filtered) "matches" else "titles"}",
-                                sortLabel?.let { "$it ${if (b.query.desc) "↓" else "↑"}" },
-                            ).joinToString("  ·  ")
-                        },
-                        fontSize = 13.sp, color = AppColors.TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false),
-                    )
-                }
+                LibraryTitle(b)
                 // Keyed by library: another library starts with an empty box.
                 androidx.compose.runtime.key(b.library.key) {
-                    LibrarySearchBox(b.query.query, vm::setLibraryQuery, onSearchFocus, onDone = { runCatching { cell(vm.lastIndexFor(b.version) ?: 0).requestFocus() } }, onLeft = onLeftEdge)
+                    // (Down from the box through focusAt: the poster it goes to is scrolled in and drawn first; aimed
+                    // straight at one that wasn't drawn, the highlight went nowhere.)
+                    LibrarySearchBox(b.query.query, vm::setLibraryQuery, onSearchFocus, onDone = { gridScope.launch { focusAt(vm.lastIndexFor(b.version) ?: 0) } }, onLeft = onLeftEdge)
                 }
                 ToolButton(
                     "Sort" + (b.options?.sorts?.firstOrNull { it.id == b.query.sort }?.let { ": ${it.label}" } ?: ""),
@@ -742,29 +897,13 @@ private fun LibraryGrid(
                 ) { panel = "filter" }
             }
             // What's filtered, each removable; then the highlighted title.
-            if (b.query.active > 0) androidx.compose.foundation.lazy.LazyRow(
-                contentPadding = PaddingValues(horizontal = 48.dp), horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.padding(top = 10.dp),
-            ) {
-                val groups = b.options?.filters.orEmpty()
-                items(b.query.toggles.toList(), key = { "t-$it" }) { t ->
-                    FilterChip(groups.firstOrNull { it.id == t }?.label ?: t) { vm.toggleFlag(t) }
-                }
-                b.query.filters.forEach { (g, vs) ->
-                    items(vs, key = { "v-$g-${it.id}" }) { v -> FilterChip(v.label) { vm.toggleFilterValue(g, v) } }
-                }
-                item(key = "clear") { FilterChip("Clear all", clear = true) { vm.clearFilters() } }
-            }
+            if (b.query.active > 0) FilterChips(b, vm)
             if (withHero) Spacer(Modifier.height(4.dp)) else Text(
                 focused?.takeIf { f -> b.items.any { it.key == f.key } }?.let { "${it.title}   ${metaLine(it)}" } ?: " ",
                 fontSize = 15.sp, color = AppColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(start = 48.dp, end = 48.dp, top = 10.dp, bottom = 6.dp),
             )
-            when {
-                b.total == 0 && b.query.query.isNotBlank() -> Text("Nothing in this library matches \"${b.query.query}\"", fontSize = 15.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(start = 48.dp, top = 12.dp))
-                b.total == 0 && b.filtered -> Text("Nothing in this library matches these filters", fontSize = 15.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(start = 48.dp, top = 12.dp))
-                b.total == 0 -> Text("This library is empty", fontSize = 15.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(start = 48.dp, top = 12.dp))
-            }
+            EmptyNote(b)
             Row(Modifier.fillMaxWidth().weight(1f).onSizeChanged { sz ->
                 val wDp = with(density) { sz.width.toDp().value }
                 // Side padding (48 dp + the A–Z strip's room) and 12 dp between posters.
@@ -775,14 +914,7 @@ private fun LibraryGrid(
                 // the row you're on is never cut off (the app's usual resting place, a third of the way down, left
                 // too little room under the header: half a poster per press, the row half hidden).
                 val rowTop = with(density) { 4.dp.toPx() }
-                val gridSpec = remember(rowTop) {
-                    object : BringIntoViewSpec {
-                        override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float {
-                            val d = offset - rowTop
-                            return if (kotlin.math.abs(d) < 1f) 0f else d
-                        }
-                    }.followingSetting()
-                }
+                val gridSpec = remember(rowTop) { insetSpec(rowTop).followingSetting() }
                 CompositionLocalProvider(LocalBringIntoViewSpec provides gridSpec) {
                 androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
                     columns = androidx.compose.foundation.lazy.grid.GridCells.Fixed(gridColumns),
@@ -842,27 +974,68 @@ private fun LibraryGrid(
             Modifier.align(Alignment.Center).size(140.dp).background(AppColors.Panel.copy(alpha = 0.92f), RoundedCornerShape(24.dp)),
             contentAlignment = Alignment.Center,
         ) { Text(railLetter.toString(), fontSize = 72.sp, fontWeight = FontWeight.Bold, color = AppColors.Accent) }
-        if (panel == "sort") b.options?.let { o -> SortPanel(o, b.query, onPick = { id -> val same = id == b.query.sort; vm.setLibrarySort(id); if (!same) panel = null }, onDesc = vm::setLibraryDesc, onClose = { panel = null }) }
-        if (panel == "filter") b.options?.let { o ->
-            FilterPanel(o, b.query, b.values, onOpenGroup = vm::loadFilterValues, onToggle = vm::toggleFlag, onValue = vm::toggleFilterValue, onClear = vm::clearFilters, onClose = { panel = null })
-        }
+        LibraryPanels(b, vm, panel) { panel = null }
     }
 }
 
-/** '#' for titles starting with a number or symbol, else the first letter (ignoring "The "). */
-private fun firstLetter(title: String): Char {
-    val t = title.trim().removePrefix("The ").removePrefix("the ").uppercase()
-    val c = t.firstOrNull { !it.isWhitespace() } ?: return '#'
-    return if (c in 'A'..'Z') c else '#'
+/** A library's name and what it is on one line (two lines took room from the posters): source, count, sort. */
+@Composable
+private fun RowScope.LibraryTitle(b: MediaViewModel.LibraryBrowse) {
+    Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+        Text(b.library.title, fontSize = 22.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(end = 12.dp))
+        val sortLabel = b.options?.sorts?.firstOrNull { it.id == b.query.sort }?.label
+        Text(
+            when {
+                b.failed -> "The server didn't answer. Press Back and try again."
+                b.total < 0 -> "Loading…"
+                else -> listOfNotNull(
+                    b.library.source,
+                    "${"%,d".format(b.total)} ${if (b.filtered) "matches" else "titles"}",
+                    sortLabel?.let { "$it ${if (b.query.desc) "↓" else "↑"}" },
+                ).joinToString("  ·  ")
+            },
+            fontSize = 13.sp, color = AppColors.TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f, fill = false),
+        )
+    }
 }
 
-/** A poster still on its way (the grid holds every position so you can scroll or jump anywhere). */
+/** The filters in force along a library's top, each removable. */
 @Composable
-private fun PlaceholderPoster(modifier: Modifier) {
-    FocusCard(
-        onClick = {}, modifier = modifier.fillMaxWidth(), aspect = CardAspect.Poster,
-        containerColor = AppColors.Panel.copy(alpha = 0.6f), focusedContainerColor = AppColors.Panel,
-    ) {}
+private fun FilterChips(b: MediaViewModel.LibraryBrowse, vm: MediaViewModel) {
+    androidx.compose.foundation.lazy.LazyRow(
+        contentPadding = PaddingValues(horizontal = 48.dp), horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.padding(top = 10.dp),
+    ) {
+        val groups = b.options?.filters.orEmpty()
+        items(b.query.toggles.toList(), key = { "t-$it" }) { t ->
+            FilterChip(groups.firstOrNull { it.id == t }?.label ?: t) { vm.toggleFlag(t) }
+        }
+        b.query.filters.forEach { (g, vs) ->
+            items(vs, key = { "v-$g-${it.id}" }) { v -> FilterChip(v.label) { vm.toggleFilterValue(g, v) } }
+        }
+        item(key = "clear") { FilterChip("Clear all", clear = true) { vm.clearFilters() } }
+    }
+}
+
+/** Why a library shows nothing: no match for the search, for the filters, or an empty library. */
+@Composable
+private fun EmptyNote(b: MediaViewModel.LibraryBrowse) {
+    when {
+        b.total == 0 && b.query.query.isNotBlank() -> Text("Nothing in this library matches \"${b.query.query}\"", fontSize = 15.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(start = 48.dp, top = 12.dp))
+        b.total == 0 && b.filtered -> Text("Nothing in this library matches these filters", fontSize = 15.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(start = 48.dp, top = 12.dp))
+        b.total == 0 -> Text("This library is empty", fontSize = 15.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(start = 48.dp, top = 12.dp))
+    }
+}
+
+/** The Sort / Filter pop-ups over a library ([panel]: "sort", "filter" or null); [onClose] puts it away. */
+@Composable
+private fun LibraryPanels(b: MediaViewModel.LibraryBrowse, vm: MediaViewModel, panel: String?, onClose: () -> Unit) {
+    if (panel == "sort") b.options?.let { o -> SortPanel(o, b.query, onPick = { id -> val same = id == b.query.sort; vm.setLibrarySort(id); if (!same) onClose() }, onDesc = vm::setLibraryDesc, onClose = onClose) }
+    if (panel == "filter") b.options?.let { o ->
+        FilterPanel(o, b.query, b.values, onOpenGroup = vm::loadFilterValues, onToggle = vm::toggleFlag, onValue = vm::toggleFilterValue, onClear = vm::clearFilters, onClose = onClose)
+    }
 }
 
 
@@ -926,55 +1099,7 @@ internal fun LibrarySearchBox(query: String, onQuery: (String) -> Unit, onFocus:
 
 
 /** Rows that already are your library (no need to look the title up). */
-private val LIBRARY_ORIGINS = setOf("Plex", "Jellyfin", "Emby", "IPTV")
-
-/** The age rating from the country chosen in Settings → Appearance (UK or US). */
-private fun ageRating(d: MediaDetail): String? =
-    if (AppColors.palette.opt(UiOpts.AGE_RATING) == 1) d.certificationUs else d.certification
-
-/**
- * Netflix-style outlined badges under a title's info line: age rating, picture (4K, Dolby Vision…), sound (the
- * default soundtrack's format and channels), CC when the file has subtitles, then when a film would end if
- * played now (the time left, for one part-watched). Drawn here, not logos: nothing to licence.
- */
-@Composable
-private fun TitleBadges(item: MediaItem, d: MediaDetail, media: TitleTracks?) {
-    if (!AppColors.palette.shows(TitleParts.BADGES)) return
-    val audio = media?.audio?.let { a -> a.firstOrNull { it.default } ?: a.firstOrNull() }
-    val boxes = listOfNotNull(
-        ageRating(d),
-        media?.resolution,
-        media?.hdr,
-        audio?.format,
-        audio?.channels,
-        if (media?.subtitles?.isNotEmpty() == true) "CC" else null,
-    ).distinct()
-    // Recomposes about once a minute, so "Ends at" keeps up with the clock while the page is open.
-    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(Unit) { while (true) { kotlinx.coroutines.delay(30_000); now = System.currentTimeMillis() } }
-    val ends = d.runtimeMin?.takeIf { it > 0 && item.type == MediaType.Movie }?.let { mins ->
-        val left = (mins * 60_000L * (1f - (item.progress ?: 0f).coerceIn(0f, 1f))).toLong()
-        Dates.time(now + left)
-    }
-    if (boxes.isEmpty() && ends == null) return
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-        boxes.forEach { b ->
-            Text(
-                b, fontSize = 12.sp, fontWeight = FontWeight.Medium, color = AppColors.TextPrimary, maxLines = 1,
-                modifier = Modifier.border(1.dp, AppColors.TextSecondary.copy(alpha = 0.8f), RoundedCornerShape(3.dp)).padding(horizontal = 6.dp, vertical = 1.dp),
-            )
-        }
-        ends?.let { Text("Ends at $it", fontSize = 12.sp, color = AppColors.TextSecondary, maxLines = 1) }
-    }
-}
-
-private fun metaLine(item: MediaItem) = listOfNotNull(
-    item.year?.toString(),
-    // Library titles carry their server's own score (Plex's is the audience score, already a badge): only TMDB's,
-    // labelled, so it isn't mistaken for the others.
-    item.rating?.takeIf { item.origin !in LIBRARY_ORIGINS }?.let { "TMDB %.1f".format(it) },
-    item.origin,
-).joinToString("  ·  ")
+internal val LIBRARY_ORIGINS = setOf("Plex", "Jellyfin", "Emby", "IPTV")
 
 @OptIn(ExperimentalFoundationApi::class, androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
@@ -1040,24 +1165,74 @@ private fun PosterRow(
     }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-private fun PosterCard(item: MediaItem, modifier: Modifier, onClick: () -> Unit, onLongClick: () -> Unit = {}, fill: Boolean = false) {
+private fun PosterCard(item: MediaItem, modifier: Modifier, onClick: () -> Unit, onLongClick: () -> Unit = {}, fill: Boolean = false,
+                       /** False: no trailer in this card (the title page's small rows). */
+                       trailer: Boolean = true) {
     var focused by remember { mutableStateOf(false) }
+    // Trailers in the poster (rows only, not grids or people): one trailer for the app (PosterTrailerHost) sits on the
+    // highlighted poster, which widens to 16:9 once it shows; then it grows into the big panel. This card only starts
+    // and stops it and says where it is on screen.
+    val inPoster = trailer && !fill && PosterTrailer.on && !item.key.startsWith("person:")
+    val mine = inPoster && PosterTrailer.item?.key == item.key
+    val playing = mine && PosterTrailer.showing
+    LaunchedEffect(inPoster, focused, PosterTrailer.active, item.key) {
+        if (!inPoster) return@LaunchedEffect
+        if (focused && PosterTrailer.active && PosterTrailer.dismissed != item.key) PosterTrailer.start(item, onClick)
+        if (!focused) {
+            PosterTrailer.stop(item.key)
+            // (Moved off it: it may play again next time.)
+            if (PosterTrailer.dismissed == item.key && !PosterTrailer.panel) PosterTrailer.dismissed = null
+        }
+    }
+    // The card leaving (its row refreshed, the page closed) takes its trailer with it, else a box floated at its old place.
+    DisposableEffect(item.key) { onDispose { if (PosterTrailer.item?.key == item.key) PosterTrailer.close(quiet = true) } }
+    val dimAlpha by androidx.compose.animation.core.animateFloatAsState(if (focused || fill) 1f else AppColors.palette.posterDimAlpha, androidx.compose.animation.core.tween(160), label = "posterDim")
+    val baseW = AppColors.palette.rowPosterWidth.dp
+    val width by androidx.compose.animation.core.animateDpAsState(if (playing) baseW * 1.5f * 16f / 9f else baseW, androidx.compose.animation.core.tween(320), label = "posterTrailer")
+    val bring = remember { androidx.compose.foundation.relocation.BringIntoViewRequester() }
+    LaunchedEffect(playing) { if (playing) { kotlinx.coroutines.delay(340); runCatching { bring.bringIntoView() } } }
+    // Back from its panel: the highlight back on this poster.
+    val cardFocus = remember { FocusRequester() }
+    var hadPanel by remember { mutableStateOf(false) }
+    if (mine && PosterTrailer.panel) hadPanel = true
+    LaunchedEffect(PosterTrailer.closedAt) { if (hadPanel && PosterTrailer.item == null) { hadPanel = false; if (!focused) { kotlinx.coroutines.delay(60); runCatching { cardFocus.requestFocus() } } } }
     // The shared card (FocusCard: 3 dp accent ring, no growing).
     FocusCard(
-        onClick = onClick,
+        // OK while its trailer plays in the card: the big panel with sound (Peter, 2026-11-18); otherwise the title
+        // page as always. (In the panel the poster keeps the highlight: its keys, via panelKey below, work the panel.)
+        onClick = { if (playing) PosterTrailer.panel = true else onClick() },
         onLongClick = onLongClick,
         // In a grid ([fill]): as wide as its column, always 2:3 (a fixed size was squeezed to the column's width
         // but kept its height, so posters came out too wide).
-        modifier = modifier.free().then(if (fill) Modifier.fillMaxWidth() else Modifier.width(100.dp)).onFocusChanged { focused = it.isFocused },
-        aspect = CardAspect.Poster,
+        // (The panel's keys before anything the row added, e.g. Left opening the menu. UI review, 2026-11-18.)
+        modifier = (if (mine && PosterTrailer.panel) Modifier.onPreviewKeyEvent { e -> PosterTrailer.panelKey(e) } else Modifier).then(modifier).free().then(
+            if (fill) Modifier.fillMaxWidth()
+            else if (inPoster) Modifier.width(width).height(baseW * 1.5f).bringIntoViewRequester(bring)
+            else Modifier.width(baseW),
+        ).focusRequester(cardFocus).onFocusChanged { focused = it.isFocused }
+            // Posters that aren't highlighted fade a little (Settings → Appearance → Posters → Other posters faded;
+            // Peter, 2026-11-18), the highlighted one is solid.
+            .graphicsLayer { alpha = dimAlpha }
+            .then(if (mine) Modifier.onGloballyPositioned { PosterTrailer.cardRect = it.boundsInRoot() } else Modifier),
+        aspect = if (inPoster) null else CardAspect.Poster,
+        ring = !(mine && PosterTrailer.panel),
+        // (Grows a little when highlighted, except in a grid and while its trailer plays in it.)
+        focusedScale = if (fill || playing) 1f else AppColors.palette.posterZoom,
     ) {
         Box(Modifier.fillMaxSize()) {
+            if (playing) item.backdrop?.let { PosterImage(it, item.title, Modifier.fillMaxSize()) }
             Text(
                 item.title, fontSize = 13.sp, color = AppColors.TextSecondary, textAlign = TextAlign.Center,
                 modifier = Modifier.align(Alignment.Center).padding(8.dp), maxLines = 4, overflow = TextOverflow.Ellipsis,
             )
-            item.poster?.let { PosterImage(it, item.title, Modifier.fillMaxSize()) }
+            if (!playing) (item.poster ?: item.backdrop)?.let { PosterImage(it, item.title, Modifier.fillMaxSize()) }
+            // (No poster, only a wide picture: the name over its foot. UI review, 2026-11-18.)
+            if (!playing && item.poster == null && item.backdrop != null) Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+                .background(Brush.verticalGradient(0f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.8f))).padding(horizontal = 8.dp, vertical = 8.dp)) {
+                Text(item.title, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 3, overflow = TextOverflow.Ellipsis)
+            }
             // Search: this one's in your library, and where ("Plex", "Jellyfin · IPTV").
             if (item.owned && AppColors.palette.sourceBadges) Text(
                 item.ownedFrom ?: "In library",
@@ -1099,6 +1274,8 @@ private fun DetailScreen(
     val d = ui.detail
     val item = d.item
     val playFocus = remember { FocusRequester() }
+    // The Back icon's own (it shared playFocus with the Find a source button: two nodes on one requester).
+    val backFocus = remember { FocusRequester() }
     var playFocused by remember { mutableStateOf(false) }
     val onPlex = ui.copies?.any { it.source == "Plex" && it.ref != null } == true
     val onProvider = ui.copies?.any { it.source == PROVIDER } == true
@@ -1112,23 +1289,9 @@ private fun DetailScreen(
     var sourcesOpen by remember { mutableStateOf(false) }
     var tracksOpen by remember { mutableStateOf(false) }
     // Closed: back to Play (once the buttons can take focus again, a frame later).
-    var tracksWasOpen by remember { mutableStateOf(false) }
-    LaunchedEffect(tracksOpen) {
-        if (tracksOpen) { tracksWasOpen = true; return@LaunchedEffect }
-        if (!tracksWasOpen) return@LaunchedEffect
-        tracksWasOpen = false
-        awaitFrame(); awaitFrame()
-        runCatching { playFocus.requestFocus() }
-    }
+    FocusBackWhenClosed(tracksOpen, playFocus)
     // The "Play from" choice closed: the highlight back on Play (it was made unpickable while open and left nowhere).
-    var sourcesWasOpen by remember { mutableStateOf(false) }
-    LaunchedEffect(sourcesOpen) {
-        if (sourcesOpen) { sourcesWasOpen = true; return@LaunchedEffect }
-        if (!sourcesWasOpen) return@LaunchedEffect
-        sourcesWasOpen = false
-        awaitFrame(); awaitFrame()
-        runCatching { playFocus.requestFocus() }
-    }
+    FocusBackWhenClosed(sourcesOpen, playFocus)
     if (sourcesOpen) SourcesDialog(ui, vm, onDone = { sourcesOpen = false })
     val trailerFocus = remember { FocusRequester() }
     // (The stream list, an episode's actions and the old episodes list are pop-ups over the title page.)
@@ -1201,31 +1364,14 @@ private fun DetailScreen(
                 val hovered = hover.takeIf { besidePreview }
                 if (hovered != null) Text(hovered.first, fontSize = 24.sp, fontWeight = FontWeight.Medium, color = AppColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 else TitleLogo(item, vm::logoFor, height = 54.dp, maxWidth = 320.dp, fontSize = 28)
-                val meta = listOfNotNull(
-                    item.year?.toString(),
-                    // The age rating is a badge below (Settings → Appearance → Title pages: Badges); in the line when they're off.
-                    if (AppColors.palette.shows(TitleParts.BADGES)) null else ageRating(d),
-                    d.runtimeMin?.takeIf { it > 0 }?.let { if (it >= 60) "${it / 60}h ${it % 60}m" else "${it}m" },
-                    d.seasons.takeIf { it.isNotEmpty() }?.let { s -> "${s.size} season${if (s.size == 1) "" else "s"} · ${s.sumOf { it.episodes }} episodes" },
-                    d.genres.takeIf { it.isNotEmpty() }?.take(3)?.joinToString(", "),
-                ).joinToString("  ·  ")
+                val meta = detailMeta(item, d)
                 if (meta.isNotEmpty()) Text(meta, fontSize = 13.sp, color = AppColors.TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 TitleBadges(item, d, ui.media)
                 RatingsLine(item.rating, ui.ratings)
                 (ui.upTo()?.let { "S${it.first} · E${it.second}" } ?: item.subtitle)?.takeIf { parts.shows(TitleParts.UP_NEXT) }?.let { Text("Up next: $it", fontSize = 13.sp, color = AppColors.Accent, maxLines = 1) }
                 (if (hovered != null) hovered.second else item.overview)?.let { Text(it, fontSize = 14.sp, lineHeight = 20.sp, color = AppColors.TextPrimary, maxLines = if (show) 2 else 3, overflow = TextOverflow.Ellipsis) }
                 Text(
-                    listOfNotNull(
-                        d.directors.takeIf { it.isNotEmpty() }?.let { (if (show) "Created by " else "Directed by ") + it.take(2).joinToString(", ") },
-                        when (val copies = ui.copies) {
-                            null -> "Checking your library…"
-                            // One entry per source, its versions together: "Plex (4K DV, 1080p) · Jellyfin (1080p)".
-                            else -> if (copies.isEmpty()) "Not in your library" else "In your library: " + copies.groupBy { it.source }.entries.joinToString(" · ") { (src, cs) ->
-                                val vs = cs.mapNotNull { c -> c.version?.let { v -> listOfNotNull(v.resolution, v.hdr?.let { h -> if (h == "Dolby Vision") "DV" else h }).joinToString(" ").ifEmpty { null } } ?: c.detail }.distinct()
-                                if (vs.isEmpty()) src else "$src (${vs.joinToString(", ")})"
-                            }
-                        },
-                    ).joinToString("   ·   "),
+                    detailLibraryLine(ui, show),
                     fontSize = 13.sp,
                     color = if (ui.copies.isNullOrEmpty()) AppColors.TextSecondary else AppColors.Accent,
                     maxLines = 1, overflow = TextOverflow.Ellipsis,
@@ -1249,18 +1395,11 @@ private fun DetailScreen(
                         // The episode you're up to not out yet (a new season part-way through): the button says when it
                         // is, rather than trying to play it and failing. Its air date is in the season's episodes,
                         // which the page loads for that season.
-                        val upDate = next?.let { n -> ui.episodes?.takeIf { ui.season == n.first }?.firstOrNull { it.number == n.second }?.airDate }
-                            ?.let { runCatching { java.time.LocalDate.parse(it.take(10)) }.getOrNull() }
-                            ?.takeIf { it.isAfter(java.time.LocalDate.now()) }
+                        val upDate = notOutYet(ui, next)
                         if (canPlay && next != null && upDate != null) {
-                            val today = java.time.LocalDate.now()
-                            val whenOut = when {
-                                upDate == today.plusDays(1) -> "tomorrow"
-                                upDate.isBefore(today.plusDays(7)) -> upDate.format(java.time.format.DateTimeFormatter.ofPattern("EEEE", java.util.Locale.UK))
-                                else -> upDate.format(Dates.day)
-                            }
+                            val whenOut = outWhen(upDate)
                             // OK: the episodes (that one shows "Not out yet"), not a play that can only fail.
-                            Button(onClick = vm::openEpisodes, modifier = (Modifier.focusRequester(playFocus).onFocusChanged { playFocused = it.isFocused }).free()) {
+                            Button(compact = true, onClick = vm::openEpisodes, modifier = (Modifier.focusRequester(playFocus).onFocusChanged { playFocused = it.isFocused }).free()) {
                                 androidx.compose.material3.Icon(AppIcons.Clock, null, modifier = Modifier.padding(end = 6.dp).size(20.dp), tint = androidx.tv.material3.LocalContentColor.current)
                                 Text("S${next.first} · E${next.second} out $whenOut")
                             }
@@ -1272,7 +1411,7 @@ private fun DetailScreen(
                             }
                             // Holding OK: the sources found for that episode, to pick from (as a film's Play). The seasons and
                             // episodes are on the page itself (below).
-                            Button(onClick = vm::playNextUp, onLongClick = vm::pickNextUp, modifier = (Modifier.focusRequester(playFocus).onFocusChanged { playFocused = it.isFocused }).free()) { androidx.compose.material3.Icon(AppIcons.Play, null, modifier = Modifier.padding(end = 6.dp).size(20.dp), tint = androidx.tv.material3.LocalContentColor.current); Text(if (ui.searching) "Looking…" else label) }
+                            Button(compact = true, onClick = vm::playNextUp, onLongClick = vm::pickNextUp, modifier = (Modifier.focusRequester(playFocus).onFocusChanged { playFocused = it.isFocused }).free()) { androidx.compose.material3.Icon(AppIcons.Play, null, modifier = Modifier.padding(end = 6.dp).size(17.dp), tint = androidx.tv.material3.LocalContentColor.current); Text(if (ui.searching) "Looking…" else label) }
                             // Part-way through that episode: or start it again.
                             if (next?.third == true) IconAction(AppIcons.Replay, "Start over", vm::playFromStart, Modifier.free())
                         } else {
@@ -1281,8 +1420,8 @@ private fun DetailScreen(
                     } else if (onPlex || onServer || onProvider || ui.hasAddons) {
                         // One Play: your servers, IPTV and addons in the Play order setting (MediaViewModel.playBest).
                         // OK plays from the best source; holding OK lists every source to pick from.
-                        Button(onClick = vm::playBest, onLongClick = { sourcesOpen = true }, modifier = (Modifier.focusRequester(playFocus).onFocusChanged { playFocused = it.isFocused }).free()) {
-                            androidx.compose.material3.Icon(AppIcons.Play, null, modifier = Modifier.padding(end = 6.dp).size(20.dp), tint = androidx.tv.material3.LocalContentColor.current)
+                        Button(compact = true, onClick = vm::playBest, onLongClick = { sourcesOpen = true }, modifier = (Modifier.focusRequester(playFocus).onFocusChanged { playFocused = it.isFocused }).free()) {
+                            androidx.compose.material3.Icon(AppIcons.Play, null, modifier = Modifier.padding(end = 6.dp).size(17.dp), tint = androidx.tv.material3.LocalContentColor.current)
                             Text(if (ui.searching) "Looking…" else if (item.progress != null) "Resume" else "Play")
                         }
                         // Part-way through: or watch it again from the beginning.
@@ -1304,7 +1443,7 @@ private fun DetailScreen(
                         IconAction(if (ui.watched) AppIcons.CheckCircle else AppIcons.Check, if (ui.watched) "Watched (OK: undo)" else "Mark watched", vm::toggleWatched, Modifier.free(), on = ui.watched)
                     }
                     if (!show && !onPlex && !onProvider && !onServer && !ui.hasAddons && ui.copies != null) {
-                        IconAction(AppIcons.Back, "Back", onClose, Modifier.focusRequester(playFocus).onFocusChanged { playFocused = it.isFocused }.free())
+                        IconAction(AppIcons.Back, "Back", onClose, Modifier.focusRequester(backFocus).onFocusChanged { playFocused = it.isFocused }.free())
                     }
                     if (trailerId != null) {
                         IconAction(AppIcons.Movie, "Trailer", { trailerOpen = true }, Modifier.focusRequester(trailerFocus).free())
@@ -1312,14 +1451,7 @@ private fun DetailScreen(
                     if (ui.canWatchlist) {
                         IconAction(if (ui.watchlisted) AppIcons.BookmarkFilled else AppIcons.Bookmark, if (ui.watchlisted) "Remove from watchlist" else "Add to watchlist", onWatchlist, Modifier.free(), on = ui.watchlisted)
                     }
-                    // Seerr: ask for it to be kept (Radarr / Sonarr fetch it), or show it's already on the way.
-                    val seerrState by produceState<SeerrService.Status?>(null, ui.detail.item.key, ui.message) { value = vm.seerrStatus(ui.detail.item) }
-                    // Not for something already on your own server (only on IPTV can still be requested).
-                    if (ui.copies.orEmpty().none { it.source != PROVIDER }) seerrState?.takeIf { it != SeerrService.Status.Available }?.let { st ->
-                        val canAsk = st == SeerrService.Status.None ||
-                            st == SeerrService.Status.Partial
-                        IconAction(if (canAsk) AppIcons.Add else AppIcons.Clock, if (canAsk) "Request on Seerr" else "Requested on Seerr", { if (canAsk) vm.requestOnSeerr(ui.detail.item) }, Modifier.free(), on = !canAsk)
-                    }
+                    SeerrAction(ui, vm)
                 }
                 }
                 if (!ui.episodesOpen) ui.message?.let { Text(it, fontSize = 14.sp, color = AppColors.Accent) }
@@ -1328,7 +1460,13 @@ private fun DetailScreen(
                 }
             }
         }
-        Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())) {
+        // Cinema (films and shows without the episode rows here): the tabs and their row along the bottom of the
+        // screen, the backdrop clear between the buttons and them (Peter, 2026-11-18). Otherwise they follow the header.
+        val cinemaPage = AppColors.palette.heroStyle == 1 && !inlineEpisodes
+        Column(
+            if (cinemaPage) Modifier.weight(1f).fillMaxWidth() else Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()),
+            verticalArrangement = if (cinemaPage) Arrangement.Bottom else Arrangement.Top,
+        ) {
         if (inlineEpisodes) InlineEpisodes(ui, vm, free = sectionsFree && ui.episode == null, entry = episodesEntry, up = playFocus, down = tabFocus, onHover = { ep -> hover = "S${ep.season} E${ep.number} · ${ep.name}" to ep.overview })
         // "Episodes" (hold OK on a show, the guide's Go to show…): onto this page's episode row, once the season's in.
         // (Once per request: changing season afterwards mustn't pull focus down to the episodes again.)
@@ -1340,7 +1478,8 @@ private fun DetailScreen(
             runCatching { episodesEntry.requestFocus() }
         }
         Spacer(Modifier.height(16.dp))
-        DetailTabs(d, show, sectionsFree && ui.episode == null, tabFocus, onPerson = { c -> vm.openCastMember(c) }, onReview = { reading = it }, onSimilar = { vm.open(it) }, onHover = { m -> hover = m?.let { it.title to it.overview } }, onLeftEdge = onLeftEdge)
+        DetailTabs(d, show, sectionsFree && ui.episode == null, tabFocus, onPerson = { c -> vm.openCastMember(c) }, onReview = { reading = it }, onSimilar = { vm.open(it) }, onHover = { m -> hover = m?.let { it.title to it.overview } }, onLeftEdge = onLeftEdge,
+            focusSimilar = vm.returnToSimilar, onFocusedSimilar = { vm.returnToSimilar = null })
                 }
 }
         reading?.let { r -> ReviewDialog(r) { reading = null } }
@@ -1401,13 +1540,21 @@ private fun EpisodesPanel(ui: DetailUi, vm: MediaViewModel) {
     // While the next season loads, the last list stays (faded) instead of flashing "Loading episodes…".
     var lastEpisodes by remember { mutableStateOf<List<EpisodeInfo>?>(null) }
     LaunchedEffect(ui.episodes) { ui.episodes?.let { lastEpisodes = it } }
+    // The episode last highlighted this season: an episode's actions closing (hold OK, then Cancel / Back) put the
+    // highlight back on it, not on the one you're up to.
+    var lastEp by remember(ui.season) { androidx.compose.runtime.mutableIntStateOf(-1) }
+    var episodeWasOpen by remember { mutableStateOf(false) }
     LaunchedEffect(ui.season, ui.episodes != null, ui.episode == null, ui.streams == null) {
+        val justClosed = episodeWasOpen && ui.episode == null
+        episodeWasOpen = ui.episode != null
         if (ui.episodes.isNullOrEmpty() || ui.episode != null || ui.streams != null || target < 0) return@LaunchedEffect
-        listState.scrollToItem(maxOf(0, target - 1))
+        // (Not after an episode's actions: the list stays where it was.)
+        if (!justClosed) listState.scrollToItem(maxOf(0, target - 1))
         if (onSeasons) return@LaunchedEffect
         awaitFrame()
         runCatching { episodeFocus.requestFocus() }
     }
+    val entryEp = lastEp.takeIf { it >= 0 } ?: target
     val bg = AppColors.Background
     Box(Modifier.fillMaxSize().background(bg).trapFocus()) {
         (shown?.still?.takeIf { false } ?: item.backdrop)?.let {
@@ -1455,12 +1602,12 @@ private fun EpisodesPanel(ui: DetailUi, vm: MediaViewModel) {
                                 // OK plays it from the best source; holding OK lists the sources.
                                 onClick = { vm.playBestEpisode(ep.season, ep.number) },
                                 onLongClick = { vm.pickEpisode(ep) },
-                                modifier = (if (i == target) Modifier.focusRequester(episodeFocus) else Modifier)
+                                modifier = (if (i == entryEp) Modifier.focusRequester(episodeFocus) else Modifier)
                                     // Not while the next season loads (that's the last season's list); Up from the top
                                     // episode goes to the season being viewed.
                                     .focusProperties { canFocus = panelFree && !loading }
                                     .then(if (i == 0) Modifier.safeMove(Key.DirectionUp) { seasonFocus } else Modifier)
-                                    .onFocusChanged { if (it.isFocused) highlighted = ep }
+                                    .onFocusChanged { if (it.isFocused) { highlighted = ep; lastEp = i } }
                                     .fillMaxWidth(),
                                 scale = NoScale,
                                 shape = ClickableSurfaceDefaults.shape(Tokens.RowShape),
@@ -1622,6 +1769,10 @@ private fun InlineEpisodes(ui: DetailUi, vm: MediaViewModel, free: Boolean, entr
     LaunchedEffect(ui.season, ui.episodes != null) {
         if (target > 0) runCatching { episodeRow.scrollToItem(maxOf(0, target - 1)) }
     }
+    // The episode last highlighted this season: coming back to the row (an episode's actions closed with Cancel /
+    // Back, Down from the buttons) lands on it, not on the one you're up to.
+    var lastEp by remember(ui.season) { androidx.compose.runtime.mutableIntStateOf(-1) }
+    val entryEp = lastEp.takeIf { it >= 0 } ?: target.coerceAtLeast(0)
     LaunchedEffect(ui.season, ui.seasons.size) {
         if (onSeasons) return@LaunchedEffect
         val idx = ui.seasons.indexOfFirst { it.number == ui.season }
@@ -1656,10 +1807,10 @@ private fun InlineEpisodes(ui: DetailUi, vm: MediaViewModel, free: Boolean, entr
                         FocusCard(
                             onClick = { vm.playBestEpisode(ep.season, ep.number) },
                             onLongClick = { vm.pickEpisode(ep) },
-                            modifier = (if (i == target.coerceAtLeast(0)) Modifier.focusRequester(entry) else Modifier)
+                            modifier = (if (i == entryEp) Modifier.focusRequester(entry) else Modifier)
                                 .focusProperties { canFocus = free && !loading }
                                 .safeMove(Key.DirectionUp) { seasonFocus }.safeMove(Key.DirectionDown) { down }
-                                .onFocusChanged { focused = it.isFocused; if (it.isFocused) onHover(ep) }
+                                .onFocusChanged { focused = it.isFocused; if (it.isFocused) { lastEp = i; onHover(ep) } }
                                 .width(192.dp),
                             aspect = CardAspect.Wide,
                             containerColor = AppColors.PanelAlt,
@@ -1742,17 +1893,25 @@ private fun EpisodeActions(
 ) {
     val first = remember { FocusRequester() }
     LaunchedEffect(Unit) { awaitFrame(); runCatching { first.requestFocus() } }
-    // Nothing of your own above them: once the addons answer, the first stream is highlighted (not Mark as watched).
+    // Which option has the highlight, and whether you've moved it yourself since the pop-up opened.
+    var focusedAt by remember { androidx.compose.runtime.mutableIntStateOf(-1) }
+    var moved by remember { mutableStateOf(false) }
+    // Nothing of your own above them: once the addons answer, the first stream is highlighted (not Mark as watched)
+    // unless you've already moved the highlight somewhere (it was pulled off what you'd chosen).
     val noneAbove = plexLabel == null && serverLabel == null && onProvider == null
     LaunchedEffect(addonStreams?.isNotEmpty() == true) {
-        if (addonStreams?.isNotEmpty() == true && noneAbove) { awaitFrame(); runCatching { first.requestFocus() } }
+        if (addonStreams?.isNotEmpty() == true && noneAbove && !moved) { awaitFrame(); runCatching { first.requestFocus() } }
     }
     // The shared pop-up (its own window; the held OK that opened it is ignored, so letting go doesn't pick the
     // first source). Cancel last, as every options pop-up. (Peter, 2026-11-17: was a solid panel with "Close".)
     PopupPanel(onClose = onClose, width = Tokens.PopupWide) {
         PopupTitle(title)
-        var firstUsed = false
-        fun m(): Modifier = if (!firstUsed) { firstUsed = true; Modifier.focusRequester(first) } else Modifier
+        var n = 0
+        fun m(): Modifier {
+            val i = n++
+            return (if (i == 0) Modifier.focusRequester(first) else Modifier)
+                .onFocusChanged { if (it.isFocused) { if (focusedAt >= 0 && focusedAt != i) moved = true; focusedAt = i } }
+        }
         plexLabel?.let { MenuItem(text = it, selected = false, onClick = onPlex, modifier = m()) }
         serverLabel?.let { MenuItem(text = it, selected = false, onClick = onServer, modifier = m()) }
         onProvider?.let { MenuItem(text = providerLabel, selected = false, onClick = it, modifier = m()) }
@@ -1787,192 +1946,16 @@ private fun StreamPicker(streams: List<StreamOption>, onPick: (StreamOption) -> 
     }
 }
 
-private val LocalButtonsFree = androidx.compose.runtime.compositionLocalOf { true }
+internal val LocalButtonsFree = androidx.compose.runtime.compositionLocalOf { true }
 
 /** Detail page buttons that step aside (unfocusable) while a pop-up is open. */
 @Composable
-private fun Modifier.free(): Modifier {
+internal fun Modifier.free(): Modifier {
     val free = LocalButtonsFree.current
     return this.focusProperties { canFocus = free }
 }
 
-/** "Next episode in 10 s": OK plays now, Back cancels. */
-@Composable
-private fun UpNextOverlay(ep: EpisodeInfo, onPlay: () -> Unit, onCancel: () -> Unit) {
-    // Settings → Playback → Next episode countdown.
-    var left by remember(ep) { androidx.compose.runtime.mutableIntStateOf(AppColors.palette.upNextSeconds) }
-    val focus = remember { FocusRequester() }
-    BackHandler(onBack = onCancel)
-    LaunchedEffect(ep) {
-        awaitFrame(); runCatching { focus.requestFocus() }
-        while (left > 0) { delay(1_000); left-- }
-        onPlay()
-    }
-    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.6f * AppColors.palette.popupAlpha)).trapFocus(), contentAlignment = Alignment.BottomEnd) {
-        Column(
-            Modifier.padding(56.dp).width(520.dp).glass(Tokens.PopupRadius).padding(24.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Text("Next episode in $left s", fontSize = 14.sp, color = AppColors.Accent)
-            Text("S${ep.season} · E${ep.number}  ${ep.name}", fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            ep.overview?.let { Text(it, fontSize = 13.sp, color = AppColors.TextSecondary, maxLines = 3, overflow = TextOverflow.Ellipsis) }
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(top = 8.dp)) {
-                Button(onClick = onPlay, modifier = Modifier.focusRequester(focus)) { Text("Play now") }
-                OutlinedButton(onClick = onCancel) { Text("Cancel") }
-            }
-        }
-    }
-}
 
-/**
- * Hold OK on a poster: play, details, trailer and watchlist without opening the title page first. The shared options
- * pop-up (first option highlighted, Cancel last). (Peter, 2026-11-17: the collection card's menu wasn't in its own
- * window at all, and "Close" is now "Cancel".)
- */
-@Composable
-private fun QuickOptions(item: MediaItem, vm: MediaViewModel, onTrailer: () -> Unit, onClose: () -> Unit) {
-    // A collection / playlist card: open it, or give it its own row on this page.
-    if (item.key.startsWith("col:")) {
-        val hasRow = remember(item.key) { vm.hasCollectionRow(item) }
-        OptionsPopup(
-            title = item.title,
-            subtitle = listOfNotNull(item.subtitle, item.origin).joinToString("  ·  "),
-            options = listOf(
-                PopupOption("Open") { vm.open(item) },
-                PopupOption(if (hasRow) "Remove its row from this page" else "Show as a row on this page") { vm.setCollectionRow(item, !hasRow) },
-            ),
-            onClose = onClose,
-        )
-        return
-    }
-    val trailerId by produceState<String?>(null, item.key) { value = vm.trailers.youtubeId(item) }
-    // null = no Trakt (no watchlist option); loading shows nothing until known.
-    val watchlisted by produceState<Boolean?>(null, item.key) { value = vm.watchlistState(item) }
-    // Seerr set up: request the title to keep (or see that it's already requested / available).
-    val seerrStatus by produceState<SeerrService.Status?>(null, item.key) { value = vm.seerrStatus(item) }
-    val show = item.type == MediaType.Show
-    // IPTV keeps no history: watched / not watched kept on the box (films; episodes on the title page).
-    val iptv by produceState(false, item.key) { value = !show && vm.hasIptv(item) }
-    val localEntries by vm.localWatch.entries.collectAsState()
-    val done = remember(localEntries, item.key) { vm.localWatch.isWatched(item) }
-    val seerrAsk = seerrStatus == SeerrService.Status.None || seerrStatus == SeerrService.Status.Partial
-    val options = buildList {
-        add(PopupOption(if (show) "Episodes" else if (item.progress != null) "Resume" else "Play") { if (show) vm.quickEpisodes(item) else vm.quickPlay(item) })
-        add(PopupOption("Details") { vm.open(item) })
-        // (Stays open: the trailer replaces this pop-up itself, and closing would send the highlight back to the rows.)
-        if (trailerId != null) add(PopupOption("Watch trailer", keepOpen = true, onClick = onTrailer))
-        watchlisted?.let { on -> add(PopupOption(if (on) "Remove from watchlist" else "Add to watchlist") { vm.quickWatchlist(item, add = !on) }) }
-        seerrStatus?.takeIf { seerrAsk }?.let { st -> add(PopupOption(st.label) { vm.requestOnSeerr(item) }) }
-        if (iptv) {
-            add(PopupOption(if (done) "Mark as not watched" else "Mark as watched") { vm.markIptvWatched(item, !done) })
-            if (item.origin == "IPTV" && item.progress != null) add(PopupOption("Remove from Continue watching") { vm.hideIptv(item) })
-        }
-        // A show you're done with: out of Continue watching (and Upcoming episodes) for good, and dropped on Trakt.
-        // Watching any episode of it again brings it back.
-        if (show && vm.inContinue(item)) add(PopupOption("Drop show") { vm.dropShow(item) })
-    }
-    OptionsPopup(
-        title = item.title,
-        subtitle = listOfNotNull(item.year?.toString(), item.origin, seerrStatus?.takeIf { !seerrAsk }?.label).joinToString("  ·  "),
-        options = options,
-        onClose = onClose,
-    )
-}
-
-
-/**
- * A title's name as its logo artwork (TMDB), left-aligned; the name as text until the logo arrives, or when there's
- * none. [waitMs]: a short pause first, so moving quickly along a row doesn't fetch every logo.
- */
-@Composable
-private fun TitleLogo(item: MediaItem, logoOf: (suspend (MediaItem) -> String?)?, height: androidx.compose.ui.unit.Dp, maxWidth: androidx.compose.ui.unit.Dp, fontSize: Int, waitMs: Long = 0) {
-    // Settings → Appearance → Title logo off: the name as text, and no logo lookup.
-    val logosOn = AppColors.palette.shows(TitleParts.LOGO) && !AppColors.palette.lowMemory
-    val logo by produceState<String?>(null, item.key, logosOn) {
-        value = null
-        if (logoOf == null || !logosOn) return@produceState
-        if (waitMs > 0) delay(waitMs)
-        value = logoOf(item)
-    }
-    var loaded by remember(logo) { mutableStateOf(false) }
-    // Decoded to fit its space (not the original, thousands of pixels wide), sized here as the space stays 0 high
-    // until it arrives.
-    val request = rememberLogoRequest(logo, maxWidth.value.toInt(), height.value.toInt())
-    Box {
-        request?.let { req ->
-            AsyncImage(
-                model = req,
-                contentDescription = item.title,
-                contentScale = ContentScale.Fit,
-                alignment = Alignment.CenterStart,
-                onSuccess = { loaded = true },
-                modifier = Modifier.height(if (loaded) height else 0.dp).width(maxWidth),
-            )
-        }
-        if (!loaded) Text(item.title, fontSize = fontSize.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis)
-    }
-}
-
-
-/**
- * "TMDB 8.6 · IMDb 7.9 · Rotten Tomatoes 87% · RT audience 91% · Trakt 82%". [oneLine]: never wraps, the ones that
- * don't fit are left off (the Movies / Shows hero, which has a fixed height).
- */
-@Composable
-private fun RatingsLine(tmdb: Double?, more: List<RatingBadge>, oneLine: Boolean = false) {
-    val all = buildList {
-        // Scores only (no vote counts), so up to seven sources fit on one line.
-        // Settings → Appearance → Ratings: only the ones switched on.
-        val p = AppColors.palette
-        tmdb?.takeIf { it > 0 && p.shows(TitleParts.rating("TMDB")) }?.let { add("TMDB" to "%.1f".format(it)) }
-        more.filter { p.shows(TitleParts.rating(it.source)) }.forEach { add(it.source to it.value) }
-    }.sortedBy { AppColors.palette.ratingRank(it.first) }
-    if (all.isEmpty()) return
-    if (oneLine) { OneLine(12.dp) { all.forEach { (src, v) -> RatingBadgeView(src, v) } }; return }
-    // Wraps onto a second line rather than running past its column (e.g. under the trailer on the Movies page).
-    @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
-    androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        all.forEach { (src, v) -> RatingBadgeView(src, v) }
-    }
-}
-
-@Composable
-private fun RatingBadgeView(src: String, v: String) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(src, fontSize = 11.sp, maxLines = 1, softWrap = false, fontWeight = FontWeight.SemiBold, color = Color.Black,
-            modifier = Modifier.background(ratingColour(src), RoundedCornerShape(4.dp)).padding(horizontal = 6.dp, vertical = 2.dp))
-        Spacer(Modifier.width(6.dp))
-        Text(v, fontSize = 13.sp, color = AppColors.TextPrimary, maxLines = 1, softWrap = false)
-    }
-}
-
-/** Its children side by side, [gap] apart, as many as fit the width whole; the rest aren't drawn. */
-@Composable
-private fun OneLine(gap: androidx.compose.ui.unit.Dp, content: @Composable () -> Unit) {
-    androidx.compose.ui.layout.Layout(content) { measurables, c ->
-        val g = gap.roundToPx()
-        val placeables = measurables.map { it.measure(c.copy(minWidth = 0, minHeight = 0)) }
-        val xs = ArrayList<Int>()
-        var x = 0
-        for (pl in placeables) {
-            val at = if (xs.isEmpty()) 0 else x + g
-            if (at + pl.width > c.maxWidth) break
-            xs.add(at); x = at + pl.width
-        }
-        val h = placeables.take(xs.size).maxOfOrNull { it.height } ?: 0
-        layout(x.coerceAtLeast(c.minWidth), h) { xs.forEachIndexed { i, px -> placeables[i].place(px, 0) } }
-    }
-}
-
-private fun ratingColour(source: String) = when (source) {
-    "IMDb" -> Color(0xFFF5C518)
-    "Rotten Tomatoes", "RT" -> Color(0xFFFA6C4F)
-    "RT audience", "Audience" -> Color(0xFFF9D361)
-    "Trakt" -> Color(0xFFED6E83)
-    "Metacritic" -> Color(0xFF66CC33)
-    "Letterboxd" -> Color(0xFF40BCF4)
-    else -> Color(0xFF90CEA1)
-}
 
 private enum class DetailTab(val label: String) { Cast("Cast & crew"), Reviews("Reviews"), Collection("Collection"), Similar("More like this"), Details("Details") }
 
@@ -1994,6 +1977,9 @@ private fun DetailTabs(
     onHover: (MediaItem?) -> Unit = {},
     /** Left at the start of the tabs or a row: the menu (it did nothing). */
     onLeftEdge: () -> Unit = {},
+    /** Back from a title opened in More like this: the poster to put the highlight on (then [onFocusedSimilar]). */
+    focusSimilar: String? = null,
+    onFocusedSimilar: () -> Unit = {},
 ) {
     val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
     // Left with nothing further left in the tabs or a row: the menu, as Left at the edge of any page.
@@ -2025,6 +2011,31 @@ private fun DetailTabs(
     if (tabs.isEmpty()) return
     var tab by remember(d.item.key) { mutableStateOf(tabs.first()) }
     if (tab !in tabs) tab = tabs.first()
+    // Back from a More like this / Collection title: that row as the tab, scrolled to the poster it was opened from,
+    // the highlight on it (a moment after the page's own Play focus, which runs first).
+    val similarReturn = remember { FocusRequester() }
+    val similarState = rememberLazyListState()
+    val collectionState = rememberLazyListState()
+    // The film you're on stays out of its own collection row.
+    val collectionItems = remember(d.item.key, d.collection) { d.collection.filter { it.tmdbId != d.item.tmdbId } }
+    val scope = rememberCoroutineScope()
+    LaunchedEffect(focusSimilar, d.similar.size, collectionItems.size) {
+        val key = focusSimilar ?: return@LaunchedEffect
+        val inSimilar = d.similar.indexOfFirst { it.key == key }
+        val inCollection = collectionItems.indexOfFirst { it.key == key }
+        val (t, along, index) = when {
+            inSimilar >= 0 && DetailTab.Similar in tabs -> Triple(DetailTab.Similar, similarState, inSimilar)
+            inCollection >= 0 && DetailTab.Collection in tabs -> Triple(DetailTab.Collection, collectionState, inCollection)
+            else -> { onFocusedSimilar(); return@LaunchedEffect }
+        }
+        tab = t
+        delay(150); awaitFrame()
+        // (Scrolled to the poster first: off screen it isn't drawn, and there's nothing to highlight.)
+        runCatching { along.scrollToItem(index) }
+        awaitFrame()
+        runCatching { similarReturn.requestFocus() }
+        onFocusedSimilar()
+    }
     // Right past the last tab stays put (it used to jump up to the Play button).
     Row(Modifier.stopAtRight().then(leftOpensMenu), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         tabs.forEach { t ->
@@ -2032,9 +2043,11 @@ private fun DetailTabs(
             AppPill(
                 text = (if (t == DetailTab.Collection) d.collectionName ?: t.label else t.label) + if (t == DetailTab.Reviews) " (${d.reviews.size})" else "",
                 selected = t == tab,
-                // OK: into the tab's row (it only re-picked the tab already showing).
-                onClick = { tab = t; focusManager.moveFocus(androidx.compose.ui.focus.FocusDirection.Down) },
-                modifier = (if (t == tab) Modifier.focusRequester(tabFocus) else Modifier).onFocusChanged { if (it.isFocused) { tab = t; onHover(null) } }.focusProperties { canFocus = free },
+                // OK: into the tab's row (it only re-picked the tab already showing), once that row is drawn (a frame
+                // later: moving at once went into the row of the tab that was showing before).
+                onClick = { tab = t; scope.launch { awaitFrame(); focusManager.moveFocus(androidx.compose.ui.focus.FocusDirection.Down) } },
+                modifier = (if (t == tab) Modifier.focusRequester(tabFocus) else Modifier).onFocusChanged { if (it.isFocused) { tab = t; onHover(null) } }.focusProperties { canFocus = free }
+                    .then(if (t == DetailTab.Collection) Modifier.widthIn(max = 220.dp) else Modifier), // (a long collection name pushed the other tabs off)
             )
         }
     }
@@ -2044,17 +2057,20 @@ private fun DetailTabs(
     @Composable
     fun TabRow(t: DetailTab) {
         when (t) {
-            DetailTab.Cast -> androidx.compose.foundation.lazy.LazyRow(modifier = leftOpensMenu, contentPadding = rowPadding, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            // (Right past a row's last card stays put, as on the tabs: it jumped up to the buttons.)
+            DetailTab.Cast -> androidx.compose.foundation.lazy.LazyRow(modifier = Modifier.stopAtRight().then(leftOpensMenu), contentPadding = rowPadding, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                 items(d.cast, key = { "${it.id}-${it.name}" }) { c -> CastCard(c, free) { onPerson(c) } }
             }
-            DetailTab.Reviews -> androidx.compose.foundation.lazy.LazyRow(modifier = leftOpensMenu, contentPadding = rowPadding, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            DetailTab.Reviews -> androidx.compose.foundation.lazy.LazyRow(modifier = Modifier.stopAtRight().then(leftOpensMenu), contentPadding = rowPadding, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                 items(d.reviews.size) { i -> ReviewCard(d.reviews[i], free) { onReview(d.reviews[i]) } }
             }
-            DetailTab.Similar, DetailTab.Collection -> androidx.compose.foundation.lazy.LazyRow(modifier = leftOpensMenu, contentPadding = rowPadding, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                // The film you're on stays out of its own collection row.
-                items(if (t == DetailTab.Collection) d.collection.filter { it.tmdbId != d.item.tmdbId } else d.similar, key = { it.key }) { m ->
-                    Column(Modifier.width(86.dp)) {
-                        PosterCard(m, Modifier.focusProperties { canFocus = free }.onFocusChanged { if (it.isFocused) onHover(m) }, onClick = { onSimilar(m) })
+            DetailTab.Similar, DetailTab.Collection -> androidx.compose.foundation.lazy.LazyRow(
+                state = if (t == DetailTab.Collection) collectionState else similarState,
+                modifier = Modifier.stopAtRight().then(leftOpensMenu), contentPadding = rowPadding, horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                items(if (t == DetailTab.Collection) collectionItems else d.similar, key = { it.key }) { m ->
+                    Column(Modifier.width(AppColors.palette.rowPosterWidth.dp)) {
+                        PosterCard(m, Modifier.then(if (m.key == focusSimilar) Modifier.focusRequester(similarReturn) else Modifier).focusProperties { canFocus = free }.onFocusChanged { if (it.isFocused) onHover(m) }, onClick = { onSimilar(m) }, trailer = false)
                         Text(m.title, fontSize = 11.sp, color = AppColors.TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp))
                     }
                 }
@@ -2079,7 +2095,8 @@ private fun DetailTabs(
     TabRow(tab)
     // A second row under it, so the page isn't half empty below one short row (Peter, 2026-11-17): More like this, or
     // the cast when More like this is the tab chosen. Down from the first row goes into it.
-    val second = when {
+    // (Cinema: just the chosen tab's row along the bottom, the backdrop above it. Peter, 2026-11-18.)
+    val second = if (AppColors.palette.heroStyle == 1) null else when {
         tab != DetailTab.Similar && DetailTab.Similar in tabs -> DetailTab.Similar
         tab == DetailTab.Similar && DetailTab.Cast in tabs -> DetailTab.Cast
         else -> null
@@ -2091,187 +2108,6 @@ private fun DetailTabs(
     }
 }
 
-private fun money(n: Long): String = when {
-    n >= 1_000_000_000 -> "$%.1fbn".format(n / 1e9)
-    n >= 1_000_000 -> "$%.0fm".format(n / 1e6)
-    else -> "$%,d".format(n)
-}
-
-/** A cast member: round photo (initials when TMDB has none), name and character. OK opens their films and shows. */
-@Composable
-private fun CastCard(c: CastMember, free: Boolean, onClick: () -> Unit) {
-    var focused by remember { mutableStateOf(false) }
-    Column(Modifier.width(96.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        // The shared card, round (no growing: one card rule everywhere).
-        FocusCard(
-            onClick = onClick,
-            modifier = Modifier.size(76.dp).onFocusChanged { focused = it.isFocused }.focusProperties { canFocus = free },
-            shape = Tokens.RoundShape,
-        ) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(c.name.split(' ').mapNotNull { it.firstOrNull()?.uppercase() }.take(2).joinToString(""), fontSize = 20.sp, color = AppColors.TextSecondary)
-                c.photo?.let { AsyncImage(model = it, contentDescription = c.name, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
-            }
-        }
-        Text(c.name, fontSize = 12.sp, fontWeight = FontWeight.Medium, color = if (focused) AppColors.TextPrimary else AppColors.TextPrimary.copy(alpha = 0.85f),
-            maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 8.dp))
-        c.character?.let { Text(it, fontSize = 11.sp, color = AppColors.TextSecondary, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center) }
-    }
-}
-
-@Composable
-private fun ReviewCard(r: Review, free: Boolean, onClick: () -> Unit) {
-    FocusCard(
-        onClick = onClick,
-        modifier = Modifier.size(width = 380.dp, height = 140.dp).focusProperties { canFocus = free },
-        containerColor = AppColors.Panel.copy(alpha = 0.7f), focusedContainerColor = AppColors.Panel,
-    ) {
-        Column(Modifier.padding(12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(r.author, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                r.rating?.let { Text("★ %.0f/10".format(it), fontSize = 13.sp, color = AppColors.Accent) }
-            }
-            Text(listOfNotNull(r.source, r.date, r.likes.takeIf { it > 0 }?.let { "♥ $it" }).joinToString("  ·  "), fontSize = 11.sp, color = AppColors.TextSecondary)
-            if (r.spoiler) Text("Contains spoilers  ·  OK: read", fontSize = 13.sp, color = AppColors.Accent, modifier = Modifier.padding(top = 8.dp))
-            else Text(r.text.replace(Regex("\\s+"), " "), fontSize = 12.sp, lineHeight = 17.sp, color = AppColors.TextPrimary, maxLines = 4, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 8.dp))
-        }
-    }
-}
-
-/** A whole review, scrolled with Up/Down; Back or OK closes it. On the shared pop-up (PopupPanel, wide). */
-@Composable
-private fun ReviewDialog(r: Review, onClose: () -> Unit) {
-    val scroll = androidx.compose.foundation.rememberScrollState()
-    val f = remember { FocusRequester() }
-    val scope = rememberCoroutineScope()
-    LaunchedEffect(Unit) { awaitFrame(); runCatching { f.requestFocus() } }
-    PopupPanel(onClose = onClose, width = Tokens.PopupWide + 120.dp) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(r.author, fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, modifier = Modifier.weight(1f))
-            r.rating?.let { Text("★ %.0f/10".format(it), fontSize = 16.sp, color = AppColors.Accent) }
-        }
-        r.date?.let { Text(it, fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(bottom = 12.dp)) }
-        // (Its own scroll, held under the panel's height, moved by Up / Down on the text.)
-        Column(
-            Modifier.heightIn(max = 380.dp).verticalScroll(scroll)
-                .focusRequester(f).focusable()
-                .onPreviewKeyEvent { e ->
-                    if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                    when (e.key) {
-                        Key.DirectionDown -> { scope.launch { scroll.animateScrollBy(240f) }; true }
-                        Key.DirectionUp -> { scope.launch { scroll.animateScrollBy(-240f) }; true }
-                        Key.DirectionCenter, Key.Enter -> { onClose(); true }
-                        else -> false
-                    }
-                },
-        ) {
-            Text(r.text, fontSize = 16.sp, lineHeight = 24.sp, color = AppColors.TextPrimary)
-        }
-    }
-}
-
-/**
- * Other sources: play from one particular place instead of the automatic choice. Each version on your servers is
- * listed with what it is (4K · Dolby Vision · Atmos 7.1 · 58 GB), the best for this TV first and marked.
- */
-@Composable
-private fun SourcesDialog(ui: DetailUi, vm: MediaViewModel, onDone: () -> Unit) {
-    val first = remember { FocusRequester() }
-    val ranked by produceState<List<MediaViewModel.RankedCopy>?>(null, ui.copies) { value = vm.rankedCopies(ui.copies.orEmpty()) }
-    // The addons are searched as soon as it opens, their streams listed with your copies (null: still searching).
-    val addonStreams by produceState<List<StreamOption>?>(if (ui.hasAddons) null else emptyList(), ui.detail.item.key) { value = vm.addonOptions() }
-    LaunchedEffect(ranked != null) { if (ranked != null) { awaitFrame(); runCatching { first.requestFocus() } } }
-    // Nothing of your own above them: once the addons answer, the first stream is highlighted (not Cancel).
-    LaunchedEffect(addonStreams?.isNotEmpty() == true) {
-        if (addonStreams?.isNotEmpty() == true && ranked.isNullOrEmpty()) { awaitFrame(); runCatching { first.requestFocus() } }
-    }
-    // The shared pop-up (its own window; the held OK that opened it is ignored, so letting go doesn't pick the first
-    // source). (Peter, 2026-11-17: was a raw Dialog with a solid panel.)
-    PopupPanel(onClose = onDone, width = Tokens.PopupWide + 80.dp) {
-        PopupTitle("Play from")
-        var firstUsed = false
-        fun mod(): Modifier = if (!firstUsed) { firstUsed = true; Modifier.focusRequester(first) } else Modifier
-        if (ranked == null) Text("Checking your copies…", fontSize = 14.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(bottom = 6.dp))
-        ranked.orEmpty().forEach { r ->
-            MenuItem(
-                text = (if (r.best) "★ " else "") + vm.copyLabel(r.copy), selected = false,
-                trailing = if (r.best) "Best for this TV" else r.note, dim = r.note != null && !r.best,
-                onClick = { onDone(); vm.playCopy(r.copy) }, modifier = mod(),
-            )
-        }
-        AddonStreamItems(ui.hasAddons, addonStreams, ::mod) { opt -> onDone(); vm.playStream(opt) }
-        MenuItem(text = "Cancel", selected = false, onClick = onDone, modifier = mod())
-    }
-}
-
-/**
- * The addons' streams in a Play from list: "Searching your addons…" while they're asked, then each stream (addon ·
- * its name, the details beside it), or a line saying they found nothing.
- */
-@Composable
-private fun AddonStreamItems(hasAddons: Boolean, streams: List<StreamOption>?, mod: () -> Modifier, onPick: (StreamOption) -> Unit) {
-    if (!hasAddons) return
-    when {
-        streams == null -> Text("Searching your addons…", fontSize = 14.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(vertical = 6.dp, horizontal = 12.dp))
-        streams.isEmpty() -> Text("Your addons found nothing for this.", fontSize = 14.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(vertical = 6.dp, horizontal = 12.dp))
-        else -> streams.take(25).forEach { s ->
-            MenuItem(
-                // (Addons' own names run to several lines of emoji: a short summary, and where it comes from.)
-                text = StreamLabel.summary(s), selected = false, trailing = StreamLabel.from(s),
-                onClick = { onPick(s) }, modifier = mod(),
-            )
-        }
-    }
-}
-
-/**
- * A person's films and shows: who they are at the top (photo, born / died, where, biography). Beside the corner
- * window (live TV, or a film made small): no photo, the text from x 356 as the Movies hero, and a shorter header that
- * ends under the window (it sat under the window, photo and name hidden). (Peter, 2026-11-17.)
- */
-@Composable
-private fun PersonHeader(p: PersonInfo) {
-    val beside = LiveBehind.preview
-    Row(
-        Modifier.fillMaxWidth()
-            .then(if (beside) Modifier.heightIn(max = 200.dp) else Modifier)
-            .padding(start = if (beside) Tokens.BesideWindowStart else Tokens.Gutter, end = Tokens.Gutter, top = if (beside) 26.dp else 36.dp, bottom = if (beside) 8.dp else 16.dp),
-        horizontalArrangement = Arrangement.spacedBy(28.dp),
-    ) {
-        if (!beside) Box(Modifier.size(width = 150.dp, height = 210.dp).clip(Tokens.CardShape).background(AppColors.Panel)) {
-            p.photo?.let { AsyncImage(model = it, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
-        }
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(if (beside) 4.dp else 6.dp)) {
-            Text(p.name, fontSize = if (beside) 26.sp else 34.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            val life = listOfNotNull(
-                p.knownFor,
-                p.born?.let { b -> if (p.died != null) "$b – ${p.died}" else "Born $b" },
-                p.place,
-            ).joinToString("  ·  ")
-            if (life.isNotEmpty()) Text(life, fontSize = if (beside) 14.sp else 15.sp, color = AppColors.TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            (p.bio ?: if (p.loading) "Loading…" else null)?.let { bio -> Text(
-                bio,
-                fontSize = if (beside) 14.sp else 15.sp, lineHeight = if (beside) 20.sp else 21.sp, color = AppColors.TextPrimary,
-                maxLines = if (beside) 4 else 6, overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(top = if (beside) 2.dp else 6.dp),
-            ) }
-        }
-    }
-}
-
-
-/**
- * A title page action as an icon in a circle (like the player's controls), its name underneath while it's
- * highlighted. [on]: a state that's set (watched, on your watchlist, tracks chosen) shows filled in. The shared
- * RoundIconButton with the title page's look (thin white ring, dark fill). (Peter, 2026-11-17: was its own copy.)
- */
-@Composable
-private fun IconAction(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit, modifier: Modifier = Modifier, on: Boolean = false) {
-    RoundIconButton(
-        icon = icon, label = label, onClick = onClick, modifier = modifier, on = on, outlined = true,
-        columnWidth = 48.dp, iconSize = 22.dp, focusedScale = 1.08f, containerColor = Color.Black.copy(alpha = 0.25f),
-    )
-}
 
 /**
  * [key] moves the highlight to [target] when it's on screen, else wherever that key normally goes. (A fixed Up / Down
@@ -2280,5 +2116,12 @@ private fun IconAction(icon: androidx.compose.ui.graphics.vector.ImageVector, la
 private fun Modifier.safeMove(key: Key, target: () -> FocusRequester?): Modifier = onPreviewKeyEvent { e ->
     if (e.type != KeyEventType.KeyDown || e.key != key) return@onPreviewKeyEvent false
     val t = target() ?: return@onPreviewKeyEvent false
+    // (requestFocus says nothing back on this Compose version: a throw is the only sign it didn't take.)
     runCatching { t.requestFocus() }.isSuccess
+}
+
+/** Cinema's row list: focus and bring-into-view never scroll it; the page turn is animated by index (above). */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+private val CinemaNoScroll = object : BringIntoViewSpec {
+    override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float = 0f
 }

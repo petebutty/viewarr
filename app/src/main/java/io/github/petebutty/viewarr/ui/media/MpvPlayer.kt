@@ -329,8 +329,9 @@ fun MpvPlayer(
     val hasPosition by remember { androidx.compose.runtime.derivedStateOf { position > 0 } }
 
     fun showOsd() { osdUntil = System.currentTimeMillis() + AppColors.palette.controlsMs }
-    // Back, one step at a time (FilmControls.kt filmBackStep): what's open closes, then the mini player.
-    fun backStep() = filmBackStep(panels, menu, scrub, skip, onClose, hideOsd = { osdUntil = 0L }, showOsd = ::showOsd)
+    // Back, one step at a time (FilmControls.kt filmBackStep): what's open closes, then the mini player. A film that
+    // failed closes outright (it went to the corner, broken).
+    fun backStep() = if (error != null) onClose() else filmBackStep(panels, menu, scrub, skip, onClose, hideOsd = { osdUntil = 0L }, showOsd = ::showOsd)
     BackHandler(enabled = !mini) { backStep() }
 
     fun seek(by: Double) {

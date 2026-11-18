@@ -1,5 +1,6 @@
 package io.github.petebutty.viewarr.data.repository
 
+import kotlinx.coroutines.launch
 import android.content.Context
 import android.util.JsonReader
 import android.util.JsonToken
@@ -117,8 +118,6 @@ class GuideRepository @Inject constructor(
         prefs.edit().putString(k(KEY_TVG_SHIFT), encodeShifts(m)).apply(); shiftCache = null; shiftVersion.value++
         withContext(Dispatchers.IO) { runCatching { dao.shiftPrograms(guideKey, by * 60_000L) } }
     }
-    /** The whole offset a channel's programmes get (source + channel + its M3U tvg-shift), in minutes. */
-    fun totalShiftMin(guideKey: String): Int = shifter(activeSource)(guideKey).toInt() / 60_000
     private fun shiftMap(key: String): Map<String, Int> = prefs.getString(key, null).orEmpty().split('\u001E').mapNotNull {
         val k = it.substringBefore('\u001F', ""); val v = it.substringAfter('\u001F', "").toIntOrNull()
         if (k.isEmpty() || v == null) null else k to v
@@ -209,10 +208,12 @@ class GuideRepository @Inject constructor(
     @OptIn(ExperimentalCoroutinesApi::class)
     fun observeChannels(groupId: Int?) = _db.flatMapLatest { it.guideDao().observeChannels(groupId) }
     @OptIn(ExperimentalCoroutinesApi::class)
-    fun observeChannelsIn(uuids: List<String>) = _db.flatMapLatest { it.guideDao().observeChannelsIn(uuids) }
+    fun observeChannelsIn(uuids: List<String>, ordered: Boolean = false) = _db.flatMapLatest { it.guideDao().observeChannelsIn(uuids, orderOf(uuids, ordered)) }
+    /** [uuids] as an order for the list queries ("|a|b|…|"); empty: channel order. */
+    private fun orderOf(uuids: List<String>, ordered: Boolean) = if (ordered) uuids.joinToString("|", "|", "|") else ""
     @OptIn(ExperimentalCoroutinesApi::class)
-    fun observeProgramBlockIn(uuids: List<String>, offset: Int, count: Int, start: Long, end: Long) =
-        _db.flatMapLatest { it.guideDao().observeProgramBlockIn(uuids, offset, count, start, end) }
+    fun observeProgramBlockIn(uuids: List<String>, offset: Int, count: Int, start: Long, end: Long, ordered: Boolean = false) =
+        _db.flatMapLatest { it.guideDao().observeProgramBlockIn(uuids, orderOf(uuids, ordered), offset, count, start, end) }
 
     /** Groups hidden from the channel groups list (hold OK → Hide), by name, per source. Their channels stay (All
      *  channels, numbers, links): only the list entry goes. Unlike "Choose groups", which leaves a group out entirely. */
@@ -785,6 +786,48 @@ class GuideRepository @Inject constructor(
             if (image != null) foundImages[p.rowId] = image else noImage += p.rowId
             image
         }.getOrNull()
+    }
+
+    /**
+     * Pictures for a whole screenful of programmes at once ([items]: row id, guide key, start), so they're there before
+     * you move onto them: one small search per channel for its visible hours (Dispatcharr's guide grid sends none, and
+     * [lookupImage] asked for one programme at a time, as each was highlighted). Kept with [lookupImage]'s.
+     * (Peter, 2026-11-17: Stage 4 of the server work, guide pictures ahead of time.)
+     */
+    suspend fun prefetchImages(session: Session, items: List<Triple<Long, String, Long>>) {
+        if (session.isDirect) return
+        val todo = items.filter { (row, _, _) -> row >= 0 && row !in noImage && !foundImages.containsKey(row) }
+        if (todo.isEmpty()) return
+        val api = apiFactory.create(session.serverUrl, session.apiKey)
+        imageBase = session.serverUrl
+        val shift = shifter(sourceId(session))
+        val gate = kotlinx.coroutines.sync.Semaphore(6)
+        kotlinx.coroutines.coroutineScope {
+            todo.groupBy { it.second }.forEach { (tvgId, rows) ->
+                launch {
+                    gate.withPermit {
+                        val off = shift(tvgId)
+                        val first = rows.minOf { it.third } - off
+                        val last = rows.maxOf { it.third } - off
+                        val page = runCatching {
+                            withTimeoutOrNull(6_000) {
+                                api.searchPrograms(
+                                    tvgId = tvgId,
+                                    startAfter = Instant.ofEpochMilli(first - 60_000).toString(),
+                                    startBefore = Instant.ofEpochMilli(last + 60_000).toString(),
+                                    fields = "start_time,custom_properties",
+                                )
+                            }
+                        }.getOrNull() ?: return@withPermit
+                        val byStart = page.results.mapNotNull { r -> parseTime(r.start)?.let { it to programImage(r.props) } }.toMap()
+                        for ((row, _, start) in rows) {
+                            val img = byStart[start - off]
+                            if (img != null) foundImages[row] = img else if (byStart.containsKey(start - off)) noImage += row
+                        }
+                    }
+                }
+            }
+        }
     }
 
     private fun programImage(props: JsonObject?): String? {

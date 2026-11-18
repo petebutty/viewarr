@@ -50,13 +50,17 @@ class WatchNext @Inject constructor(
         existing.values.forEach { id -> runCatching { cr.delete(TvContractCompat.buildWatchNextProgramUri(id), null, null) } }
         for ((key, pair) in wanted) {
             val (i, item) = pair
-            runCatching { cr.insert(TvContractCompat.WatchNextPrograms.CONTENT_URI, program(item, key, now - i * 1_000L).toContentValues()) }
+            // A picture the home screen can load: the title's own when it needs no sign-in, else TMDB's.
+            val own = DeepLink.publicImage(item.backdrop)?.let { it to true } ?: DeepLink.publicImage(item.poster)?.let { it to false }
+            val art = own ?: catalog.publicArt(item)
+            runCatching { cr.insert(TvContractCompat.WatchNextPrograms.CONTENT_URI, program(item, key, now - i * 1_000L, art).toContentValues()) }
                 .onFailure { Log.w(TAG, "watch next card '${item.title}': $it") }
         }
         Log.i(TAG, "watch next: ${wanted.size} cards; " + wanted.values.take(4).joinToString { (_, it) -> "${it.title} ${it.durationMs?.div(60_000)}min ${((it.progress ?: 0f) * 100).toInt()}%" })
     }
 
-    private fun program(item: MediaItem, key: String, engaged: Long): WatchNextProgram {
+    /** [art]: the card's picture and whether it's wide (16:9) or a poster (2:3); null: none. */
+    private fun program(item: MediaItem, key: String, engaged: Long, art: Pair<String, Boolean>?): WatchNextProgram {
         val episode = item.type == MediaType.Show
         val wide = item.backdrop != null
         val b = WatchNextProgram.Builder()
@@ -78,12 +82,10 @@ class WatchNext @Inject constructor(
             else -> null
         }
         listOfNotNull(where, item.overview).joinToString("\n").takeIf { it.isNotBlank() }?.let { b.setDescription(it) }
-        // Only pictures that carry no sign-in: the home screen (another app) keeps these, and a Plex or Jellyfin
-        // picture link has the server's token in it. Without the token it wouldn't load anyway, so it's left out.
-        val wideArt = DeepLink.publicImage(item.backdrop)
-        val art = wideArt ?: DeepLink.publicImage(item.poster)
-        art?.let { b.setPosterArtUri(Uri.parse(it)) }
-        b.setPosterArtAspectRatio(if (wideArt != null || (art == null && wide)) TvContractCompat.PreviewPrograms.ASPECT_RATIO_16_9 else TvContractCompat.PreviewPrograms.ASPECT_RATIO_2_3)
+        // Only pictures that carry no sign-in (publish: the title's own, else TMDB's): the home screen (another app)
+        // keeps these, and a Plex or Jellyfin picture link has the server's token in it.
+        art?.let { b.setPosterArtUri(Uri.parse(it.first)) }
+        b.setPosterArtAspectRatio(if (art?.second == true || (art == null && wide)) TvContractCompat.PreviewPrograms.ASPECT_RATIO_16_9 else TvContractCompat.PreviewPrograms.ASPECT_RATIO_2_3)
         if (episode) {
             item.nextSeason?.let { b.setSeasonNumber(it) }
             item.nextEpisode?.let { b.setEpisodeNumber(it) }

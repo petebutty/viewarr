@@ -83,7 +83,7 @@ private fun SettingsSearchResults(
         Column(Modifier.fillMaxSize().padding(horizontal = io.github.petebutty.viewarr.ui.theme.Tokens.Gutter, vertical = 40.dp)
             .padding(top = if (SettingsLayout.belowPreview) 170.dp else 0.dp)) {
             Text("Settings", fontSize = 14.sp, color = AppColors.Accent)
-            Text("Search settings", fontSize = 30.sp, color = AppColors.TextPrimary, modifier = Modifier.padding(bottom = 16.dp))
+            Text("Search settings", fontSize = 30.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, color = AppColors.TextPrimary, modifier = Modifier.padding(bottom = 16.dp))
             Box(
                 Modifier.fillMaxWidth(0.6f).height(48.dp)
                     .background(AppColors.Panel, RoundedCornerShape(10.dp))
@@ -126,7 +126,8 @@ private fun SettingsSearchResults(
                         MenuItem(
                             text = h.title, trailing = "${h.pageTitle} → ${h.section}", selected = false,
                             onClick = { onOpen(h.page, h.section, h.title) },
-                            modifier = if (i == 0) Modifier.focusRequester(firstResult) else Modifier,
+                            // (Left: back out, as the Settings lists' left-hand entries; it did nothing here.)
+                            modifier = (if (i == 0) Modifier.focusRequester(firstResult) else Modifier).leftGoesBack(onBack),
                         )
                         if (h.description.isNotBlank()) Text(h.description, fontSize = 12.sp, color = AppColors.TextSecondary, maxLines = 1,
                             modifier = Modifier.padding(start = 12.dp, bottom = 4.dp))
@@ -135,7 +136,7 @@ private fun SettingsSearchResults(
                 items(otherHits, key = { "other/" + it.title }) { o ->
                     MenuItem(
                         text = o.title, trailing = "Settings → ${o.title}", selected = false, onClick = o.open,
-                        modifier = if (hits.isEmpty() && otherHits.indexOf(o) == 0) Modifier.focusRequester(firstResult) else Modifier,
+                        modifier = (if (hits.isEmpty() && otherHits.indexOf(o) == 0) Modifier.focusRequester(firstResult) else Modifier).leftGoesBack(onBack),
                     )
                 }
             }

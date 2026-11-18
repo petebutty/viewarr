@@ -16,12 +16,6 @@ import javax.inject.Singleton
 /** A choice in Settings → Remote & navigation. The first entry of each enum is the default (how the app behaved before). */
 interface RemoteChoice { val label: String }
 
-/** How Viewarr is laid out: menus as before, or live TV as the hub (Back from any page returns to the channel). */
-enum class NavStyle(override val label: String) : RemoteChoice {
-    Classic("Classic menus"),
-    LiveHub("Live TV hub"),
-}
-
 enum class GuideLeft(override val label: String) : RemoteChoice {
     /** Since 0.23: holding Left scrolls fast (and stops at the start); only a fresh press there opens the menu. */
     EdgeMenu("Earlier programmes and catch-up; at the start, the menu · Hold: scroll fast"),
@@ -154,11 +148,8 @@ data class RemoteSettings(
     /** The preset last chosen (Settings → Remote buttons → Presets), for "Custom (from …)"; null: never chosen. */
     val presetBase: ControlPreset? = null,
     val liveSides: LiveSides = LiveSides.entries.first(),
-    /** Hold OK on a shortcut → Choose rows: the rows it shows (by name, in order). Not in here: its usual rows. */
-    val shortcutRows: Map<String, List<String>> = emptyMap(),
     val startPage: StartPage = StartPage.entries.first(),
     val searchButton: SearchButton = SearchButton.entries.first(),
-    val navStyle: NavStyle = NavStyle.entries.first(),
     /** Search button → "A button you choose": the key code learned. */
     val searchKeyCode: Int? = null,
     /** The last live channel played (for "Last channel" start). */
@@ -167,8 +158,6 @@ data class RemoteSettings(
     val buttons: Map<String, Int> = emptyMap(),
     /** Settings → Remote → the button table: changes from ButtonMap's defaults ("Screen.Press" → action name). */
     val buttonMap: Map<String, String> = emptyMap(),
-    /** Shortcuts under the live TV controls (LiveShortcuts ids, in order); null: the defaults. */
-    val liveShortcuts: List<String>? = null,
     /** Live channels played lately, newest first (Live TV controls → Recent channels). */
     val recentChannels: List<Int> = emptyList(),
     /** False until the stored settings have been read. */
@@ -201,13 +190,9 @@ class RemoteStore @Inject constructor(@ApplicationContext private val context: C
             menuOpensOn = p.read(MENU_OPENS_ON),
             menuBack = p.read(MENU_BACK),
             liveSides = p.read(LIVE_SIDES),
-            shortcutRows = p[stringPreferencesKey(SHORTCUT_ROWS)].orEmpty().split('\u001D').mapNotNull { r ->
-                val parts = r.split('\u001E'); if (parts.size != 2 || parts[0].isBlank()) null else parts[0] to parts[1].split('\u001F').filter { it.isNotBlank() }
-            }.toMap(),
             presetBase = p[stringPreferencesKey(PRESET_BASE)]?.let { n -> ControlPreset.entries.firstOrNull { it.name == n || (n == LEGACY_CLASSIC && it == ControlPreset.Classic) } },
             startPage = p.read(START_PAGE),
             searchButton = p.read(SEARCH_BUTTON),
-            navStyle = p.read(NAV_STYLE),
             searchKeyCode = p[intPreferencesKey(SEARCH_KEYCODE)],
             lastChannelId = p[intPreferencesKey(LAST_CHANNEL)],
             buttons = buttonsOf(p[stringPreferencesKey(BUTTONS)]),
@@ -216,7 +201,6 @@ class RemoteStore @Inject constructor(@ApplicationContext private val context: C
                 // "main menu" isn't kept, so those buttons still read as the preset and hold OK records.)
                 if (p[stringPreferencesKey(PRESET_BASE)] in setOf(ControlPreset.Classic.name, LEGACY_CLASSIC) && m["Guide.OkHold"] == BtnAction.MainMenu.name) m - "Guide.OkHold" else m
             },
-            liveShortcuts = p[stringPreferencesKey(LIVE_SHORTCUTS)]?.split('|')?.filter { it.isNotBlank() },
             recentChannels = p[stringPreferencesKey(RECENT_CHANNELS)].orEmpty().split(',').mapNotNull { it.toIntOrNull() },
             loaded = true,
         )
@@ -245,19 +229,6 @@ class RemoteStore @Inject constructor(@ApplicationContext private val context: C
             val next = if (code == null) now else now + (action to code)
             prefs[stringPreferencesKey(BUTTONS)] = next.entries.joinToString(",") { "${it.key}=${it.value}" }
         }
-    }
-
-    /** One shortcut's chosen rows ([rows] null: back to its usual ones). */
-    suspend fun setShortcutRows(id: String, rows: List<String>?) {
-        context.remoteStore.edit { prefs ->
-            val now = prefs[stringPreferencesKey(SHORTCUT_ROWS)].orEmpty().split('\u001D').filter { it.isNotBlank() && it.substringBefore('\u001E') != id }
-            val next = if (rows == null) now else now + (id + '\u001E' + rows.joinToString("\u001F"))
-            if (next.isEmpty()) prefs.remove(stringPreferencesKey(SHORTCUT_ROWS)) else prefs[stringPreferencesKey(SHORTCUT_ROWS)] = next.joinToString("\u001D")
-        }
-    }
-
-    suspend fun setLiveShortcuts(ids: List<String>) {
-        context.remoteStore.edit { it[stringPreferencesKey(LIVE_SHORTCUTS)] = ids.joinToString("|") }
     }
 
     /** Rows of the button table at once ("Screen.Press" → action name; null: back to the default). */
@@ -315,14 +286,6 @@ class RemoteStore @Inject constructor(@ApplicationContext private val context: C
         context.remoteStore.edit { prefs -> keys.forEach { prefs.remove(stringPreferencesKey(it)) } }
     }
 
-    suspend fun reset() {
-        context.remoteStore.edit { prefs ->
-            val last = prefs[intPreferencesKey(LAST_CHANNEL)]
-            prefs.clear()
-            last?.let { prefs[intPreferencesKey(LAST_CHANNEL)] = it }
-        }
-    }
-
     suspend fun setLastChannel(id: Int) {
         context.remoteStore.edit {
             it[intPreferencesKey(LAST_CHANNEL)] = id
@@ -354,16 +317,13 @@ class RemoteStore @Inject constructor(@ApplicationContext private val context: C
         /** The Classic preset's name as saved before it was renamed (2026-11-17): still read as Classic. */
         const val LEGACY_CLASSIC = "TiviMate"
         const val LIVE_SIDES = "live_sides"
-        const val SHORTCUT_ROWS = "shortcut_rows"
         const val START_PAGE = "start_page"
         const val SEARCH_BUTTON = "search_button"
         const val SEARCH_KEYCODE = "search_keycode"
         const val LAST_CHANNEL = "last_channel"
         const val BUTTONS = "buttons_v1"
         const val BUTTON_MAP = "bmap_v1"
-        const val LIVE_SHORTCUTS = "live_shortcuts"
         const val RECENT_CHANNELS = "recent_channels"
-        const val NAV_STYLE = "nav_style"
     }
 }
 

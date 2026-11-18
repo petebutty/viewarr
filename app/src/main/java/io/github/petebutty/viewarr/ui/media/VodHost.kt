@@ -94,7 +94,7 @@ object VodHost {
     var openSearch: () -> Unit = {}
     /**
      * After a film or episode ended or was stopped by you (Stop, Back): Settings → Playback → After a film or episode
-     * (the home screen sets it). Not when it's left for a shortcut (that goes where you chose).
+     * (the home screen sets it). Not when you left it for another page (that goes where you chose).
      */
     var afterStop: () -> Unit = {}
     /**

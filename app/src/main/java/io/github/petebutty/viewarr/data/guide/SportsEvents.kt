@@ -21,7 +21,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Live now's event cards (the Live TV hub): event channels' guide entries made readable. Placeholders the event
+ * Live now's event cards: event channels' guide entries made readable. Placeholders the event
  * plugins write ("Ended: …", "No event today") are dropped; names are tidied ("EFL EFL Trophy" → "EFL Trophy", a
  * leading start time removed); the sport is recognised for an icon and colour; and a match ("A vs B") gets its
  * picture from TheSportsDB (a free, open sports database: only the two team names are sent).
@@ -152,7 +152,7 @@ class SportsEvents @Inject constructor(private val http: HttpJson) {
         /** Between TheSportsDB requests; and how long they all stop after it refuses one. */
         const val GAP_MS = 3_000L
         const val PAUSE_MS = 3 * 60_000L
-        val PLACEHOLDER = Regex("^(ended|finished|full time|ft)\\b|^no (live |scheduled )?(event|events|programme|programmes|program|programs|game|games|match|matches|fixture|fixtures|coverage|broadcast|stream)\\b|^nothing (on|scheduled|live)\\b|^(tba|tbc|to be announced|off air|closedown|stand ?by|coming soon|check back)\\b|^event (ended|finished|over)|\\bno (fixtures|events|games|matches) today\\b", RegexOption.IGNORE_CASE)
+        val PLACEHOLDER = Regex("^(ended|finished|full time|ft)\\b|^no (live |scheduled )?(event|events|programme|programmes|program|programs|game|games|match|matches|fixture|fixtures|coverage|broadcast|stream)\\b|^nothing (on|scheduled|live)\\b|^(tba|tbc|to be announced|off air|closedown|stand ?by|coming soon|coming up|upcoming|check back)\\b|^event (ended|finished|over)|\\bno (fixtures|events|games|matches) today\\b", RegexOption.IGNORE_CASE)
         val MATCH = Regex("(.+?)\\s+(?:vs?\\.?|@|-v-)\\s+(.+)", RegexOption.IGNORE_CASE)
         // (Built once: clean() runs for every event channel's guide entry, several times each, as Live now fills.)
         val LEADING_TIME = Regex("^\\d{1,2}[:.]\\d{2}\\s*(am|pm)?\\s*[-–:|]?\\s*", RegexOption.IGNORE_CASE)
@@ -194,4 +194,11 @@ object LiveSports {
     fun key(name: String) = "live:sport:" + name.lowercase()
     /** An event of [sport] goes in Live now (unknown sport: yes). */
     fun wanted(sport: String?) = sport == null || AppColors.palette.shows(key(sport))
+
+    // Peter, 2026-11-17 ("I don't care about college basketball"): Live now by league, or only what you follow.
+    /** Off: Live now's games are only your teams' and leagues' (Settings → Sports). Kept as "live:everything" hidden. */
+    val followedOnly get() = !AppColors.palette.shows("live:everything")
+    fun leagueKey(path: String) = "live:league:" + path.lowercase()
+    /** A league's games go in Live now (Settings → Live TV → Live now leagues; all on to start). */
+    fun leagueOn(path: String?) = path == null || AppColors.palette.shows(leagueKey(path))
 }

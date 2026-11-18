@@ -98,7 +98,6 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.foundation.layout.offset
 import androidx.compose.animation.core.animateIntAsState
-import io.github.petebutty.viewarr.data.dvr.DvrRecording
 import io.github.petebutty.viewarr.data.dvr.DvrState
 import io.github.petebutty.viewarr.data.media.DeepLink
 import io.github.petebutty.viewarr.data.media.MediaItem
@@ -128,13 +127,11 @@ import io.github.petebutty.viewarr.ui.media.VodSource
 import io.github.petebutty.viewarr.ui.music.MusicScreen
 import io.github.petebutty.viewarr.ui.music.MusicViewModel
 import io.github.petebutty.viewarr.ui.player.CardOption
-import io.github.petebutty.viewarr.ui.player.LiveShortcut
-import io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge
+import io.github.petebutty.viewarr.ui.player.PlayerBridge
 import io.github.petebutty.viewarr.ui.player.OsdPoster
 import io.github.petebutty.viewarr.ui.common.InfoRows.Kind as RowKind
 import io.github.petebutty.viewarr.ui.player.OsdRow
 import io.github.petebutty.viewarr.ui.player.RowSets
-import io.github.petebutty.viewarr.ui.player.ShortcutLogos
 import io.github.petebutty.viewarr.ui.player.TransparencyPanel
 import io.github.petebutty.viewarr.ui.settings.RemoteViewModel
 import io.github.petebutty.viewarr.ui.settings.SportsViewModel
@@ -197,9 +194,12 @@ fun HomeScreen(
         dvr.pruneReminders()
         while (true) {
             val now = System.currentTimeMillis()
-            val due = dvr.reminders.value.firstOrNull { it.start <= now + 30_000 && it.end > now }
+            // (Settings → Notifications → Remind me: when it starts, or up to 15 minutes before.)
+            val lead = io.github.petebutty.viewarr.ui.common.Notify.reminderLeadMs
+            val due = dvr.reminders.value.firstOrNull { it.start <= now + 30_000 + lead && it.end > now }
             if (due != null && hs.dueReminder?.id != due.id) {
-                hs.dueReminder = due
+                // (Notifications → Reminders off: it's let go quietly.)
+                if (io.github.petebutty.viewarr.ui.common.Notify.reminders) hs.dueReminder = due
                 dvr.forget(due.id)
             }
             delay(15_000)
@@ -325,7 +325,6 @@ fun HomeScreen(
     LaunchedEffect(remote.loaded) {
         if (!remote.loaded || hs.startApplied) return@LaunchedEffect
         hs.startApplied = true
-        // Live TV hub: always opens on the last channel, full screen.
         val start = hs.startFor(remote.startPage)
         when (start) {
             StartPage.Guide -> Unit
@@ -394,7 +393,7 @@ fun HomeScreen(
     // seconds exits. The menu handles its own Back (list → main menu → closed).
     val activity = LocalContext.current as? Activity
     hs.activity = activity
-    LaunchedEffect(hs.menuOpen) { if (!hs.menuOpen) { hs.menuFromGuideBack = false; hs.menuFullPage = false; VodHost.behind = false } }
+    LaunchedEffect(hs.menuOpen) { if (!hs.menuOpen) { hs.menuFromGuideBack = false; hs.menuFromFullscreen = false; hs.menuFullPage = false; VodHost.behind = false } }
     // Left from the film controls' first button: the menu over the film, which plays on full screen underneath.
     SideEffect { VodHost.openMenu = { VodHost.behind = true; hs.menuOnMain = true; hs.menuOpen = true } }
     LaunchedEffect(hs.exitArmed) {
@@ -433,8 +432,8 @@ fun HomeScreen(
     val moviesVm: MediaViewModel = hiltViewModel(key = "media-Movie")
     val showsVm: MediaViewModel = hiltViewModel(key = "media-Show")
     hs.moviesVm = moviesVm; hs.showsVm = showsVm
-    // Into a title (a poster on a library or catalogue page) while the channel's in the corner: it stops. Browsing a
-    // shortcut's posters keeps it; choosing one is watching something else.
+    // Into a title (a poster on a library or catalogue page) while the channel's in the corner: it stops (choosing one
+    // is watching something else).
     // (Both collected first: a composable call on the right of || is only made while the left is false, so the second
     // collector came and went as titles opened and closed.)
     val movieDetail by moviesVm.detail.collectAsStateWithLifecycle()
@@ -446,9 +445,6 @@ fun HomeScreen(
     }
     // Live TV behind a page, Watch Next cards, the splash and viewarr:// links (HomeLinkEffects).
     HomeLinkEffects(hs)
-    // Live TV controls → Down: your shortcuts (Settings → Remote & navigation → Live TV shortcuts).
-    val movieLibs by moviesVm.libraries.collectAsStateWithLifecycle()
-    val showLibs by showsVm.libraries.collectAsStateWithLifecycle()
     val movieMenuRows by moviesVm.menuRows.collectAsStateWithLifecycle()
     val showMenuRows by showsVm.menuRows.collectAsStateWithLifecycle()
     // Streaming services down the main menu (AIOMetadata's "Netflix · Popular", "Netflix · New"… rows), each with its
@@ -461,10 +457,9 @@ fun HomeScreen(
     }
     // The other viewarr:// controls (home automation): each does what the remote's own button would.
     HomeCommandEffects(hs)
-    val musicOnNow by musicVm.enabled.collectAsStateWithLifecycle()
-    // Settings → Remote & navigation → Live TV shortcuts → Poster rows (off in Low memory mode: no pictures).
-    val postersOn = AppColors.palette.opt(UiOpts.OSD_POSTERS) == 0 && !AppColors.palette.lowMemory
-    // The shortcuts' rows, logos, Live now and Sports: loaded after the app starts (once connected and the start page is
+    // (Low memory mode: no poster rows, so nothing loaded for them.)
+    val postersOn = !AppColors.palette.lowMemory
+    // The info bar's rows, Live now and Sports: loaded after the app starts (once connected and the start page is
     // up), not the first time the controls open, so they're ready then. One at a time, a few seconds apart, so a slow
     // box isn't asked for everything at once while you start using it. (Refreshed again as the controls open.)
     val ctxForPreload = LocalContext.current
@@ -479,14 +474,14 @@ fun HomeScreen(
         delay(60_000)
         hs.preloadStage = 0
     }
-    // 1: libraries and the pages' rows (row and network shortcuts come from them: Plex rows, AIOMetadata's networks).
+    // 1: libraries and the pages' rows.
     val preloadRows = hs.preloadStage >= 1
     LaunchedEffect(hs.osdVisible, preloadRows) {
         if (!hs.osdVisible && !preloadRows) return@LaunchedEffect
         moviesVm.loadLibraries(MediaType.Movie); showsVm.loadLibraries(MediaType.Show)
         moviesVm.load(MediaType.Movie); showsVm.load(MediaType.Show)
     }
-    // 2: Continue watching and Recently added (the poster rows under the shortcuts).
+    // 2: Continue watching and Recently added (rows under the info bar).
     val preloadPosters = hs.preloadStage >= 2
     LaunchedEffect(hs.osdVisible, preloadPosters) {
         if ((!hs.osdVisible && !preloadPosters) || !postersOn) return@LaunchedEffect
@@ -495,20 +490,15 @@ fun HomeScreen(
     }
     val preloadEvents = hs.preloadStage >= 3
     val preloadExtras = hs.preloadStage >= 4
-    val preloadMusic = hs.preloadStage >= 5
-    // The music service in use (its logo on the music shortcuts).
-    val musicSources by musicVm.sources.collectAsStateWithLifecycle()
-    val musicSourceName = musicSources.firstOrNull { it.on }?.name
-    // The Live now and Sports shortcuts' rows (below): wanted while the live TV controls are up.
-    // (Also while the film player's controls are up: its shortcuts show the same rows.)
-    val rowsWanted = hs.osdVisible || LiveShortcutsBridge.filmMenuOpen
+    // Live now and Sports (below): loaded while the live TV controls are up (or the film player's).
+    val rowsWanted = hs.osdVisible || PlayerBridge.filmMenuOpen
 
-    // ---- Sports hub (Settings → Sports): your teams and leagues, each a shortcut with its games.
+    // ---- Sports hub (Settings → Sports): your teams and leagues and their games.
     val sportsVm: SportsViewModel = hiltViewModel()
     hs.sportsVm = sportsVm
     val sportFollows by sportsVm.follows.collectAsStateWithLifecycle()
-    // (SportsHub.kt: the games, where they're on, and the cards, rows and pinned shortcuts made from them.)
-    // Watch (game page, hold-OK menu, a team's shortcut) closes the Sports page first: it stayed open over the game.
+    // (SportsHub.kt: the games, where they're on, and the cards and rows made from them.)
+    // Watch (game page, hold-OK menu) closes the Sports page first: it stayed open over the game.
     val sessionRef = rememberUpdatedState(session)
     val sportsHub = remember {
         SportsHub(sportsVm, vm, dvr,
@@ -525,7 +515,7 @@ fun HomeScreen(
         if (!liveWanted && !preloadEvents) return@LaunchedEffect
         while (true) {
             val (sched, known) = sportsHub.liveGames(sportFollows, dvr.channels.value.values.toList())
-            hs.liveEvents = runCatching { vm.liveEvents(sched, known) }.getOrNull() ?: hs.liveEvents
+            runCatching { vm.liveEvents(sched, known) }
             if (!liveWanted) break
             delay(60_000)
         }
@@ -539,38 +529,14 @@ fun HomeScreen(
     // stop it part-way, and the channels never came).
     LaunchedEffect(hs.sportsOpen, sportFollows) { if (hs.sportsOpen) fromStartScope.launch { sportsHub.load(sportFollows) } }
 
-    // (Built again only when what it's made from changes: it was rebuilt on every redraw of this screen. What each
-    // shortcut does reads the rest when it's pressed.)
-    // (HomeState.buildShortcuts: kept out of this body, which must stay under Android's size limit for optimising it.)
-    val mainShortcuts: List<Pair<LiveShortcut, () -> Unit>> = remember(movieLibs, showLibs, movieMenuRows, showMenuRows, musicOnNow, musicSourceName, remote.liveShortcuts) {
-        hs.buildShortcuts(movieLibs.orEmpty(), showLibs.orEmpty(), movieMenuRows.rows, showMenuRows.rows, musicOnNow, musicSourceName, remote.liveShortcuts)
-    }
-    // The row on live TV: the main row with the teams / leagues you pinned (Settings → Sports) before Refresh.
-    val liveShortcuts: List<Pair<LiveShortcut, () -> Unit>> = remember(mainShortcuts, sportFollows) {
-        mainShortcuts.dropLast(1) + sportFollows.filter { it.pinned && mainShortcuts.none { m -> m.first.id == it.shortcutId } }.map { sportsHub.shortcut(it) } + mainShortcuts.last()
-    }
-    hs.liveShortcuts = liveShortcuts
-
-    // Network / service shortcuts: their logos (TMDB), looked up at the start (and for any shortcut added since).
-    LaunchedEffect(hs.osdVisible, preloadExtras, liveShortcuts.map { it.first.id }) {
-        if (!hs.osdVisible && !preloadExtras) return@LaunchedEffect
-        val names = liveShortcuts.mapNotNull { (sc, _) -> sc.logoName?.takeIf { !it.startsWith("sport:") }?.let { n -> n to sc } }
-            .filter { (n, _) -> n !in ShortcutLogos.map }
-        if (names.isEmpty()) return@LaunchedEffect
-        // A show from its rows tells TMDB which network it is (networks aren't watch providers).
-        moviesVm.loadShortcutLogos(names.associate { (n, _) ->
-            n to showMenuRows.rows.firstOrNull { RowSets.name(it) == n }?.items?.firstOrNull()
-        })
-    }
-    // The same shortcuts in the film and show players' controls.
+    // What the film and show players' buttons do (Settings, the guide, Movies / Shows / Recordings, minimise).
     SideEffect {
-        LiveShortcutsBridge.items = liveShortcuts
-        LiveShortcutsBridge.openSettings = { hs.settingsFromFilm = true; hs.menuOnSettings = true; hs.menuOpen = true }
-        LiveShortcutsBridge.openPage = { name -> hs.buttonRequest = when (name) { "Movies" -> BtnAction.Movies; "Shows" -> BtnAction.Shows; else -> BtnAction.Recordings } }
-        LiveShortcutsBridge.openGuide = { hs.menuOpen = false; hs.quickSearch = false; if (hs.page != Page.Tv) hs.openPage(Page.Tv) else hs.fullscreen = false }
+        PlayerBridge.openSettings = { hs.settingsFromFilm = true; hs.menuOnSettings = true; hs.menuOpen = true }
+        PlayerBridge.openPage = { name -> hs.buttonRequest = when (name) { "Movies" -> BtnAction.Movies; "Shows" -> BtnAction.Shows; else -> BtnAction.Recordings } }
+        PlayerBridge.openGuide = { hs.menuOpen = false; hs.quickSearch = false; if (hs.page != Page.Tv) hs.openPage(Page.Tv) else hs.fullscreen = false }
         // A film minimised (Back's last step): the guide behind, the menu open on Live TV (Peter's rule: the same
         // starting point every time, ready to browse; live TV's own Back goes to the guide instead).
-        LiveShortcutsBridge.openMenuOnLiveTv = {
+        PlayerBridge.openMenuOnLiveTv = {
             hs.quickSearch = false
             if (hs.page != Page.Tv) hs.openPage(Page.Tv, closeMenu = false) else hs.fullscreen = false
             hs.menuOnSettings = false; hs.menuOnMain = true; hs.menuOpen = true
@@ -585,27 +551,15 @@ fun HomeScreen(
     }
     val remoteVm: RemoteViewModel = hiltViewModel()
     hs.remoteVm = remoteVm
-    // Choose rows: only when the saved choice changes (each redraw would put back the saved one over a choice just made
-    // and not yet written).
-    LaunchedEffect(remote.shortcutRows) { LiveShortcutsBridge.chosen = remote.shortcutRows }
-    // The film player's shortcuts use these same three (hold OK on one): one row, changed from either player.
     SideEffect {
-        LiveShortcutsBridge.hide = { sc -> hs.hideShortcut(sc) }
         // The search button in the film player: search over the page (the film goes to the corner first).
         VodHost.openSearch = { hs.menuOpen = false; hs.channelListOpen = false; hs.searchStart = null; hs.quickSearch = true }
         // Settings → Playback → After a film or episode → Back to live TV: the channel you were watching, full screen.
         VodHost.afterStop = { if (AppColors.palette.opt(UiOpts.AFTER_FILM) == 1) hs.goLive() }
-        LiveShortcutsBridge.setRows = { id, rows -> remoteVm.setShortcutRows(id, rows) }
-        LiveShortcutsBridge.move = { sc, d -> hs.moveShortcut(sc, d) }
-        LiveShortcutsBridge.refresh = { sc -> hs.refreshOne(sc) }
     }
-    // Live TV controls → Down → Down: Continue watching, Recent channels, Recently added (Live TV hub, step 3).
-    // The rows under the info bar (live TV) and their preview cards: built in their own function, as HomeScreen
-    // was over Android's size limit for optimising a function.
-    val infoBarRows = rememberInfoBarRows(hs, postersOn, preloadMusic, sportsHub)
-    val liveInfoRows = infoBarRows.live
-    val previewFor = infoBarRows.previewFor
-    val posterRows = infoBarRows.posters
+    // The rows under the info bar (Down from its buttons; Settings → Appearance → Live TV → Rows under the info bar):
+    // built in their own function, as HomeScreen was over Android's size limit for optimising a function.
+    val liveInfoRows = rememberInfoBarRows(hs)
 
     // ---- The corner picture, highlighted (Settings → Live TV → Highlight the corner picture): at the page's edge,
     // pressing towards it moves onto it; then Full screen or Close (Left / Right, OK).
@@ -623,11 +577,6 @@ fun HomeScreen(
         AppColors.palette.opt(UiOpts.CORNER_FOCUS) == 0
     LaunchedEffect(pictureInCorner) { if (!pictureInCorner) hs.cornerFocused = false }
 
-    // The film and show players' rows under their shortcuts: the same as live TV's.
-    SideEffect {
-        LiveShortcutsBridge.previewFor = previewFor
-        LiveShortcutsBridge.defaultRows = posterRows
-    }
     Box(
         Modifier
             .fillMaxSize()
@@ -696,7 +645,7 @@ fun HomeScreen(
                 )
             }
         }
-        LiveTvLayer(hs, channel, channelPanel, guidePush, playerFocus, liveMenuKey, liveInfoRows, previewFor)
+        LiveTvLayer(hs, channel, channelPanel, guidePush, playerFocus, liveMenuKey, liveInfoRows)
 
         // "Rewind?" after Left on full-screen live TV: gone after 4 s, or as soon as anything else happens.
         LaunchedEffect(hs.rewindAsk) { if (hs.rewindAsk != 0L) { delay(4_000); hs.rewindAsk = 0L } }
@@ -794,7 +743,6 @@ private fun BoxScope.LiveTvLayer(
     playerFocus: FocusRequester,
     liveMenuKey: TapHold,
     liveInfoRows: List<OsdRow>,
-    previewFor: (String) -> List<OsdRow>?,
 ) {
     // (Read here as HomeScreen reads them, so this part redraws on its own when they change.)
     val vm = hs.vm; val playback = hs.playback; val session = hs.session; val remote = hs.remote
@@ -1010,15 +958,8 @@ private fun BoxScope.LiveTvLayer(
                     BarExtra("shows", AppIcons.Tv, "Shows") { hs.osdVisible = false; hs.doButton(BtnScreen.Live, BtnAction.Shows) },
                     BarExtra("recordings", AppIcons.Recordings, "Recordings") { hs.osdVisible = false; hs.doButton(BtnScreen.Live, BtnAction.Recordings) },
                 ),
-                // No shortcut row under the buttons any more: every library and service is in the menu on the left.
-                shortcuts = emptyList(),
-                posterRows = emptyList(),
-                // (Settings → Appearance → Info bar & controls → Info bar: recent channels.)
+                // (Settings → Appearance → Live TV → Rows under the info bar.)
                 downRows = liveInfoRows,
-                previewFor = previewFor,
-                onHideShortcut = { sc -> hs.hideShortcut(sc) },
-                onMoveShortcut = { sc, d -> hs.moveShortcut(sc, d) },
-                onRefreshShortcut = { sc -> hs.refreshOne(sc) },
                 onStop = { hs.doButton(BtnScreen.Live, BtnAction.Stop) },
                 // Low-memory mode: no multi-view (up to four players at once).
                 onMultiView = if (!AppColors.palette.heavyExtras) null else ({
@@ -1282,7 +1223,7 @@ private fun BoxScope.MenuLayer(
             onLibrary = hs.menuOnLibrary,
             onSearchFor = { q -> hs.searchStart = q; hs.searchVoice = false; hs.openPage(Page.Search) },
             onVoiceSearch = { hs.searchStart = null; hs.searchVoice = true; hs.openPage(Page.Search) },
-            onClose = { hs.menuOpen = false; hs.menuOnSettings = false; hs.menuOnMain = false },
+            onClose = { hs.menuClosed() }, // (back to full screen when the menu came from there: HomeState)
             backOut = hs.menuFromGuideBack,
             onBackOut = {
                 hs.menuOpen = false; hs.menuOnSettings = false; hs.menuOnMain = false
@@ -1383,7 +1324,8 @@ private fun BoxScope.PagesLayer(
                 type = if (hs.page == Page.Movies) MediaType.Movie else MediaType.Show,
                 cornerHasFocus = hs.cornerFocused,
                 focusRequester = mediaFocus,
-                focusEnabled = !hs.menuOpen && !hs.cornerFocused && !hs.showAccounts && !hs.quickSearch && !hs.sportsOpen,
+                // (Not under a full-screen film either, as Music and Recordings: the page and the film fought for focus.)
+                focusEnabled = !hs.menuOpen && !hs.cornerFocused && !hs.showAccounts && !hs.quickSearch && !hs.sportsOpen && !VodHost.covering,
                 // Left from Movies / Shows: straight to the main menu (their own list is only "home" and "Jump to a
                 // row" now). A library open (from My Library): the menu on My Library. A service's page: its rows.
                 onOpenMenu = {
@@ -1453,6 +1395,7 @@ private fun BoxScope.PagesLayer(
         }
         if (hs.sportsOpen) SportsPage(
             hub = sportsHub,
+            onFollow = { hs.openFollowTeam() },
             follows = sportFollows,
             // (Every channel, not just the guide's group on show: the plugin may name one in another group.)
             channels = dvr.channels.collectAsStateWithLifecycle().value.values.toList(),
@@ -1603,23 +1546,21 @@ private fun HomeLinkEffects(hs: HomeState) {
     }
 }
 
-/** The live info bar's rows (Down from its buttons) and the preview cards' rows, from HomeScreen. */
-internal class InfoBarRows(val live: List<OsdRow>, val previewFor: (String) -> List<OsdRow>?, val posters: List<OsdRow>)
-
-/** Split out of HomeScreen (its body was over Android's size limit for optimising a function). */
+/**
+ * The live info bar's rows (Down from its buttons), and the film players' (shared through PlayerBridge.filmRows).
+ * Split out of HomeScreen (its body was over Android's size limit for optimising a function).
+ */
 @Composable
-private fun rememberInfoBarRows(hs: HomeState, postersOn: Boolean, preloadMusic: Boolean, sportsHub: SportsHub): InfoBarRows {
+private fun rememberInfoBarRows(hs: HomeState): List<OsdRow> {
     // (Read here as HomeScreen reads them, so the rows rebuild when they change.)
     val vm = hs.vm; val playback = hs.playback; val session = hs.session; val remote = hs.remote; val dvr = hs.dvr
-    val moviesVm = hs.moviesVm; val showsVm = hs.showsVm; val musicVm = hs.musicVm
+    val moviesVm = hs.moviesVm; val showsVm = hs.showsVm
     val sessionRef = rememberUpdatedState(session)
     val playing by playback.channel.collectAsStateWithLifecycle()
     val now by vm.now.collectAsStateWithLifecycle()
     val programs by vm.programs.collectAsStateWithLifecycle()
     val favsNow by vm.favourites.collectAsStateWithLifecycle()
     val dvrRecordings by dvr.recordings.collectAsStateWithLifecycle()
-    val musicOnNow by musicVm.enabled.collectAsStateWithLifecycle()
-    val sportFollows by hs.sportsVm.follows.collectAsStateWithLifecycle()
     val movieMenuRows by moviesVm.menuRows.collectAsStateWithLifecycle()
     val showMenuRows by showsVm.menuRows.collectAsStateWithLifecycle()
     val continueMovies by moviesVm.continueItems.collectAsStateWithLifecycle()
@@ -1634,7 +1575,7 @@ private fun rememberInfoBarRows(hs: HomeState, postersOn: Boolean, preloadMusic:
         val show = item.type == MediaType.Show
         val mvm = if (show) showsVm else moviesVm
         val page = if (show) Page.Shows else Page.Movies
-        // (A card on a row: into the title itself, so the channel stops. The shortcuts keep it in the corner.)
+        // (A card on a row: into the title itself, so the channel stops.)
         fun open() { hs.osdVisible = false; mvm.open(item); hs.openPage(page, keepLive = false) }
         fun play(how: (MediaItem) -> Unit) { hs.osdVisible = false; how(item); hs.openPage(page, keepLive = false) }
         val carryOn = resume && (item.progress != null || item.nextSeason != null)
@@ -1651,131 +1592,11 @@ private fun rememberInfoBarRows(hs: HomeState, postersOn: Boolean, preloadMusic:
             options = options, plays = carryOn,
         ) { if (carryOn) play(if (show) showsVm::quickNextUp else moviesVm::quickPlay) else open() }
     }
-    // A highlighted shortcut's own content, previewed under it: a network's rows, its row, its page's first rows.
-    val movieHomeRows by moviesVm.homeRows.collectAsStateWithLifecycle()
-    val showHomeRows by showsVm.homeRows.collectAsStateWithLifecycle()
-    // Music and Recordings preview their own: your music's home rows, your recordings.
-    val musicHome by musicVm.home.collectAsStateWithLifecycle()
-    LaunchedEffect(hs.osdVisible, preloadMusic, musicOnNow) { if ((hs.osdVisible || preloadMusic) && musicOnNow && musicHome.rows.isEmpty()) musicVm.load() }
-    // Live now's rows: On now (the event, its channel, until when, how far through) and Starting soon.
-    fun liveEventRows(): List<OsdRow> {
-        val ev = hs.liveEvents ?: return emptyList()
-        val t = System.currentTimeMillis()
-        val dayFmt = java.time.format.DateTimeFormatter.ofPattern("EEE ", java.util.Locale.UK)
-        fun at(ms: Long): String {
-            val z = java.time.Instant.ofEpochMilli(ms).atZone(java.time.ZoneId.systemDefault())
-            val today = java.time.LocalDate.now()
-            return (if (z.toLocalDate() == today) "" else z.format(dayFmt)) + z.format(Dates.time)
-        }
-        // The event's own picture (the match's, or the guide's), else its sport's icon on its colours; the channel and
-        // time under it. (The channel's logo said nothing: every Sky Sports+ feed has the same one.)
-        fun card(e: GuideViewModel.LiveEvent, now: Boolean) = OsdPoster(
-            key = "ev-${e.channel.id}-${e.program.startTime}", title = e.title,
-            subtitle = (if (now) "Until " + at(e.program.endTime) else at(e.program.startTime)) + "  ·  " + e.channel.name,
-            image = e.picture ?: if (e.sport == null) channelLogo(session?.serverUrl.orEmpty(), e.channel) else null,
-            logo = e.picture == null || e.picture.contains("/badge/"),
-            progress = if (now) ((t - e.program.startTime).toFloat() / (e.program.endTime - e.program.startTime).coerceAtLeast(1)).coerceIn(0f, 1f) else null,
-            emoji = e.sport?.emoji, tint = e.sport?.colors,
-        ) {
-            val ch = e.channel
-            hs.osdVisible = false
-            playback.play(ch, session)
-            vm.selectChannel(ch.id)
-            hs.fullscreen = true
-            hs.showBanner()
-        }
-        return listOf(
-            OsdRow("On now", ev.onNow.map { card(it, true) }),
-            OsdRow("Starting soon", ev.soon.map { card(it, false) }),
-        ).filter { it.items.isNotEmpty() }
-    }
-    val computePreview: (String) -> List<OsdRow>? = { id ->
-        when {
-            id == "page:Live" -> liveEventRows()
-            id == "page:Sports" -> sportsHub.rows(sportFollows)
-            id.startsWith("sport:team:") || id.startsWith("sport:league:") -> sportsHub.gamesRows(id, sportFollows)
-            !postersOn -> null
-            id == "page:Music" || id.startsWith("music:") -> musicHome.rows.map { r ->
-                OsdRow(r.title, r.cards.take(20).map { card ->
-                    OsdPoster(key = "m:" + card.id, title = card.title, subtitle = card.sub, image = card.art?.small) {
-                        hs.osdVisible = false
-                        musicVm.open(card)
-                        hs.openPage(Page.Music, keepLive = false)
-                    }
-                })
-            }.filter { it.items.isNotEmpty() }
-            id == "page:Recordings" -> {
-                val chans = dvr.channels.value
-                fun card(rec: DvrRecording) = OsdPoster(
-                    key = "r:${rec.id}", title = rec.title,
-                    subtitle = listOfNotNull(rec.season?.let { "S$it" }, rec.episode?.let { "E$it" }, Dates.dayTime(rec.start)).joinToString(" · "),
-                    image = chans[rec.channelId]?.let { channelLogo(session?.serverUrl.orEmpty(), it) }, logo = true,
-                ) { hs.osdVisible = false; hs.openPage(Page.Recordings, keepLive = false) }
-                listOf(
-                    OsdRow("Recordings", dvrRecordings
-                        .filter { it.state == DvrState.Recorded || it.state == DvrState.Recording }
-                        .sortedByDescending { it.start }.take(20).map(::card)),
-                    OsdRow("Coming up", dvrRecordings
-                        .filter { it.state == DvrState.Scheduled }.sortedBy { it.start }.take(20).map(::card)),
-                ).filter { it.items.isNotEmpty() }
-            }
-            else -> {
-                val parts = id.split(":", limit = 3)
-                val show = parts.getOrNull(1) == "Show"
-                val menu = if (show) showMenuRows.rows else movieMenuRows.rows
-                when (parts[0]) {
-                    "set" -> menu.filter { RowSets.matches(parts[2], it) } +
-                        (if (parts[2].startsWith("name:")) (if (show) movieMenuRows.rows else showMenuRows.rows)
-                            .filter { RowSets.matches(parts[2], it) }
-                            .map { it.copy(title = it.title + if (show) " (films)" else " (shows)") } else emptyList())
-                    "row" -> menu.filter { it.id == parts[2] }
-                    "home" -> (if (show) showHomeRows.rows else movieHomeRows.rows)
-                    else -> null
-                }?.map { r -> OsdRow(r.title, r.items.take(20).map { titleCard(it, resume = r.group == "deck") }) }?.filter { it.items.isNotEmpty() }
-            }
-        }
-    }
-    // Each shortcut's rows, built once and kept until something they show changes (they were built again on every
-    // redraw of the controls, and in the film player on every key press: hundreds of cards for Sports or Music).
-    val previewCache = remember(
-        hs.liveEvents, sportFollows, sportsHub.version, musicHome, dvrRecordings, movieMenuRows, showMenuRows,
-        movieHomeRows, showHomeRows, postersOn, session?.serverUrl, now, allChannels,
-    ) { HashMap<String, List<OsdRow>?>() }
-    val previewFor: (String) -> List<OsdRow>? = { id ->
-        if (previewCache.containsKey(id)) previewCache[id] else computePreview(id).also { previewCache[id] = it }
-    }
-
-    // Built again only when what's in them changes, not on every redraw of the live TV screen. (What the cards' OK does
-    // reads the session as it is when pressed.)
+    // (What the cards' OK does reads the session as it is when pressed.)
     val sessionNow by sessionRef
     val ownStamp = hs.ownPrograms.entries.sumOf { it.value.first }
-    val posterRows: List<OsdRow> = remember(
-        postersOn, continueMovies, continueShows, recentMovies, recentShows, remote.recentChannels, playing?.id, allChannels, programs, now, ownStamp, session?.serverUrl,
-    ) { if (!postersOn) emptyList() else run {
-        // Films and shows taken in turn, so neither crowds out the other.
-        fun mix(a: List<MediaItem>, b: List<MediaItem>) =
-            (0 until maxOf(a.size, b.size)).flatMap { i -> listOfNotNull(a.getOrNull(i), b.getOrNull(i)) }.distinctBy { it.key }.take(20)
-        val chNow = System.currentTimeMillis()
-        listOf(
-            OsdRow("Continue watching", mix(continueMovies.orEmpty(), continueShows.orEmpty()).map { titleCard(it, resume = true) }),
-            OsdRow("Recent channels", remote.recentChannels.filter { it != playing?.id }.mapNotNull { allChannels[it] }.map { ch ->
-                OsdPoster(
-                    key = "ch-${ch.id}", title = ch.name,
-                    subtitle = GuideViewModel.programAt(hs.programsOf(ch), chNow)?.let { displayTitle(it) },
-                    image = channelLogo(session?.serverUrl.orEmpty(), ch), logo = true,
-                ) {
-                    hs.osdVisible = false
-                    playback.play(ch, sessionNow)
-                    vm.selectChannel(ch.id)
-                    hs.showBanner()
-                }
-            }),
-            OsdRow("Recently added", mix(recentMovies.orEmpty(), recentShows.orEmpty()).map { titleCard(it) }),
-        ).filter { it.items.isNotEmpty() }
-    } }
-
     // ---- The rows under the info bars (Settings → Appearance → Info bar & controls → Rows under the info bar): built
-    // here for live TV, and for the film players (shared through LiveShortcutsBridge.filmRows). Down from the buttons.
+    // here for live TV, and for the film players (shared through PlayerBridge.filmRows). Down from the buttons.
     val localWatchEntries by moviesVm.localWatch.rowEntries.collectAsStateWithLifecycle()
     val traktMovies by moviesVm.traktContinue.collectAsStateWithLifecycle()
     val traktShows by showsVm.traktContinue.collectAsStateWithLifecycle()
@@ -1822,9 +1643,11 @@ private fun rememberInfoBarRows(hs: HomeState, postersOn: Boolean, preloadMusic:
         fun notPlaying(l: List<MediaItem>) = playingWatch?.let { w ->
             l.filterNot { it.type == w.type && ((w.tmdbId != null && it.tmdbId == w.tmdbId) || (w.imdbId != null && it.imdbId == w.imdbId)) }
         } ?: l
-        val iptv = notPlaying(mixTitles(moviesVm.localWatch.continueItems(MediaType.Movie, localWatchEntries), moviesVm.localWatch.continueItems(MediaType.Show, localWatchEntries)))
-        val servers = notPlaying(mixTitles(continueMovies.orEmpty(), continueShows.orEmpty()))
-        val traktAll = notPlaying(mixTitles(traktMovies.orEmpty(), traktShows.orEmpty()))
+        // (Settings → Home page & menu → Continue watching from: each server, IPTV and Trakt on or off.)
+        val cf = io.github.petebutty.viewarr.ui.media.ContinueFrom
+        val iptv = if (!cf.on(cf.IPTV)) emptyList() else notPlaying(mixTitles(moviesVm.localWatch.continueItems(MediaType.Movie, localWatchEntries), moviesVm.localWatch.continueItems(MediaType.Show, localWatchEntries)))
+        val servers = notPlaying(mixTitles(continueMovies.orEmpty(), continueShows.orEmpty())).filter { cf.on(cf.ofItem(it)) }
+        val traktAll = if (!cf.on(cf.TRAKT)) emptyList() else notPlaying(mixTitles(traktMovies.orEmpty(), traktShows.orEmpty()))
         val row = when (kind) {
             RowKind.NEXT -> return null
             // The film / show playing's page: its recommendations.
@@ -1842,7 +1665,7 @@ private fun rememberInfoBarRows(hs: HomeState, postersOn: Boolean, preloadMusic:
                     hs.programsOf(c).filter { it.startTime > chNow }.sortedBy { it.startTime }.take(12).map { p ->
                         OsdPoster(key = "up-${c.id}-${p.startTime}", title = displayTitle(p), subtitle = Dates.time(p.startTime) + "–" + Dates.time(p.endTime),
                             image = channelLogo(session?.serverUrl.orEmpty(), c), logo = true) {
-                            hs.osdVisible = false; LiveShortcutsBridge.openGuide()
+                            hs.osdVisible = false; PlayerBridge.openGuide()
                         }
                     }
                 }.orEmpty())
@@ -1876,8 +1699,8 @@ private fun rememberInfoBarRows(hs: HomeState, postersOn: Boolean, preloadMusic:
     val filmInfoRows: List<Pair<String, OsdRow>> = remember(infoRowsStamp, filmRowsWanted) {
         if (!filmRowsWanted) emptyList() else filmKinds.mapNotNull { k -> infoRow(k, InfoRows.FILM)?.let { k.id to it } }
     }
-    SideEffect { LiveShortcutsBridge.filmRows = filmInfoRows }
-    return InfoBarRows(liveInfoRows, previewFor, posterRows)
+    SideEffect { PlayerBridge.filmRows = filmInfoRows }
+    return liveInfoRows
 }
 
 /** A film or episode on full screen (or with the menu open over it): the menu mustn't change the page underneath. */

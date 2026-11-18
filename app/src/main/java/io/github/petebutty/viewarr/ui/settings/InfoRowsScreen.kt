@@ -131,7 +131,8 @@ fun InfoRowsScreen(start: String, onClose: () -> Unit) {
                         onTabs && !moving -> switchPlayer()
                         // Carrying: Left or Right put it down. Right picks a row up (the Settings lists' shortcut).
                         moving -> moving = false
-                        RemoteKeys.action(e) == RemoteAction.Right && kinds.getOrNull(index) != null -> moving = true
+                        // (Only a row that's on: the ones off keep their place, so there's nothing to move.)
+                        RemoteKeys.action(e) == RemoteAction.Right && kinds.getOrNull(index)?.let { InfoRows.shown(player, it) } == true -> moving = true
                     }
                     RemoteAction.Ok -> {
                         if (down && repeat == 0) okHeld = false
@@ -161,7 +162,7 @@ fun InfoRowsScreen(start: String, onClose: () -> Unit) {
                     .background(AppColors.MenuPanel.copy(alpha = 1f), RoundedCornerShape(Tokens.PopupRadius)).padding(24.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                Text("Rows under the info bar", fontSize = 22.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary)
+                Text("Rows under the info bar", fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary)
                 Text(
                     "Down from the info bar's buttons: these rows, in this order. They scroll: the row you're on, the next peeking in below.",
                     fontSize = 13.sp, color = AppColors.TextSecondary, maxLines = 2, overflow = TextOverflow.Ellipsis,

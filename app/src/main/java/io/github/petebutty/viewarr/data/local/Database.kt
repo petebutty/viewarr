@@ -139,16 +139,19 @@ interface GuideDao {
     )
     fun observeChannels(groupId: Int?): Flow<List<ChannelListItem>>
 
-    /** The favourites group: these channels (by uuid), in channel order. */
+    /**
+     * A list-made group's channels (by uuid): in [order]'s order when given ("|uuid|uuid|…|": Live now, live first then
+     * starting soon), else channel order (favourites).
+     */
     @Query(
         """
         SELECT c.id, c.uuid, c.name, c.number, c.logoId, c.logoUrl, g.name AS groupName, c.guideKey, c.catchupDays
         FROM channels c LEFT JOIN channel_groups g ON g.id = c.groupId
         WHERE c.uuid IN (:uuids)
-        ORDER BY c.number IS NULL, c.number, c.name, c.id
+        ORDER BY instr(:order, '|' || c.uuid || '|') = 0, instr(:order, '|' || c.uuid || '|'), c.number IS NULL, c.number, c.name, c.id
         """
     )
-    fun observeChannelsIn(uuids: List<String>): Flow<List<ChannelListItem>>
+    fun observeChannelsIn(uuids: List<String>, order: String): Flow<List<ChannelListItem>>
 
     @Query(
         """
@@ -184,7 +187,7 @@ interface GuideDao {
         FROM (
             SELECT id, guideKey FROM channels
             WHERE uuid IN (:uuids)
-            ORDER BY number IS NULL, number, name, id
+            ORDER BY instr(:order, '|' || uuid || '|') = 0, instr(:order, '|' || uuid || '|'), number IS NULL, number, name, id
             LIMIT :count OFFSET :offset
         ) c
         JOIN programs p ON p.tvgId = c.guideKey
@@ -192,7 +195,7 @@ interface GuideDao {
         ORDER BY c.id, p.startTime
         """
     )
-    fun observeProgramBlockIn(uuids: List<String>, offset: Int, count: Int, start: Long, end: Long): Flow<List<GuideProgram>>
+    fun observeProgramBlockIn(uuids: List<String>, order: String, offset: Int, count: Int, start: Long, end: Long): Flow<List<GuideProgram>>
 
     @Query("SELECT COUNT(*) FROM programs")
     suspend fun programCount(): Int

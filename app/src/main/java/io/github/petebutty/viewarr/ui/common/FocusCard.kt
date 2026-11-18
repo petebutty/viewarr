@@ -41,16 +41,20 @@ fun FocusCard(
     aspect: Float? = null,
     containerColor: Color = AppColors.Panel,
     focusedContainerColor: Color = containerColor,
+    /** False: no highlight ring (the poster whose trailer has grown into the panel: the ring goes with it). */
+    ring: Boolean = true,
+    /** How much it grows when highlighted (1 = not at all; the row posters: Settings → Appearance → Highlight zoom). */
+    focusedScale: Float = 1f,
     content: @Composable BoxScope.() -> Unit,
 ) {
     Surface(
         onClick = onClick,
         onLongClick = onLongClick,
         enabled = enabled,
-        modifier = if (aspect != null) modifier.aspectRatio(aspect) else modifier,
-        scale = NoScale,
+        modifier = (if (aspect != null) modifier.aspectRatio(aspect) else modifier).then(if (focusedScale != 1f) Modifier.instantFocusScale(focusedScale) else Modifier),
+        scale = if (focusedScale == 1f) NoScale else focusScale(focusedScale),
         shape = ClickableSurfaceDefaults.shape(shape),
-        border = ClickableSurfaceDefaults.border(focusedBorder = focusRing(shape)),
+        border = if (ring) ClickableSurfaceDefaults.border(focusedBorder = focusRing(shape)) else ClickableSurfaceDefaults.border(),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = containerColor,
             focusedContainerColor = focusedContainerColor,

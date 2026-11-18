@@ -12,15 +12,12 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import io.github.petebutty.viewarr.data.accounts.AccountStore
 import io.github.petebutty.viewarr.data.accounts.Accounts
-import io.github.petebutty.viewarr.data.settings.RemoteChoice
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 import io.github.petebutty.viewarr.ui.common.MenuItem
 import io.github.petebutty.viewarr.ui.theme.AppColors
-
-private enum class AddonSwitch(override val label: String) : RemoteChoice { On("On"), Off("Off") }
 
 @HiltViewModel
 class AddonsSettingsViewModel @Inject constructor(private val store: AccountStore) : ViewModel() {
@@ -45,12 +42,7 @@ fun AddonsSettingsScreen(onBack: () -> Unit, vm: AddonsSettingsViewModel = hiltV
     val addons = accounts?.addons.orEmpty()
     val items = addons.map { addon ->
         val host = runCatching { android.net.Uri.parse(addon.baseUrl).host }.getOrNull() ?: addon.baseUrl
-        SettingItem(
-            title = addon.name,
-            description = "From $host",
-            choices = AddonSwitch.entries,
-            current = if (addon.enabled) AddonSwitch.On else AddonSwitch.Off,
-        ) { vm.setEnabled(addon.baseUrl, it == AddonSwitch.On) }
+        onOffItem(addon.name, "From $host", addon.enabled) { vm.setEnabled(addon.baseUrl, it) }
     }
     val blurb = if (addons.isEmpty()) "No addons yet. Add them in Settings → Accounts & sources."
     else "An addon that's off adds no rows, search results or streams. Add or remove addons in Accounts & sources."

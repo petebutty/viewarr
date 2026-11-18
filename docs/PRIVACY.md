@@ -9,6 +9,7 @@ Viewarr has no analytics, no ads and no servers of its own. It talks only to the
 - **Watch progress for IPTV films and episodes** (where you stopped, and what you've finished), for each profile, because Dispatcharr and Xtream don't keep it. Up to 400 entries per profile, the oldest dropped first. With Dispatcharr it's also kept on your own Dispatcharr user (its app-data store), so your other TVs share it; nothing goes anywhere else.
 - **Each Live TV source's TV guide** (the three most recent sources keep theirs, so switching is quick). With an IPTV login or playlist, groups you leave out with **Choose groups** aren't stored at all.
 - **Artwork** (posters, logos, backdrops) and other caches, and **downloaded updates**.
+- **Copies of what pages show**, so they open straight away and refresh quietly behind: the Movies and Shows rows, ratings, guide pictures, title logos and your Trakt watched history. They stay on the TV and are only used to show those pages.
 
 **Settings → About → Storage** shows what Viewarr keeps and lets you clear artwork and downloaded updates. **Sign out of everything** signs the TV out of all your accounts and sources.
 
@@ -34,7 +35,7 @@ Viewarr talks to the servers you set up, with the sign-ins you give it:
 | **TheIntroDB / IntroDB** | For **Skip intro** and **Next episode**, when Plex, Jellyfin or Emby haven't marked the intro (addons, IPTV…). Off if **Skip intros** and **Skip credits** are off. | Only the title's id and the episode. |
 | **LRCLIB** | Only if you turn on **Settings → Playback → Music → Lyrics from LRCLIB**, for songs your server has no lyrics for. | The song's artist, title, album and length. |
 | **YouTube** | For trailers (trailer previews on posters, and the Trailer button). Turn previews off in **Settings → Playback → Trailers**. | Requests for the trailer video. |
-| **GitHub** | When Viewarr checks for updates (**Settings → Updates**; automatic checks are at most twice a day and can be turned off). | A request for the list of Viewarr releases. |
+| **GitHub** | When Viewarr checks for updates (**Settings → Updates**; automatic checks are at most every 30 minutes and can be turned off). | A request for the list of Viewarr releases. |
 
 Title pages only fetch what you've switched on: anything off in **Settings → Appearance → Title pages** or **Ratings** isn't fetched. Low-memory mode also stops programme pictures and the extra ratings.
 

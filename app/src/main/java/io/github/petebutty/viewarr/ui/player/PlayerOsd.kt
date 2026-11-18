@@ -21,9 +21,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.collectAsState
@@ -56,8 +54,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.C
-import androidx.tv.material3.ClickableSurfaceDefaults
-import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import io.github.petebutty.viewarr.data.local.ChannelListItem
 import io.github.petebutty.viewarr.data.local.GuideProgram
@@ -74,7 +70,6 @@ import io.github.petebutty.viewarr.playback.SleepTimer
 import io.github.petebutty.viewarr.playback.AvSync
 import coil.compose.AsyncImage
 import kotlinx.coroutines.android.awaitFrame
-import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.ZoneId
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -87,15 +82,7 @@ import io.github.petebutty.viewarr.ui.common.FocusCard
 import io.github.petebutty.viewarr.ui.common.FocusCardStatic
 import io.github.petebutty.viewarr.ui.common.OptionsPopup
 import io.github.petebutty.viewarr.ui.common.PopupOption
-import io.github.petebutty.viewarr.ui.common.PopupPanel
-import io.github.petebutty.viewarr.ui.common.PopupTitle
-import io.github.petebutty.viewarr.ui.common.ReorderAxis
 import io.github.petebutty.viewarr.ui.common.RoundIconButton
-import io.github.petebutty.viewarr.ui.common.moveOption
-import io.github.petebutty.viewarr.ui.common.movingHint
-import io.github.petebutty.viewarr.ui.common.rememberCarry
-import io.github.petebutty.viewarr.ui.common.reorderable
-import io.github.petebutty.viewarr.ui.theme.Tokens
 import androidx.hilt.navigation.compose.hiltViewModel
 import io.github.petebutty.viewarr.data.settings.LocalRemote
 import io.github.petebutty.viewarr.ui.settings.AppearanceViewModel
@@ -132,22 +119,10 @@ fun PlayerOsd(
     onSearch: (() -> Unit)? = null,
     /** The home screen's extra buttons (shown once added to the bar). */
     extraButtons: List<BarExtra> = emptyList(),
-    /** Down from the buttons (no shortcuts row): these rows, e.g. Recent channels, as the film player's next episodes. */
+    /** Down from the buttons: these rows, e.g. Recent channels (Settings → Rows under the info bar). */
     downRows: List<OsdRow> = emptyList(),
     /** Channel list, guide and wallpaper transparency, adjusted over the picture. */
     onTransparency: (() -> Unit)? = null,
-    /** Down from the buttons: your shortcuts (libraries, rows, Music…; Settings → Remote buttons → Live TV shortcuts). */
-    shortcuts: List<Pair<LiveShortcut, () -> Unit>> = emptyList(),
-    /** Down from the shortcuts: rows of posters (Continue watching, Recent channels…), one row on screen at a time. */
-    posterRows: List<OsdRow> = emptyList(),
-    /** The rows a shortcut previews underneath while it's highlighted (its network's, its row, its page's); null: [posterRows]. */
-    previewFor: (String) -> List<OsdRow>? = { null },
-    /** Hold OK on a shortcut: take it off the row. */
-    onHideShortcut: (LiveShortcut) -> Unit = {},
-    /** Move a shortcut one place along the row (-1 left, 1 right), from the hold-OK menu's Move. */
-    onMoveShortcut: (LiveShortcut, Int) -> Unit = { _, _ -> },
-    /** Refresh just this shortcut's rows (from the hold-OK menu). */
-    onRefreshShortcut: ((LiveShortcut) -> Unit)? = null,
     /** Opened with the Menu button: start on the audio choices. */
     openAudio: Boolean = false,
     modifier: Modifier = Modifier,
@@ -170,14 +145,17 @@ fun PlayerOsd(
     // The button that opened a pop-up (Audio, Subtitles, Aspect, Source, Sync): the highlight goes back to it when the
     // pop-up closes (it was lost).
     val btnFocus = remember { HashMap<String, FocusRequester>() }
-    var popupFrom by remember { mutableStateOf<String?>(null) }
+    // (Opened on the audio choices by the Audio & subtitles button: Back from them lands on Audio, not nowhere.)
+    var popupFrom by remember { mutableStateOf<String?>(if (openAudio) "audio" else null) }
     LaunchedEffect(popup == null) {
         if (popup != null) return@LaunchedEffect
         val from = popupFrom ?: return@LaunchedEffect
         awaitFrame(); awaitFrame()
-        runCatching { btnFocus[from]?.requestFocus() }
+        runCatching { (btnFocus[from] ?: firstFocus).requestFocus() }
         popupFrom = null
     }
+    // Back to the button the highlight left (for the rows under the bar, the buttons editor, TV settings), else the first.
+    fun backToButton() { runCatching { (popupFrom?.let { btnFocus[it] } ?: firstFocus).requestFocus() } }
     // The progress bar: Left on it while live rewinds (catch-up channels); it stays focused as it turns into the
     // catch-up seek bar, so you can keep scrubbing.
     val barFocus = remember { FocusRequester() }
@@ -206,9 +184,9 @@ fun PlayerOsd(
             .ignoreHeldOk(),
     ) {
         if (barEditor) BarButtonsEditor(barItems, barAppearance::setTitlePart, { barAppearance.setBarOrder("all", it) }, onActivity,
-            onClose = { barEditor = false; runCatching { firstFocus.requestFocus() } })
+            onClose = { barEditor = false; backToButton() })
         if (popup == OsdPopup.Info) StreamInfoPopup(vm)
-        if (tvOpen) TvSettingsPanel(onClose = { tvOpen = false; runCatching { firstFocus.requestFocus() } })
+        if (tvOpen) TvSettingsPanel(onClose = { tvOpen = false; backToButton() })
         popup?.takeIf { it != OsdPopup.Info }?.let { p ->
             OptionPopup(
                 wide = p == OsdPopup.Source,
@@ -319,13 +297,11 @@ fun PlayerOsd(
         )
 
         // The same icon buttons as the film / show player's controls (the focused one's name underneath).
-        var showShortcuts by remember { mutableStateOf(false) }
         // In the rows under the buttons (Recent channels): which one; -1 on the buttons.
         var downRow by remember { mutableIntStateOf(-1) }
-        BackHandler(enabled = downRow >= 0) { downRow = -1; runCatching { firstFocus.requestFocus() } }
+        BackHandler(enabled = downRow >= 0) { downRow = -1; backToButton() }
         // (The Style button's setting.)
         val barOpts: UiOptsViewModel = hiltViewModel()
-        val shortcutFocus = remember { FocusRequester() }
         // Where the buttons start: Go live in catch-up (or paused), else Stop (the TV guide if Stop is hidden). Both
         // when the controls open and when Down comes into the buttons from the seek bar.
         val goLiveFocus = remember { FocusRequester() }
@@ -344,10 +320,8 @@ fun PlayerOsd(
                 }
                 .focusGroup()
                 .horizontalScroll(androidx.compose.foundation.rememberScrollState()).onPreviewKeyEvent { e ->
-                // Down from the buttons: the shortcuts row.
-                if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionDown && shortcuts.isNotEmpty() && popup == null) { showShortcuts = true; true }
-                // No shortcuts row: Down opens the rows under the buttons (Recent channels).
-                else if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionDown && shortcuts.isEmpty() && downRows.isNotEmpty() && popup == null && downRow < 0) { onActivity(); downRow = 0; true }
+                // Down opens the rows under the buttons (Recent channels…).
+                if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionDown && downRows.isNotEmpty() && popup == null && downRow < 0) { onActivity(); downRow = 0; true }
                 else false
             },
             verticalAlignment = Alignment.Top,
@@ -407,172 +381,47 @@ fun PlayerOsd(
             }
             sourceNote?.takeIf { popup == null }?.let { Text(it, fontSize = 12.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(start = 8.dp, top = 14.dp)) }
         }
-        // -1: on the shortcuts (the first row peeks underneath); otherwise the poster row being browsed.
-        var posterRow by remember { mutableIntStateOf(-1) }
-        // The highlighted shortcut previews its own content underneath; going down keeps what was showing.
-        // (Taken a moment after the highlight rests: each preview loads a new set of pictures, and doing that for
-        // every shortcut passed on the way along made moving sluggish.)
-        var focusedRaw by remember { mutableIntStateOf(0) }
-        var focusedSc by remember { mutableIntStateOf(0) }
-        LaunchedEffect(focusedRaw) { delay(250); focusedSc = focusedRaw }
-        // A shortcut's rows: the ones chosen for it (hold OK → Choose rows), in that order, else all it has.
-        fun rowsFor(i: Int): List<OsdRow> {
-            val id = shortcuts.getOrNull(i)?.first?.id
-            val all = id?.let(previewFor)?.takeIf { it.isNotEmpty() } ?: posterRows
-            val picked = id?.let { LiveShortcutsBridge.chosen[it] } ?: return all
-            return picked.mapNotNull { t -> all.firstOrNull { it.title == t } }
-        }
-        val allRows = rowsFor(focusedSc)
-        // Settings → Navigation → Rows under the shortcuts: Down reaches this many (the rest are on the shortcut's own
-        // page). Not for one whose rows were chosen (all of those), nor Sports (a row per team / league you follow).
-        val maxRows = when (AppColors.palette.opt(UiOpts.OSD_ROWS)) { 1 -> 2; 2 -> 5; 3 -> Int.MAX_VALUE; else -> 3 }
-        fun capFor(i: Int): Int {
-            val id = shortcuts.getOrNull(i)?.first?.id
-            return if (id != null && LiveShortcutsBridge.chosen.containsKey(id)) Int.MAX_VALUE else if (id == "page:Sports") maxOf(maxRows, 12) else maxRows
-        }
-        val shownRows = allRows.take(capFor(focusedSc))
-        val moreRows = allRows.size > shownRows.size
-        var browsing by remember { mutableStateOf<List<OsdRow>?>(null) }
-        // Hold OK on a shortcut takes it off; focus then goes to the one now in its place.
-        val scFocus = remember { HashMap<String, FocusRequester>() }
-        var hiddenAt by remember { mutableIntStateOf(-1) }
-        // Hold OK asks first: "Hide Netflix from your shortcuts?" (Cancel highlighted, so a stray press does nothing).
-        var askHide by remember { mutableStateOf<Pair<Int, LiveShortcut>?>(null) }
-        var chooseFor by remember { mutableStateOf<LiveShortcut?>(null) }
-        // Move (from that menu): the shortcut picked up; ◀ ▶ slide it along, OK or Back put it down (Modifier.reorderable).
-        val scCarry = rememberCarry()
-        // The row swapped (into Sports, or back out): focus on its first one, no rows from the old row left open.
-        val firstId = shortcuts.firstOrNull()?.first?.id
-        var lastFirst by remember { mutableStateOf(firstId) }
-        LaunchedEffect(firstId) {
-            if (firstId == lastFirst) return@LaunchedEffect
-            lastFirst = firstId
-            if (!showShortcuts || scCarry.active) return@LaunchedEffect
-            browsing = null; posterRow = -1
-            awaitFrame()
-            runCatching { shortcutFocus.requestFocus() }
-        }
-        LaunchedEffect(shortcuts.map { it.first.id }) {
-            val id = scCarry.id ?: return@LaunchedEffect
-            // (The one being moved gone from the row: nothing carried any more.)
-            if (shortcuts.none { it.first.id == id }) { scCarry.drop(); return@LaunchedEffect }
-            awaitFrame()
-            runCatching { scFocus[id]?.requestFocus() }
-        }
-        val scope = androidx.compose.runtime.rememberCoroutineScope()
-        askHide?.let { (at, sc) ->
-            ShortcutOptions(
-                sc, onActivity = onActivity,
-                onMove = {
-                    askHide = null; scCarry.pickUp(sc.id)
-                    scope.launch { awaitFrame(); runCatching { scFocus[sc.id]?.requestFocus() } }
-                },
-                onRefresh = onRefreshShortcut?.let { f -> {
-                    askHide = null; f(sc)
-                    scope.launch { awaitFrame(); runCatching { scFocus[sc.id]?.requestFocus() } }
-                } },
-                onHide = { askHide = null; hiddenAt = at; onHideShortcut(sc) },
-                onCancel = {
-                    askHide = null
-                    scope.launch { awaitFrame(); runCatching { scFocus[sc.id]?.requestFocus() } }
-                },
-                onChooseRows = { askHide = null; chooseFor = sc },
-            )
-        }
         // Hold OK on a Continue watching card: Go to show / Go to season / Play from the start. Closing it (Cancel,
         // Back) leaves the highlight where it was.
         CardMenuHost(onActivity = onActivity)
         // (Its pop-ups have the remote in their own window: the controls stay up behind them.)
-        if (askHide != null || chooseFor != null || CardMenu.open != null) HoldBarOpen()
-        chooseFor?.let { sc ->
-            ChooseRowsDialog(
-                sc, onActivity = onActivity,
-                onSave = { LiveShortcutsBridge.chooseRows(sc.id, it) },
-                onClose = {
-                    chooseFor = null
-                    scope.launch { awaitFrame(); runCatching { scFocus[sc.id]?.requestFocus() } }
-                },
-            )
-        }
-        LaunchedEffect(shortcuts.size) {
-            val at = hiddenAt.takeIf { it >= 0 } ?: return@LaunchedEffect
-            hiddenAt = -1
-            awaitFrame()
-            shortcuts.getOrNull(at.coerceAtMost(shortcuts.lastIndex))?.first?.id?.let { id -> runCatching { scFocus[id]?.requestFocus() } }
-        }
-        if (showShortcuts && shortcuts.isNotEmpty()) {
-            LaunchedEffect(Unit) { awaitFrame(); runCatching { shortcutFocus.requestFocus() } }
-            // (Room at the ends and above / below for the highlighted one to grow into, not cut off; shifted back so
-            // the row lines up as before.)
-            LazyRow(
-                Modifier.padding(top = 2.dp).offset(x = (-14).dp).onPreviewKeyEvent { e ->
-                    // Moving one: the shortcut itself has the keys (Modifier.reorderable), nothing here.
-                    if (scCarry.active) { onActivity(); return@onPreviewKeyEvent false }
-                    if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                    when (e.key) {
-                        // Up: back to the buttons, the shortcuts folded away again.
-                        Key.DirectionUp -> { showShortcuts = false; posterRow = -1; runCatching { firstFocus.requestFocus() }; true }
-                        // Down: into the posters.
-                        // (The highlighted one's rows now, not the preview's, which follows the highlight a moment late.)
-                        Key.DirectionDown -> {
-                            focusedSc = focusedRaw
-                            val rows = rowsFor(focusedRaw).take(capFor(focusedRaw))
-                            if (rows.isNotEmpty()) { browsing = rows; posterRow = 0 }
-                            true
-                        }
-                        else -> false
-                    }
-                },
-                horizontalArrangement = Arrangement.spacedBy(14.dp),
-                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
-            ) {
-                // Round icons like the buttons above, the highlighted one's name underneath.
-                items(shortcuts.size, key = { shortcuts[it].first.id }) { i ->
-                    val (sc, go) = shortcuts[i]
-                    val fr = scFocus.getOrPut(sc.id) { FocusRequester() }
-                    val carried = scCarry.isCarried(sc.id)
-                    ShortcutButton(sc, if (carried) "◀  ${sc.label}  ▶" else sc.label,
-                        (if (i == 0) Modifier.focusRequester(shortcutFocus) else Modifier).focusRequester(fr)
-                            .reorderable(carried = carried, onMove = { dir -> onMoveShortcut(sc, dir) }, onDrop = scCarry::drop, axis = ReorderAxis.Horizontal),
-                        onFocus = { focusedRaw = i },
-                        onLongClick = if (scCarry.active || sc.id.startsWith("action:") || sc.id == "sport:back" || (sc.id == "page:Live" && shortcuts.firstOrNull()?.first?.id == "sport:back")) null else ({ askHide = i to sc })) { go() }
-                }
-            }
-            val rowsNow = browsing ?: shownRows
-            // Settings → Live TV shortcuts → Rows under the shortcuts appear: only once you go down into them
-            // (the default, cleaner), or a dimmed preview under the shortcuts all along.
-            val peek = AppColors.palette.opt(UiOpts.OSD_PEEK) == 1
-            if (rowsNow.isNotEmpty() && (peek || posterRow >= 0)) PosterRows(rowsNow, posterRow, more = moreRows, onRow = { r ->
-                posterRow = r
-                // Up from the first row: back to the shortcut it came from.
-                if (r < 0) { browsing = null; runCatching { (shortcuts.getOrNull(focusedRaw)?.first?.id?.let { scFocus[it] } ?: shortcutFocus).requestFocus() } }
-            })
-        }
+        if (CardMenu.open != null) HoldBarOpen()
         // Recent channels (and any other rows) under the buttons: Up from the first goes back to the buttons.
-        if (shortcuts.isEmpty() && downRows.isNotEmpty() && downRow >= 0) PosterRows(downRows, downRow, onRow = { r ->
+        if (downRows.isNotEmpty() && downRow >= 0) PosterRows(downRows, downRow, onRow = { r ->
             onActivity()
-            if (r < 0) { downRow = -1; runCatching { firstFocus.requestFocus() } } else downRow = r.coerceAtMost(downRows.lastIndex)
+            if (r < 0) { downRow = -1; backToButton() } else downRow = r.coerceAtMost(downRows.lastIndex)
         })
-        if (shortcuts.isEmpty() && downRows.isNotEmpty() && AppColors.palette.opt(UiOpts.BUTTON_HINTS) != 2) Text(
+        if (downRows.isNotEmpty() && rowsHintWanted()) Text(
             if (downRow >= 0) "◀ ▶ move  ·  OK: watch  ·  ▲ buttons  ·  Back: buttons" else "▼ ${downRows.first().title.lowercase()}  ·  ◀ ▶ buttons  ·  OK: choose  ·  Back: close",
-            fontSize = 12.sp, color = Color.White.copy(alpha = 0.7f), maxLines = 1,
-            modifier = Modifier.padding(top = 8.dp),
-        )
-        // What the buttons do where you are (as the film player's line): the shortcuts are found with Down, which
-        // nothing said; in them, Down for their rows and hold OK for Move / Refresh / Hide (Settings → Appearance →
-        // Button hints off: none).
-        if (shortcuts.isNotEmpty() && AppColors.palette.opt(UiOpts.BUTTON_HINTS) != 2) Text(
-            when {
-                showShortcuts && posterRow >= 0 -> "◀ ▶ move  ·  ▲ ▼ rows  ·  OK: watch or open  ·  ▲ from the top row: shortcuts"
-                showShortcuts && scCarry.active -> movingHint(ReorderAxis.Horizontal)
-                showShortcuts -> "◀ ▶ shortcuts  ·  ▼ their rows  ·  OK: open  ·  Hold OK: move, refresh or hide  ·  ▲ buttons"
-                else -> "▼ shortcuts  ·  ◀ ▶ buttons  ·  OK: choose  ·  Back: close"
-            },
             fontSize = 12.sp, color = Color.White.copy(alpha = 0.7f), maxLines = 1,
             modifier = Modifier.padding(top = 8.dp),
         )
     }
 }
+
+/**
+ * Whether the line under the rows saying what the buttons do is shown, by Settings → Appearance → Menu → Button hints:
+ * the first few times (counted the way ui/common/ButtonHint.kt counts, in its "hints" store: once per opening of
+ * Viewarr, for the first five openings), always, or off. (It showed for "First few times" as if "Always" before.)
+ */
+@Composable
+private fun rowsHintWanted(): Boolean {
+    val mode = AppColors.palette.opt(UiOpts.BUTTON_HINTS)
+    if (mode != 0) return mode == 1
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    return remember {
+        if (OsdHintSession.shown) return@remember OsdHintSession.wanted
+        val prefs = ctx.getSharedPreferences("hints", android.content.Context.MODE_PRIVATE)
+        val seen = prefs.getInt("osd-rows", 0)
+        OsdHintSession.shown = true
+        OsdHintSession.wanted = seen < 5
+        if (seen < 5) prefs.edit().putInt("osd-rows", seen + 1).apply()
+        OsdHintSession.wanted
+    }
+}
+
+/** This opening of Viewarr: whether the rows hint has been decided, and what was decided ("First few times"). */
+private object OsdHintSession { var shown = false; var wanted = false }
 
 @Composable
 private fun Badge(text: String) {
@@ -587,11 +436,11 @@ private fun Badge(text: String) {
 }
 
 /**
- * One poster row at a time, floating under the shortcuts (no panel: the controls' own fade is behind it). Up / Down
- * change row (Up from the first goes back to the shortcuts); the next row's name shows beside this one's.
+ * One poster row at a time, floating under the buttons (no panel: the controls' own fade is behind it). Up / Down
+ * change row (Up from the first goes back to the buttons); the next row's name shows beside this one's.
  */
 @Composable
-private fun PosterRows(rows: List<OsdRow>, current: Int, more: Boolean = false, onRow: (Int) -> Unit) {
+private fun PosterRows(rows: List<OsdRow>, current: Int, onRow: (Int) -> Unit) {
     val r = current.coerceIn(0, rows.lastIndex)
     val row = rows[r]
     val inside = current >= 0
@@ -612,7 +461,7 @@ private fun PosterRows(rows: List<OsdRow>, current: Int, more: Boolean = false, 
                 }
             },
     ) {
-        OsdRowHeading(row.title, rows.getOrNull(r + 1)?.title, more, position = if (rows.size > 1) "${r + 1} of ${rows.size}" else null)
+        OsdRowHeading(row.title, rows.getOrNull(r + 1)?.title, position = if (rows.size > 1) "${r + 1} of ${rows.size}" else null)
         androidx.compose.runtime.key(r) {
             // Room round the cards (the highlight grew and was cut off at the row's left edge; kept since cards stopped growing),
             // pulled back by the same amount so the first card still lines up with the row's name.
@@ -627,34 +476,6 @@ private fun PosterRows(rows: List<OsdRow>, current: Int, more: Boolean = false, 
             }
         }
     }
-}
-
-/**
- * Holding OK on a shortcut (live TV and the film player show this same one): Move along the row, Choose rows, Refresh
- * just its rows (shortcuts that have rows), Hide; Cancel last (the shared options pop-up: it starts on the first).
- */
-@Composable
-fun ShortcutOptions(sc: LiveShortcut, onMove: () -> Unit, onRefresh: (() -> Unit)?, onHide: () -> Unit, onCancel: () -> Unit, onActivity: () -> Unit = {}, onChooseRows: (() -> Unit)? = null) {
-    // A pinned team / league (Settings → Sports): Unpin puts it back under the Sports shortcut. (Pinned ones sit at the
-    // end of the row, in the order pinned: no Move.)
-    val sport = sc.id.startsWith("sport:")
-    // (Each choice closes the pop-up itself, so keepOpen: closing it otherwise is Cancel / Back, onCancel.)
-    fun choice(label: String, run: () -> Unit) = PopupOption(label, keepOpen = true) { onActivity(); run() }
-    val options = listOfNotNull(
-        if (!sport) choice("Move", onMove) else null,
-        // Its rows (Down): which, and in what order, for this shortcut only.
-        if (onChooseRows != null && LiveShortcutsBridge.allRowsFor(sc.id).isNotEmpty()) choice("Choose rows", onChooseRows) else null,
-        // Shortcuts with rows of their own (networks, rows, Movies / Shows, libraries): fetch just those again.
-        if (onRefresh != null && listOf("set:", "row:", "home:", "lib:").any { sc.id.startsWith(it) }) choice("Refresh", onRefresh) else null,
-        choice(if (sport) "Unpin" else "Hide", onHide),
-    )
-    OptionsPopup(
-        title = sc.label,
-        subtitle = if (sport) "Choose the rows under it, or unpin it (it stays under the Sports shortcut)."
-            else "Move it along your row, choose the rows under it, fetch them again, or hide it (add it back in Settings → Remote buttons → Live TV shortcuts).",
-        options = options,
-        onClose = { onActivity(); onCancel() },
-    )
 }
 
 /**
@@ -675,61 +496,6 @@ fun CardMenuHost(onActivity: () -> Unit = {}, beforeRun: (plays: Boolean) -> Uni
         options = p.options.map { o -> PopupOption(o.label, keepOpen = true) { CardMenu.open = null; beforeRun(o.plays); o.run() } },
         onClose = { onActivity(); close() },
     )
-}
-
-/**
- * Hold OK on a shortcut → Choose rows: every row it can show, On / Off, in the order they'll come. OK turns one on or
- * off; hold OK: Move / Turn off (Right picks an on one up too); while moving, ▲ ▼ place it and OK, Back or Left put it
- * down. Back keeps the choice; Reset goes back to its usual rows. For this shortcut only (the Movies page itself is
- * untouched). [onSave] null: back to its usual rows.
- */
-@Composable
-fun ChooseRowsDialog(sc: LiveShortcut, onSave: (List<String>?) -> Unit, onClose: () -> Unit, onActivity: () -> Unit = {}) {
-    val all = remember(sc.id) { LiveShortcutsBridge.allRowsFor(sc.id).map { it.title }.distinct() }
-    val current = LiveShortcutsBridge.chosen[sc.id]
-    // On ones first (chosen order, else its usual first few), then the rest.
-    val usual = remember(sc.id) { LiveShortcutsBridge.rowsForId(sc.id).map { it.title } }
-    var on by remember(sc.id) { mutableStateOf((current ?: usual).filter { it in all }) }
-    val order = on + all.filter { it !in on }
-    var changed by remember { mutableStateOf(false) }
-    val carry = rememberCarry()
-    var menuFor by remember { mutableStateOf<String?>(null) }
-    val first = remember { FocusRequester() }
-    LaunchedEffect(Unit) { awaitFrame(); runCatching { first.requestFocus() } }
-    fun close() { if (changed) onSave(on); onClose() }
-    fun toggle(t: String) { on = if (t in on) on - t else on + t; changed = true; onActivity() }
-    fun move(t: String, by: Int) {
-        val i = on.indexOf(t); val j = i + by
-        if (i < 0 || j !in on.indices) return
-        on = on.toMutableList().apply { add(j, removeAt(i)) }; changed = true; onActivity()
-    }
-    PopupPanel(onClose = { if (carry.active) carry.drop() else close() }, modifier = Modifier.onPreviewKeyEvent { onActivity(); false }) {
-        PopupTitle("Rows under ${sc.label}", if (carry.active) movingHint(ReorderAxis.Vertical) else "OK: on / off  ·  Hold OK: options  ·  Back: done")
-        order.forEachIndexed { i, t ->
-            androidx.compose.runtime.key(t) {
-                val isOn = t in on
-                val carried = carry.isCarried(t)
-                MenuItem(
-                    text = (if (carried) "↕ " else "") + t, trailing = if (carried) "▲ ▼" else if (isOn) "On" else "Off", dim = !isOn, selected = carried,
-                    modifier = (if (i == 0) Modifier.focusRequester(first) else Modifier).reorderable(
-                        carried = carried, onMove = { move(t, it) }, onDrop = carry::drop, axis = ReorderAxis.Vertical,
-                        rightToggles = isOn && on.size > 1, onPickUp = { carry.pickUp(t) },
-                    ),
-                    onLongClick = if (carry.active) null else ({ menuFor = t }),
-                    onClick = { if (!carry.active) toggle(t) },
-                )
-            }
-        }
-        MenuItem(text = "Reset to its usual rows", selected = false, onClick = { onSave(null); onClose() }, modifier = Modifier.padding(top = 10.dp))
-    }
-    menuFor?.let { t ->
-        val isOn = t in on
-        OptionsPopup(
-            title = t,
-            options = listOfNotNull(if (isOn && on.size > 1) carry.moveOption(t) else null, PopupOption(if (isOn) "Turn off" else "Turn on") { toggle(t) }),
-            onClose = { menuFor = null; onActivity() },
-        )
-    }
 }
 
 /** The picture inside a row card (live TV and the film player draw the same): artwork or logo, else the title; progress. */
@@ -778,15 +544,14 @@ fun OsdCardCaption(p: OsdPoster, highlighted: Boolean) {
     if (p.subtitle == null && p.note == null) Text(" ", fontSize = 13.sp, maxLines = 1)
 }
 
-/** A row's heading: its name, then the next row's (or that there are more on the shortcut's own page). */
+/** A row's heading: its name, then where you are among the rows ("2 of 4") or the next row's name. */
 @Composable
-fun OsdRowHeading(title: String, next: String?, more: Boolean = false, position: String? = null) {
+fun OsdRowHeading(title: String, next: String?, position: String? = null) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(title, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
         // Several rows under the info bar: where you are among them ("2 of 4").
         if (position != null) Text("   $position", fontSize = 12.sp, color = AppColors.TextSecondary)
         if (next != null && position == null) Text("   ·   Down: $next", fontSize = 12.sp, color = AppColors.TextSecondary)
-        else if (more) Text("   ·   More rows: open the shortcut", fontSize = 12.sp, color = AppColors.TextSecondary)
     }
 }
 
@@ -846,27 +611,6 @@ private fun BarButton(icon: ImageVector, label: String, modifier: Modifier = Mod
         icon, label, onClick, modifier, onLongClick = onLongClick, groupEnd = groupEnd,
         width = (48 * k).dp, columnWidth = (72 * k).dp, iconSize = (26 * k).dp, labelSize = (12 * (0.5f + k / 2)).sp, labelGap = (4 * k).dp,
     )
-}
-
-/**
- * A shortcut on the shortcuts row: drawn in Settings → Shortcut style, at Settings → Live TV shortcuts → Shortcut size
- * (Small is the first), larger than the buttons so logos read from the sofa. It grows a little when highlighted, so
- * it's clear which one you're on (the buttons don't): at once with List scrolling on Instant (RoundIconButton).
- */
-@Composable
-private fun ShortcutButton(sc: LiveShortcut, label: String, modifier: Modifier, onFocus: () -> Unit, onLongClick: (() -> Unit)?, onClick: () -> Unit) {
-    val k = AppColors.palette.controlsScale
-    val size = floatArrayOf(1f, 1.25f, 1.5f)[AppColors.palette.opt(UiOpts.SHORTCUT_SIZE).coerceIn(0, 2)]
-    fun b(v: Int) = ((v * size).toInt() * k).dp
-    val style = shortcutStyle()
-    val (bw, bh) = shortcutBox(b(64), style)
-    RoundIconButton(
-        sc.icon, label, onClick, modifier, onLongClick = onLongClick,
-        width = bw, height = bh, columnWidth = bw + b(24), shape = shortcutShape(style),
-        labelSize = (12 * (0.5f + k / 2)).sp, labelGap = (4 * k).dp, focusedScale = 1.2f, onFocus = onFocus,
-    ) { on ->
-        Box(Modifier.fillMaxSize().padding(if (on) (3 * k).dp else 0.dp), contentAlignment = Alignment.Center) { ShortcutFace(sc, style, bh) }
-    }
 }
 
 @Composable

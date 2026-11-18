@@ -16,10 +16,36 @@ Netflix-style rows, with the highlighted title's details at the top and its artw
 
 Rows that repeat across servers (Continue watching, a library's Recently added) are combined into one. Turn that off with **Combine rows from different servers** in **Settings → Home page & menu**.
 
-If nothing is playing, the highlighted title's trailer plays in the window at the top left (**Settings → Playback → Trailers**).
+If nothing is playing, the highlighted title's trailer plays in the window at the top left (**Settings → Playback → Trailers**). Press the remote's **Play/Pause** while it plays to watch that trailer full screen.
 
 - **OK** opens a title. **Hold OK** gives a quick menu (watchlist, Seerr request and more).
 - **Drop show**: hold OK on a show in Continue watching to drop it, here and on Trakt. Watching it again brings it back.
+- **Mark watched** on a film takes it out of Continue watching straight away.
+
+### Browsing styles
+
+**Settings → Appearance → Browsing style** sets the look of Movies, Shows and the streaming services' pages in one go. *(0.29.0 and later.)*
+
+| Style | What it looks like |
+|---|---|
+| **Viewarr** (the standard) | A top panel with the title's details on the left and its trailer in the window at the top right, and two rows to a page. With a live channel playing in the top-left window, the details move to the right. |
+| **Cinema** | A bigger top panel, larger posters in one row along the bottom, and trailers that play in the poster. Up and Down turn a whole page at a time. |
+| **Lite** | For weaker boxes: no top panel, no trailer previews or title logos, and smaller posters. The quickest to scroll. |
+
+Each part can still be changed on its own (the style then says **Custom**):
+
+- **Top panel**: Normal, Big or Off (more rows on screen).
+- **Row posters**: Normal, Large or Small.
+- **Other posters faded** (in **Appearance → Posters**): a slider for how much the posters you're not on fade, so the highlighted one stands out. Off keeps them all solid.
+- **Highlight zoom** (in **Appearance → Posters**): the highlighted poster grows a little (Slight), more, or stays its size.
+
+### Trailers in the poster
+
+With **Settings → Playback → Trailers → Trailer previews play** set to **In the poster** (Cinema does this for you):
+
+1. Rest on a poster and, after a moment (**Start after**), it widens and its trailer plays inside it, without sound.
+2. After a while (**Then the big panel**: 5, 10 or 15 seconds, or Never) the trailer grows into a big panel in the middle, with sound. **OK** on the playing poster does this at once.
+3. In the big panel, **OK** opens the title's page. **Back** or an arrow closes the panel.
 
 ### Choosing your rows
 
@@ -31,6 +57,10 @@ If nothing is playing, the highlighted title's trailer plays in the window at th
 OK turns an entry on or off. Right picks one up so Up / Down move it; OK puts it down.
 
 You can also do this from the menu itself by holding OK on a menu entry (see [Getting around](GETTING-AROUND.md#editing-the-menu)).
+
+### Continue watching from
+
+Under the libraries in **Settings → Home page & menu**, **Continue watching from** has one switch for each of your servers, plus IPTV and Trakt. Switch one off and the films and episodes you're part way through there leave Continue watching everywhere: Movies, Shows, My Library and the row under the info bar. *(0.29.0 and later.)*
 
 ## Your libraries
 
@@ -101,7 +131,7 @@ Also on title pages:
 
 - **From the start**: part-way through? A button beside Resume plays it from the beginning.
 - **Audio & subtitles**: pick them before Play (films on your Plex, Jellyfin or Emby).
-- **Mark watched / unwatched** on your servers and Trakt.
+- **Mark watched / unwatched** on your servers and Trakt. A film marked watched leaves Continue watching straight away.
 
 How addon streams are picked is set in **Settings → Playback → Streams**: choose from the list yourself, or let Viewarr start the best cached stream within your quality limit (**Best quality allowed**).
 

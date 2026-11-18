@@ -1,6 +1,5 @@
 package io.github.petebutty.viewarr.ui.settings
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
@@ -9,7 +8,6 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.ui.focus.focusRequester
 import kotlinx.coroutines.flow.first
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -18,7 +16,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -68,11 +65,27 @@ class LiveSourcesViewModel @Inject constructor(
  * Accounts & sources → Live TV: every saved source by name. OK on one: switch to it, rename it or remove it.
  */
 @Composable
-fun LiveSourcesItems() {
+fun LiveSourcesItems(
+    /** Where the highlight goes when the last source is removed (the "Add another source" row above). */
+    fallback: FocusRequester? = null,
+) {
     val vm: LiveSourcesViewModel = hiltViewModel()
     val saved by vm.saved.collectAsStateWithLifecycle()
     val active by vm.active.collectAsStateWithLifecycle()
     var open by remember { mutableStateOf<String?>(null) }
+    // Switch to / Remove close the source's rows, and the highlight was left on nothing: back on that source, or the
+    // next one (the one before it at the end), or [fallback] once the list is empty.
+    val req = remember { HashMap<String, FocusRequester>() }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    fun refocus(s: Session) {
+        val i = saved.indexOfFirst { it.id == s.id }
+        scope.launch {
+            awaitFrame()
+            val now = vm.saved.value
+            val target = (now.firstOrNull { it.id == s.id } ?: now.getOrNull(i) ?: now.lastOrNull())?.let { req[it.id] } ?: fallback
+            runCatching { target?.requestFocus() }
+        }
+    }
     var renaming by remember { mutableStateOf<Session?>(null) }
     var choosingGroups by remember { mutableStateOf(false) }
     var confirmRemove by remember { mutableStateOf(false) }
@@ -83,9 +96,10 @@ fun LiveSourcesItems() {
         MenuItem(
             text = s.label, trailing = if (on) "Active" else "", selected = false,
             onClick = { open = if (open == s.id) null else s.id; confirmRemove = false },
+            modifier = Modifier.focusRequester(req.getOrPut(s.id) { FocusRequester() }),
         )
         if (open == s.id) {
-            if (!on) MenuItem(text = "      Switch to this source", selected = false, onClick = { open = null; vm.switchTo(s) })
+            if (!on) MenuItem(text = "      Switch to this source", selected = false, onClick = { open = null; vm.switchTo(s); refocus(s) })
             MenuItem(text = "      Rename", selected = false, onClick = { renaming = s })
             // Leave out groups you never watch: their channels and guide aren't stored at all.
             // (IPTV logins and playlists: Dispatcharr sorts its groups out itself, with its own plugin.)
@@ -93,7 +107,7 @@ fun LiveSourcesItems() {
             MenuItem(
                 text = if (confirmRemove) "      Press OK again to remove it" else "      Remove",
                 selected = false, dim = true,
-                onClick = { if (confirmRemove) { open = null; confirmRemove = false; vm.remove(s) } else confirmRemove = true },
+                onClick = { if (confirmRemove) { open = null; confirmRemove = false; vm.remove(s); refocus(s) } else confirmRemove = true },
             )
         }
     }

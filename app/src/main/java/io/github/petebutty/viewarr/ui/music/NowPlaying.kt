@@ -246,7 +246,7 @@ private fun NowPlaying(position: Long) {
                 Row(Modifier.padding(top = 2.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Control(AppIcons.Stats, if (immersive) "Less visualiser" else "Big visualiser", small = true, on = immersive) { immersive = !immersive }
                     Control(AppIcons.Layers, "Queue", small = true) { queueOpen = true }
-                    Control(AppIcons.MusicNote, "Song radio", small = true) { vm.radio(s) }
+                    Control(AppIcons.MusicNote, "Radio from this song", small = true) { vm.radio(s) }
                     Control(if (s.id in starred) AppIcons.BookmarkFilled else AppIcons.Bookmark, if (s.id in starred) "Favourite (OK: remove)" else "Add to favourites", small = true, on = s.id in starred) { vm.toggleStar(s.id, "song") }
                     Control(AppIcons.Clock, MusicPlayer.sleepMinutesLeft()?.let { "Sleep: $it min" } ?: MusicPlayer.sleepAfter?.let { "Sleep: end of $it" } ?: "Sleep timer",
                         small = true, on = MusicPlayer.sleepAt != null || MusicPlayer.sleepAfter != null) { sleepOpen = true }

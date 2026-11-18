@@ -224,6 +224,8 @@ class SetupViewModel @Inject constructor(
     fun back() {
         when (_state.value.step) {
             SetupStep.SignIn -> go(SetupStep.Server)
+            // (As its on-screen Back button: the Music step, not the list of services.)
+            SetupStep.Navidrome -> backToMusic()
             SetupStep.Choose -> Unit
             SetupStep.Phone -> go(SetupStep.Choose)
             else -> go(SetupStep.Choose)

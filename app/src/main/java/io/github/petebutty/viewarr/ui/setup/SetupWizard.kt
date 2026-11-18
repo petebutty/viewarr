@@ -371,7 +371,7 @@ private fun ServiceOptions(item: SetupItem, status: String, onChange: () -> Unit
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             MenuItem(text = when (item) { SetupItem.Stremio -> "Add or remove addons"; SetupItem.LiveTv -> "Add another source"; else -> "Change" }, selected = false, onClick = onChange, modifier = Modifier.focusRequester(first))
             // Several Dispatcharr instances / IPTV logins / playlists: switch between them here (or from the menu).
-            if (item == SetupItem.LiveTv) LiveSourcesItems()
+            if (item == SetupItem.LiveTv) LiveSourcesItems(fallback = first)
             // The on/off switches that belong with the service: each Plex server, each Stremio addon.
             if (item == SetupItem.Plex) PlexServersItems()
             if (item == SetupItem.Stremio) AddonSwitches()
@@ -558,10 +558,13 @@ private fun WizardField(
                 when (e.key) {
                     Key.DirectionDown -> { keyboard?.hide(); editing = false; focusManager.moveFocus(androidx.compose.ui.focus.FocusDirection.Down); true }
                     Key.DirectionUp -> { keyboard?.hide(); editing = false; focusManager.moveFocus(androidx.compose.ui.focus.FocusDirection.Up); true }
-                    Key.DirectionCenter, Key.Enter, Key.NumPadEnter -> if (!editing) {
-                        if (e.type == KeyEventType.KeyDown) { editing = true; kbScope.launch { kotlinx.coroutines.android.awaitFrame(); keyboard?.show() } }
+                    // Always ours: after Back closed the keyboard, editing was still on, so OK went to the box (and
+                    // Enter could submit) instead of opening the keyboard again. Its own Done key still runs the action.
+                    Key.DirectionCenter, Key.Enter, Key.NumPadEnter -> {
+                        editing = true
+                        kbScope.launch { kotlinx.coroutines.android.awaitFrame(); keyboard?.show() }
                         true
-                    } else false
+                    }
                     else -> false
                 }
             },

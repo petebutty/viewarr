@@ -31,7 +31,6 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
-import io.github.petebutty.viewarr.data.media.MediaType
 import io.github.petebutty.viewarr.data.settings.BtnAction
 import io.github.petebutty.viewarr.data.settings.BtnPress
 import io.github.petebutty.viewarr.data.settings.ButtonMap
@@ -40,10 +39,6 @@ import io.github.petebutty.viewarr.data.settings.GuideBack
 import io.github.petebutty.viewarr.data.settings.GuideBackNow
 import io.github.petebutty.viewarr.data.settings.SearchButton
 import io.github.petebutty.viewarr.ui.common.RemoteAction
-import io.github.petebutty.viewarr.ui.media.MediaViewModel
-import io.github.petebutty.viewarr.ui.music.MusicViewModel
-import io.github.petebutty.viewarr.ui.player.LiveShortcut
-import io.github.petebutty.viewarr.ui.player.LiveShortcuts
 import io.github.petebutty.viewarr.ui.theme.AppColors
 import io.github.petebutty.viewarr.ui.theme.UiOpts
 import io.github.petebutty.viewarr.ui.common.glass
@@ -53,7 +48,6 @@ class RemoteViewModel @Inject constructor(private val store: RemoteStore) : View
     val settings = store.settings.stateIn(viewModelScope, SharingStarted.Eagerly, RemoteSettings())
 
     fun set(key: String, value: RemoteChoice) = viewModelScope.launch { store.set(key, value as Enum<*>) }
-    fun reset() = viewModelScope.launch { store.reset() }
     fun setSearchKey(code: Int) = viewModelScope.launch { store.setSearchKeyCode(code) }
     fun setButton(action: String, code: Int?) = viewModelScope.launch { store.setButton(action, code) }
     fun setMapping(screen: io.github.petebutty.viewarr.data.settings.BtnScreen, press: BtnPress, action: BtnAction) = viewModelScope.launch {
@@ -63,19 +57,10 @@ class RemoteViewModel @Inject constructor(private val store: RemoteStore) : View
     }
     fun resetButtons() = viewModelScope.launch { store.resetButtons() }
     fun applyPreset(p: ControlPreset) = viewModelScope.launch { store.applyPreset(p) }
-    fun setLiveShortcuts(ids: List<String>) = viewModelScope.launch { store.setLiveShortcuts(ids) }
-    fun setShortcutRows(id: String, rows: List<String>?) = viewModelScope.launch { store.setShortcutRows(id, rows) }
-    fun resetLiveShortcuts() = viewModelScope.launch { store.clear(listOf(RemoteStore.LIVE_SHORTCUTS)) }
 }
-
-/** On / Off for the Live TV shortcuts list. */
-private data class OnOff(override val label: String) : RemoteChoice
 
 /** A button's drop-down choice: an action. */
 private data class ActionChoice(val action: BtnAction) : RemoteChoice { override val label get() = action.label }
-
-/** A status row's text (Buttons while watching). */
-private data class ButtonStatus(override val label: String) : RemoteChoice
 
 /** The button(s) each action has out of the box, as shown in Settings. */
 private fun defaultButtons(a: RemoteAction): String = when (a) {
@@ -97,21 +82,7 @@ private fun searchCode(s: RemoteSettings): Int? = ButtonMap.searchCode(s)
 private inline fun <reified E> all(): List<RemoteChoice> where E : Enum<E>, E : RemoteChoice = enumValues<E>().toList()
 
 /**
- * Remote buttons → the live TV shortcuts (OK, then Down on live TV): the row itself, then the lists to add from. The
- * player still shows them and hold OK still moves or hides one, but nothing could add one, or change their style,
- * size or rows, since the page lost these sections. Empty lists (no networks loaded yet) are left out.
- */
-private fun shortcutCategories(row: List<SettingItem>, pages: List<SettingItem>, networks: List<SettingItem>, libraries: List<SettingItem>, other: List<SettingItem>) = listOf(
-    SettingCategory("Live TV shortcuts", "Your row of shortcuts on live TV (OK, then Down): pages, networks' rows or your libraries, with live TV carrying on in the corner. Add them from the \"Add shortcuts\" lists below.", row),
-    SettingCategory("Add shortcuts: pages", "Shortcuts to Viewarr's own pages: Movies, Shows, the TV guide, Live now (sport and events on now), Sports, Music, Recordings, Search and Settings. Switched on, they join the end of your row on live TV.", pages),
-    SettingCategory("Add shortcuts: networks", "Streaming services and TV channels from your addons: each shortcut opens that network's rows (Popular, New, Top rated…). Switched on, they join the end of your row on live TV.", networks),
-    SettingCategory("Add shortcuts: your libraries", "Your Plex, Jellyfin and Emby libraries and rows (Continue watching, Recently added, your watchlist), and your music: Albums, Artists, Playlists. Switched on, they join the end of your row on live TV.", libraries),
-    SettingCategory("Add shortcuts: other rows", "Everything else: other libraries, TMDB and Trakt rows, addon catalogues. Switched on, they join the end of your row on live TV.", other),
-).filter { it.items.isNotEmpty() }
-
-/**
- * Settings → Remote buttons (what each button does, grouped by screen) and the live TV shortcuts, full screen like
- * Playback. (Navigation's settings are laid out by SettingsMap from [navigationCategories].)
+ * Settings → Remote buttons (what each button does, grouped by screen), full screen like Playback. (Navigation's settings are laid out by SettingsMap from [navigationCategories].)
  */
 @Composable
 fun RemoteSettingsScreen(onBack: () -> Unit, vm: RemoteViewModel = hiltViewModel(), opts: UiOptsViewModel = hiltViewModel()) {
@@ -122,7 +93,7 @@ fun RemoteSettingsScreen(onBack: () -> Unit, vm: RemoteViewModel = hiltViewModel
         val extra = s.buttons[a.name]
         val status = defaultButtons(a) + (extra?.let { " + " + io.github.petebutty.viewarr.ui.common.RemoteKeys.buttonName(it) } ?: "")
         SettingItem(name, if (extra == null) "OK: add a button for this, e.g. a colour button or one your remote has spare." else "OK: change or remove the extra button.",
-            listOf(ButtonStatus(status)), ButtonStatus(status), action = { teaching = a to name }, onSelect = {})
+            listOf(PlainChoice(status)), PlainChoice(status), action = { teaching = a to name }, onSelect = {})
     }
     val toastCtx = androidx.compose.ui.platform.LocalContext.current
     fun freeForSearch(code: Int?) {
@@ -133,7 +104,6 @@ fun RemoteSettingsScreen(onBack: () -> Unit, vm: RemoteViewModel = hiltViewModel
     }
     // "A button you choose": the next button pressed becomes the search button.
     var learning by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
-    var networkSetup by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
     fun item(title: String, description: String, key: String, choices: List<RemoteChoice>, current: RemoteChoice) =
         SettingItem(title, description, choices, current) {
             if (it == SearchButton.Chosen) learning = true
@@ -144,81 +114,18 @@ fun RemoteSettingsScreen(onBack: () -> Unit, vm: RemoteViewModel = hiltViewModel
             }
         }
     val k = RemoteStore.Companion
-    // Live TV shortcuts: what can be one (the same lists the menu shows).
-    val moviesM: MediaViewModel = hiltViewModel(key = "media-Movie")
-    val showsM: MediaViewModel = hiltViewModel(key = "media-Show")
-    val musicM: MusicViewModel = hiltViewModel()
-    androidx.compose.runtime.LaunchedEffect(Unit) {
-        moviesM.load(MediaType.Movie); moviesM.loadLibraries(MediaType.Movie)
-        showsM.load(MediaType.Show); showsM.loadLibraries(MediaType.Show)
-    }
-    val mLibs by moviesM.libraries.collectAsStateWithLifecycle()
-    val sLibs by showsM.libraries.collectAsStateWithLifecycle()
-    val mRows by moviesM.menuRows.collectAsStateWithLifecycle()
-    val sRows by showsM.menuRows.collectAsStateWithLifecycle()
-    val musicOn by musicM.enabled.collectAsStateWithLifecycle()
-    val musicSources by musicM.sources.collectAsStateWithLifecycle()
-    val candidates = LiveShortcuts.candidates(mLibs.orEmpty(), sLibs.orEmpty(), mRows.rows, sRows.rows, musicOn,
-        musicSources.firstOrNull { it.on }?.name)
-    // Shown: the chosen ones that exist right now. Kept: every chosen one, also those whose rows haven't loaded yet
-    // (an addon's networks arrive a few seconds in): changing the list mustn't drop them.
-    val stored = s.liveShortcuts ?: LiveShortcuts.defaults
-    val byId = candidates.associateBy { it.id }
-    val rowsForIds = mRows.rows + sRows.rows
-    // Saved ids from older versions (a network's single row or films-only shortcut) count as its one shortcut.
-    val chosen = stored.mapNotNull { LiveShortcuts.resolve(it, byId, rowsForIds)?.id }.distinct()
-    val unseen = stored.filter { id -> LiveShortcuts.resolve(id, byId, rowsForIds) == null }
-    val onOffChoices = listOf(OnOff("On"), OnOff("Off"))
-    fun scTitle(sc: LiveShortcut) = (sc.emoji?.let { "$it " } ?: "") + sc.label
-    fun setChosen(ids: List<String>) = vm.setLiveShortcuts(ids + unseen)
-    // "Live TV shortcuts": only what's in the row, in its order (hold OK → Move or Right picks one up, Up / Down move it; OK takes it out).
-    val inRow = chosen.mapNotNull { id -> candidates.firstOrNull { it.id == id } }.map { sc ->
-        SettingItem(
-            scTitle(sc), "${chosen.indexOf(sc.id) + 1} of ${chosen.size}  ·  OK: take it out  ·  Hold OK: move",
-            onOffChoices, onOffChoices[0],
-            reorder = { delta ->
-                val i = chosen.indexOf(sc.id)
-                val j = (i + delta).coerceIn(0, chosen.lastIndex)
-                if (i != j) setChosen(chosen.toMutableList().apply { add(j, removeAt(i)) })
-            },
-        ) { setChosen(chosen - sc.id) }
-    }
-    val shortcutItems = inRow + SettingItem("Choose network shortcuts…", "Pick your favourites from the networks your addons give (Netflix, BBC One…), as logos: they go in your row, most popular first.",
-        listOf(ButtonStatus("")), ButtonStatus(""), action = { networkSetup = true }, onSelect = {}) + optItem(opts, "Network rows", "An addon's rows named \"Netflix · Popular\", \"BBC One · New\"… become one shortcut per network, opening just its rows. Choose whether they're on the Movies / Shows home page as well.", UiOpts.SET_ROWS_HOME) +
-        optItem(opts, "Shortcut style", "Round, rounded squares (the services' app icons), or wide tiles showing their full logos (where TMDB has them).", UiOpts.SHORTCUT_STYLE) +
-        optItem(opts, "Shortcut size", "How big the round shortcut icons and logos are on live TV.", UiOpts.SHORTCUT_SIZE) +
-        optItem(opts, "Show the rows", "When you press Down: just the shortcuts, and Down shows the highlighted one's rows. Always: a dimmed preview of them under the shortcuts.", UiOpts.OSD_PEEK) +
-        optItem(opts, "Rows under the shortcuts", "How many poster rows Down reaches from the shortcuts on live TV. The rest are on the shortcut's own page (OK on it).", UiOpts.OSD_ROWS) +
-        optItem(opts, "Poster rows", "Down from the shortcuts: Continue watching, Recent channels and Recently added, one row at a time (Up / Down change row).", UiOpts.OSD_POSTERS)
-        .locked(if (AppColors.palette.lowMemory) Locks.LOW_MEMORY else null) +
-        SettingItem("Reset shortcuts", "Back to TV guide, Live now, Sports, Movies, Shows, Music, Recordings, Search and Settings.", listOf(ButtonStatus("")), ButtonStatus(""), action = { vm.resetLiveShortcuts() }, onSelect = {})
-    // The rest by kind, each switch adding to the end of the row (or taking it out). They stay in place when switched.
-    fun addList(list: List<LiveShortcut>) = list.map { sc ->
-        val on = sc.id in chosen
-        SettingItem(
-            scTitle(sc) + if (sc.id.startsWith("set:")) " (rows)" else "",
-            if (on) "In your row: ${chosen.indexOf(sc.id) + 1} of ${chosen.size}" else "",
-            onOffChoices, if (on) onOffChoices[0] else onOffChoices[1],
-        ) { c -> setChosen(if ((c as OnOff).label == "On") (chosen - sc.id) + sc.id else chosen - sc.id) }
-    }
-    // Your own libraries and rows: Plex, Jellyfin, Emby, and your music.
-    fun isPlex(sc: LiveShortcut) = sc.logoName in setOf("Plex", "Jellyfin", "Emby", "Navidrome") || sc.id.startsWith("music:")
-    val pageShortcuts = candidates.filter { it.id.startsWith("home:") || it.id.startsWith("page:") }
-    val networkShortcuts = candidates.filter { it.id.startsWith("set:") && it.id.contains(":name:") }
-    val plexShortcuts = candidates.filter { isPlex(it) && it !in pageShortcuts }
-    val otherShortcuts = candidates.filter { it !in pageShortcuts && it !in networkShortcuts && it !in plexShortcuts }
     val searchItem = item("Search button", "Pops search up from any screen (live TV, the guide, films and shows); Back closes it and you're where you were.", k.SEARCH_BUTTON, all<SearchButton>(), s.searchButton)
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val preset = io.github.petebutty.viewarr.data.settings.Presets.matching(s)
     fun presetRow(p: ControlPreset, title: String, about: String): SettingItem {
-        val status = ButtonStatus(if (preset == p) "✓ In use" else if (preset == ControlPreset.Custom && s.presetBase == p) "Changed" else "")
+        val status = PlainChoice(if (preset == p) "✓ In use" else if (preset == ControlPreset.Custom && s.presetBase == p) "Changed" else "")
         return SettingItem(title, about, listOf(status), status, action = {
             vm.applyPreset(p)
             android.widget.Toast.makeText(ctx, "$title: every button set, Search and extra buttons back to standard", android.widget.Toast.LENGTH_SHORT).show()
         }, onSelect = {})
     }
     val shareRow = SettingItem("Share this button setup", "Writes every button to the app's log (for building a preset from it).",
-        listOf(ButtonStatus("")), ButtonStatus(""), action = {
+        listOf(PlainChoice("")), PlainChoice(""), action = {
             val map = ButtonMap
             val lines = listOf("guideLeft=${s.guideLeft.name}", "guideBack=${s.guideBack.name}", "channelKeys=${s.channelKeys.name}",
                 "zap=${s.zap.name}", "playerOk=${s.playerOk.name}", "liveSides=${s.liveSides.name}", "seek=${s.seek.name}",
@@ -234,7 +141,7 @@ fun RemoteSettingsScreen(onBack: () -> Unit, vm: RemoteViewModel = hiltViewModel
         // A button that's the Search button, or an extra button for something else, does that everywhere: no choices
         // here that would never run.
         bm.claimedBy(s, press)?.let { by ->
-            val status = ButtonStatus(by)
+            val status = PlainChoice(by)
             val why = if (by == "Search") "Opens search: it's your Search button (Other buttons, below). Pick another Search button to use this one here."
                 else "It's the extra button for $by (Other buttons, below). Remove it there to use this one here."
             return SettingItem(title, why, listOf(status), status, action = {}, onSelect = {})
@@ -294,25 +201,8 @@ fun RemoteSettingsScreen(onBack: () -> Unit, vm: RemoteViewModel = hiltViewModel
             ) + buttonItems,
         ),
     )
-    // The live TV shortcuts after the buttons (as before 0.26, when they went missing from every page).
-    val categories = buttonCategories +
-        shortcutCategories(shortcutItems, addList(pageShortcuts), addList(networkShortcuts), addList(plexShortcuts), addList(otherShortcuts))
     // Reset: the buttons only (not where the app opens, the menu or the poster rows).
-    SettingsPage(title = "Remote buttons", categories = categories, onBack = onBack, onReset = { vm.resetButtons() }, resetLabel = "Reset buttons")
-    // After choosing networks: the shortcut row is the networks picked (most popular first), then Movies, Shows,
-    // your Plex rows, Music, Recordings and Search. Network ids are kept even before their rows have loaded.
-    if (networkSetup) NetworkSetupScreen(
-        onDone = { names ->
-            val plex = candidates.filter { it.logoName in setOf("Plex", "Jellyfin", "Emby") && it.id.startsWith("row:") &&
-                (it.id.contains("deck") || it.id.contains("recent") || it.id.contains("watchlist")) }.map { it.id }.take(5)
-            // Streaming services and channels first, then your own: Movies, Shows, Plex, Music, Recordings, Search.
-            val ids = names.map { "set:Show:name:$it" } + listOf("page:Live", "home:Movie", "home:Show") + plex +
-                listOf("page:Music", "page:Recordings", "page:Search").filter { id -> candidates.any { it.id == id } }
-            vm.setLiveShortcuts(ids)
-            networkSetup = false
-        },
-        onClose = { networkSetup = false },
-    )
+    SettingsPage(title = "Remote buttons", categories = buttonCategories, onBack = onBack, onReset = { vm.resetButtons() }, resetLabel = "Reset buttons")
     if (learning) LearnButtonDialog(onKey = { code -> freeForSearch(code); vm.setSearchKey(code); learning = false }, onCancel = { learning = false })
     teaching?.let { (a, name) ->
         TeachButtonDialog(

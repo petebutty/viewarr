@@ -3,7 +3,6 @@ package io.github.petebutty.viewarr.ui.music
 import android.content.Context
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -11,7 +10,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -26,7 +24,6 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -58,7 +55,6 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
-import androidx.tv.material3.Border
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
@@ -67,12 +63,12 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import io.github.petebutty.viewarr.data.accounts.AccountStore
 import io.github.petebutty.viewarr.data.music.Album
-import io.github.petebutty.viewarr.data.music.AlbumList
 import io.github.petebutty.viewarr.data.music.Art
 import io.github.petebutty.viewarr.data.music.Artist
 import io.github.petebutty.viewarr.data.music.MusicLibrary
 import io.github.petebutty.viewarr.data.music.Playlist
 import io.github.petebutty.viewarr.data.music.Song
+import io.github.petebutty.viewarr.data.music.Taste
 import io.github.petebutty.viewarr.playback.MusicPlayer
 import io.github.petebutty.viewarr.ui.theme.AppColors
 import kotlinx.coroutines.CoroutineScope
@@ -92,7 +88,9 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import java.time.LocalDate
 import javax.inject.Inject
+import kotlinx.coroutines.sync.Semaphore
 import io.github.petebutty.viewarr.data.media.FilterValue
 import io.github.petebutty.viewarr.data.media.LibraryOptions
 import io.github.petebutty.viewarr.data.media.LibraryQuery
@@ -110,25 +108,32 @@ import io.github.petebutty.viewarr.ui.common.AppPill
 import io.github.petebutty.viewarr.ui.common.CardAspect
 import io.github.petebutty.viewarr.ui.common.FocusCard
 import io.github.petebutty.viewarr.ui.common.leftOpens
-import io.github.petebutty.viewarr.ui.media.RowGap
 import io.github.petebutty.viewarr.ui.media.RowTitle
 import io.github.petebutty.viewarr.ui.theme.NoScale
 import io.github.petebutty.viewarr.ui.theme.Tokens
 
-enum class MusicKind { Album, Playlist, Artist, Genre }
+/** [Mix]: a made-up list of songs (Your Mix, a daily mix, an artist's top songs): OK plays it. */
+enum class MusicKind { Album, Playlist, Artist, Genre, Decade, Mix }
 
-/** An album, playlist, artist or genre on the Music pages. */
-data class MusicCard(val kind: MusicKind, val id: String, val title: String, val sub: String, val art: Art?) {
+/**
+ * An album, playlist, artist, genre or decade on the Music pages. [mosaic]: up to four covers for a card with no
+ * picture of its own (a genre's or decade's first albums, a playlist's first songs). [meta]: the home hero's line
+ * ("artist · year · 12 songs"); [sub] is the shorter line under a card.
+ */
+data class MusicCard(val kind: MusicKind, val id: String, val title: String, val sub: String, val art: Art?, val mosaic: List<String> = emptyList(), val meta: String = "") {
     val key get() = "${kind.name}:$id"
     val cover get() = art?.small
 }
 
-data class MusicRow(val title: String, val cards: List<MusicCard>)
+/** How a home row draws its cards: square covers (artists round), or wide picture tiles (genres, decades). */
+enum class RowLook { Cards, Tiles }
+
+data class MusicRow(val id: String, val title: String, val cards: List<MusicCard>, val look: RowLook = RowLook.Cards)
 
 data class MusicHome(val rows: List<MusicRow> = emptyList(), val loading: Boolean = true, val error: String? = null)
 
-/** The whole library, one kind at a time (from the side menu). */
-enum class MusicBrowseKind(val label: String) { Albums("Albums A–Z"), Artists("Artists"), Playlists("Playlists"), Genres("Genres"), Favourites("Favourites"), Newest("Recently added") }
+/** The whole library, one kind at a time (from the side menu; Decade: the home's decade tiles). */
+enum class MusicBrowseKind(val label: String) { Albums("Albums A–Z"), Artists("Artists"), Playlists("Playlists"), Genres("Genres"), Favourites("Favourites"), Newest("Recently added"), Decade("Decade") }
 
 data class MusicBrowse(
     val kind: MusicBrowseKind,
@@ -196,8 +201,9 @@ internal fun firstAlbumLetter(title: String): Char {
 }
 
 internal fun albumCard(a: Album) = MusicCard(MusicKind.Album, a.id, a.name, a.artist, a.art)
-internal fun artistCard(a: Artist) = MusicCard(MusicKind.Artist, a.id, a.name, if (a.albumCount > 0) "${a.albumCount} album${if (a.albumCount == 1) "" else "s"}" else "", a.art)
+internal fun artistCard(a: Artist) = MusicCard(MusicKind.Artist, a.id, a.name, if (a.albumCount > 0) albumsText(a.albumCount) else "", a.art)
 internal fun playlistCard(p: Playlist) = MusicCard(MusicKind.Playlist, p.id, p.name, songCount(p.songCount), p.art)
+internal fun albumsText(n: Int) = if (n == 1) "1 album" else "$n albums"
 
 @HiltViewModel
 class MusicViewModel @Inject constructor(
@@ -231,6 +237,8 @@ class MusicViewModel @Inject constructor(
     private val _lyrics = MutableStateFlow<Lyrics?>(null)
     val lyrics: StateFlow<Lyrics?> = _lyrics
     private var lyricsFor: String? = null
+    /** Keeps a radio queue going (MusicRadio.kt). */
+    private val radioFeeder = RadioFeeder(library, context)
 
     /** Looks up [song]'s lyrics once (Now Playing asks as the song changes). */
     fun loadLyrics(song: Song?) {
@@ -247,12 +255,41 @@ class MusicViewModel @Inject constructor(
     /** Song radio: endless music like [song] (its server's similar songs, else more by the artist and a mix). */
     fun radio(song: Song) = viewModelScope.launch {
         Toast.makeText(context, "Starting radio from ${song.title}…", Toast.LENGTH_SHORT).show()
-        play(library.similarSongs(song, 60), 0)
+        startRadio(song)
     }
     /** Radio from an artist's top song (or any of theirs). */
     fun artistRadio(d: MusicDetail) = viewModelScope.launch {
         val seed = d.topSongs.firstOrNull() ?: d.albums.firstOrNull()?.let { library.album(it.id)?.second?.firstOrNull() } ?: return@launch
-        play(library.similarSongs(seed, 60), 0)
+        startRadio(seed)
+    }
+    /** Radio from a card (an album, artist, playlist, mix or genre): nothing happens if no song can be found to start from. */
+    fun radioFrom(card: MusicCard) = viewModelScope.launch { radioSeed(card)?.let { startRadio(it) } }
+
+    private suspend fun radioSeed(card: MusicCard): Song? = runCatching {
+        when (card.kind) {
+            MusicKind.Album -> library.album(card.id)?.second?.firstOrNull()
+            MusicKind.Playlist -> library.playlist(card.id)?.second?.randomOrNull()
+            MusicKind.Mix -> mixSongs[card.id]?.firstOrNull()
+            MusicKind.Artist -> artistSeed(card.id)
+            MusicKind.Genre -> library.albumsInGenre(card.id, 20).first.randomOrNull()?.let { library.album(it.id)?.second?.randomOrNull() }
+            MusicKind.Decade -> null
+        }
+    }.getOrNull()
+
+    /** An artist's best-known song (their server's top songs), else the first song of one of their albums. */
+    private suspend fun artistSeed(id: String): Song? {
+        val (ar, albums) = library.artist(id) ?: return null
+        library.artistInfo(ar)?.topSongs?.firstOrNull()?.let { return it }
+        return albums.randomOrNull()?.let { library.album(it.id)?.second?.firstOrNull() }
+    }
+
+    /** The radio queue: songs like [seed] now, and more of them as it runs low (MusicRadio.kt). */
+    private suspend fun startRadio(seed: Song) {
+        val songs = library.similarSongs(seed, 60)
+        if (songs.isEmpty()) return
+        radioFeeder.started(songs)
+        MusicPlayer.play(context, songs, 0, radio = true)
+        MusicPlayer.nowPlayingOpen = true
     }
 
     fun playNext(songs: List<Song>) { MusicPlayer.playNext(context, songs); Toast.makeText(context, if (songs.size == 1) "Plays next: ${songs[0].title}" else "${songs.size} songs play next", Toast.LENGTH_SHORT).show() }
@@ -262,6 +299,7 @@ class MusicViewModel @Inject constructor(
         val songs = when (card.kind) {
             MusicKind.Album -> library.album(card.id)?.second
             MusicKind.Playlist -> library.playlist(card.id)?.second
+            MusicKind.Mix -> mixSongs[card.id]
             else -> null
         }.orEmpty()
         then(songs)
@@ -278,6 +316,7 @@ class MusicViewModel @Inject constructor(
 
     init {
         MusicPlayer.onScrobble = { id, submission -> scrobbleScope.launch { library.scrobble(id, submission) } }
+        MusicPlayer.onRadioLow = radioFeeder::low
         // Accounts change (a source added, removed or switched off): everything reloads.
         viewModelScope.launch {
             store.accounts.map { Triple(it.navidrome to it.musicOn, listOfNotNull(it.plex) + it.plexMore, it.plexOff to it.musicOff + (it.jellyfin?.serverUrl + it.emby?.serverUrl)) }
@@ -295,29 +334,75 @@ class MusicViewModel @Inject constructor(
         // A search on screen is run again against the new set of sources.
         val q = _search.value.query
         _search.value = MusicSearch()
-        if (_connected.value == true) { load(); b?.let { if (it.genre == null) openBrowse(it.kind) }; if (q.isNotBlank()) search(q) }
+        if (_connected.value == true) { load(force = true); b?.let { if (it.genre == null && it.kind != MusicBrowseKind.Decade) openBrowse(it.kind) }; if (q.isNotBlank()) search(q) }
     }
 
     fun setSourceOn(id: String, on: Boolean) = viewModelScope.launch { library.setOn(id, on) }
 
-    fun load() = viewModelScope.launch {
+    /** When the home's rows were last built (ms): they're kept for the session and built again after a while. */
+    private var homeBuiltAt = 0L
+    private var homeJob: Job? = null
+    private var personalJob: Job? = null
+    /** The cheap rows, and the personal ones (kept for the session, made again behind them after a while). */
+    private var baseRows: List<MusicRow> = emptyList()
+    private val personal = LinkedHashMap<String, RowOut>()
+    /** The songs behind each mix tile (Your Mix, daily mixes, top songs) by card id; mixes are made once a day. */
+    private val mixSongs = HashMap<String, List<Song>>()
+    private var mixDay = 0L
+
+    /**
+     * The home's rows (MusicHomeRows.kt), all at once; the rows already showing stay up while new ones are made.
+     * The personal rows (MusicPersonalRows.kt) start as soon as what's played is known and fill in as they're ready.
+     * [force]: the sources changed, so a build under way starts again.
+     */
+    fun load(force: Boolean = false) {
+        if (!force && homeJob?.isActive == true) return
+        homeJob?.cancel(); personalJob?.cancel()
+        if (force) { personal.clear(); mixSongs.clear(); mixDay = 0L }
         _home.value = _home.value.copy(loading = true, error = null)
-        val recent = async { library.albums(AlbumList.Recent, 24).first }
-        val newest = async { library.albums(AlbumList.Newest, 24).first }
-        val frequent = async { library.albums(AlbumList.Frequent, 24).first }
-        val random = async { library.albums(AlbumList.Random, 24).first }
-        val playlists = async { library.playlists() }
-        listOf(recent, newest, frequent, random, playlists).awaitAll()
-        val rows = listOf(
-            MusicRow("Recently played", recent.await().map(::albumCard)),
-            MusicRow("Recently added", newest.await().map(::albumCard)),
-            MusicRow("Your playlists", playlists.await().map(::playlistCard)),
-            MusicRow("Most played", frequent.await().map(::albumCard)),
-            MusicRow("Rediscover", random.await().map(::albumCard)),
-        ).filter { it.cards.isNotEmpty() }
-        _home.value = MusicHome(rows, loading = false, error = if (rows.isEmpty()) "Couldn't load any music from your servers." else null)
-        _starred.value = runCatching { library.starredIds() }.getOrDefault(emptySet())
+        // A few small look-ups at a time (shared by the cheap rows and the personal ones), so a server isn't swamped.
+        val gentle = Semaphore(6)
+        homeJob = viewModelScope.launch {
+            val built = buildHomeRows(library, gentle) { taste -> personalJob = viewModelScope.launch { loadPersonal(taste, gentle) } }
+            baseRows = built.rows
+            _starred.value = built.starred
+            homeBuiltAt = System.currentTimeMillis()
+            val rows = orderedRows(baseRows, personal.values)
+            _home.value = MusicHome(rows, loading = false, error = if (rows.isEmpty()) NO_MUSIC else null)
+        }
     }
+
+    /** The personal rows, each shown as it arrives; what the new pass didn't make is dropped at the end. */
+    private suspend fun loadPersonal(taste: Taste, gentle: Semaphore) {
+        val day = LocalDate.now().toEpochDay()
+        val withMixes = mixDay != day || personal["mix"] == null
+        val fresh = HashSet<String>()
+        buildPersonalRows(library, taste, day, withMixes, gentle) { id, out ->
+            if (out == null) return@buildPersonalRows
+            fresh += id; personal[id] = out; mixSongs.putAll(out.songs)
+            if (id == "mix") mixDay = day
+            publishRows()
+        }
+        if (!withMixes) fresh += "mix"
+        personal.keys.retainAll(fresh)
+        mixSongs.keys.retainAll(personal.values.flatMap { it.songs.keys }.toSet())
+        publishRows()
+    }
+
+    private fun publishRows() {
+        val rows = orderedRows(baseRows, personal.values)
+        _home.update { it.copy(rows = rows) }
+    }
+
+    /** The home on screen again: rows older than ten minutes are built again behind the ones showing. */
+    fun homeShown() { if (homeBuiltAt > 0 && System.currentTimeMillis() - homeBuiltAt > 10 * 60_000) load() }
+
+    /** A mix's cover (its first song's), for the home's background. */
+    fun mixArt(id: String): Art? = mixSongs[id]?.firstNotNullOfOrNull { it.art }
+
+    private val artistArt = HashMap<String, Art?>()
+    /** An artist without a picture of their own: one of their album covers (the home's hero and background). */
+    suspend fun artistArt(id: String): Art? = artistArt.getOrPut(id) { library.artist(id)?.second?.firstNotNullOfOrNull { it.art } }
 
     /** Back to the Music home (from the side menu). */
     fun showHome() { stack.clear(); _detail.value = null; _browse.value = null }
@@ -339,12 +424,13 @@ class MusicViewModel @Inject constructor(
         browseJob?.cancel()
         browseJob = viewModelScope.launch {
             val b = when (kind) {
-                MusicBrowseKind.Albums -> library.albums(AlbumList.AZ, PAGE).let { (l, n) -> MusicBrowse(kind, cards = l.map(::albumCard), loading = false, next = n) }
-                MusicBrowseKind.Newest -> library.albums(AlbumList.Newest, PAGE).let { (l, n) -> MusicBrowse(kind, cards = l.map(::albumCard), loading = false, next = n) }
-                MusicBrowseKind.Favourites -> library.albums(AlbumList.Favourites, 500).let { (l, _) -> MusicBrowse(kind, cards = l.map(::albumCard), loading = false) }
+                // (The album grids, Albums / Recently added / Favourites, went through runAlbums above.)
+                MusicBrowseKind.Albums, MusicBrowseKind.Newest, MusicBrowseKind.Favourites -> return@launch
                 MusicBrowseKind.Artists -> MusicBrowse(kind, cards = library.artists().map(::artistCard), loading = false)
                 MusicBrowseKind.Playlists -> MusicBrowse(kind, cards = library.playlists().map(::playlistCard), loading = false)
-                MusicBrowseKind.Genres -> MusicBrowse(kind, cards = library.genres().map { (g, n) -> MusicCard(MusicKind.Genre, g, g, if (n > 0) "$n album${if (n == 1) "" else "s"}" else "", null) }, loading = false)
+                MusicBrowseKind.Genres -> MusicBrowse(kind, cards = library.genres().map { (g, n) -> MusicCard(MusicKind.Genre, g, g, if (n > 0) albumsText(n) else "", null) }, loading = false)
+                // (A decade's albums come from the home's tiles only: openDecade.)
+                MusicBrowseKind.Decade -> MusicBrowse(kind, loading = false)
             }
             if (_browse.value?.kind == kind && _browse.value?.genre == null) _browse.value = b
         }
@@ -353,6 +439,13 @@ class MusicViewModel @Inject constructor(
     private fun openGenre(name: String) {
         val q = LibraryQuery("title", false, filters = mapOf("genre" to listOf(FilterValue(name, name))))
         runAlbums(MusicBrowse(MusicBrowseKind.Genres, title = name, genre = name, query = q))
+    }
+
+    /** A decade's albums (from the home's tiles), newest first; Back goes to the home. */
+    private fun openDecade(id: String, label: String) {
+        stack.clear(); _detail.value = null
+        val q = LibraryQuery("year", true, filters = mapOf("decade" to listOf(FilterValue(id, label))))
+        runAlbums(MusicBrowse(MusicBrowseKind.Decade, title = label, query = q))
     }
 
     private var albumOptions: LibraryOptions? = null
@@ -447,6 +540,9 @@ class MusicViewModel @Inject constructor(
 
     fun open(card: MusicCard) {
         if (card.kind == MusicKind.Genre) { openGenre(card.id); return }
+        if (card.kind == MusicKind.Decade) { openDecade(card.id, card.title); return }
+        // A mix: plays at once (no page of its own).
+        if (card.kind == MusicKind.Mix) { mixSongs[card.id]?.let { play(it, 0) }; return }
         _detail.value?.let(stack::addLast)
         _detail.value = MusicDetail(card)
         viewModelScope.launch {
@@ -467,7 +563,7 @@ class MusicViewModel @Inject constructor(
                         bio = info?.bio, topSongs = info?.topSongs.orEmpty(), similar = info?.similar.orEmpty().map(::artistCard),
                     )
                 }
-                MusicKind.Genre -> null
+                MusicKind.Genre, MusicKind.Decade, MusicKind.Mix -> null
             } ?: MusicDetail(card, loading = false, sub = "Couldn't load this.")
             if (_detail.value?.card?.key == card.key) _detail.value = d
         }
@@ -547,7 +643,7 @@ class MusicViewModel @Inject constructor(
  * Remembers, per Music page, which item had focus, so coming back (from an album, Now Playing or the menu) lands on
  * it again rather than wherever focus happens to fall.
  */
-private class FocusMemory {
+internal class FocusMemory {
     val last = HashMap<String, String>()
     private val requesters = HashMap<String, FocusRequester>()
     fun of(key: String) = requesters.getOrPut(key) { FocusRequester() }
@@ -615,7 +711,7 @@ fun MusicScreen(
 }
 
 /** The music card highlighted last (shown beside the live TV preview). */
-private object MusicHover {
+internal object MusicHover {
     var card by androidx.compose.runtime.mutableStateOf<MusicCard?>(null)
 }
 
@@ -632,59 +728,10 @@ private fun NotConnected(focusRequester: FocusRequester, onSetUp: () -> Unit, on
 }
 
 /** The item's focus: remembered for its page. */
-private fun Modifier.remembered(mem: FocusMemory, page: String, key: String) =
+internal fun Modifier.remembered(mem: FocusMemory, page: String, key: String) =
     focusRequester(mem.of(key)).onFocusChanged { if (it.isFocused) mem.last[page] = key }
 
-@Composable
-private fun MusicHomePage(
-    home: MusicHome, vm: MusicViewModel, page: String, mem: FocusMemory, list: LazyListState,
-    rowState: (String) -> LazyListState, focusRequester: FocusRequester, onOpenMenu: () -> Unit,
-) {
-    LazyColumn(
-        Modifier.fillMaxSize(), state = list,
-        contentPadding = PaddingValues(top = 28.dp, bottom = 110.dp),
-        verticalArrangement = Arrangement.spacedBy(RowGap),
-    ) {
-        item(key = "header") {
-            Row(Modifier.padding(horizontal = Tokens.Gutter), verticalAlignment = Alignment.CenterVertically) {
-                // (Beside the corner window the header above already says "Music": not twice.)
-                if (!LiveBehind.preview) {
-                    Text("Music", fontSize = 26.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary)
-                    Spacer(Modifier.width(28.dp))
-                }
-                // (Coming in from the menu lands on the first row's first card once there are rows; it landed here.)
-                Pill("Shuffle my library", (if (home.rows.isEmpty()) Modifier.focusRequester(focusRequester) else Modifier).leftOpens(onMenu = onOpenMenu)) { vm.shuffleLibrary() }
-                if (MusicPlayer.active) {
-                    Spacer(Modifier.width(12.dp))
-                    Pill("♪  Now playing") { MusicPlayer.nowPlayingOpen = true }
-                }
-                Spacer(Modifier.weight(1f))
-                Text("Hold OK: options  ·  Albums, artists and genres: in the menu", fontSize = 12.sp, color = AppColors.TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
-        }
-        if (home.loading && home.rows.isEmpty()) item {
-            Text("Loading your music…", fontSize = 16.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(horizontal = 48.dp))
-        }
-        home.error?.let { e -> item { Text(e, fontSize = 16.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(horizontal = 48.dp)) } }
-        home.rows.forEachIndexed { ri, row ->
-            item(key = row.title) {
-                Column {
-                    // (The one row title, as the Movies and Shows rows.)
-                    RowTitle(row.title, Modifier.padding(start = Tokens.Gutter, end = Tokens.Gutter))
-                    LazyRow(state = rowState(row.title), contentPadding = PaddingValues(horizontal = 48.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                        itemsIndexed(row.cards, key = { _, c -> c.key }) { i, c ->
-                            MusicCardView(
-                                c, 118.dp,
-                                Modifier.then(if (ri == 0 && i == 0) Modifier.focusRequester(focusRequester) else Modifier)
-                                    .remembered(mem, page, "home|${row.title}|${c.key}").then(if (i == 0) Modifier.leftOpens(onMenu = onOpenMenu) else Modifier),
-                            ) { vm.open(c) }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
+// (The home page itself: MusicHome.kt.)
 
 private const val COLUMNS = 7
 
@@ -735,13 +782,18 @@ private fun MusicBrowsePage(b: MusicBrowse, vm: MusicViewModel, page: String, me
                 )
                 Spacer(Modifier.weight(1f))
                 // As on the Movies and Shows libraries: the mic, then a box to search this page.
-                LibrarySearchBox(b.text, vm::setBrowseText, onFocus = {}, onDone = {
-                    b.shown.firstOrNull()?.let { c -> runCatching { mem.of("$page|${c.key}").requestFocus() } }
-                })
+                // (Nothing to show: the page's highlight goes to the Sort button, else the search box. It was put on
+                // the "Nothing matches" note, which can't take it.)
+                val empty = !b.loading && b.shown.isEmpty()
+                Box(if (empty && !albums) Modifier.focusRequester(focusRequester) else Modifier) {
+                    LibrarySearchBox(b.text, vm::setBrowseText, onFocus = {}, onDone = {
+                        b.shown.firstOrNull()?.let { c -> runCatching { mem.of("$page|${c.key}").requestFocus() } }
+                    })
+                }
                 if (albums) {
                     ToolButton(
                         "Sort" + (b.query?.let { q -> b.options?.sorts?.firstOrNull { it.id == q.sort }?.let { ": ${it.label}" } } ?: ""),
-                        active = false, modifier = Modifier.focusRequester(toolbar),
+                        active = false, modifier = Modifier.focusRequester(toolbar).then(if (empty) Modifier.focusRequester(focusRequester) else Modifier),
                     ) { if (b.options != null) panel = "sort" }
                     if (b.options?.filters?.isNotEmpty() == true) ToolButton(
                         b.query?.active?.takeIf { it > 0 }?.let { "Filter · $it" } ?: "Filter", active = (b.query?.active ?: 0) > 0, modifier = Modifier.padding(start = 8.dp),
@@ -760,7 +812,7 @@ private fun MusicBrowsePage(b: MusicBrowse, vm: MusicViewModel, page: String, me
             }
             if (!b.loading && b.shown.isEmpty()) Text(
                 if (b.found != null) "Nothing matches \"${b.text.trim()}\"." else if (q?.active ?: 0 > 0) "No albums match these filters." else emptyText(b), fontSize = 15.sp, color = AppColors.TextSecondary,
-                modifier = Modifier.padding(horizontal = 48.dp, vertical = 16.dp).focusRequester(focusRequester),
+                modifier = Modifier.padding(horizontal = 48.dp, vertical = 16.dp),
             )
             Row(Modifier.fillMaxWidth().weight(1f)) {
                 LazyVerticalGrid(
@@ -880,11 +932,13 @@ private fun MusicDetailPage(d: MusicDetail, vm: MusicViewModel, page: String, me
                     }
                 }
                 // Artists: a radio of music like theirs; albums and artists: a favourite (★) on the server.
+                // (Left on the first of them: the menu, as from Play above; it did nothing there.)
                 Row(Modifier.padding(top = 10.dp)) {
-                    if (d.card.kind == MusicKind.Artist) { Pill("Radio") { if (ready) vm.artistRadio(d) }; Spacer(Modifier.width(10.dp)) }
+                    val radio = d.card.kind == MusicKind.Artist
+                    if (radio) { Pill("Radio", Modifier.leftOpens(onMenu = onOpenMenu)) { if (ready) vm.artistRadio(d) }; Spacer(Modifier.width(10.dp)) }
                     // An album: on to its artist's page (Back comes back here).
-                    d.artist?.let { ar -> Pill("Artist ›") { vm.open(ar) }; Spacer(Modifier.width(10.dp)) }
-                    if (d.card.kind != MusicKind.Playlist) Pill(if (d.card.id in starred) "★ Favourite" else "☆ Favourite") {
+                    d.artist?.let { ar -> Pill("Artist ›", Modifier.leftOpens(enabled = !radio, onMenu = onOpenMenu)) { vm.open(ar) }; Spacer(Modifier.width(10.dp)) }
+                    if (d.card.kind != MusicKind.Playlist) Pill(if (d.card.id in starred) "★ Favourite" else "☆ Favourite", Modifier.leftOpens(enabled = !radio && d.artist == null, onMenu = onOpenMenu)) {
                         vm.toggleStar(d.card.id, if (d.card.kind == MusicKind.Artist) "artist" else "album")
                     }
                 }
@@ -1001,16 +1055,13 @@ internal fun MusicCardView(c: MusicCard, size: Dp?, modifier: Modifier, onClick:
         // The shared card (3 dp ring, no growing, no press shrink); artists round.
         FocusCard(
             onClick = onClick,
-            // Hold OK: play next, add to queue, favourite (not genres).
-            onLongClick = if (c.kind == MusicKind.Genre) null else ({ MusicOptions.card = c }),
+            // Hold OK: play next, add to queue, favourite (not genres or decades).
+            onLongClick = if (c.kind == MusicKind.Genre || c.kind == MusicKind.Decade) null else ({ MusicOptions.card = c }),
             modifier = modifier.onFocusChanged { if (it.isFocused) MusicHover.card = c }.then(if (size != null) Modifier.size(size) else Modifier.fillMaxWidth()),
             shape = if (round) Tokens.RoundShape else Tokens.CardShape,
             aspect = CardAspect.Square,
         ) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(c.title.take(1).uppercase(), fontSize = 32.sp, color = AppColors.TextSecondary)
-                c.cover?.let { AsyncImage(it, c.title, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
-            }
+            CardFace(c)
         }
         Text(c.title, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = AppColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
         if (c.sub.isNotBlank()) Text(c.sub, fontSize = 11.sp, color = AppColors.TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -1022,8 +1073,6 @@ internal fun MusicCardView(c: MusicCard, size: Dp?, modifier: Modifier, onClick:
 internal fun Pill(text: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
     AppPill(text = text, selected = false, onClick = onClick, modifier = modifier, height = 38.dp)
 }
-
-// (Music's own Modifier.leftOpens is gone: the shared one in common/Reorder.kt also ignores a held Left's repeats.)
 
 internal fun songCount(n: Int) = if (n == 1) "1 song" else "$n songs"
 

@@ -1,5 +1,6 @@
 package io.github.petebutty.viewarr.ui.guide
 
+import kotlinx.coroutines.flow.onEach
 import androidx.compose.runtime.snapshotFlow
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -69,6 +70,7 @@ class GuideViewModel @Inject constructor(
     private val plugins: PluginsRepository,
     private val sports: SportsEvents,
     private val sky: SkySchedule,
+    private val sportsRepo: io.github.petebutty.viewarr.data.sports.SportsRepository,
 ) : ViewModel() {
     /** One event for Live now: its channel and guide entry, its tidied name, sport and picture (if found). */
     data class LiveEvent(
@@ -82,17 +84,83 @@ class GuideViewModel @Inject constructor(
     /** A game from your Sports schedule on now or soon, on the channel the Sports page found for it (its guide entry, if any). */
     data class LiveGame(val game: SportGame, val channel: ChannelListItem, val program: GuideProgram?)
 
-    /** Live now (the Live TV hub's shortcut): event channels with something on, and what's starting soon. */
+    /** Live now (the Live now group in the guide): event channels with something on, and what's starting soon. */
     data class LiveEvents(
         val onNow: List<LiveEvent>,
         val soon: List<LiveEvent>,
-        /** The group most of what's on now is in (OK on the shortcut opens the guide there). */
-        val mainGroup: String?,
     )
 
     // The event / sports groups: the ones Event Channel Managarr (a Dispatcharr plugin) looks after, read once. Without
     // it (or for users Dispatcharr doesn't show plugins to), groups whose names look like sport or events.
     private var eventGroupNames: Set<String>? = null
+    /**
+     * Settings → Live TV → Live now groups (Peter, 2026-11-17: the user picks the groups searched): a group switched on
+     * or off there; untouched, the event feeds' groups (Event Channel Managarr's) and sporty-named ones are searched.
+     * Kept as palette title parts: "lngrp:+<name>" switched on, "lngrp:-<name>" switched off.
+     */
+    fun liveGroupOn(name: String): Boolean {
+        val k = name.trim().lowercase()
+        val p = io.github.petebutty.viewarr.ui.theme.AppColors.palette
+        return when {
+            !p.shows("lngrp:+$k") -> true
+            !p.shows("lngrp:-$k") -> false
+            else -> k in eventGroupNames.orEmpty() || eventWords.containsMatchIn(name)
+        }
+    }
+    /** Live now from the server's list ([ServerSports]): null when none of its channels are here (another source). */
+    private suspend fun fromServer(srv: io.github.petebutty.viewarr.data.sync.ServerSports.Data, all: List<ChannelListItem>): LiveEvents? {
+        val byUuid = all.associateBy { it.uuid }
+        val now = System.currentTimeMillis()
+        val groupOn = HashMap<String, Boolean>()
+        // Why each of the server's items was left out here (logged: "Live now from the server"), so a missing game
+        // can be explained: its channel isn't on this TV (Choose groups), its group is off, it's over, its sport is off.
+        val dropped = HashMap<String, MutableList<String>>()
+        fun drop(why: String, what: String) { dropped.getOrPut(why) { mutableListOf() } += what }
+        val followOnly = LiveSports.followedOnly
+        val follows = if (followOnly) runCatching { sportsRepo.follows.first() }.getOrDefault(emptyList()) else emptyList()
+        val events = srv.live.mapNotNull { l ->
+            val c = byUuid[l.uuid] ?: run { drop("channel not on this TV", l.title); return@mapNotNull null }
+            // Live now leagues / Only what I follow (games only: darts, snooker, racing and other events without a
+            // fixture still go by the sports switches).
+            val g = l.game?.let { srv.games[it] }
+            if (g != null && !LiveSports.leagueOn(g.leaguePath)) { drop("league off (${g.league})", l.title); return@mapNotNull null }
+            if (g != null && followOnly && follows.none { f -> io.github.petebutty.viewarr.data.sync.ServerSports.followMatches(f, g.leaguePath, g.home, g.away) }) {
+                drop("not followed", l.title); return@mapNotNull null
+            }
+            if (c.groupName?.let { g -> groupOn.getOrPut(g) { liveGroupOn(g) } } == false) { drop("group off (${c.groupName})", l.title); return@mapNotNull null }
+            if (l.end in 1..now) { drop("over", l.title); return@mapNotNull null }
+            // The guide's own entry for it (so the group's rows and the info bar line up), else one made from the list.
+            val p = runCatching { repo.programsForChannels(listOf(c.id), l.start, l.start + 60_000) }.getOrNull().orEmpty()
+                .firstOrNull { it.startTime <= l.start + 60_000 && it.endTime > l.start }
+                ?: GuideProgram(
+                    channelId = c.id, rowId = -1L - (l.uuid.hashCode().toLong() and 0x7fffffff), title = l.title, subTitle = null,
+                    packedDescription = null, startTime = l.start, endTime = l.end.takeIf { it > l.start } ?: (l.start + 3 * 3_600_000L),
+                    season = null, episode = null, isNew = false, isLive = true, isPremiere = false,
+                )
+            val sport = sports.sport("${l.sport.orEmpty()} ${l.title} ${c.name} ${c.groupName.orEmpty()}")
+            LiveEvent(c, p, l.score?.let { "${l.title} ($it)" } ?: l.title, sport, l.picture ?: p.image)
+        }
+        if (events.isEmpty() && srv.live.isNotEmpty() && srv.live.none { byUuid.containsKey(it.uuid) }) return null
+        val wanted = events.filter { e -> (e.sport == null || LiveSports.wanted(e.sport.name)).also { if (!it) drop("sport off (${e.sport?.name})", e.title) } }
+        // The server's list stands: it has already worked out what's on and where (Peter, 2026-11-17: "the app knows
+        // the games that are on from the plugin"), so this TV's copy of the guide isn't asked (tonight's NBA games were
+        // left out because it hadn't caught up). Only a team's own channel with no listing anywhere stays cards only
+        // (an empty row, as asked before); guide entries the server found, Sky / UK listings and event channels all go in.
+        val guided = srv.live.filter { l -> l.game?.let { srv.games[it]?.source } != "club" }.map { it.uuid }.toSet()
+        events.filter { it.program.rowId < 0 && it.channel.uuid !in guided }.forEach { drop("no guide entry on this TV (cards only)", it.title) }
+        android.util.Log.i("LiveNow", "from the server: ${srv.live.size} items, ${wanted.size} kept" +
+            dropped.entries.joinToString("") { (why, t) -> "; $why: ${t.size} (${t.take(3).joinToString(", ") { it.take(30) }})" })
+        val onNow = wanted.filter { it.program.startTime <= now }.take(60)
+        val soon = wanted.filter { it.program.startTime > now }.take(30)
+        _liveUuids.value = (onNow + soon).filter { it.program.rowId >= 0 || it.channel.uuid in guided }.sortedBy { it.program.startTime }.map { it.channel.uuid }.distinct()
+        return LiveEvents(onNow, soon)
+    }
+
+    /** The plugin's groups, looked up once (for Settings' Live now groups to show the right starting ticks). */
+    suspend fun loadLiveGroupDefaults() { runCatching { eventGroups() } }
+    /** The channel groups for Settings' Live now groups list (real ones, not Live now or Favourites). */
+    val realGroups get() = groups.value.filter { it.id >= 0 }
+
     private suspend fun eventGroups(): Set<String> {
         eventGroupNames?.let { return it }
         // (Only a real answer is kept: a failed lookup is asked again next time, not stuck on the fallback all session.)
@@ -119,28 +187,6 @@ class GuideViewModel @Inject constructor(
         return letters.length >= 4 && letters == letters.uppercase() && p.endTime - p.startTime >= 5 * 3_600_000L
     }
     private val QUALITY_MARK = Regex("(?i)\\((?:[^)]*\\b)?(uhd|4k|fhd|hd|sd|hevc|raw)\\b[^)]*\\)|\\b(uhd|fhd)\\b|\\|")
-    /**
-     * Whether a feed whose name gives its event's time ("… 19:00 …", maybe a date "17/11" / "17-11") is on around [now]:
-     * 15 minutes before to 5 hours after. No time in the name: true (its guide entries decide).
-     */
-    private fun feedOnAround(name: String, now: Long): Boolean {
-        val m = FEED_TIME.find(name) ?: return true
-        val cal = java.util.Calendar.getInstance().apply { timeInMillis = now }
-        FEED_DATE.find(name)?.let { d ->
-            val day = d.groupValues[1].toInt(); val month = d.groupValues[2].toInt()
-            if (day != cal.get(java.util.Calendar.DAY_OF_MONTH) || month != cal.get(java.util.Calendar.MONTH) + 1) return false
-        }
-        val start = (cal.clone() as java.util.Calendar).apply {
-            set(java.util.Calendar.HOUR_OF_DAY, m.groupValues[1].toInt()); set(java.util.Calendar.MINUTE, m.groupValues[2].toInt())
-            set(java.util.Calendar.SECOND, 0); set(java.util.Calendar.MILLISECOND, 0)
-        }.timeInMillis
-        // (Just after midnight, an event that started last night is still on.)
-        return listOf(start, start - 86_400_000L).any { now in (it - 15 * 60_000L)..(it + 5 * 3_600_000L) }
-    }
-    // A clock time on its own ("19:00", not the feed's number "01:"), and a day/month ("17/11", "17-11", "17.11").
-    private val FEED_TIME = Regex("(?<![\\d:])([01]?\\d|2[0-3]):([0-5]\\d)(?![\\d])")
-    private val FEED_DATE = Regex("(?<!\\d)(0?[1-9]|[12]\\d|3[01])[/.-](0?[1-9]|1[0-2])(?![\\d/.-])")
-
     /** An event's slot, not a filler block: under 9 hours (golf, cricket and a race weekend's sessions fit). */
     private fun realSlot(p: GuideProgram) = p.endTime - p.startTime in 1..9 * 3_600_000L
     /** The guide says it's live: its flag, or "Live" in the title, subtitle or the synopsis's start. */
@@ -173,9 +219,15 @@ class GuideViewModel @Inject constructor(
     private suspend fun liveEventsNow(games: List<LiveGame>, known: List<SportGame>): LiveEvents {
         val named = eventGroups()
         val all = allChannelsList()
+        // Worked out on the server for the whole house (the Viewarr plugin on Dispatcharr), while it's recent: this TV
+        // only applies its own choices (Live now groups, sports), with no guide scanning of its own.
+        io.github.petebutty.viewarr.data.sync.ServerSports.fresh?.let { srv -> fromServer(srv, all)?.let { return it } }
         // Every event channel (not the first 400 by number: a "4K / UHD" group early in the numbers filled the list, and
         // the groups after it, UEFA, NFL, UFC…, were never looked at. Peter, 2026-11-17).
-        val chans = all.filter { c -> c.groupName?.let { g -> if (named.isNotEmpty()) g.trim().lowercase() in named else eventWords.containsMatchIn(g) } == true }
+        // The groups chosen in Settings → Live TV → Live now groups (untouched: the event feeds' groups and every
+        // sports-looking one; Sky Sports' Grand Slam of Darts was missed while only the plugin's were searched).
+        val groupOn = HashMap<String, Boolean>()
+        val chans = all.filter { c -> c.groupName?.let { g -> groupOn.getOrPut(g) { liveGroupOn(g) } } == true }
         val now = System.currentTimeMillis()
         val onNow = ArrayList<Pair<ChannelListItem, GuideProgram>>()
         val soon = ArrayList<Pair<ChannelListItem, GuideProgram>>()
@@ -189,9 +241,6 @@ class GuideViewModel @Inject constructor(
             // placeholder; on an ordinary channel in those groups (US CBS (UHD/4K), Sky Sports+…) only one that's a
             // sport by its title (a match, a race, a fight), not its everyday shows.
             val feed = EVENT_FEED.containsMatchIn(c.name)
-            // An event feed with its event's time in its name ("PDC BOARD B 01: 19:00 Grand Slam…"): only at that time
-            // (from 15 minutes before to 5 hours after), never for the rest of the day. (Peter, 2026-11-17.)
-            if (feed && !feedOnAround(c.name, now)) continue
             val channelBare = bare(c.name)
             // Real guide data that says it's live (Peter, 2026-11-17: "look in the EPG for live and actual EPG data"):
             // the live flag, or "Live" in its title / subtitle / synopsis ("Live PL: …", "MNF … ᴸᶦᵛᵉ"). A feed's or
@@ -199,14 +248,17 @@ class GuideViewModel @Inject constructor(
             // Sports schedule knows come in from it on their own (below).
             val ps = ps0.filter { p -> sports.clean(p.title) != null && !fillerFor(channelBare, p) && realSlot(p) && saysLive(p) && (feed || sports.sport(p.title) != null || p.isLive) }
             ps.firstOrNull { it.startTime <= now && it.endTime > now }?.let { onNow += c to it }
-            ps.firstOrNull { it.startTime > now }?.let { soon += c to it }
+            // An event feed only at its event's time: from 30 minutes before its live entry (by the guide: the time in a
+            // feed's name can be another time zone, "14:45" for a 19:45 kick-off, and showed them all afternoon). Other
+            // channels: anything live in the next three hours. (Peter, 2026-11-17.)
+            ps.firstOrNull { it.startTime > now && (!feed || it.startTime - now <= 30 * 60_000L) }?.let { soon += c to it }
         }
         // The same event on several channels (feeds, backups): once, on the first. A game your Sports schedule knows: left
         // out here (finished: a dead channel; on now or soon: shown from the schedule instead).
         fun scheduled(p: GuideProgram) = known.isNotEmpty() && (" " + GameMatch.norm(p.title) + " ").let { t -> known.any { GameMatch.normTextIsGame(t, it) == GameMatch.SURE } }
         fun distinct(l: List<Pair<ChannelListItem, GuideProgram>>) = l.filter { !scheduled(it.second) }
             .distinctBy { (_, p) -> (sports.clean(p.title) ?: p.title).trim().lowercase() + "|" + p.startTime }
-        val nowPairs = distinct(onNow.sortedByDescending { it.second.startTime }).take(30)
+        val nowPairs = distinct(onNow.sortedByDescending { it.second.startTime }).take(60)
         val soonPairs = distinct(soon.sortedBy { it.second.startTime }).take(30)
         // The schedule's games: live ones (score and minute) and the next three hours' kick-offs, once each.
         fun fromSchedule(l: List<LiveGame>) = l.distinctBy { it.game.id }.map { lg ->
@@ -235,16 +287,15 @@ class GuideViewModel @Inject constructor(
         }
         // Sports you've switched off (Settings → Playback → Live now sports) left out.
         fun wanted(l: List<LiveEvent>) = l.filter { LiveSports.wanted(it.sport?.name) }
-        val onNowList = wanted(schedNow + events(nowPairs)).take(30)
+        val onNowList = wanted(schedNow + events(nowPairs)).take(60)
         val soonList = wanted(schedSoon + events(soonPairs)).take(30)
         // The Live now group in the guide: only channels whose guide has the event (a team or event channel found from
-        // the schedule often has no guide at all, an empty row there. Peter, 2026-11-17); those still show in the
-        // shortcut row's cards.
-        _liveUuids.value = (onNowList + soonList).filter { it.program.rowId >= 0 }.map { it.channel.uuid }.distinct()
+        // the schedule often has no guide at all, an empty row there. Peter, 2026-11-17).
+        // In time order (Peter, 2026-11-17): what started first at the top, then what's coming up, soonest first.
+        _liveUuids.value = (onNowList + soonList).filter { it.program.rowId >= 0 }.sortedBy { it.program.startTime }.map { it.channel.uuid }.distinct()
         return LiveEvents(
             onNow = onNowList,
             soon = soonList,
-            mainGroup = nowPairs.mapNotNull { it.first.groupName }.groupingBy { it }.eachCount().maxByOrNull { it.value }?.key,
         )
     }
     /** The highlighted programme's artwork (TMDB), or null to show the channel logo. */
@@ -321,17 +372,14 @@ class GuideViewModel @Inject constructor(
     fun setSourceShiftMin(min: Int) { viewModelScope.launch { repo.setSourceShiftMin(min) } }
     fun channelShiftMin(ch: ChannelListItem): Int = repo.channelShiftMin(ch.guideKey)
     fun setChannelShiftMin(ch: ChannelListItem, min: Int) { viewModelScope.launch { repo.setChannelShiftMin(ch.guideKey, min) } }
-    /** The channel's whole offset (source + its own + its playlist's tvg-shift), for the mark in the channel list. */
-    fun totalShiftMin(ch: ChannelListItem): Int = repo.totalShiftMin(ch.guideKey)
 
-    /** How many channels the Live now group has (none: it isn't in the groups). */
-    val liveNowCount get() = _liveUuids.value.size
     /** A list-made group's channels (Favourites, Live now), else null (a real group). */
     private val listGroups = combine(repo.favourites, _liveUuids) { f, l -> f.toList() to l }
     private fun listFor(g: Int?, lists: Pair<List<String>, List<String>>) = when (g) { FAVOURITES -> lists.first; LIVE_NOW -> lists.second; else -> null }
 
     val channels: StateFlow<List<ChannelListItem>> = combine(_groupId, listGroups) { g, l -> g to l }
-        .flatMapLatest { (g, l) -> listFor(g, l)?.let { repo.observeChannelsIn(it) } ?: repo.observeChannels(g) }
+        // (Live now in its own order: on now first, then starting soon, soonest first. Favourites: channel order.)
+        .flatMapLatest { (g, l) -> listFor(g, l)?.let { repo.observeChannelsIn(it, ordered = g == LIVE_NOW) } ?: repo.observeChannels(g) }
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     private val _now = MutableStateFlow(System.currentTimeMillis())
@@ -351,7 +399,7 @@ class GuideViewModel @Inject constructor(
         .flatMapLatest { l ->
             val g = l[0] as Int?; val block = l[1] as Int; val ws = l[2] as Long
             @Suppress("UNCHECKED_CAST") val inList = listFor(g, l[3] as Pair<List<String>, List<String>>)
-            (if (inList != null) repo.observeProgramBlockIn(inList, blockOffset(block), BLOCK * 3, ws - BUFFER_MS, ws + VISIBLE_MS + BUFFER_MS)
+            (if (inList != null) repo.observeProgramBlockIn(inList, blockOffset(block), BLOCK * 3, ws - BUFFER_MS, ws + VISIBLE_MS + BUFFER_MS, ordered = g == LIVE_NOW)
             else repo.observeProgramBlock(
                 groupId = g,
                 offset = blockOffset(block),
@@ -360,7 +408,28 @@ class GuideViewModel @Inject constructor(
                 end = ws + VISIBLE_MS + BUFFER_MS,
             )).map { rows -> rows.groupBy { it.channelId } }
         }
+        // A screenful's pictures fetched together, just behind it (Stage 4: they used to come one by one on highlight).
+        .onEach { block -> prefetchPictures(block) }
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
+
+    private var pictureJob: kotlinx.coroutines.Job? = null
+    private fun prefetchPictures(block: Map<Int, List<GuideProgram>>) {
+        if (block.isEmpty() || !io.github.petebutty.viewarr.ui.theme.AppColors.palette.guideArt) return
+        pictureJob?.cancel()
+        pictureJob = viewModelScope.launch(Dispatchers.IO) {
+            kotlinx.coroutines.delay(400) // (still moving fast: wait until the guide settles on a screen)
+            io.github.petebutty.viewarr.ui.common.AppStart.after(6_000) // (not while the app is still opening)
+            val keys = channels.value.associate { it.id to it.guideKey }
+            val now = System.currentTimeMillis()
+            val items = block.flatMap { (cid, ps) ->
+                val key = keys[cid] ?: return@flatMap emptyList()
+                // (What's on now and the next few: the info panel's picture and the rows you'll move along.)
+                ps.filter { it.endTime > now - 3_600_000L }.take(6).map { Triple(it.rowId, key, it.startTime) }
+            }
+            val s = sessions.session.first() ?: return@launch
+            runCatching { repo.prefetchImages(s, items) }
+        }
+    }
 
     private val fetchedPast = HashSet<String>()
 
@@ -413,6 +482,20 @@ class GuideViewModel @Inject constructor(
     }
 
     /**
+     * Back to [groupId] with the highlight where it was ([cursor], on [channelId]): the menu's Back after moving through
+     * the channel groups, which showed each one in the guide behind and left it on the last, at its first channel.
+     */
+    fun restoreView(groupId: Int?, cursor: GuideCursor, channelId: Int?) {
+        if (_groupId.value == groupId) return
+        _groupId.value = groupId
+        viewModelScope.launch {
+            // (The group's channels come back a moment later: the highlight waits for them, else it would be clipped.)
+            if (channelId != null) withTimeoutOrNull(3_000) { channels.first { list -> list.any { it.id == channelId } } }
+            _cursor.value = cursor
+        }
+    }
+
+    /**
      * Up / Down a row ([delta] rows; a page with the channel buttons). Past the last channel or above the first
      * (Settings → Live TV → TV guide → End of a list): [ends] 0 loops on round, 1 jumps to the other end on a [fresh] press
      * (holding the button stops at the end), 2 stops.
@@ -461,6 +544,12 @@ class GuideViewModel @Inject constructor(
         else minOf(list.firstOrNull()?.startTime ?: now, now).coerceAtLeast(now - MAX_PAST_MS)
         val target = maxOf(prev?.startTime ?: (c.focusTime - STEP_MS), earliest)
         if (target >= c.focusTime) return false
+        // Landing where the highlight already is (no programmes listed, or the one highlighted with none before it): an
+        // invisible step, so Left seemed to do nothing and the menu opened only on the second press. With catch-up
+        // and nothing loaded before this programme the step still happens: it fetches the earlier ones (ensurePast).
+        val landing = programAt(list, target)
+        val invisible = list.isEmpty() || (landing != null && landing.rowId == current?.rowId)
+        if (invisible && !(list.isNotEmpty() && prev == null && days > 0)) return false
         var ws = c.windowStart
         while (target < ws) ws -= STEP_MS
         _cursor.value = c.copy(focusTime = target, windowStart = ws)

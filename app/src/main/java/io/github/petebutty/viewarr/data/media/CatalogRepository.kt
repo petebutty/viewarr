@@ -52,6 +52,10 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.longOrNull
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
@@ -166,6 +170,7 @@ class CatalogRepository @Inject constructor(
     private val sessions: SessionStore,
     private val xtream: XtreamClient,
     private val rowLayouts: RowLayoutStore,
+    @dagger.hilt.android.qualifiers.ApplicationContext private val appContext: android.content.Context,
 ) {
     /** Background work that outlives a screen (copying Trakt's history to Plex). */
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -1615,7 +1620,7 @@ class CatalogRepository @Inject constructor(
 
     /** Where a row comes from, by its id: Plex, Jellyfin, Emby, an add-on (AIOStreams, AIOMetadata…), Trakt, TMDB, IPTV. */
     fun rowOrigin(id: String): String {
-        addonRowSources[id]?.let { return it.addon.name }
+        addonRowSources[id]?.let { return it.name }
         return when {
             id.startsWith("merged:") -> "Your servers"
             id.startsWith("groups-") -> "Your servers"
@@ -1632,18 +1637,8 @@ class CatalogRepository @Inject constructor(
         }
     }
 
-    private class AddonRowSource(val addon: AddonInfo, val catalog: String, val catType: String, val type: MediaType, val take: Int, val name: String)
-    /** Where each addon row came from (its catalogue), so one shortcut's rows can be fetched again on their own. */
-    private val addonRowSources = ConcurrentHashMap<String, AddonRowSource>()
-
-    /** [rowId] fetched again from its addon's catalogue (a shortcut's Refresh); null if it isn't an addon row or failed. */
-    suspend fun refreshAddonRow(rowId: String): MediaRow? {
-        val src = addonRowSources[rowId] ?: return null
-        val r = withTimeoutOrNull(15_000) { runCatching { http.get("${src.addon.baseUrl}/catalog/${src.catType}/${enc(src.catalog)}.json") }.getOrNull() }
-            ?.takeIf { it.ok } ?: return null
-        val items = r.body.array("metas").take(src.take).mapNotNull { m -> stremioMeta(src.addon, m, src.type, src.catType) }
-        return MediaRow(rowId, src.name, items)
-    }
+    /** The addon each addon row came from, for [rowOrigin]. */
+    private val addonRowSources = ConcurrentHashMap<String, AddonInfo>()
 
     private suspend fun stremioRows(addon: AddonInfo, type: MediaType, part: suspend (List<MediaRow>) -> Unit = {}): List<MediaRow> {
         val stremioType = if (type == MediaType.Movie) "movie" else "series"
@@ -1656,14 +1651,14 @@ class CatalogRepository @Inject constructor(
                 c.array("extra").none { e -> e.str("isRequired") == "true" } &&
                 c.array("extraRequired").isEmpty()
         }
-        // Network rows ("Netflix · Popular", two or more per name): all of them, each network being a live TV
-        // shortcut (the first 8 only gave the first couple of networks). Other catalogues: the first 8, as before.
+        // Network rows ("Netflix · Popular", two or more per name): all of them, each network having its own service
+        // page in the menu (the first 8 only gave the first couple of networks). Other catalogues: the first 8, as before.
         fun setName(c: JsonElement) = c.str("name")?.substringBefore(" · ", "")?.trim()?.takeIf { it.isNotEmpty() }
         val grouped = usable.mapNotNull(::setName).groupingBy { it }.eachCount().filter { it.value >= 2 }.keys
         val network = usable.filter { setName(it) in grouped }
         val catalogs = usable.filter { setName(it) !in grouped }.take(8) + network
         // A few at a time (an addon can have a hundred). Groups: its other catalogues, then each network's rows; as a
-        // group completes, everything so far is handed over, so networks (and their shortcuts) appear one by one
+        // group completes, everything so far is handed over, so networks (and their menu entries) appear one by one
         // instead of all waiting for the slowest catalogue.
         val gate = Semaphore(6)
         val done = ConcurrentHashMap<Int, MediaRow>()
@@ -1682,7 +1677,7 @@ class CatalogRepository @Inject constructor(
                         val take = if (setName(c) in grouped) 20 else 40
                         val items = r.body.array("metas").take(take).mapNotNull { m -> stremioMeta(addon, m, type, catType) }
                         val rowId = "stremio-${addon.id}-$id-$catType-${type.name}"
-                        addonRowSources[rowId] = AddonRowSource(addon, id, catType, type, take, c.str("name") ?: addon.name)
+                        addonRowSources[rowId] = addon
                         done[i] = MediaRow(rowId, c.str("name") ?: addon.name, items)
                     }
                     // This catalogue's group finished: show what's in so far.
@@ -2444,13 +2439,22 @@ class CatalogRepository @Inject constructor(
     suspend fun traktWatched(force: Boolean = false): TraktWatched? = traktLock.withLock {
         val a = store.current()
         val t = a.trakt?.let { freshTrakt(it) } ?: run { _traktWatched.value = null; return@withLock null }
-        val cur = _traktWatched.value
+        // The copy saved on the box last time (Peter, 2026-11-18: every start downloaded and sorted the whole history
+        // again: 15 seconds of work on the AM9). With it, a start only asks Trakt "anything new?".
+        val cur = _traktWatched.value ?: loadTraktWatched(t.username)?.also { _traktWatched.value = it }
         val now = System.currentTimeMillis()
         if (!force && cur != null && now - cur.fetchedAt < 10 * 60_000) return@withLock cur
         val h = trakt.headers(t.accessToken)
         val act = runCatching { http.get("https://api.trakt.tv/sync/last_activities", h) }.getOrNull()?.takeIf { it.ok }?.body
         val stamp = listOf(act.child("movies").str("watched_at"), act.child("episodes").str("watched_at")).joinToString("|")
-        if (!force && cur != null && act != null && stamp == cur.activity) return@withLock cur.copy(fetchedAt = now).also { _traktWatched.value = it }
+        if (!force && cur != null && act != null && stamp == cur.activity) return@withLock cur.copy(fetchedAt = now).also { _traktWatched.value = it; saveTraktWatched(t.username, it) }
+        // Something new, with a saved copy to show meanwhile: the full fetch in the background, a little after the
+        // app has settled, not in the way of the first screen.
+        if (!force && cur != null && !traktRefreshing) {
+            traktRefreshing = true
+            appScope.launch { delay(8_000); runCatching { traktWatched(force = true) }; traktRefreshing = false }
+            return@withLock cur
+        }
         // Trakt pages these lists (100 a page unless asked for more): read every page.
         suspend fun all(path: String): List<JsonElement>? {
             val out = ArrayList<JsonElement>()
@@ -2484,9 +2488,41 @@ class CatalogRepository @Inject constructor(
         val fresh = TraktWatched(movies, episodes, now, stamp)
         val changed = cur == null || cur.activity != stamp
         _traktWatched.value = fresh
+        saveTraktWatched(t.username, fresh)
         // Copy to Plex (Settings → Trakt, off unless switched on): only when the history changed, in the background.
         if (a.traktToPlex && (changed || force)) appScope.launch { runCatching { copyTraktToPlex(fresh) } }
         fresh
+    }
+
+    @Volatile private var traktRefreshing = false
+    private fun traktFile(user: String) = java.io.File(appContext.filesDir, "trakt_watched_" + kotlin.math.abs(user.lowercase().hashCode()).toString(36) + ".json")
+
+    /** The Trakt history as last worked out, from the box (null: none, or older than 30 days). */
+    private fun loadTraktWatched(user: String): TraktWatched? = runCatching {
+        val f = traktFile(user)
+        if (!f.exists() || System.currentTimeMillis() - f.lastModified() > 30L * 86_400_000L) return null
+        val o = Json.parseToJsonElement(f.readText()) as? JsonObject ?: return null
+        val movies = (o["m"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.contentOrNull }.toSet()
+        val eps = (o["e"] as? JsonObject).orEmpty().mapValues { (_, v) ->
+            (v as? JsonArray).orEmpty().mapNotNull { p -> (p as? JsonPrimitive)?.contentOrNull?.split('x')?.takeIf { it.size == 2 }?.let { it[0].toInt() to it[1].toInt() } }.toSet()
+        }
+        TraktWatched(movies, eps, (o["at"] as? JsonPrimitive)?.longOrNull ?: 0L, (o["a"] as? JsonPrimitive)?.contentOrNull.orEmpty())
+            .also { Log.i(TAG, "trakt: from the box, ${it.movieCount} films, ${it.episodeCount} episodes") }
+    }.getOrNull()
+
+    private fun saveTraktWatched(user: String, w: TraktWatched) {
+        appScope.launch {
+            runCatching {
+                val o = buildJsonObject {
+                    put("at", w.fetchedAt); put("a", w.activity)
+                    put("m", buildJsonArray { w.movies.forEach { add(JsonPrimitive(it)) } })
+                    put("e", buildJsonObject { w.episodes.forEach { (k, v) -> put(k, buildJsonArray { v.forEach { (se, n) -> add(JsonPrimitive("${se}x$n")) } }) } })
+                }
+                val f = traktFile(user)
+                val tmp = java.io.File(f.path + ".tmp")
+                tmp.writeText(o.toString()); tmp.renameTo(f)
+            }
+        }
     }
 
     /** The episodes of a show that Trakt says you've watched (from the last fetch). */
@@ -2781,7 +2817,6 @@ class CatalogRepository @Inject constructor(
             language = j.array("spoken_languages").firstOrNull()?.let { it.str("english_name") ?: it.str("name") },
             budget = j.long("budget")?.takeIf { it > 0 },
             revenue = j.long("revenue")?.takeIf { it > 0 },
-            voteCount = j.int("vote_count"),
             reviews = j.child("reviews").array("results").take(10).mapNotNull { r ->
                 val text = r.str("content")?.trim()?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
                 Review(
@@ -2816,9 +2851,62 @@ class CatalogRepository @Inject constructor(
 
     suspend fun extraRatings(item: MediaItem, copies: List<LibraryCopy>): List<RatingBadge> {
         ratingsCache[item.key]?.takeIf { System.currentTimeMillis() - it.first < 30 * 60_000L }?.let { return it.second }
+        // Kept on the box too (Peter, 2026-11-18: ratings hardly change, but every start fetched them again for each
+        // title you rest on): 7 days, or 1 day when there were none.
+        val disk = ratingKey(item)
+        loadRatings()
+        diskRatings[disk]?.let { (day, list) ->
+            if (System.currentTimeMillis() / 86_400_000L - day <= (if (list.isEmpty()) 1 else 7)) {
+                ratingsCache[item.key] = System.currentTimeMillis() to list
+                return list
+            }
+        }
         val got = fetchExtraRatings(item, copies)
         ratingsCache[item.key] = System.currentTimeMillis() to got
+        diskRatings[disk] = System.currentTimeMillis() / 86_400_000L to got
+        saveRatingsSoon()
         return got
+    }
+
+    // The ratings file ("ratings.json"): {"tmdb:Movie:603": [day, [[source, value, votes], …]]}, the newest 3,000.
+    private val diskRatings = ConcurrentHashMap<String, Pair<Long, List<RatingBadge>>>()
+    @Volatile private var ratingsLoaded = false
+    private var ratingsSave: kotlinx.coroutines.Job? = null
+    private val ratingsFile get() = java.io.File(appContext.filesDir, "ratings.json")
+    private fun ratingKey(item: MediaItem) = item.tmdbId?.let { "tmdb:${item.type}:$it" } ?: item.imdbId?.let { "imdb:$it" } ?: item.key
+    private fun loadRatings() {
+        if (ratingsLoaded) return
+        ratingsLoaded = true
+        runCatching {
+            val o = Json.parseToJsonElement(ratingsFile.readText()) as? JsonObject ?: return
+            for ((k, v) in o) {
+                val a = v as? JsonArray ?: continue
+                val day = (a.getOrNull(0) as? JsonPrimitive)?.longOrNull ?: continue
+                val list = (a.getOrNull(1) as? JsonArray).orEmpty().mapNotNull { r ->
+                    val x = r as? JsonArray ?: return@mapNotNull null
+                    val src = (x.getOrNull(0) as? JsonPrimitive)?.contentOrNull ?: return@mapNotNull null
+                    RatingBadge(src, (x.getOrNull(1) as? JsonPrimitive)?.contentOrNull.orEmpty(), (x.getOrNull(2) as? JsonPrimitive)?.contentOrNull)
+                }
+                diskRatings.putIfAbsent(k, day to list)
+            }
+        }
+    }
+    private fun saveRatingsSoon() {
+        ratingsSave?.cancel()
+        ratingsSave = appScope.launch {
+            delay(5_000)
+            runCatching {
+                val keep = diskRatings.entries.sortedByDescending { it.value.first }.take(3_000)
+                val o = buildJsonObject {
+                    for ((k, v) in keep) put(k, buildJsonArray {
+                        add(JsonPrimitive(v.first))
+                        add(buildJsonArray { v.second.forEach { b -> add(buildJsonArray { add(JsonPrimitive(b.source)); add(JsonPrimitive(b.value)); b.votes?.let { add(JsonPrimitive(it)) } }) } })
+                    })
+                }
+                val tmp = java.io.File(appContext.filesDir, "ratings.json.tmp")
+                tmp.writeText(o.toString()); tmp.renameTo(ratingsFile)
+            }
+        }
     }
 
     /**
@@ -3115,6 +3203,41 @@ class CatalogRepository @Inject constructor(
 
     private val logoCache = ConcurrentHashMap<String, String>()
 
+    // Title logos kept on the box (Peter, 2026-11-18: every start-up looked each one up again on TMDB, one at a time,
+    // as you moved along). File "title_logos.json": {"Movie:603": ["https://…png" or "" (none), day found]}; found ones
+    // kept 60 days, "none" 7. Read once, written a few seconds after the last new one.
+    private val logoFile get() = java.io.File(appContext.filesDir, "title_logos.json")
+    private val logoDays = ConcurrentHashMap<String, Long>()
+    @Volatile private var logosLoaded = false
+    private var logoSave: kotlinx.coroutines.Job? = null
+    private fun loadLogos() {
+        if (logosLoaded) return
+        logosLoaded = true
+        runCatching {
+            val today = System.currentTimeMillis() / 86_400_000L
+            val o = Json.parseToJsonElement(logoFile.readText()) as? JsonObject ?: return
+            for ((k, v) in o) {
+                val a = v as? JsonArray ?: continue
+                val url = (a.getOrNull(0) as? JsonPrimitive)?.contentOrNull ?: continue
+                val day = (a.getOrNull(1) as? JsonPrimitive)?.longOrNull ?: continue
+                if (today - day <= (if (url.isEmpty()) 7 else 60)) { logoCache.putIfAbsent(k, url); logoDays[k] = day }
+            }
+        }
+    }
+    private fun saveLogosSoon() {
+        logoSave?.cancel()
+        logoSave = appScope.launch {
+            delay(5_000)
+            runCatching {
+                val o = buildJsonObject {
+                    for ((k, url) in logoCache) put(k, buildJsonArray { add(JsonPrimitive(url)); add(JsonPrimitive(logoDays[k] ?: (System.currentTimeMillis() / 86_400_000L))) })
+                }
+                val tmp = java.io.File(appContext.filesDir, "title_logos.json.tmp")
+                tmp.writeText(o.toString()); tmp.renameTo(logoFile)
+            }
+        }
+    }
+
     /**
      * The title's logo (its name as artwork, transparent) from TMDB: English first, then one without text language,
      * then any; the best voted. Null when TMDB has none.
@@ -3122,6 +3245,7 @@ class CatalogRepository @Inject constructor(
     suspend fun logoFor(item: MediaItem): String? {
         val id = item.tmdbId ?: tmdbIdFor(item) ?: return null
         val cacheKey = "${item.type}:$id"
+        loadLogos()
         logoCache[cacheKey]?.let { return it.ifEmpty { null } }
         val key = store.current().tmdbKey ?: return null
         val path = if (item.type == MediaType.Movie) "/movie/$id/images" else "/tv/$id/images"
@@ -3138,6 +3262,8 @@ class CatalogRepository @Inject constructor(
         val url = best?.let { "https://image.tmdb.org/t/p/w500$it" }
         Log.i(TAG, "logo for ${item.title}: ${logos.size} on TMDB, ${if (url == null) "none" else "found"}")
         logoCache[cacheKey] = url.orEmpty()
+        logoDays[cacheKey] = System.currentTimeMillis() / 86_400_000L
+        saveLogosSoon()
         return url
     }
 
@@ -3193,67 +3319,42 @@ class CatalogRepository @Inject constructor(
     }
 
     /** A title's TMDB id: its own, or looked up from its IMDb id (Stremio addons such as AIOStreams use IMDb ids). */
+    /**
+     * A picture of [item] that needs no sign-in (TMDB's backdrop, else its poster), for the TV home screen's Watch Next
+     * row: a Plex / Jellyfin / Emby picture link carries the server's token, so it's never handed to the launcher, and
+     * those cards showed a broken picture (Peter, 2026-11-17). Null: no TMDB key or nothing found. Kept per title.
+     */
+    suspend fun publicArt(item: MediaItem): Pair<String, Boolean>? {
+        val cacheKey = item.type.name + ":" + (item.tmdbId ?: item.imdbId ?: item.key)
+        publicArtCache[cacheKey]?.let { return it.takeIf { a -> a.first.isNotEmpty() } }
+        val key = store.current().tmdbKey ?: return null
+        val id = runCatching { tmdbIdFor(item) }.getOrNull()
+        val r = id?.let { runCatching { http.get(tmdb.url(if (item.type == MediaType.Movie) "/movie/$it" else "/tv/$it", key), tmdb.headers(key)) }.getOrNull()?.takeIf { x -> x.ok } }
+        val art = r?.body?.str("backdrop_path")?.let { "${TMDB_IMG}w780$it" to true }
+            ?: r?.body?.str("poster_path")?.let { "${TMDB_IMG}w500$it" to false }
+        publicArtCache[cacheKey] = art ?: ("" to false)
+        return art
+    }
+    private val publicArtCache = java.util.concurrent.ConcurrentHashMap<String, Pair<String, Boolean>>()
+
+    /** A title's name and poster from TMDB by its id ([type] "Movie" / "Show"), kept per title; null: no TMDB key. */
+    suspend fun tmdbName(type: String, id: Int): Pair<String, String?>? {
+        val cacheKey = "$type:$id"
+        tmdbNameCache[cacheKey]?.let { return it }
+        val key = store.current().tmdbKey ?: return null
+        val movie = type.equals("Movie", ignoreCase = true)
+        val r = runCatching { http.get(tmdb.url(if (movie) "/movie/$id" else "/tv/$id", key), tmdb.headers(key)) }.getOrNull()?.takeIf { it.ok } ?: return null
+        val name = (if (movie) r.body.str("title") else r.body.str("name")) ?: return null
+        return (name to r.body.str("poster_path")?.let { "${TMDB_IMG}w342$it" }).also { tmdbNameCache[cacheKey] = it }
+    }
+    private val tmdbNameCache = java.util.concurrent.ConcurrentHashMap<String, Pair<String, String?>>()
+
     suspend fun tmdbIdFor(item: MediaItem): Int? {
         item.tmdbId?.let { return it }
         val imdb = item.imdbId ?: item.key.substringAfterLast(':').takeIf { it.startsWith("tt") } ?: return null
         val key = store.current().tmdbKey ?: return null
         return findByImdb(key, imdb, item.type)
     }
-
-    // ------------------------------------------------------------ shortcut logos
-
-    private var providerList: List<Pair<String, String>>? = null
-    private val serviceLogoCache = ConcurrentHashMap<String, Timed<ServiceLogo>>()
-
-    private fun normName(s: String) = s.lowercase().replace("+", "plus").filter { it.isLetterOrDigit() }
-
-    /**
-     * A network's or streaming service's logo for a live TV shortcut ("Netflix", "BBC One"…), from TMDB: the watch
-     * providers first (square app icons), else the network of a title in its rows ([sample]: one of them), else a
-     * provider whose name starts with it. Null when nothing matches (the shortcut keeps its plain icon).
-     */
-    suspend fun serviceLogo(name: String, sample: MediaItem?): ServiceLogo? {
-        serviceLogoCache[name]?.takeIf { it.fresh }?.let { return it.value.takeIf { l -> l.url.isNotEmpty() } }
-        val key = store.current().tmdbKey ?: return null
-        val n = normName(name)
-        val providers = providerList ?: runCatching {
-            // UK and US lists: US-only services (Hulu, Peacock) aren't in the UK one.
-            listOf("tv", "movie").flatMap { t -> listOf("GB", "US").map { reg -> t to reg } }.flatMap { (t, reg) ->
-                val r = http.get(tmdb.url("/watch/providers/$t", key, mapOf("watch_region" to reg)), tmdb.headers(key))
-                if (!r.ok) emptyList() else r.body.array("results").mapNotNull { p ->
-                    val pn = p.str("provider_name") ?: return@mapNotNull null
-                    val logo = p.str("logo_path") ?: return@mapNotNull null
-                    pn to logo
-                }
-            }.distinctBy { it.first }
-        }.getOrNull()?.also { if (it.isNotEmpty()) providerList = it }.orEmpty()
-        fun provider(match: (String) -> Boolean) = providers.filter { match(normName(it.first)) }.minByOrNull { it.first.length }
-            ?.let { ServiceLogo("https://image.tmdb.org/t/p/w154" + it.second, square = true) }
-        val found = provider { it == n } ?: provider { it == n.removeSuffix("plus") || it.removeSuffix("plus") == n }
-            ?: networkLogo(key, n, sample)
-            ?: if (n.length >= 3) provider { it.startsWith(n) } else null
-        // A miss may only be TMDB not answering: asked again after a while.
-        serviceLogoCache[name] = if (found != null) Timed(found, Long.MAX_VALUE) else Timed.forMs(ServiceLogo("", false), Timed.MISS_MS)
-        return found
-    }
-
-    /** A network's wide wordmark logo (wide tiles), for the networks Viewarr knows. */
-    suspend fun wideLogo(name: String): ServiceLogo? = runCatching {
-        val id = NetworkSetup.WIDE.entries.firstOrNull { it.key.equals(name, true) }?.value ?: return null
-        val key = store.current().tmdbKey ?: return null
-        val r = http.get(tmdb.url("/network/$id", key, emptyMap()), tmdb.headers(key))
-        r.body.str("logo_path")?.takeIf { r.ok }?.let { ServiceLogo("https://image.tmdb.org/t/p/w300$it", square = false) }
-    }.getOrNull()
-
-    private suspend fun networkLogo(key: String, n: String, sample: MediaItem?): ServiceLogo? = runCatching {
-        val item = sample ?: return null
-        val tvId = item.tmdbId ?: item.imdbId?.let { findByImdb(key, it, MediaType.Show) } ?: return null
-        val r = http.get(tmdb.url("/tv/$tvId", key, emptyMap()), tmdb.headers(key))
-        if (!r.ok) return null
-        val nets = r.body.array("networks")
-        val net = nets.firstOrNull { normName(it.str("name").orEmpty()) == n } ?: return null
-        net.str("logo_path")?.let { ServiceLogo("https://image.tmdb.org/t/p/w300$it", square = false) }
-    }.getOrNull()
 
     private suspend fun findByImdb(key: String, imdbId: String, type: MediaType): Int? = runCatching {
         val r = http.get(tmdb.url("/find/$imdbId", key, mapOf("external_source" to "imdb_id")), tmdb.headers(key))

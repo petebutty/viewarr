@@ -79,6 +79,8 @@ fun SyncOfferHost(vm: SyncViewModel = hiltViewModel()) {
     val first = remember { FocusRequester() }
     LaunchedEffect(o) { awaitFrame(); runCatching { first.requestFocus() } }
     BackHandler { if (!busy) vm.decline() }
+    // Its own window (ViewarrPopup, as UpdateDialog and What's new): the page under it can't pull the highlight back.
+    io.github.petebutty.viewarr.ui.common.ViewarrPopup(onClose = { if (!busy) vm.decline() }) {
     Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.6f)), contentAlignment = Alignment.Center) {
         Column(
             Modifier.width(600.dp).background(AppColors.Panel, RoundedCornerShape(14.dp)).padding(24.dp).trapFocus(),
@@ -104,6 +106,7 @@ fun SyncOfferHost(vm: SyncViewModel = hiltViewModel()) {
             )
             MenuItem(text = "Not now (keep this TV's own settings)", selected = false, onClick = { if (!busy) vm.decline() })
         }
+    }
     }
 }
 

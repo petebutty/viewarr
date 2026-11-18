@@ -22,7 +22,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import io.github.petebutty.viewarr.ui.common.glass
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -64,6 +63,7 @@ import io.github.petebutty.viewarr.ui.common.movingHint
 import io.github.petebutty.viewarr.ui.common.rememberCarry
 import io.github.petebutty.viewarr.ui.common.reorderable
 import io.github.petebutty.viewarr.ui.theme.Tokens
+import androidx.compose.foundation.verticalScroll
 
 @HiltViewModel
 class SportsViewModel @Inject constructor(
@@ -155,18 +155,19 @@ class SportsViewModel @Inject constructor(
         order = list
         viewModelScope.launch { repo.setFollows(list) }
     }
-    fun setPinned(f: SportFollow, pinned: Boolean) = viewModelScope.launch {
-        repo.setFollows(follows.value.map { if (it.shortcutId == f.shortcutId) it.copy(pinned = pinned) else it })
-    }
 }
 
 /**
- * Settings → Sports: type a team or league, pick it from the list, and it's yours: a row of its games under the
- * Live TV hub's Sports shortcut (on now, coming up, results, and where to watch them from your guide). Pin one to
- * give it its own shortcut in the row too. Saved per profile.
+ * Settings → Sports: type a team or league, pick it from the list, and it's yours: its games on the Sports page (on
+ * now, coming up, results, and where to watch them from your guide), and score alerts if you want them. Saved per
+ * profile.
  */
 @Composable
 fun SportsSettingsScreen(onBack: () -> Unit, vm: SportsViewModel = hiltViewModel()) {
+    val appearance: AppearanceViewModel = hiltViewModel()
+    val sa = io.github.petebutty.viewarr.data.sports.ScoreAlerts
+    var alertPick by remember { mutableStateOf<String?>(null) }
+    var alertTeam by remember { mutableStateOf<SportFollow?>(null) }
     val follows by vm.follows.collectAsStateWithLifecycle()
     val results by vm.results.collectAsStateWithLifecycle()
     val searching by vm.searching.collectAsStateWithLifecycle()
@@ -175,7 +176,7 @@ fun SportsSettingsScreen(onBack: () -> Unit, vm: SportsViewModel = hiltViewModel
     var leagueFor by remember { mutableStateOf<SportFollow?>(null) }
     var query by remember { mutableStateOf("") }
     var picked by remember { mutableStateOf<SportFollow?>(null) }
-    // A followed one being moved (its shortcut id; the shared ui/common/Reorder.kt, Peter, 2026-11-17).
+    // A followed one being moved (its id; the shared ui/common/Reorder.kt, Peter, 2026-11-17).
     val carry = rememberCarry()
     val searchFocus = remember { FocusRequester() }
     // Opens on the first sport button, not the search box (that would bring the keyboard up straight away).
@@ -203,23 +204,21 @@ fun SportsSettingsScreen(onBack: () -> Unit, vm: SportsViewModel = hiltViewModel
         // A pop-up that's just been closed is still going for a moment (its window has the remote): a highlight put here
         // meanwhile was lost with it. So: try, and keep trying until a row really has it (a second at most).
         val id = results[i].shortcutId
-        repeat(24) {
-            delay(40)
-            runCatching { rowReq(id).requestFocus() }
-            awaitFrame()
-            if (rowFocused == id) { focusKey = null; return@LaunchedEffect }
-        }
+        if (retryFocus(24, { rowReq(id).requestFocus() }) { rowFocused == id }) { focusKey = null; return@LaunchedEffect }
         focusKey = null
         runCatching { firstPill.requestFocus() }
     }
     BackHandler {
         when {
-            // Carrying a followed one: Back puts it down (Modifier.reorderable takes that press), never leaves the page.
-            carry.active -> Unit
+            // Carrying a followed one: Back puts it down (Modifier.reorderable takes that press; here too, should it
+            // ever reach this), never leaves the page.
+            carry.active -> carry.drop()
             picked != null -> picked = null
             leagueFor != null -> leagueFor = null
             // One step at a time: a league's teams → the list you picked it from → the sport buttons → out.
-            else -> vm.back()?.let { focusKey = it } ?: if (results.isNotEmpty()) {
+            // (A typed search with nothing found is cleared first, as one with results.)
+            else -> vm.back()?.let { focusKey = it } ?: if (results.isNotEmpty() || query.isNotBlank()) {
+                query = ""
                 vm.clear()
                 scope.launch { awaitFrame(); runCatching { (browsed?.let { pillFocus[it] } ?: firstPill).requestFocus() } }
             } else onBack()
@@ -228,26 +227,32 @@ fun SportsSettingsScreen(onBack: () -> Unit, vm: SportsViewModel = hiltViewModel
     LaunchedEffect(Unit) { awaitFrame(); runCatching { firstPill.requestFocus() } }
     // A followed one's pop-up closed: back on it, or (stopped following, so it's gone) the next one, else the buttons.
     var pickedWas by remember { mutableStateOf<SportFollow?>(null) }
+    // Where it was in the list: after Stop following, the one now in its place (else the last), not the first.
+    var pickedAt by remember { androidx.compose.runtime.mutableIntStateOf(0) }
     // Stop following: the list only changes once it's saved, so wait for that before moving the highlight.
     var removing by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(picked, follows) {
-        if (picked != null) { pickedWas = picked; return@LaunchedEffect }
+        if (picked != null) { pickedWas = picked; pickedAt = follows.indexOfFirst { it.shortcutId == picked?.shortcutId }; return@LaunchedEffect }
         val was = pickedWas ?: return@LaunchedEffect
         if (removing != null && follows.any { it.shortcutId == removing }) return@LaunchedEffect
         pickedWas = null; removing = null
-        val target = follows.firstOrNull { it.shortcutId == was.shortcutId } ?: follows.firstOrNull()
-        repeat(12) {
-            delay(40)
-            if (target != null) runCatching { rowReq("f-" + target.shortcutId).requestFocus() }
-            awaitFrame()
-            if (target != null && rowFocused == "f-" + target.shortcutId) return@LaunchedEffect
-        }
-        runCatching { firstPill.requestFocus() }
+        val target = follows.firstOrNull { it.shortcutId == was.shortcutId } ?: follows.getOrNull(pickedAt) ?: follows.lastOrNull()
+        val landed = retryFocus(12, { if (target != null) rowReq("f-" + target.shortcutId).requestFocus() }) { target != null && rowFocused == "f-" + target.shortcutId }
+        if (!landed) runCatching { firstPill.requestFocus() }
+    }
+    // OK on a 🔔 team takes it out of the Score alerts list: the highlight goes to the next one, or the Score alerts
+    // row once the list is empty (it was left on nothing). The same wait-and-retry as the results list.
+    var alertFocus by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(alertFocus) {
+        val id = alertFocus ?: return@LaunchedEffect
+        retryFocus(24, { rowReq(id).requestFocus() }) { rowFocused == id }
+        alertFocus = null
     }
     Box(Modifier.fillMaxSize().appBackground(readable = true).trapFocus()) {
         Row(Modifier.fillMaxSize().padding(horizontal = Tokens.Gutter, vertical = 40.dp)) {
             // (Below the live TV window when one is up, as SettingsPage.)
-            Column(Modifier.width(300.dp).fillMaxHeight().padding(top = if (SettingsLayout.belowPreview) 170.dp else 0.dp)) {
+            Column(Modifier.width(300.dp).fillMaxHeight().padding(top = if (SettingsLayout.belowPreview) 170.dp else 0.dp)
+                .verticalScroll(androidx.compose.foundation.rememberScrollState())) {
                 Text("Settings", fontSize = 14.sp, color = AppColors.Accent)
                 Text("Sports", fontSize = 30.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, modifier = Modifier.padding(bottom = 16.dp))
                 Text(
@@ -260,16 +265,32 @@ fun SportsSettingsScreen(onBack: () -> Unit, vm: SportsViewModel = hiltViewModel
                 val pageOn = AppColors.palette.opt(UiOpts.SPORTS_GAME_PAGE) == 0
                 Spacer(Modifier.padding(top = 14.dp))
                 MenuItem(text = "Game page", trailing = if (pageOn) "On" else "Off", selected = false,
+                    modifier = Modifier.leftGoesBack(onBack),
                     onClick = { optsVm.set(UiOpts.SPORTS_GAME_PAGE, if (pageOn) 1 else 0) })
                 Text("OK on a game opens its page: line-ups, each team's last five, this season's meetings, goals and stats, with Remind me / Record (also before it's in your guide, or every game of a team). Off: OK just says when and where it's on.",
                     fontSize = 12.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(top = 4.dp, start = 4.dp))
             }
             Spacer(Modifier.width(40.dp))
             Column(Modifier.weight(1f).fillMaxHeight()) {
+                // The keyboard opens on OK, not just by landing on the box (as every text box on the remote); Back or
+                // moving off it closes it.
+                var editing by remember { mutableStateOf(false) }
+                val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
                 androidx.compose.material3.OutlinedTextField(
                     value = query, onValueChange = { query = it; browsed = null; vm.search(it) },
                     label = { androidx.compose.material3.Text("Search a team, league or sport (e.g. Celtic, Premier League, golf)") },
-                    singleLine = true, modifier = Modifier.fillMaxWidth().focusRequester(searchFocus).downTo { firstPill },
+                    singleLine = true, readOnly = !editing,
+                    modifier = Modifier.fillMaxWidth().focusRequester(searchFocus).downTo { firstPill }
+                        .onFocusChanged { if (!it.isFocused) { editing = false; keyboard?.hide() } }
+                        .onPreviewKeyEvent { e ->
+                            if (e.type != androidx.compose.ui.input.key.KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                            when (e.key) {
+                                androidx.compose.ui.input.key.Key.DirectionCenter, androidx.compose.ui.input.key.Key.Enter, androidx.compose.ui.input.key.Key.NumPadEnter ->
+                                    if (editing) false else { editing = true; scope.launch { awaitFrame(); keyboard?.show() }; true }
+                                androidx.compose.ui.input.key.Key.Back -> { editing = false; false }
+                                else -> false
+                            }
+                        },
                 )
                 // Or browse: a sport's leagues, then a league's teams.
                 val sports = io.github.petebutty.viewarr.data.sports.Sport.entries.filter { it != io.github.petebutty.viewarr.data.sports.Sport.Other }
@@ -294,7 +315,9 @@ fun SportsSettingsScreen(onBack: () -> Unit, vm: SportsViewModel = hiltViewModel
                     items(results, key = { "r-" + it.shortcutId }) { f ->
                         val following = follows.any { it.shortcutId == f.shortcutId }
                         val league = f.kind == SportFollow.Kind.League && vm.hasTeams(f.league)
-                        SportRow(f, trailing = when { league -> if (following) "Following · OK: teams" else "OK: follow or pick a team"; following -> "Following"; else -> "OK: follow" },
+                        SportRow(f, trailing = when { league -> if (following) "Following · OK: teams" else "OK: follow or pick a team"; following -> "Following"; else -> "OK: follow" } +
+                            (if (sa.teamOn(f)) " · 🔔" else "") + " · hold OK: alerts",
+                            onLongClick = { alertTeam = f },
                             // Up from the first row: the sport button you came from (not whichever is nearest above).
                             modifier = Modifier.focusRequester(rowReq(f.shortcutId)).onFocusChanged { if (it.isFocused) rowFocused = f.shortcutId else if (rowFocused == f.shortcutId) rowFocused = null }
                                 .then(if (f == results.first()) Modifier.keyTo(androidx.compose.ui.input.key.Key.DirectionUp) { browsed?.let { pillFocus[it] } ?: firstPill } else Modifier)) {
@@ -307,14 +330,57 @@ fun SportsSettingsScreen(onBack: () -> Unit, vm: SportsViewModel = hiltViewModel
                     // Left / Right put it down (the shared Modifier.reorderable).
                     items(follows, key = { "f-" + it.shortcutId }) { f ->
                         val carried = carry.isCarried(f.shortcutId)
-                        SportRow(f, trailing = if (carried) "↕" else "Following · OK: options",
+                        SportRow(f, trailing = if (carried) "↕" else if (sa.teamOn(f)) "Following · 🔔 · OK: options" else "Following · OK: options",
                             modifier = Modifier.focusRequester(rowReq("f-" + f.shortcutId))
-                            .onFocusChanged { if (it.isFocused) rowFocused = "f-" + f.shortcutId else if (rowFocused == "f-" + f.shortcutId) { rowFocused = null; if (carried) carry.drop() } }
+                            .onFocusChanged {
+                                if (it.isFocused) rowFocused = "f-" + f.shortcutId
+                                else if (rowFocused == "f-" + f.shortcutId) {
+                                    rowFocused = null
+                                    // Moving off it some other way puts it down: after a moment, as the list redrawing
+                                    // after a move blurs the row for a frame and dropped the carry at once.
+                                    if (carried) scope.launch { delay(300); if (rowFocused != "f-" + f.shortcutId && carry.isCarried(f.shortcutId)) carry.drop() }
+                                }
+                            }
                             .reorderable(
                                 carried = carried, onMove = { dir -> vm.move(f, dir) }, onDrop = carry::drop,
                                 rightToggles = follows.size >= 2, onPickUp = { carry.pickUp(f.shortcutId) },
                             ),
                             onLongClick = { if (!carry.active) picked = f }) { if (carried) carry.drop() else picked = f }
+                    }
+                    // Score alerts (the 🔔 banner and the ticker's Live scores) for the games of what you follow.
+                    item(key = "h-alerts") { Header("Score alerts") }
+                    item(key = "al-on") {
+                        MenuItem(text = "Score alerts", trailing = sa.mode + "  ▾", selected = false, onClick = { alertPick = "mode" },
+                            modifier = Modifier.focusRequester(rowReq("al-on")).onFocusChanged { if (it.isFocused) rowFocused = "al-on" else if (rowFocused == "al-on") rowFocused = null })
+                    }
+                    if (sa.on) {
+                        items(sa.kinds, key = { "al-k-" + it.first }) { (k, label) ->
+                            MenuItem(text = "      $label", trailing = (if (sa.kindOn(k)) "On" else "Off") + "  ▾", selected = false, compact = true,
+                                onClick = { alertPick = k })
+                        }
+                    }
+                    // The teams and leagues alerts are on for (none to start).
+                    val alertTeams = sa.teams()
+                    if (alertTeams.isEmpty()) item(key = "al-none") {
+                        Text("No teams yet: alerts are off until you choose one. Hold OK on a team or league in the search results (followed or not), or OK on one under Following → Score alerts on.",
+                            fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(start = 4.dp, top = 6.dp, bottom = 12.dp))
+                    } else {
+                        items(alertTeams, key = { "al-t-" + sa.teamKey(it) }) { t ->
+                            val id = "al-t-" + sa.teamKey(t)
+                            MenuItem(text = "🔔  " + t.name + (if (t.kind == SportFollow.Kind.League) "  (league)" else ""), trailing = "OK: alerts off", selected = false, compact = true,
+                                modifier = Modifier.focusRequester(rowReq(id)).onFocusChanged { if (it.isFocused) rowFocused = id else if (rowFocused == id) rowFocused = null },
+                                onClick = {
+                                    // The next team (or the one before, at the end), else the Score alerts row.
+                                    val i = alertTeams.indexOf(t)
+                                    val next = alertTeams.getOrNull(i + 1) ?: alertTeams.getOrNull(i - 1)
+                                    alertFocus = next?.let { "al-t-" + sa.teamKey(it) } ?: "al-on"
+                                    appearance.setTitlePart(sa.teamKey(t), true)
+                                })
+                        }
+                        item(key = "al-hint") {
+                            Text("Add more: hold OK on a team or league in the search results, followed or not. Basketball has no scoring alerts, just the start, half-time and the result.",
+                                fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(start = 4.dp, top = 6.dp, bottom = 12.dp))
+                        }
                     }
                 }
             }
@@ -333,20 +399,63 @@ fun SportsSettingsScreen(onBack: () -> Unit, vm: SportsViewModel = hiltViewModel
                 onClose = { leagueFor = null; if (focusKey == null) focusKey = f.shortcutId },
             )
         }
-        // A followed team / league: move it, or stop following it. (No pinning: the shortcut row it pinned to is gone; its games
-        // are on the Sports page.)
+        // Hold OK on a search result: follow it, and / or score alerts for it (followed or not).
+        alertTeam?.let { f ->
+            val following = follows.any { it.shortcutId == f.shortcutId }
+            OptionsPopup(
+                title = f.name,
+                options = listOfNotNull(
+                    if (!following) PopupOption("Follow ${f.name}") { vm.follow(f) } else null,
+                    if (sa.teamOn(f)) PopupOption("Score alerts off for ${f.name}") { appearance.setTitlePart(sa.teamKey(f), true) }
+                    else PopupOption("Score alerts on for ${f.name}") { appearance.setTitlePart(sa.teamKey(f), false) },
+                ),
+                onClose = { alertTeam = null },
+            )
+        }
+        // Score alerts: each row's list of choices (as the other settings' drop-downs).
+        alertPick?.let { what ->
+            val title = if (what == "mode") "Score alerts" else sa.kinds.firstOrNull { it.first == what }?.second ?: ""
+            val choices = if (what == "mode") sa.modes else listOf("On", "Off")
+            OptionsPopup(
+                title = title,
+                options = choices.map { c ->
+                    PopupOption(c) {
+                        if (what == "mode") sa.partsFor(c).forEach { (k, v) -> appearance.setTitlePart(k, v) }
+                        else appearance.setTitlePart(sa.kindKey(what), c == "On")
+                    }
+                },
+                onClose = { alertPick = null },
+            )
+        }
+        // A followed team / league: move it, or stop following it. (Its games are on the Sports page.)
         picked?.let { f ->
             OptionsPopup(
                 title = f.name,
                 options = listOfNotNull(
                     if (follows.size >= 2) carry.moveOption(f.shortcutId) else null,
                     if (follows.firstOrNull()?.shortcutId != f.shortcutId) PopupOption("Move to the top") { vm.move(f, -follows.size) } else null,
+                    if (sa.teamOn(f)) PopupOption("Score alerts off for ${f.name}") { appearance.setTitlePart(sa.teamKey(f), true) }
+                    else PopupOption("Score alerts on for ${f.name}") { appearance.setTitlePart(sa.teamKey(f), false) },
                     PopupOption("Stop following") { removing = f.shortcutId; vm.unfollow(f) },
                 ),
                 onClose = { picked = null },
             )
         }
     }
+}
+
+/**
+ * Asks for the highlight again every 40 ms, up to [tries] times, until [landed] says a row has it (a pop-up just
+ * closed still has the remote for a moment, and a request made meanwhile is lost). True: it landed.
+ */
+private suspend fun retryFocus(tries: Int, request: () -> Unit, landed: () -> Boolean): Boolean {
+    repeat(tries) {
+        delay(40)
+        runCatching { request() }
+        awaitFrame()
+        if (landed()) return true
+    }
+    return false
 }
 
 @Composable

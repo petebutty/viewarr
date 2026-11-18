@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
@@ -80,12 +81,12 @@ class SettingItem(
     /** A slider: Left / Right step through [choices] on the row itself (no list opens). */
     val slider: Boolean = false,
     /**
-     * Reorderable (e.g. Live TV shortcuts): hold OK → Move (or Right, the Settings shortcut) picks the row up, Up / Down
+     * Reorderable (e.g. the menu's libraries, followed teams): hold OK → Move (or Right, the Settings shortcut) picks the row up, Up / Down
      * move it (by -1 / +1), OK, Back, Left or Right put it down (ui/common/Reorder.kt).
      */
     val reorder: ((Int) -> Unit)? = null,
     /**
-     * Shown but can't be changed: another setting decides it (Low-memory mode, the Live TV hub style). The note says
+     * Shown but can't be changed: another setting decides it (what Low-memory mode switches off). The note says
      * why and how to unlock it; OK does nothing.
      */
     val locked: String? = null,
@@ -97,6 +98,16 @@ class SettingItem(
         if (note == null) this else SettingItem(title, description, choices, current, action, slider, null, note, onSelect)
 }
 
+/** A choice that is only a label: an action row's status ("OK: check"), or a named mode. */
+internal data class PlainChoice(override val label: String) : RemoteChoice
+
+/** On / Off, as a settings row's two choices ([SettingItem.isToggle] draws them as a switch). */
+internal enum class OnOff(override val label: String) : RemoteChoice { On("On"), Off("Off") }
+
+/** An On / Off setting row: [set] gets the new state. [reorder]: as [SettingItem.reorder]. */
+internal fun onOffItem(title: String, description: String, on: Boolean, reorder: ((Int) -> Unit)? = null, set: (Boolean) -> Unit) =
+    SettingItem(title, description, OnOff.entries, if (on) OnOff.On else OnOff.Off, reorder = reorder) { c -> set(c == OnOff.On) }
+
 /** Lock notes, the same words everywhere. */
 object Locks {
     const val LOW_MEMORY = "Off in Low-memory mode. To use it, switch off Settings → Troubleshooting → Low-memory mode."
@@ -107,8 +118,8 @@ object SettingsLayout {
     var belowPreview by androidx.compose.runtime.mutableStateOf(false)
 }
 
-/** [header]: drawn above the items (e.g. Remote & navigation's remote picture); not focusable. */
-class SettingCategory(val name: String, val blurb: String, val items: List<SettingItem>, val header: (@Composable () -> Unit)? = null)
+/** One section of a settings page: its name, a line about it, and its settings. */
+class SettingCategory(val name: String, val blurb: String, val items: List<SettingItem>)
 
 /**
  * Settings pages: Left from the right-hand side goes back to the entry selected on the left (it went to whichever was
@@ -120,10 +131,15 @@ fun Modifier.leftReturnsTo(target: () -> FocusRequester?): Modifier = onKeyEvent
 }
 
 /**
- * Full-screen settings: categories on the left, their settings on the right, each with a plain explanation.
- * OK flips a toggle, or opens the list of choices.
+ * A left-hand column's entries (categories, tabs, a plugin list): Left goes back to the Settings list ([onBack]), once
+ * per press. It did nothing there, as the page keeps the remote inside it.
  */
-@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+internal fun Modifier.leftGoesBack(onBack: () -> Unit): Modifier = onPreviewKeyEvent { e ->
+    if (e.key != Key.DirectionLeft) return@onPreviewKeyEvent false
+    if (e.type == KeyEventType.KeyDown && e.nativeKeyEvent.repeatCount == 0) onBack()
+    true
+}
+
 /**
  * A key per row: its title, with "#2", "#3"… on repeats. Two news feeds can share a name (or a feed and a channel
  * group), and the list crashed on the second one. The first keeps its plain title, so focus lookups by title still work.
@@ -137,6 +153,10 @@ internal fun uniqueRowKeys(titles: List<String>): List<String> {
     }
 }
 
+/**
+ * Full-screen settings: categories on the left, their settings on the right, each with a plain explanation.
+ * OK flips a toggle, or opens the list of choices.
+ */
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun SettingsPage(
@@ -153,7 +173,7 @@ fun SettingsPage(
     // The open category, kept by name: a setting can add or hide categories (low-memory mode hides some), and an
     // index alone then pointed past the end (crash) or at the wrong one.
     var categoryName by remember { mutableStateOf<String?>(startSection?.takeIf { s -> categories.any { it.name == s } }) }
-    // A category that's gone (e.g. "Live TV hub" once the hub is turned on from it): the one now in its place.
+    // A category that's gone (a setting can hide one): the one now in its place.
     var lastCategory by remember { androidx.compose.runtime.mutableIntStateOf(0) }
     val category = categories.indexOfFirst { it.name == categoryName }.takeIf { it >= 0 } ?: lastCategory.coerceIn(0, maxOf(0, categories.lastIndex))
     androidx.compose.runtime.SideEffect { lastCategory = category }
@@ -162,29 +182,32 @@ fun SettingsPage(
     val pageScope = androidx.compose.runtime.rememberCoroutineScope()
     LaunchedEffect(category) { runCatching { listState.scrollToItem(0) } }
     var choosing by remember { mutableStateOf<SettingItem?>(null) }
+    // That row's key and place (the list can move or drop it once a choice is made).
+    var choosingKey by remember { mutableStateOf<String?>(null) }
+    var choosingAt by remember { androidx.compose.runtime.mutableIntStateOf(0) }
     // A reorderable row picked up with Right (its title), moved with Up / Down.
     var moving by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(category) { moving = null }
     // One per category, remade when categories come and go (keyed by their names).
     val catFocus = remember(categories.map { it.name }) { categories.map { FocusRequester() } }
     // After a choice list closes, focus goes back to the setting it was opened from (it used to vanish).
+    // Keyed by the row's key (its title, "#2" on a repeat: uniqueRowKeys), the same key everywhere below.
     val rowFocus = remember { HashMap<String, FocusRequester>() }
-    // A row that changes place when it's changed (a Live TV shortcut turned on, or moved): focus follows it there
+    // A row that changes place when it's changed (switched on, or moved): focus follows it there
     // (it stayed on the old spot and vanished).
     var refocus by remember { mutableStateOf<String?>(null) }
     // Where that row was: if it's gone (taken out of a list), the row now in its place gets focus.
     var refocusAt by remember { androidx.compose.runtime.mutableIntStateOf(0) }
     val currentItems = categories.getOrNull(category)?.items.orEmpty()
-    val hasHeader = categories.getOrNull(category)?.header != null
-    LaunchedEffect(refocus, currentItems.map { it.title }) {
+    val currentKeys = remember(currentItems) { uniqueRowKeys(currentItems.map { it.title }) }
+    LaunchedEffect(refocus, currentKeys) {
         val wanted = refocus ?: return@LaunchedEffect
-        val found = currentItems.indexOfFirst { it.title == wanted }
-        val idx = if (found >= 0) found else refocusAt.coerceAtMost(currentItems.lastIndex)
+        val found = currentKeys.indexOf(wanted)
+        val idx = if (found >= 0) found else refocusAt.coerceAtMost(currentKeys.lastIndex)
         if (idx < 0) return@LaunchedEffect
-        val t = currentItems[idx].title
-        val listIdx = idx + if (hasHeader) 1 else 0
-        val visible = listState.layoutInfo.visibleItemsInfo.any { it.index == listIdx }
-        if (!visible) runCatching { listState.scrollToItem((listIdx - 2).coerceAtLeast(0)) }
+        val t = currentKeys[idx]
+        val visible = listState.layoutInfo.visibleItemsInfo.any { it.index == idx }
+        if (!visible) runCatching { listState.scrollToItem((idx - 2).coerceAtLeast(0)) }
         awaitFrame()
         runCatching { rowFocus[t]?.requestFocus() }
         refocus = null
@@ -202,10 +225,9 @@ fun SettingsPage(
         awaitFrame()
         val idx = currentItems.indexOfFirst { it.title == movedTitle }
         if (idx < 0) return@LaunchedEffect
-        val listIdx = idx + if (hasHeader) 1 else 0
         val info = listState.layoutInfo
-        val row = info.visibleItemsInfo.firstOrNull { it.index == listIdx }
-        if (row == null) { runCatching { listState.scrollToItem((listIdx - 2).coerceAtLeast(0)) }; return@LaunchedEffect }
+        val row = info.visibleItemsInfo.firstOrNull { it.index == idx }
+        if (row == null) { runCatching { listState.scrollToItem((idx - 2).coerceAtLeast(0)) }; return@LaunchedEffect }
         val margin = (row.size * 1.2f)
         val top = row.offset - info.viewportStartOffset
         val bottom = info.viewportEndOffset - (row.offset + row.size)
@@ -218,23 +240,17 @@ fun SettingsPage(
         val open = choosing ?: return@LaunchedEffect
         val idx = currentItems.indexOfFirst { it.title == open.title }
         if (idx < 0) return@LaunchedEffect
-        val listIdx = idx + if (hasHeader) 1 else 0
         awaitFrame(); awaitFrame(); awaitFrame()
         val info = listState.layoutInfo
-        val it = info.visibleItemsInfo.firstOrNull { v -> v.index == listIdx } ?: run { runCatching { listState.animateScrollToItem(listIdx) }; return@LaunchedEffect }
+        val it = info.visibleItemsInfo.firstOrNull { v -> v.index == idx } ?: run { runCatching { listState.animateScrollToItem(idx) }; return@LaunchedEffect }
         val over = it.offset + it.size - (info.viewportEndOffset - 24)
         if (over > 0) runCatching { listState.animateScrollBy(over.toFloat().coerceAtMost((it.offset - info.viewportStartOffset).toFloat().coerceAtLeast(0f))) }
     }
-    var returnTo by remember { mutableStateOf<String?>(null) }
+    // Closing the choices: the same path as a toggle (a picked choice can move or drop the row: focus then landed
+    // on the categories), with a frame for the rows to be enabled again.
     fun closeChoices() {
-        returnTo = choosing?.title
+        choosingKey?.let { refocusAt = choosingAt; refocus = it }
         choosing = null
-    }
-    LaunchedEffect(returnTo) {
-        val key = returnTo ?: return@LaunchedEffect
-        awaitFrame(); awaitFrame()
-        runCatching { rowFocus[key]?.requestFocus() }
-        returnTo = null
     }
     // A reorderable row's hold-OK options (its title).
     var menuFor by remember { mutableStateOf<String?>(null) }
@@ -250,12 +266,12 @@ fun SettingsPage(
     // row used, else the open category, instead of leaving nothing highlighted.
     var pageHasFocus by remember { mutableStateOf(true) }
     var lastRow by remember { mutableStateOf<String?>(null) }
-    // (Not while a pop-up has the screen, e.g. the Live TV hub guide: then when it closes.)
+    // (Not while a pop-up has the screen: then when it closes.)
     val windowFocused = androidx.compose.ui.platform.LocalWindowInfo.current.isWindowFocused
     LaunchedEffect(pageHasFocus, choosing, windowFocused) {
         if (pageHasFocus || choosing != null || !windowFocused) return@LaunchedEffect
         kotlinx.coroutines.delay(200)
-        val row = lastRow?.takeIf { t -> currentItems.any { it.title == t } }?.let { rowFocus[it] }
+        val row = lastRow?.takeIf { it in currentKeys }?.let { rowFocus[it] }
         if (row == null || runCatching { row.requestFocus() }.isFailure) runCatching { catFocus.getOrNull(category)?.requestFocus() }
     }
     Box(Modifier.fillMaxSize().appBackground(readable = true).onFocusChanged { pageHasFocus = it.hasFocus }.trapFocus()) {
@@ -277,18 +293,16 @@ fun SettingsPage(
                             .onFocusChanged { if (it.isFocused) categoryName = categories[i].name }
                             // Right: the category's first setting (not the one nearest on screen). Left: back to the
                             // Settings list (it did nothing: the page keeps the remote inside it).
+                            .leftGoesBack(onBack)
                             .onPreviewKeyEvent { e ->
-                                if (e.key == Key.DirectionLeft) { if (e.type == KeyEventType.KeyDown && e.nativeKeyEvent.repeatCount == 0) onBack(); return@onPreviewKeyEvent true }
                                 if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionRight) {
                                     val first = categories[i].items.firstOrNull()?.title ?: return@onPreviewKeyEvent false
                                     pageScope.launch {
                                         runCatching { listState.scrollToItem(0) }
                                         awaitFrame()
-                                        // A section's picture (Remote & navigation) can be taller than the screen on
-                                        // some TVs: the first row was then off screen and focus had nowhere to go.
-                                        val firstIdx = if (categories[i].header != null) 1 else 0
-                                        if (listState.layoutInfo.visibleItemsInfo.none { it.index == firstIdx && it.offset + it.size <= listState.layoutInfo.viewportEndOffset }) {
-                                            runCatching { listState.scrollToItem(firstIdx) }
+                                        // (The first row off screen: bring it on, or focus had nowhere to go.)
+                                        if (listState.layoutInfo.visibleItemsInfo.none { it.index == 0 && it.offset + it.size <= listState.layoutInfo.viewportEndOffset }) {
+                                            runCatching { listState.scrollToItem(0) }
                                             awaitFrame()
                                         }
                                         runCatching { rowFocus[first]?.requestFocus() }
@@ -304,7 +318,7 @@ fun SettingsPage(
                     MenuItem(
                         text = if (confirm) "Press OK again to reset" else resetLabel,
                         selected = false,
-                        modifier = Modifier.focusProperties { canFocus = choosing == null }.onFocusChanged { if (!it.isFocused) confirm = false },
+                        modifier = Modifier.focusProperties { canFocus = choosing == null }.onFocusChanged { if (!it.isFocused) confirm = false }.leftGoesBack(onBack),
                         onClick = { if (confirm) { it(); confirm = false } else confirm = true },
                     )
                 }
@@ -314,9 +328,9 @@ fun SettingsPage(
             Column(Modifier.weight(1f).fillMaxHeight().leftReturnsTo { catFocus[category] }) {
                 // While a row is carried: the one "moving" hint in place of the blurb.
                 Text(if (moving != null) movingHint() else c.blurb, fontSize = 14.sp, color = if (moving != null) AppColors.Accent else AppColors.TextSecondary, modifier = Modifier.padding(top = 26.dp, bottom = 14.dp, start = 4.dp))
-                // Android TV's own scrolling keeps the focused row about a third of the way down, which pushed a
-                // section's picture (Remote & navigation) half off the top. Here the list only moves when the row
-                // would go off screen, keeping a row's margin; the first row brings the list right back to the top.
+                // Android TV's own scrolling keeps the focused row about a third of the way down. Here the list only
+                // moves when the row would go off screen, keeping a row's margin; the first row brings the list right
+                // back to the top.
                 val margin = with(androidx.compose.ui.platform.LocalDensity.current) { 70.dp.toPx() }
                 val gentle = remember(margin) {
                     object : androidx.compose.foundation.gestures.BringIntoViewSpec {
@@ -331,13 +345,12 @@ fun SettingsPage(
                     }
                 }
                 val following = remember(gentle) { gentle.followingSetting() }
-                val keys = remember(c.items) { uniqueRowKeys(c.items.map { it.title }) }
+                val keys = currentKeys
                 // A dropdown open: the page holds still while the highlight moves inside it (it followed the highlight
                 // and scrolled the whole page); the dropdown scrolls itself (InlineChoices). Opening one brings it
                 // fully on screen once, below.
                 androidx.compose.runtime.CompositionLocalProvider(androidx.compose.foundation.gestures.LocalBringIntoViewSpec provides (if (choosing != null) HoldStill else following)) {
                 LazyColumn(Modifier.stopAt(androidx.compose.ui.focus.FocusDirection.Down), state = listState, verticalArrangement = Arrangement.spacedBy(6.dp), contentPadding = PaddingValues(bottom = 40.dp)) {
-                    c.header?.let { h -> item(key = c.name + "#header") { h() } }
                     itemsIndexed(c.items, key = { i, _ -> c.name + "/" + keys[i] }) { index, item ->
                         val rowFocusReq = rowFocus.getOrPut(keys[index]) { FocusRequester() }
                         // The row, and its choices opening right under it (a dropdown, as on Windows) when picked.
@@ -352,19 +365,9 @@ fun SettingsPage(
                                 movedTitle = item.title
                                 // (A move that did nothing, at the top or bottom, leaves no old place to jump back to later.)
                                 pageScope.launch { kotlinx.coroutines.delay(1_500); moveAnchor = null }
-                                refocus = item.title
+                                refocus = keys[index]
                             },
-                            onFocused = {
-                                lastRow = item.title
-                                // The first row shows the section's picture above it in full, when both fit on screen.
-                                if (index == 0 && c.header != null) pageScope.launch {
-                                    awaitFrame()
-                                    val info = listState.layoutInfo
-                                    val head = info.visibleItemsInfo.firstOrNull { it.index == 0 }?.size
-                                    val row = info.visibleItemsInfo.firstOrNull { it.index == 1 }?.size ?: return@launch
-                                    if (head != null && head + row + 20 <= info.viewportEndOffset - info.viewportStartOffset) runCatching { listState.animateScrollToItem(0) }
-                                }
-                            },
+                            onFocused = { lastRow = keys[index] },
                         ) {
                             if (moving == item.title) moving = null
                             else if (item.locked != null) Unit
@@ -376,9 +379,9 @@ fun SettingsPage(
                                 // Reorderable lists move a row when it's turned on / off: focus follows it there.
                                 // The list redraws after a switch (rows can move, or the redraw drops focus):
                                 // focus goes back to the switched row, or the one now in its place.
-                                refocusAt = c.items.indexOf(item); refocus = item.title
+                                refocusAt = index; refocus = keys[index]
                             }
-                            else choosing = item
+                            else { choosingKey = keys[index]; choosingAt = index; choosing = item }
                         }
                         if (choosing?.title == item.title) InlineChoices(item, onDone = ::closeChoices)
                         }
@@ -402,13 +405,15 @@ private fun SettingRow(
     onFocused: () -> Unit = {},
     onClick: () -> Unit,
 ) {
+    var rowFocused by remember { mutableStateOf(false) }
     Surface(
         onClick = onClick,
         onLongClick = onLongClick,
-        modifier = Modifier.fillMaxWidth().focusRequester(focus).focusProperties { canFocus = enabled }.onFocusChanged { if (it.isFocused) onFocused() }
+        modifier = Modifier.fillMaxWidth().focusRequester(focus).focusProperties { canFocus = enabled }.onFocusChanged { rowFocused = it.isFocused; if (it.isFocused) onFocused() }
             // The shared way to move a row (UI review Tier 4, Peter, 2026-11-17): picked up by hold OK → Move or Right
             // (the Settings lists' shortcut); ▲ ▼ move it; OK, Back, Left or Right put it down.
-            .then(if (item.reorder == null) Modifier else Modifier.reorderable(
+            // (Not a locked row: another setting decides it, so it can't be moved either.)
+            .then(if (item.reorder == null || item.locked != null) Modifier else Modifier.reorderable(
                 carried = moving,
                 onMove = { dir -> item.reorder.invoke(dir); onMoved() },
                 onDrop = { onMove(false) },
@@ -438,7 +443,8 @@ private fun SettingRow(
             if (moving) Text("↕ ", fontSize = 18.sp)
             Column(Modifier.weight(1f).graphicsLayer { alpha = if (item.locked != null) 0.75f else 1f }) {
                 Text((if (item.locked != null) "🔒 " else "") + item.title, fontSize = 16.sp, fontWeight = FontWeight.Medium)
-                if (item.description.isNotEmpty()) Text(item.description, fontSize = 12.sp, maxLines = 3, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp))
+                // (The whole description once the row is highlighted: three lines cut most of them off. UI review, 2026-11-18.)
+                if (item.description.isNotEmpty()) Text(item.description, fontSize = 12.sp, maxLines = if (rowFocused) Int.MAX_VALUE else 3, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp))
                 item.locked?.let { Text(it, fontSize = 12.sp, fontWeight = FontWeight.Medium, maxLines = 3, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp)) }
             }
             Spacer(Modifier.width(20.dp))
@@ -452,11 +458,11 @@ private fun SettingRow(
                         Box(Modifier.fillMaxWidth(fraction).fillMaxHeight().background(LocalContentColor.current, RoundedCornerShape(3.dp)))
                     }
                     Text("›", fontSize = 18.sp, modifier = Modifier.padding(start = 8.dp))
-                    Text(item.current.label, fontSize = 14.sp, maxLines = 1, modifier = Modifier.width(64.dp).padding(start = 10.dp))
+                    Text(item.current.label, fontSize = 14.sp, maxLines = 1, softWrap = false, modifier = Modifier.widthIn(min = 64.dp).padding(start = 10.dp))
                 }
             }
             else if (item.isToggle) SettingSwitch(item.current.label == "On")
-            else Text(item.current.label, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.width(260.dp))
+            else Text(item.current.label, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = androidx.compose.ui.text.style.TextAlign.End, modifier = Modifier.widthIn(min = 120.dp, max = 200.dp))
         }
     }
 }
@@ -466,12 +472,12 @@ private fun SettingRow(
 internal fun SettingSwitch(on: Boolean) {
     Box(
         Modifier.size(width = 48.dp, height = 26.dp)
-            // Green / grey so it reads clearly whatever the highlight colour is.
-            .background(if (on) Color(0xFF2EBD5A) else Color(0xFF6B6F7A), RoundedCornerShape(13.dp))
+            // The highlight colour when on (it was the only green in the app: UI review, 2026-11-18), grey when off.
+            .background(if (on) AppColors.Accent else Color(0xFF6B6F7A), RoundedCornerShape(13.dp))
             .padding(3.dp),
         contentAlignment = if (on) Alignment.CenterEnd else Alignment.CenterStart,
     ) {
-        Box(Modifier.size(20.dp).background(Color.White, CircleShape))
+        Box(Modifier.size(20.dp).background(if (on) AppColors.OnAccent else Color.White, CircleShape))
     }
 }
 

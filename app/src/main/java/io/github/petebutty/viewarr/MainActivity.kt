@@ -14,24 +14,28 @@ import javax.inject.Inject
 import io.github.petebutty.viewarr.data.media.DeepLink
 import io.github.petebutty.viewarr.ui.media.VodHost
 import io.github.petebutty.viewarr.ui.common.A11yTrim
+import io.github.petebutty.viewarr.ui.common.HeldOk
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
     @Inject lateinit var themeStore: ThemeStore
 
-    /** OK is being held (a repeat came): its release isn't a press (see dispatchKeyEvent). */
-    private var okHeld = false
-
     override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
         // Holding OK opens things (record options, an episode's menu): the hold is decided on its first repeat, so the
-        // release that ends it means nothing. Dropped here, app-wide: with pop-ups in their own windows it reached the
-        // page behind (still focused for a moment) as a plain OK, pressing Play on the episode, or Watch in the guide.
+        // release that ends it means nothing. It's still delivered, marked (HeldOk.releasePending): dropped here, a TV
+        // Surface that had noted its long click never forgot it, and skipped the next tap's click (every row with a
+        // hold-OK menu). Pop-ups ignore the release themselves (ignoreHeldOk); the guide forgets its OK on the repeat;
+        // a handler acting on OK's release checks HeldOk.
         if (event.keyCode == android.view.KeyEvent.KEYCODE_DPAD_CENTER || event.keyCode == android.view.KeyEvent.KEYCODE_ENTER ||
             event.keyCode == android.view.KeyEvent.KEYCODE_NUMPAD_ENTER) {
             when {
-                event.action == android.view.KeyEvent.ACTION_DOWN && event.repeatCount == 0 -> okHeld = false
-                event.action == android.view.KeyEvent.ACTION_DOWN -> okHeld = true
-                event.action == android.view.KeyEvent.ACTION_UP && okHeld -> { okHeld = false; return true }
+                event.action == android.view.KeyEvent.ACTION_DOWN && event.repeatCount == 0 -> HeldOk.releasePending = false
+                event.action == android.view.KeyEvent.ACTION_DOWN -> HeldOk.releasePending = true
+                event.action == android.view.KeyEvent.ACTION_UP && HeldOk.releasePending -> {
+                    val handled = super.dispatchKeyEvent(event)
+                    HeldOk.releasePending = false
+                    return handled
+                }
             }
         }
         if (event.keyCode == android.view.KeyEvent.KEYCODE_BACK) {

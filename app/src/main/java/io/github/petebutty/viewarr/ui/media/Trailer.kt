@@ -6,6 +6,7 @@ import androidx.annotation.OptIn
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.aspectRatio
@@ -20,6 +21,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.offset
+import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -58,7 +66,6 @@ import io.github.petebutty.viewarr.ui.common.BackLayer
 /** Small windows don't need more than 480p; less to download and decode on a weak box. */
 private const val PREVIEW_HEIGHT = 480
 
-@OptIn(UnstableApi::class)
 /** A full-screen trailer is open (the Trailer button): live TV stops for it, as for a film (one stream, one sound). */
 object FullTrailer {
     private val state = mutableStateOf(false)
@@ -86,7 +93,9 @@ private fun trailerPlayer(context: android.content.Context, small: Boolean): Exo
  * [active] is false while the title page, a film or the menu has the screen: the trailer stops at once.
  */
 @Composable
-fun TrailerPreview(item: MediaItem?, active: Boolean, trailers: TrailerRepository, modifier: Modifier = Modifier) {
+fun TrailerPreview(item: MediaItem?, active: Boolean, trailers: TrailerRepository, modifier: Modifier = Modifier, onShowing: (Boolean) -> Unit = {},
+                   /** Sound on / off now, without restarting (the poster's trailer: muted in the card, sound in the panel); null: the setting. */
+                   audio: Boolean? = null) {
     val pb = LocalPlayback.current
     if (pb.trailerPreview == TrailerPreview.Off || !AppColors.palette.heavyExtras) return
     val context = LocalContext.current
@@ -107,7 +116,9 @@ fun TrailerPreview(item: MediaItem?, active: Boolean, trailers: TrailerRepositor
     // ExoPlayer (its threads, buffers and picture) whether a trailer ever played or not.
     var player by remember { mutableStateOf<ExoPlayer?>(null) }
     DisposableEffect(Unit) { onDispose { player?.let { it.removeListener(listener); it.release() } } }
-    val sound = pb.trailerSound == TrailerSound.On
+    val sound = if (audio != null) true else pb.trailerSound == TrailerSound.On
+    // (Its volume follows [audio] as it changes; the trailer carries on.)
+    SideEffect { player?.volume = if (audio ?: sound) 1f else 0f }
     LaunchedEffect(item?.key, active, pb.trailerDelay, sound) {
         showing = false
         player?.run { stop(); clearMediaItems() }
@@ -120,11 +131,15 @@ fun TrailerPreview(item: MediaItem?, active: Boolean, trailers: TrailerRepositor
         val source = trailers.mediaSource(streams, withAudio = sound) ?: return@LaunchedEffect
         currentId = id
         val p = player ?: trailerPlayer(context, small = true).also { it.addListener(listener); player = it }
-        p.volume = if (sound) 1f else 0f
+        p.volume = if (audio ?: sound) 1f else 0f
         p.setMediaSource(source)
         p.prepare()
         p.playWhenReady = true
     }
+    // (In the poster: the card widens once the trailer's first frame is in, and back when it stops.)
+    LaunchedEffect(showing && active) { onShowing(showing && active) }
+    // Gone (the page left while it showed): not showing any more, or the card stayed wide.
+    DisposableEffect(Unit) { onDispose { onShowing(false) } }
     val alpha by animateFloatAsState(if (showing && active) 1f else 0f, tween(350), label = "trailer")
     Box(modifier.graphicsLayer { this.alpha = alpha }.background(Color.Black)) {
         player?.let { p ->
@@ -187,7 +202,8 @@ fun TrailerPlayer(item: MediaItem, trailers: TrailerRepository, onClose: () -> U
             .onPreviewKeyEvent { e ->
                 if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 when (e.key) {
-                    Key.DirectionCenter, Key.Enter, Key.NumPadEnter, Key.MediaPlayPause, Key.Spacebar -> { player.playWhenReady = !player.playWhenReady; true }
+                    // (Once per press: held, OK paused and played again with every repeat.)
+                    Key.DirectionCenter, Key.Enter, Key.NumPadEnter, Key.MediaPlayPause, Key.Spacebar -> { if (e.nativeKeyEvent.repeatCount == 0) player.playWhenReady = !player.playWhenReady; true }
                     Key.MediaPlay -> { player.playWhenReady = true; true }
                     Key.MediaPause -> { player.playWhenReady = false; true }
                     Key.DirectionRight, Key.MediaFastForward -> { player.seekTo(player.currentPosition + seekMs); true }
@@ -213,4 +229,146 @@ fun TrailerPlayer(item: MediaItem, trailers: TrailerRepository, onClose: () -> U
             )
         }
     }
+}
+
+/** The hero's corner-window trailer (Viewarr style): whether one is showing, for the "full screen" key and hint. */
+object HeroTrailer {
+    var showing by mutableStateOf(false)
+}
+
+/**
+ * Trailer previews in the poster (Settings → Playback → Trailers → Trailer previews play: In the poster; ideas from
+ * Nuvio KE, Peter, 2026-11-18). One trailer for the whole app, drawn over everything ([PosterTrailerHost]): it sits on
+ * the highlighted poster (which widens to 16:9, stage 1, muted), then grows from there into a big panel in the middle
+ * with sound (stage 2), the same trailer playing on throughout. OK in the panel opens the title page, Back / a D-pad
+ * key closes it (not again until you move off that poster).
+ */
+object PosterTrailer {
+    var repo: TrailerRepository? = null
+    /** The page may play one now (it has focus, nothing over it). */
+    var active by mutableStateOf(false)
+    /** The poster with a preview under way, and where it is on screen (its card's bounds, root coordinates). */
+    var item by mutableStateOf<MediaItem?>(null)
+    var cardRect by mutableStateOf<androidx.compose.ui.geometry.Rect?>(null)
+    /** Its trailer's first frame is in. */
+    var showing by mutableStateOf(false)
+    /** Stage 2: the big panel. */
+    var panel by mutableStateOf(false)
+    /** The poster's OK (its title page), for OK in the panel. */
+    var onOpen: (() -> Unit)? = null
+    /** Closed with Back / a key: that poster doesn't start again until it loses the highlight. */
+    var dismissed: String? = null
+    /** Bumped when the panel closes, so the poster takes the highlight back. */
+    var closedAt by mutableStateOf(0L)
+    val on get() = AppColors.palette.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.TRAILER_STYLE) == 1 && AppColors.palette.heavyExtras
+
+    fun start(i: MediaItem, open: () -> Unit) {
+        if (item?.key == i.key) return
+        item = i; onOpen = open; showing = false; panel = false; cardRect = null
+    }
+    fun stop(key: String) { if (item?.key == key && !panel) { item = null; showing = false; cardRect = null; onOpen = null } }
+    /** A key while the panel is open (the poster passes them on): OK opens the title page, Back / arrows close. */
+    fun panelKey(e: androidx.compose.ui.input.key.KeyEvent): Boolean {
+        val k = e.key
+        val ok = k == Key.DirectionCenter || k == Key.Enter || k == Key.NumPadEnter
+        val closes = k == Key.Back || k == Key.Escape || k == Key.DirectionLeft || k == Key.DirectionRight || k == Key.DirectionUp || k == Key.DirectionDown
+        if (!ok && !closes) return false // (other keys, Menu and the media keys, go through: UI review, 2026-11-18)
+        // OK opens the title when it's let go: on the press, the release landed on the new page's Play and started
+        // the film. Back and the arrows close on the press.
+        if (ok) {
+            if (e.type == KeyEventType.KeyUp) { val open = onOpen; close(); open?.invoke() }
+            return true
+        }
+        if (e.type == KeyEventType.KeyDown) close()
+        return true
+    }
+    /** [quiet]: the poster went away (a row refreshed, the page closed), not a Back: it may start again later. */
+    fun close(quiet: Boolean = false) {
+        if (!quiet) dismissed = item?.key
+        item = null; showing = false; panel = false; cardRect = null; onOpen = null
+        closedAt = System.currentTimeMillis()
+    }
+}
+
+/** Over everything (the app's root): the poster's trailer, on its card, then grown into the big panel. */
+@Composable
+fun PosterTrailerHost() {
+    // (Composed whether or not a poster has a trailer going: the one player is kept between posters instead of
+    // being made again for each. UI review, 2026-11-18.)
+    val item = PosterTrailer.item
+    val repo = PosterTrailer.repo ?: return
+    // Stage 2 after it has played in the card a while (Settings → Playback → Trailers → Then the big panel).
+    LaunchedEffect(item?.key, PosterTrailer.showing) {
+        if (item == null) return@LaunchedEffect
+        val after = listOf(5_000L, 10_000L, 15_000L, 0L)[AppColors.palette.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.TRAILER_GROW).coerceIn(0, 3)]
+        if (!PosterTrailer.showing || PosterTrailer.panel || after == 0L) return@LaunchedEffect
+        delay(after)
+        if (PosterTrailer.item?.key == item.key && PosterTrailer.showing && PosterTrailer.active) PosterTrailer.panel = true
+    }
+    // The page lost the screen (the menu, quick search, a link): the panel closes rather than playing on over it.
+    LaunchedEffect(PosterTrailer.active) { if (!PosterTrailer.active && PosterTrailer.panel) PosterTrailer.close(quiet = true) }
+    // The panel is a pop-up for Back: with a film in the corner, one Back closes the panel (the poster takes the key),
+    // not the panel and the corner together.
+    BackLayer(PosterTrailer.panel)
+    androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize()) {
+        val density = androidx.compose.ui.platform.LocalDensity.current
+        val grow by animateFloatAsState(if (PosterTrailer.panel) 1f else 0f, tween(480, easing = androidx.compose.animation.core.FastOutSlowInEasing), label = "trailerPanel")
+        val w = constraints.maxWidth.toFloat(); val h = constraints.maxHeight.toFloat()
+        // (Most of the screen, Peter, 2026-11-18: 78% wide, its title and hints in the room left under it.)
+        val pw = w * 0.78f; val ph = pw * 9f / 16f
+        // (Up a little more: its title and hints under it were on the very edge of the screen.)
+        val panelRect = androidx.compose.ui.geometry.Rect(androidx.compose.ui.geometry.Offset((w - pw) / 2f, (h - ph) / 2f - h * 0.08f), androidx.compose.ui.geometry.Size(pw, ph))
+        val r = if (item == null) androidx.compose.ui.geometry.Rect.Zero else androidx.compose.ui.geometry.lerp(PosterTrailer.cardRect ?: panelRect, panelRect, grow)
+        // The corners: the poster's radius growing to the panel's.
+        val radius = androidx.compose.ui.unit.lerp(io.github.petebutty.viewarr.ui.theme.Tokens.CardRadius, 18.dp, grow)
+        // The rest of the screen darkens as it grows.
+        if (grow > 0f) Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.75f * grow)))
+        Box(
+            Modifier
+                .offset { androidx.compose.ui.unit.IntOffset(r.left.toInt(), r.top.toInt()) }
+                .size(with(density) { r.width.toDp() }, with(density) { r.height.toDp() })
+                .clip(androidx.compose.foundation.shape.RoundedCornerShape(radius))
+
+        ) {
+            TrailerPreview(
+                item = item, active = PosterTrailer.active || PosterTrailer.panel, trailers = repo, modifier = Modifier.fillMaxSize(),
+                onShowing = { PosterTrailer.showing = it }, audio = PosterTrailer.panel,
+            )
+            // The highlight ring, on the trailer as it grows (the poster's own goes while the panel is open).
+            if (PosterTrailer.showing) Box(Modifier.fillMaxSize().border(3.dp, AppColors.Accent, androidx.compose.foundation.shape.RoundedCornerShape(radius)))
+            if (item != null && PosterTrailer.showing && grow < 1f) {
+                // Stage 1: its title bottom-left, muted bottom-right, over a soft shade (fading as it grows).
+                Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(44.dp).graphicsLayer { alpha = 1f - grow }
+                    .background(androidx.compose.ui.graphics.Brush.verticalGradient(0f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.7f))))
+                androidx.tv.material3.Text(item.title, fontSize = 12.sp, color = Color.White, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    modifier = Modifier.align(Alignment.BottomStart).padding(start = 10.dp, end = 34.dp, bottom = 8.dp).graphicsLayer { alpha = 1f - grow })
+                androidx.tv.material3.Text("🔇", fontSize = 12.sp, modifier = Modifier.align(Alignment.BottomEnd).padding(end = 10.dp, bottom = 7.dp).graphicsLayer { alpha = 1f - grow })
+            }
+        }
+        // Stage 2: the title, a line about it and what the buttons do, under the panel.
+        if (item != null && grow > 0.5f) androidx.compose.foundation.layout.Column(
+            Modifier.offset { androidx.compose.ui.unit.IntOffset(panelRect.left.toInt(), (panelRect.bottom + with(density) { 14.dp.toPx() }).toInt()) }
+                .width(with(density) { panelRect.width.toDp() }).graphicsLayer { alpha = (grow - 0.5f) * 2f },
+        ) {
+            androidx.tv.material3.Text(item.title, fontSize = 24.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, color = Color.White, maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+            listOfNotNull(item.year?.toString(), item.origin.takeIf { it.isNotBlank() }).joinToString("  ·  ").takeIf { it.isNotEmpty() }?.let {
+                androidx.tv.material3.Text(it, fontSize = 14.sp, color = Color.White.copy(alpha = 0.75f), modifier = Modifier.padding(top = 2.dp))
+            }
+            androidx.tv.material3.Text("OK: open  ·  Back: close", fontSize = 13.sp, color = Color.White.copy(alpha = 0.6f), modifier = Modifier.padding(top = 10.dp))
+        }
+    }
+}
+
+/**
+ * A page saying whether its posters may play trailers now (B5, UI review 2026-11-18: two pages, one over the other,
+ * both wrote it and the one underneath kept switching it off). A page writes while it's the one with the screen, and
+ * once more (false) when it stops being that; otherwise it keeps quiet.
+ */
+@Composable
+fun PublishPosterTrailerActive(active: Boolean) {
+    var wrote by remember { mutableStateOf(false) }
+    SideEffect { if (active || wrote) { PosterTrailer.active = active; wrote = active } }
+    // The page went while it said yes: off, or the next page's posters played on as if it were still there.
+    DisposableEffect(Unit) { onDispose { if (wrote) PosterTrailer.active = false } }
 }

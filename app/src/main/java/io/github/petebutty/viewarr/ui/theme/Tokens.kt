@@ -27,10 +27,9 @@ object Tokens {
 
     /**
      * Content beside the corner window (live TV or a minimised film, theme/CornerPicture.kt, covers x 12–332, y 20–200):
-     * start at [BesideWindowStart] to sit right of it, or at [BelowWindowTop] to sit under it.
+     * start at [BesideWindowStart] to sit right of it.
      */
     val BesideWindowStart = 356.dp
-    val BelowWindowTop = 210.dp
 
     /** The focus ring every card / poster uses ([io.github.petebutty.viewarr.ui.common.FocusCard]). */
     val FocusBorder = 3.dp

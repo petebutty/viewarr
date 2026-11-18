@@ -32,6 +32,7 @@ internal class GamePlacer(private val channels: List<ChannelListItem>) {
     private val byNorm = channels.map { normChannel(it.name) to it }
     private val exact = byNorm.toMap()
     private val clubs = ClubChannels.index(channels)
+    private val byUuid by lazy { channels.associateBy { it.uuid } }
     /** Each channel's name normalised once, for matching games against them all (GameMatch). */
     private val matchNames by lazy { channels.map { " " + GameMatch.norm(it.name) + " " } }
 
@@ -75,6 +76,12 @@ internal class GamePlacer(private val channels: List<ChannelListItem>) {
         val notOnTv = ch == null && GuideViewModel.NOT_ON_UK_TV in raw
         if (ch != null) return GameCard(g, ch, named, ch.first,
             why = "From your TV guide: \"${ch.second.title}\" on ${ch.first.name}, ${Dates.time(ch.second.startTime)}–${Dates.time(ch.second.endTime)}")
+        // Worked out on the server for the whole house (the Viewarr plugin on Dispatcharr), while it's recent.
+        io.github.petebutty.viewarr.data.sync.ServerSports.fresh?.games?.get(g.id)?.let { sg ->
+            sg.channels.firstNotNullOfOrNull { byUuid[it] }?.let { c ->
+                return GameCard(g, null, named, c, club = sg.source == "club", sure = sg.sure >= 2, why = sg.why.ifEmpty { "Your Dispatcharr: ${c.name}" })
+            }
+        }
         val m = hub.tvMatch[g.id]
         val listed = named.firstNotNullOfOrNull { n -> byName(n)?.let { n to it } }
         if (listed != null) {

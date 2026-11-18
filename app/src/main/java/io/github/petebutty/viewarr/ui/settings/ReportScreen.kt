@@ -28,6 +28,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -39,10 +40,6 @@ import io.github.petebutty.viewarr.data.report.ReportSender
 import io.github.petebutty.viewarr.ui.common.MenuItem
 import io.github.petebutty.viewarr.ui.theme.AppColors
 import kotlinx.coroutines.launch
-import io.github.petebutty.viewarr.data.settings.RemoteChoice
-
-/** The Send a report row's (empty) status. */
-internal data class ReportLabel(override val label: String) : RemoteChoice
 
 /** Settings → Troubleshooting → Send a report (shown over everything by the app's root; see [ReportUi]). */
 object ReportUi {
@@ -96,7 +93,9 @@ fun ReportScreen(onClose: () -> Unit) {
                 else "What this box and Viewarr were doing: the box's model and memory, which kinds of sources you use, and the last part of Viewarr's log. " +
                 "Passwords, keys, server addresses, IPs, emails and usernames are taken out, and it's locked so only the developer can read it.",
                 fontSize = 14.sp, color = AppColors.TextSecondary)
-            // The note: OK opens the keyboard; Down goes to Send.
+            // The note: OK opens the keyboard (not just landing on the box); Back closes it; Down goes to Send.
+            var editing by remember { mutableStateOf(false) }
+            val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
             Box(
                 Modifier.fillMaxWidth().height(if (noteMode) 150.dp else 56.dp)
                     .background(AppColors.Panel, RoundedCornerShape(10.dp))
@@ -110,9 +109,19 @@ fun ReportScreen(onClose: () -> Unit) {
                     maxLines = if (noteMode) 6 else 2,
                     cursorBrush = androidx.compose.ui.graphics.SolidColor(AppColors.Accent),
                     textStyle = androidx.compose.ui.text.TextStyle(fontSize = 15.sp, color = AppColors.TextPrimary),
-                    modifier = Modifier.fillMaxWidth().focusRequester(noteField).onPreviewKeyEvent { e ->
-                        if (e.type == androidx.compose.ui.input.key.KeyEventType.KeyDown && e.key == androidx.compose.ui.input.key.Key.DirectionDown) { runCatching { first.requestFocus() }; true } else false
-                    },
+                    readOnly = !editing,
+                    modifier = Modifier.fillMaxWidth().focusRequester(noteField)
+                        .onFocusChanged { if (!it.isFocused) { editing = false; keyboard?.hide() } }
+                        .onPreviewKeyEvent { e ->
+                            if (e.type != androidx.compose.ui.input.key.KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                            when (e.key) {
+                                androidx.compose.ui.input.key.Key.DirectionDown -> { editing = false; keyboard?.hide(); runCatching { first.requestFocus() }; true }
+                                androidx.compose.ui.input.key.Key.DirectionCenter, androidx.compose.ui.input.key.Key.Enter, androidx.compose.ui.input.key.Key.NumPadEnter ->
+                                    if (editing) false else { editing = true; scope.launch { kotlinx.coroutines.android.awaitFrame(); keyboard?.show() }; true }
+                                androidx.compose.ui.input.key.Key.Back -> { editing = false; false }
+                                else -> false
+                            }
+                        },
                 )
             }
             // A look at what will be sent (the first lines; it's all cleaned the same way). Not for a note.

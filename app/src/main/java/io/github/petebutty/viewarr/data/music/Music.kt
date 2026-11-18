@@ -313,6 +313,9 @@ class MusicLibrary @Inject constructor(
         return (listOf(song) + own + more).distinctBy { norm(it.artist) + "|" + norm(it.title) }.take(size)
     }
 
+    /** Only what the song's server says is like it (no padding with other songs): for mixes that fill the gaps themselves. */
+    suspend fun similarOnly(song: Song, size: Int): List<Song> = source(song.id)?.let { runCatching { it.similarSongs(song, size) }.getOrNull() }.orEmpty()
+
     suspend fun artistInfo(artist: Artist): ArtistInfo? = source(artist.id)?.let { runCatching { it.artistInfo(artist) }.getOrNull() }
 
     suspend fun setStarred(id: String, kind: String, on: Boolean): Boolean = source(id)?.let { runCatching { it.setStarred(id, kind, on) }.getOrDefault(false) } ?: false

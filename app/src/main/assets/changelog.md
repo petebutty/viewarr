@@ -1,5 +1,68 @@
 # Viewarr changelog (built by tools/changelog.py from the GitHub releases; don't edit by hand)
 
+## 0.29.0 · 18 Nov 2026
+
+### Browsing styles for Movies and Shows
+- **Settings → Appearance → Browsing style**: three looks for the film and show pages.
+  - **Viewarr**: two rows to a page, with a gap after every second row, so the next row's title never peeks in.
+  - **Cinema**: one big row of posters along the bottom of the screen, with a large trailer panel above it, the title's TMDB logo and its synopsis. Up and Down turn a whole page, quickly, and the new row lands where the old one was.
+  - **Lite**: a simple, fast strip, best for weaker boxes.
+- **Trailers in the poster**: rest on a poster and its trailer starts inside it, then grows into the big panel (Settings: Start after, Then the big panel). OK on a playing trailer opens the big panel with sound; OK in the panel opens the title page.
+- **Full-screen trailer**: ⏯ Play/Pause on the remote while the top window's trailer plays.
+- **Other posters faded** (a slider) and **Highlight zoom**: the poster you're on stands out.
+- **Top panel**: the title's logo and description sit on the left, and the trailer window on the right shows a still until the trailer plays. With a live channel in the top-left window, the details sit on the right.
+- **Continue watching from**: choose which libraries (Plex, Jellyfin, Emby, IPTV…) fill Continue watching, one switch each.
+- **Mark watched** takes the title out of Continue watching straight away.
+- Smaller buttons on the title page, so the posters under them fit.
+
+### Music, rebuilt
+- **A new Music home** made from what you play:
+  - **Your Mix** and three **daily mixes**, built fresh each day;
+  - **Because you played…**: artists like the ones you play, and their top songs;
+  - **Hidden in your library**: artists you own and never play;
+  - Recently played, newest, most played, favourites, genres (as tiles), decades and your playlists.
+- **Endless radio**: start a radio from a song or artist and it keeps going with songs like the last one, never repeating in a session.
+- Everything comes from your own music server. Navidrome gives the most; Jellyfin and Plex give fewer suggestions.
+
+### Notifications: off until you choose
+- **Settings → Menu & navigation → Notifications**: every kind of pop-up is **off** until you turn it on (score alerts, reminders, updates, What's new).
+- If you want to hear about new versions, turn on **Update available** there. Settings → About → Check for updates always works.
+- **Score alerts per team** (Settings → Sports → Score alerts): choose the teams you want alerts for, whether you follow them or not. Kick-offs, goals, half-time and results, with the right words for each sport (Tip-off, Puck drop, TOUCHDOWN). No alert for every basket in basketball.
+
+### Sports and Live now
+- **Only what I follow**: Live now shows just your teams and leagues.
+- **Live now leagues** (with the Viewarr plugin): choose which leagues show, with **Follow** buttons beside them.
+- **NBA and other US games** now show in Live now.
+- **Remind me** shows 🔔 once a reminder is set, and you can choose how long before the start it reminds you.
+- **With the Viewarr plugin** on your Dispatcharr (viewarr-plugin), Live now, the games' channels, sport recordings and score alerts are worked out once for the whole house, even with every TV off. Without it, Viewarr does it all itself, as before.
+
+### TV guide
+- **A clearer info panel**: the channel, times, what's next and badges.
+- **Cleaner cells**: tiny programmes merged, gaps between cells, rounded rows, and **Elapsed shading** for the part of a programme that's gone.
+- **Programme picture shows as**: Background or Banner.
+- **Catch-up icons**: choose all channels or the highlighted channel only.
+- The "+2h" next to channel names is gone, and the **Hidden groups** row in the menu is optional.
+- No more shade over the guide when you open the menu.
+- Left at "now" opens the menu.
+
+### Look and feel
+- **A new start-up animation**: the play button presses in with a glow.
+- **Wallpaper shade**: choose Background colour or Black, so the theme and the wallpaper don't fight.
+- **Settings explain themselves**: the highlighted option shows its full description, and choices are drop-down menus.
+- Remote buttons no longer list the old Live TV shortcuts.
+
+### Faster
+- **Quicker start-up**: the app ships with a start-up profile, so the first screens no longer stutter.
+- **Rows, ratings, guide pictures, title logos and your Trakt history are kept on the box**, so pages open straight away and refresh quietly behind.
+- **The menu doesn't load every page you fly past**: it waits until you stop.
+- Background jobs start one after another instead of all at once.
+
+### Fixes
+- Many remote-control fixes across the app: Back goes one step at a time, focus lands where you expect, and no more dead ends.
+- Series recordings mark their next episode in the guide.
+- Continue watching cards from your servers get their posters.
+- Trailers play again in every style.
+
 ## 0.28.9 · 17 Nov 2026
 
 ### A new look

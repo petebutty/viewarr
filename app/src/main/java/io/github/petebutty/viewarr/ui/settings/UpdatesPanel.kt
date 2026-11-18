@@ -4,12 +4,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import io.github.petebutty.viewarr.data.settings.RemoteChoice
 import io.github.petebutty.viewarr.data.update.UpdateState
 import io.github.petebutty.viewarr.ui.update.UpdateViewModel
 
-private enum class Switch(override val label: String) : RemoteChoice { On("On"), Off("Off") }
-private class Status(override val label: String) : RemoteChoice
 
 /** Settings → Updates: the version you have, a "Check now" button and how automatic checks behave. */
 @Composable
@@ -31,24 +28,20 @@ fun UpdatesSettingsScreen(onBack: () -> Unit, vm: UpdateViewModel = hiltViewMode
             title = "Check for updates",
             description = "Looks for a newer Viewarr on GitHub. If there is one, you can install it straight away.",
             choices = emptyList(),
-            current = Status(status),
+            current = PlainChoice(status),
             onSelect = {},
             action = { vm.check() },
         ),
-        SettingItem(
-            title = "Check automatically",
-            description = "Checks when Viewarr starts or comes back on screen (at most every 30 minutes) and offers new versions.",
-            choices = Switch.entries,
-            current = if (prefs.auto) Switch.On else Switch.Off,
-            onSelect = { vm.setAuto(it == Switch.On) },
-        ),
-        SettingItem(
-            title = "Include test versions",
-            description = "Test versions (pre-releases) get new features first. Viewarr's releases are all test versions for now, so turning this off means no updates yet.",
-            choices = Switch.entries,
-            current = if (prefs.beta) Switch.On else Switch.Off,
-            onSelect = { vm.setBeta(it == Switch.On) },
-        ),
+        onOffItem(
+            "Check automatically",
+            "Checks when Viewarr starts or comes back on screen (at most every 30 minutes) and offers new versions.",
+            prefs.auto,
+        ) { vm.setAuto(it) },
+        onOffItem(
+            "Include test versions",
+            "Test versions (pre-releases) get new features first. Viewarr's releases are all test versions for now, so turning this off means no updates yet.",
+            prefs.beta,
+        ) { vm.setBeta(it) },
     )
     SettingsPage(
         title = "Updates",

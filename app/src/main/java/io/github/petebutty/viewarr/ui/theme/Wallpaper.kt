@@ -176,7 +176,10 @@ fun WallpaperLoader() {
         val start = androidx.compose.runtime.withFrameNanos { it }
         while (layer.fade < 1f) {
             val now = androidx.compose.runtime.withFrameNanos { it }
-            layer.fade = ((now - start) / 700_000_000f).coerceIn(0f, 1f)
+            // (Cinema: a slower, eased cross-fade between backdrops.)
+            val dur = if (AppColors.palette.opt(UiOpts.HERO_STYLE) == 1) 1_000_000_000f else 700_000_000f
+            val t = ((now - start) / dur).coerceIn(0f, 1f)
+            layer.fade = if (AppColors.palette.opt(UiOpts.HERO_STYLE) == 1) androidx.compose.animation.core.FastOutSlowInEasing.transform(t) else t
         }
         layer.previous = null
     }
@@ -209,14 +212,15 @@ fun WallpaperLoader() {
  */
 fun Modifier.appBackground(titleArt: Boolean = false, readable: Boolean = false): Modifier = drawBehind {
     val p = AppColors.palette
+    val sh = p.shade
     // Settings pages: a picture wallpaper (e.g. the highlighted programme's) darkened further, most behind the text.
     if (readable && p.wallpaperMode == 3) {
         if (Wallpaper.wall.image == null) { drawRect(p.main); return@drawBehind }
         drawRect(Color.Black)
         drawLayer(Wallpaper.wall)
         // Darker than the pages for the text, but in step with Dimming (a 70% floor made 30–70% all look alike).
-        drawRect(p.main.copy(alpha = 0.55f + 0.45f * p.wallpaperDim))
-        drawRect(Brush.horizontalGradient(0f to p.main.copy(alpha = 0.6f), 0.45f to p.main.copy(alpha = 0.35f), 1f to p.main.copy(alpha = 0.15f)))
+        drawRect(sh.copy(alpha = 0.55f + 0.45f * p.wallpaperDim))
+        drawRect(Brush.horizontalGradient(0f to sh.copy(alpha = 0.6f), 0.45f to sh.copy(alpha = 0.35f), 1f to sh.copy(alpha = 0.15f)))
         return@drawBehind
     }
     if (titleArt) {
@@ -225,21 +229,21 @@ fun Modifier.appBackground(titleArt: Boolean = false, readable: Boolean = false)
         drawRect(p.main)
         if (layer.image != null) {
             drawLayer(layer)
-            drawRect(Brush.horizontalGradient(0f to p.main.copy(alpha = 0.9f), 0.35f to p.main.copy(alpha = 0.65f), 0.75f to p.main.copy(alpha = 0.2f), 1f to p.main.copy(alpha = 0.1f)))
-            drawRect(Brush.verticalGradient(0.35f to Color.Transparent, 1f to p.main.copy(alpha = 0.85f)))
+            drawRect(Brush.horizontalGradient(0f to sh.copy(alpha = 0.9f), 0.35f to sh.copy(alpha = 0.65f), 0.75f to sh.copy(alpha = 0.2f), 1f to sh.copy(alpha = 0.1f)))
+            drawRect(Brush.verticalGradient(0.35f to Color.Transparent, 1f to sh.copy(alpha = 0.85f)))
         }
         return@drawBehind
     }
     when (p.wallpaperMode) {
         1 -> {
             WallpaperStyles.getOrElse(p.wallpaperStyle) { WallpaperStyles[0] }.draw(this, p.highlight)
-            drawRect(p.main.copy(alpha = p.wallpaperDim))
+            drawRect(sh.copy(alpha = p.wallpaperDim))
         }
         3 -> {
             if (Wallpaper.wall.image == null) { drawRect(p.main); return@drawBehind }
             drawRect(Color.Black)
             drawLayer(Wallpaper.wall)
-            drawRect(p.main.copy(alpha = p.wallpaperDim))
+            drawRect(sh.copy(alpha = p.wallpaperDim))
         }
         else -> drawRect(p.main)
     }

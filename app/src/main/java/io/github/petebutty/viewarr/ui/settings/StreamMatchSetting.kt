@@ -79,7 +79,8 @@ fun streamRuleItems(saved: String, onSave: (String) -> Unit): List<SettingItem> 
 private fun StreamMatchDialog(start: String, onSave: (String) -> Unit, onClose: () -> Unit) {
     var text by remember { mutableStateOf(start) }
     val field = remember { FocusRequester() }
-    LaunchedEffect(Unit) { runCatching { field.requestFocus() } }
+    // (A frame first: the window is new, and the box wasn't there yet to take it.)
+    LaunchedEffect(Unit) { kotlinx.coroutines.android.awaitFrame(); runCatching { field.requestFocus() } }
     val valid = StreamMatch.regex(text) != null
     ViewarrPopup(onClose) {
         Column(

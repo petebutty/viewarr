@@ -16,7 +16,7 @@ import io.github.petebutty.viewarr.ui.media.PlayOrder
 
 /** Every shade is derived from two user-chosen colours so any combination stays coherent. */
 data class Palette(val main: Color, val highlight: Color, val transparency: Float = 0f, /** Guide: how see-through the channel names and programmes are (0 solid … 1 clear). */ val guideTransparency: Float = 0f, val showNumbers: Boolean = true, val squareCorners: Boolean = true, val hideMedia: Boolean = false, /** Guide progress bars: 0 every channel, 1 only the one you're watching, 2 none. */ val progressBars: Int = 0,
-    /** Picture behind pages: 0 none, 1 built-in, 2 from your library, 3 what's selected. */ val wallpaper: Int = 0,
+    /** Picture behind pages: 0 none, 1 built-in, 3 what's selected (2, from your library, is gone: stored as none). */ val wallpaper: Int = 0,
     /** Which built-in wallpaper (WallpaperStyles). */ val wallpaperStyle: Int = 0,
     /** How much the background colour covers the wallpaper (0.3 light … 0.9 dark). */ val wallpaperDim: Float = 0.6f,
     /** Title pages: the parts switched off in Settings → Appearance (TitleParts ids). */ val titleHidden: Set<String> = emptySet(),
@@ -26,6 +26,10 @@ data class Palette(val main: Color, val highlight: Color, val transparency: Floa
     /** Small display / behaviour options (UiOpts names → chosen index; 0 = the default). */ val opts: Map<String, Int> = emptyMap()) {
     fun shows(part: String) = part !in titleHidden
     fun opt(name: String) = opts[name] ?: UiOpts.defaults[name] ?: 0
+    /** What darkens a wallpaper / artwork: the background colour (a wash of the theme over the picture), or plain
+     *  black so the picture keeps its own colours (Settings → Appearance → Wallpaper shade; Peter, 2026-11-17: the
+     *  theme and the wallpaper were fighting). */
+    val shade get() = if (opt(UiOpts.WALL_SHADE) == 1) androidx.compose.ui.graphics.Color(0xFF080808) else main
     /**
      * How solid the info bar, the player's controls and every pop-up and notice are (1 solid … 0 clear): Settings →
      * Appearance → Pop-up glass, 0–100% see-through in tens (since 0.28.5; the old setting only went from 70%
@@ -53,6 +57,13 @@ data class Palette(val main: Color, val highlight: Color, val transparency: Floa
     /** A library poster's width (dp): Small matches the rows' posters. */
     val libraryPosterDp get() = floatArrayOf(100f, 116f, 88f, 136f)[opt(UiOpts.LIBRARY_POSTERS).coerceIn(0, 3)]
     val infoBarWidth get() = floatArrayOf(1f, 0.9f, 0.8f, 0.7f, 0.6f)[opt(UiOpts.INFOBAR_WIDTH).coerceIn(0, 4)]
+    /** Row posters' width (Settings → Appearance → Browsing style). */
+    val rowPosterWidth get() = floatArrayOf(100f, 130f, 86f)[opt(UiOpts.ROW_POSTERS).coerceIn(0, 2)]
+    val heroStyle get() = opt(UiOpts.HERO_STYLE).coerceIn(0, 2)
+    /** Rows: the opacity of posters that aren't highlighted (Settings → Appearance → Posters → Other posters faded). */
+    val posterDimAlpha get() = 1f - 0.1f * opt(UiOpts.POSTER_DIM).coerceIn(0, 6)
+    /** Rows: how much the highlighted poster grows (1 = not at all). */
+    val posterZoom get() = floatArrayOf(1.06f, 1f, 1.12f)[opt(UiOpts.POSTER_ZOOM).coerceIn(0, 2)]
     val cardScale get() = floatArrayOf(1f, 0.8f, 0.65f, 1.15f)[opt(UiOpts.CARD_SIZE).coerceIn(0, 3)]
     /** Player controls (seek bar area and buttons) scale: Medium, Small, Large (the original size). */
     val controlsScale get() = floatArrayOf(0.8f, 0.65f, 1f)[opt(UiOpts.CONTROLS_SIZE).coerceIn(0, 2)]
@@ -87,7 +98,6 @@ data class Palette(val main: Color, val highlight: Color, val transparency: Floa
     val cellPast = lerp(main, Color.White, 0.025f)
     val cellFuture = lerp(main, Color.White, 0.08f)
     val cellCurrent = lerp(main, Color.White, 0.15f)
-    val rowSelected = lerp(main, Color.White, 0.12f)
     val previewBox = lerp(main, Color.Black, 0.35f)
     val onHighlight = if (highlight.luminance() > 0.5f) Color(0xFF0B1220) else Color.White
 }
@@ -144,7 +154,7 @@ object AppColors {
 
     val Background get() = palette.main
     /** The background colour as laid over a wallpaper: see-through when one is on, solid otherwise. */
-    val Scrim get() = if (palette.wallpaperMode != 0) palette.main.copy(alpha = palette.wallpaperDim) else palette.main
+    val Scrim get() = if (palette.wallpaperMode != 0) palette.shade.copy(alpha = palette.wallpaperDim) else palette.main
     val Panel get() = palette.panel
     val PanelAlt get() = palette.panelAlt
     val Accent get() = palette.highlight
@@ -152,7 +162,6 @@ object AppColors {
     val CellFuture get() = palette.cellFuture
     val CellPast get() = palette.cellPast
     val CellCurrent get() = palette.cellCurrent
-    val RowSelected get() = palette.rowSelected
     val PreviewBox get() = palette.previewBox
     val MenuPanel get() = tinted(palette.panel).copy(alpha = palette.menuAlpha)
     /** A glass colour with Settings → Appearance → Glass colour's pastel mixed in. */
@@ -247,6 +256,8 @@ object UiOpts {
     const val MENU_TINT = "menu_tint"
     /** A red "● LIVE" on the channel groups' All channels. */
     const val MENU_LIVE_MARK = "menu_live_mark"
+    /** The "Hidden groups (n)" row at the end of the channel groups (off: reached from a group's hold-OK menu). */
+    const val MENU_HIDDEN = "menu_hidden"
     /** Live TV's channel groups: the "All channels" group shown, or hidden (the guide then opens on the first group). */
     const val GROUP_ALL = "group_all"
     /** Lists following the highlight: instant (no trail when going fast) or a smooth slide. */
@@ -294,6 +305,21 @@ object UiOpts {
     const val BADGE_SOURCE = "badge_source"
     const val BADGE_PROGRESS = "badge_progress"
     const val GUIDE_ART = "guide_art"
+    /** Wallpapers darkened with the background colour (0) or black (1): [Palette.shade]. */
+    const val WALL_SHADE = "wall_shade"
+    /** How early a reminder comes up: when it starts, or 2 / 5 / 10 / 15 minutes before. */
+    const val REMIND_LEAD = "remind_lead"
+    /** Where trailer previews play while browsing: the corner window, or in the poster, which widens to 16:9. */
+    const val TRAILER_STYLE = "trailer_style"
+    /** In the poster: how long the trailer plays in the card before it grows into the big panel with sound. */
+    const val TRAILER_GROW = "trailer_grow"
+    /** Movies / Shows: the details panel at the top (hero): normal, big (Cinema), or off (Lite). */
+    const val HERO_STYLE = "hero_style"
+    /** The posters in rows: normal, large or small. */
+    const val ROW_POSTERS = "row_posters"
+    /** Where the guide's programme picture goes: the background ("What's selected" wallpaper), or a banner card in
+     *  the info area with the background left alone (Peter, 2026-11-17). */
+    const val GUIDE_ART_PLACE = "guide_art_place"
     const val GUIDE_TITLE_LOGO = "guide_title_logo"
     const val CHANNEL_LOGOS = "channel_logos"
     const val MINI_CORNER = "mini_corner"
@@ -308,24 +334,20 @@ object UiOpts {
     const val AGE_RATING = "age_rating"
     const val BUTTON_HINTS = "button_hints"
     const val ANIM_FILM = "anim_film"
-    /** Live TV shortcuts: round, rounded squares (app icons), or wide tiles (wordmark logos). */
-    const val SHORTCUT_STYLE = "shortcut_style"
-    /** Live TV shortcuts: the poster rows only once you press Down (cleaner), or a dimmed preview always. */
-    const val OSD_PEEK = "osd_peek"
-    /** Live TV shortcuts: how big the round icons are. */
-    const val SHORTCUT_SIZE = "shortcut_size"
-    /** Live TV controls: how many poster rows Down reaches under the shortcuts (the rest: open the shortcut). */
-    const val OSD_ROWS = "osd_rows"
     /** TV guide: how much time the timeline shows across the screen (more time: more programmes, narrower). */
     const val GUIDE_SPAN = "guide_span"
     /** Films and episodes: where Play looks, in turn (see ui/media/PlayOrder). */
     const val PLAY_ORDER = "play_order"
     /** Movies / Shows home page: an addon's network rows ("Netflix · Popular"…) too, or only behind their shortcuts. */
     const val SET_ROWS_HOME = "set_rows_home"
-    /** Live TV controls → Down → Down: poster rows (Continue watching, Recent channels, Recently added). */
-    const val OSD_POSTERS = "osd_posters"
     /** Guide: the catch-up (replay) icon on programmes and channel names. */
     const val CATCHUP_ICONS = "catchup_icons"
+    /** Guide: the part of an on-now programme that's already gone, shaded. */
+    const val GUIDE_SHADE = "guide_shade"
+    /** Rows: how much the posters that aren't highlighted fade (0 none … 60%). */
+    const val POSTER_DIM = "poster_dim"
+    /** Rows: the highlighted poster grows a little. */
+    const val POSTER_ZOOM = "poster_zoom"
     /** Live TV's info bar (the banner over the picture): channel number, S·E, quality badges. */
     const val BANNER_NUMBER = "banner_number"
     const val BANNER_EPISODE = "banner_episode"
@@ -362,6 +384,7 @@ object UiOpts {
     const val TIME_FORMAT = "time_format"
     /** Defaults other than the first choice (anyone who never chose). Stored choices are kept as they are. */
     val defaults = mapOf(
+        POSTER_DIM to 2, // (20% faded to start: Peter, 2026-11-18)
         // (The Viewarr look: light glass, as "Info bar: glass" Light was.)
         POPUP_GLASS to 2,
         UP_NEXT_S to 4,
@@ -381,6 +404,7 @@ object UiOpts {
         MENU_EDGE to listOf("Off", "On"),
         MENU_TINT to listOf("Off", "On"),
         MENU_LIVE_MARK to listOf("Off", "On"),
+        MENU_HIDDEN to listOf("Off", "On"),
         GROUP_ALL to listOf("Shown", "Hidden"),
         LIST_SCROLL to listOf("Instant", "Smooth"),
         INFOBAR_RECENT to listOf("On", "Off"),
@@ -411,6 +435,13 @@ object UiOpts {
         BADGE_SOURCE to listOf("On", "Off"),
         BADGE_PROGRESS to listOf("On", "Off"),
         GUIDE_ART to listOf("On", "Off"),
+        WALL_SHADE to listOf("Background colour", "Black"),
+        TRAILER_STYLE to listOf("In a corner window", "In the poster"),
+        TRAILER_GROW to listOf("After 5 seconds", "After 10 seconds", "After 15 seconds", "Never"),
+        HERO_STYLE to listOf("Normal", "Big", "Off"),
+        ROW_POSTERS to listOf("Normal", "Large", "Small"),
+        REMIND_LEAD to listOf("When it starts", "2 minutes before", "5 minutes before", "10 minutes before", "15 minutes before"),
+        GUIDE_ART_PLACE to listOf("Background", "Banner"),
         GUIDE_TITLE_LOGO to listOf("On", "Off"),
         CHANNEL_LOGOS to listOf("On", "Off"),
         MINI_CORNER to listOf("Bottom right", "Bottom left", "Top right", "Top left"),
@@ -419,15 +450,13 @@ object UiOpts {
         AFTER_FILM to listOf("Stay where you were", "Back to live TV"),
         FILM_BACK to listOf("Its own page", "The TV guide and menu"),
         ANIM_FILM to listOf("On", "Off"),
-        SHORTCUT_STYLE to listOf("Round", "Rounded squares", "Wide tiles"),
-        OSD_PEEK to listOf("When you press Down", "Always show a preview"),
-        SHORTCUT_SIZE to listOf("Small", "Medium", "Large"),
-        OSD_ROWS to listOf("3", "2", "5", "All"),
         PLAY_ORDER to PlayOrder.orders.map(PlayOrder::label),
         GUIDE_SPAN to listOf("2½ hours", "1½ hours", "2 hours", "3 hours", "4 hours", "6 hours"),
         SET_ROWS_HOME to listOf("Only through their shortcuts", "On the home page too"),
-        OSD_POSTERS to listOf("On", "Off"),
-        CATCHUP_ICONS to listOf("Programmes and channels", "Channel names only", "Off"),
+        CATCHUP_ICONS to listOf("Programmes and channels", "Channel names only", "Off", "Highlighted channel only"),
+        GUIDE_SHADE to listOf("On", "Off"),
+        POSTER_DIM to listOf("Off", "10%", "20%", "30%", "40%", "50%", "60%"),
+        POSTER_ZOOM to listOf("Slight", "Off", "More"),
         BANNER_NUMBER to listOf("On", "Off"),
         BANNER_EPISODE to listOf("On", "Off"),
         BANNER_BADGES to listOf("HD · FHD · 4K", "720p · 1080p · 2160p", "Off"),

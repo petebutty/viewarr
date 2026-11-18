@@ -191,6 +191,9 @@ class DvrRepository @Inject constructor(
         val body = buildJsonObject {
             put("tvg_id", channel.guideKey)
             put("mode", if (newOnly) "new" else "all")
+            // Many UK guides (Freeview dp247) mark neither new nor repeat on anything, so "new only" recorded nothing.
+            // Dispatcharr 0.34: an untagged airing counts as new (repeats still skipped where the guide marks them).
+            if (newOnly) put("untagged_is_new", true)
             put("title", p.title)
             put("title_mode", "exact")
             put("channel_id", channel.id)

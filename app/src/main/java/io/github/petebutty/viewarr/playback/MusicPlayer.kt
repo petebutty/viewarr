@@ -59,6 +59,15 @@ object MusicPlayer {
 
     var onScrobble: (songId: String, submission: Boolean) -> Unit = { _, _ -> }
 
+    /** A radio queue (started with play(radio = true)): endless. [onRadioLow] gets the last song when 3 or fewer are left to play. */
+    var radio by mutableStateOf(false)
+        private set
+    var onRadioLow: (last: Song) -> Unit = {}
+    fun endRadio() { radio = false }
+    private fun radioCheck() {
+        if (radio && queue.size - 1 - index <= 3) queue.lastOrNull()?.let(onRadioLow)
+    }
+
     val current: Song? get() = queue.getOrNull(index)
     val active: Boolean get() = queue.isNotEmpty()
     val positionMs: Long get() = player?.currentPosition ?: 0
@@ -92,6 +101,7 @@ object MusicPlayer {
                         sleepOnTransition()
                         current?.let { onScrobble(it.id, false) }
                         scrobbledId = null
+                        radioCheck()
                     }
                     override fun onShuffleModeEnabledChanged(on: Boolean) { shuffle = on }
                     override fun onRepeatModeChanged(mode: Int) { repeat = mode }
@@ -110,14 +120,15 @@ object MusicPlayer {
             }
     }
 
-    /** Plays [songs] from [start]; [shuffled] turns shuffle on (starting from a random track). */
-    fun play(context: Context, songs: List<Song>, start: Int = 0, shuffled: Boolean = false) {
+    /** Plays [songs] from [start]; [shuffled] turns shuffle on (starting from a random track); [radio]: keep adding songs. */
+    fun play(context: Context, songs: List<Song>, start: Int = 0, shuffled: Boolean = false, radio: Boolean = false) {
         if (songs.isEmpty()) return
         io.github.petebutty.viewarr.ui.media.VodHost.close()
         val p = ensure(context)
         error = null
         failures = 0
         queue = songs
+        this.radio = radio
         val items = songs.map { s ->
             MediaItem.Builder().setMediaId(s.id).setUri(s.streamUrl).setMediaMetadata(
                 MediaMetadata.Builder().setTitle(s.title).setArtist(s.artist).setAlbumTitle(s.album).build(),
@@ -131,6 +142,7 @@ object MusicPlayer {
         p.play()
         songs.getOrNull(first)?.let { onScrobble(it.id, false) }
         scrobbledId = null
+        radioCheck()
     }
 
     /** After a failed track the player stops (idle): the next press gets it going again. */
@@ -244,6 +256,7 @@ object MusicPlayer {
     fun stop() {
         player?.let { it.stop(); it.clearMediaItems() }
         queue = emptyList()
+        radio = false
         index = 0
         isPlaying = false
         nowPlayingOpen = false

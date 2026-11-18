@@ -8,7 +8,10 @@ import io.github.petebutty.viewarr.data.remote.services.array
 import io.github.petebutty.viewarr.data.remote.services.child
 import io.github.petebutty.viewarr.data.remote.services.int
 import io.github.petebutty.viewarr.data.remote.services.str
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.put
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
@@ -24,7 +27,47 @@ class ProgramArt @Inject constructor(
     private val http: HttpJson,
     private val tmdb: TmdbService,
     private val store: AccountStore,
+    @dagger.hilt.android.qualifiers.ApplicationContext private val appContext: android.content.Context,
 ) {
+    // The answers kept on the box too (Peter, 2026-11-18: the guide's pictures and title logos were looked up again
+    // after every start): "guide_art.json" {"p|<title>" or "l|<title>": [url or "" (none), day]}, 14 days (none: 3).
+    private val kept = java.util.concurrent.ConcurrentHashMap<String, Pair<String, Long>>()
+    @Volatile private var keptLoaded = false
+    private val keptScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO)
+    private var keptSave: kotlinx.coroutines.Job? = null
+    private val keptFile get() = java.io.File(appContext.filesDir, "guide_art.json")
+    private fun today() = System.currentTimeMillis() / 86_400_000L
+    private fun keptGet(k: String): String? {
+        if (!keptLoaded) {
+            keptLoaded = true
+            runCatching {
+                val o = kotlinx.serialization.json.Json.parseToJsonElement(keptFile.readText()) as? kotlinx.serialization.json.JsonObject
+                o?.forEach { (key, v) ->
+                    val a = v as? JsonArray ?: return@forEach
+                    val url = (a.getOrNull(0) as? JsonPrimitive)?.content ?: return@forEach
+                    val day = (a.getOrNull(1) as? JsonPrimitive)?.content?.toLongOrNull() ?: return@forEach
+                    if (today() - day <= (if (url.isEmpty()) 3 else 14)) kept.putIfAbsent(key, url to day)
+                }
+            }
+        }
+        return kept[k]?.first
+    }
+    private fun keptPut(k: String, url: String?) {
+        kept[k] = url.orEmpty() to today()
+        keptSave?.cancel()
+        keptSave = keptScope.launch {
+            kotlinx.coroutines.delay(5_000)
+            runCatching {
+                val keep = kept.entries.sortedByDescending { it.value.second }.take(4_000)
+                val o = kotlinx.serialization.json.buildJsonObject {
+                    keep.forEach { (key, v) -> put(key, kotlinx.serialization.json.buildJsonArray { add(JsonPrimitive(v.first)); add(JsonPrimitive(v.second)) }) }
+                }
+                val tmp = java.io.File(appContext.filesDir, "guide_art.json.tmp")
+                tmp.writeText(o.toString()); tmp.renameTo(keptFile)
+            }
+        }
+    }
+
     private val cache = LruCache<String, Any>(300) // title → Match, or NONE
     private val logos = LruCache<String, Any>(300) // "tv:123" → logo url, or NONE
     private object None
@@ -60,14 +103,24 @@ class ProgramArt @Inject constructor(
         return found
     }
 
-    suspend fun imageFor(rawTitle: String): String? = match(rawTitle)?.backdrop?.let { "https://image.tmdb.org/t/p/w780$it" }
+    suspend fun imageFor(rawTitle: String): String? {
+        val k = "p|" + norm(clean(rawTitle))
+        keptGet(k)?.let { return it.ifEmpty { null } }
+        return match(rawTitle)?.backdrop?.let { "https://image.tmdb.org/t/p/w780$it" }.also { keptPut(k, it) }
+    }
 
     /**
      * The programme's title logo (its show's or film's logo artwork on TMDB: English first, PNGs, best voted), or
      * null when it has none or the title didn't match closely.
      */
     suspend fun logoFor(rawTitle: String): String? {
-        val m = match(rawTitle)?.logoMatch ?: return null
+        // Found on the server for the whole house (the Viewarr plugin's title logos): no lookup here.
+        io.github.petebutty.viewarr.data.sync.ServerSports.logos.takeIf { it.isNotEmpty() }?.let { known ->
+            known[norm(clean(rawTitle))]?.let { return it }
+        }
+        val lk = "l|" + norm(clean(rawTitle))
+        keptGet(lk)?.let { return it.ifEmpty { null } }
+        val m = match(rawTitle)?.logoMatch ?: run { keptPut(lk, null); return null }
         val cacheKey = "${m.type}:${m.id}"
         logos.get(cacheKey)?.let { return it as? String }
         val key = store.current().tmdbKey ?: return null
@@ -85,6 +138,7 @@ class ProgramArt @Inject constructor(
             }.getOrNull()
         }
         logos.put(cacheKey, url ?: None)
+        keptPut(lk, url)
         return url
     }
 

@@ -3,7 +3,7 @@ package io.github.petebutty.viewarr.ui.settings
 import io.github.petebutty.viewarr.ui.theme.appBackground
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.background
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,8 +20,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -33,11 +31,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -75,20 +69,22 @@ import io.github.petebutty.viewarr.ui.theme.Tokens
  * Settings shortcut) picks it up so Up / Down move it, and OK, Back, Left or Right puts it down.
  */
 @Composable
-fun HomeRowsSettingsScreen(onBack: () -> Unit) {
+fun HomeRowsSettingsScreen(onBack: () -> Unit, startMine: Boolean = false) {
     var type by remember { mutableStateOf(MediaType.Movie) }
-    // The third list: My Library's page (your servers' rows from both). (Peter, 2026-11-17.)
-    var mine by remember { mutableStateOf(false) }
+    // The third list: My Library's page (your servers' rows from both). (Peter, 2026-11-17.) [startMine]: opened on it.
+    var mine by remember { mutableStateOf(startMine) }
     val tabFocus = remember { List(3) { FocusRequester() } }
     // The entry being moved (shared ui/common/Reorder.kt; was hold OK = rename, Right only to move. Peter, 2026-11-17).
     val carry = rememberCarry()
     // (Back while carrying puts it down: Modifier.reorderable takes that press, so this never leaves the page then.)
     BackHandler { if (carry.active) carry.drop() else onBack() }
-    LaunchedEffect(Unit) { awaitFrame(); runCatching { tabFocus[0].requestFocus() } }
+    LaunchedEffect(Unit) { awaitFrame(); runCatching { tabFocus[if (startMine) 2 else 0].requestFocus() } }
     Box(Modifier.fillMaxSize().appBackground(readable = true).trapFocus()) {
         Row(Modifier.fillMaxSize().padding(horizontal = Tokens.Gutter, vertical = 40.dp)) {
             // (Below the live TV window when one is up, as SettingsPage.)
-            Column(Modifier.width(300.dp).fillMaxHeight().padding(top = if (SettingsLayout.belowPreview) 170.dp else 0.dp)) {
+            // (Scrolls: the Continue watching from list can be long with several servers.)
+            Column(Modifier.width(300.dp).fillMaxHeight().padding(top = if (SettingsLayout.belowPreview) 170.dp else 0.dp)
+                .verticalScroll(androidx.compose.foundation.rememberScrollState())) {
                 Text("Settings", fontSize = 14.sp, color = AppColors.Accent)
                 Text("Home page & menu", fontSize = 30.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, modifier = Modifier.padding(bottom = 20.dp))
                 listOf(MediaType.Movie to "Movies", MediaType.Show to "Shows").forEachIndexed { i, (t, label) ->
@@ -96,28 +92,49 @@ fun HomeRowsSettingsScreen(onBack: () -> Unit) {
                         text = label,
                         selected = t == type && !mine,
                         onClick = { type = t; mine = false },
-                        modifier = Modifier.focusRequester(tabFocus[i]).onFocusChanged { if (it.isFocused) { type = t; mine = false; carry.drop() } },
+                        modifier = Modifier.focusRequester(tabFocus[i]).onFocusChanged { if (it.isFocused) { type = t; mine = false; carry.drop() } }.leftGoesBack(onBack),
                     )
                 }
                 MenuItem(
                     text = "My Library",
                     selected = mine,
                     onClick = { mine = true },
-                    modifier = Modifier.focusRequester(tabFocus[2]).onFocusChanged { if (it.isFocused) { mine = true; carry.drop() } },
+                    modifier = Modifier.focusRequester(tabFocus[2]).onFocusChanged { if (it.isFocused) { mine = true; carry.drop() } }.leftGoesBack(onBack),
                 )
                 // Both pages: rows that repeat across servers shown once.
                 val mediaVm: MediaViewModel = hiltViewModel(key = "media-${MediaType.Movie.name}")
                 val merge by mediaVm.mergeRows.collectAsStateWithLifecycle()
                 Spacer(Modifier.height(18.dp))
-                MenuItem(
-                    text = "Combine rows from different servers",
-                    trailing = if (merge) "On" else "Off",
-                    selected = false,
-                    onClick = { mediaVm.setMergeRows(!merge) },
-                    modifier = Modifier.onFocusChanged { if (it.isFocused) carry.drop() },
-                )
+                OnOffRow("Combine rows from different servers", merge, carry, onBack) { mediaVm.setMergeRows(!merge) }
                 Text(
                     "One Continue watching, and one Recently added per library, instead of a row for each server.",
+                    fontSize = 12.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(horizontal = 12.dp),
+                )
+                // Network rows (an addon's "Netflix · Popular"…) on Movies / Shows too, or only on each network's own
+                // page in the menu. (Its switch was in the old live TV shortcut lists, 2026-11-18.)
+                val optsNet: UiOptsViewModel = hiltViewModel()
+                val netOn = AppColors.palette.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.SET_ROWS_HOME) == 1
+                Spacer(Modifier.height(18.dp))
+                OnOffRow("Network rows on Movies / Shows", netOn, carry, onBack) { optsNet.set(io.github.petebutty.viewarr.ui.theme.UiOpts.SET_ROWS_HOME, if (netOn) 0 else 1) }
+                Text(
+                    "Netflix, Prime Video and the other networks' rows from your addons, on the Movies and Shows pages too. Off: only on each network's own page in the menu.",
+                    fontSize = 12.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(horizontal = 12.dp),
+                )
+                // Continue watching, server by server (Movies, Shows, My Library and the info bar's row).
+                val showsVm: MediaViewModel = hiltViewModel(key = "media-${MediaType.Show.name}")
+                val appearance: AppearanceViewModel = hiltViewModel()
+                val cf = io.github.petebutty.viewarr.ui.media.ContinueFrom
+                val fromServers by mediaVm.continueSources.collectAsStateWithLifecycle()
+                val fromShows by showsVm.continueSources.collectAsStateWithLifecycle()
+                val sources = (fromServers + fromShows + cf.IPTV + cf.TRAKT).distinct()
+                Spacer(Modifier.height(18.dp))
+                Text("Continue watching from", fontSize = 14.sp, color = AppColors.Accent, modifier = Modifier.padding(start = 12.dp, bottom = 4.dp))
+                sources.forEach { src ->
+                    val on = cf.on(src)
+                    OnOffRow(src, on, carry, onBack, compact = true) { appearance.setTitlePart(cf.key(src), !on) }
+                }
+                Text(
+                    "Off: that server's (or IPTV's, or Trakt's) films and episodes you're part way through leave Continue watching everywhere.",
                     fontSize = 12.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(horizontal = 12.dp),
                 )
             }
@@ -132,6 +149,16 @@ fun HomeRowsSettingsScreen(onBack: () -> Unit) {
             }
         }
     }
+}
+
+/** An On / Off row in the left column: moving onto it puts down a carried row; Left goes back to the Settings list. */
+@Composable
+private fun OnOffRow(text: String, on: Boolean, carry: Carry, onBack: () -> Unit, compact: Boolean = false, onClick: () -> Unit) {
+    MenuItem(
+        text = text, trailing = if (on) "On" else "Off", selected = false, compact = compact,
+        onClick = onClick,
+        modifier = Modifier.onFocusChanged { if (it.isFocused) carry.drop() }.leftGoesBack(onBack),
+    )
 }
 
 @Composable

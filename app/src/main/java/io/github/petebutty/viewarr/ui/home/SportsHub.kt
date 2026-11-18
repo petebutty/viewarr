@@ -8,18 +8,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import io.github.petebutty.viewarr.data.local.ChannelListItem
 import io.github.petebutty.viewarr.data.local.GuideProgram
-import io.github.petebutty.viewarr.data.media.ServiceLogo
 import io.github.petebutty.viewarr.data.sports.SportFollow
 import io.github.petebutty.viewarr.data.sports.SportGame
-import io.github.petebutty.viewarr.ui.common.AppIcons
 import io.github.petebutty.viewarr.ui.dvr.DvrViewModel
 import io.github.petebutty.viewarr.ui.guide.GuideViewModel
 import io.github.petebutty.viewarr.ui.player.CardOption
-import io.github.petebutty.viewarr.ui.player.LiveShortcut
 import io.github.petebutty.viewarr.ui.player.OsdPoster
-import io.github.petebutty.viewarr.ui.player.OsdRow
-import io.github.petebutty.viewarr.ui.player.ShortcutColours
-import io.github.petebutty.viewarr.ui.player.ShortcutLogos
+import io.github.petebutty.viewarr.ui.player.SportColours
 import io.github.petebutty.viewarr.ui.settings.SportsViewModel
 import io.github.petebutty.viewarr.ui.theme.AppColors
 import io.github.petebutty.viewarr.ui.theme.Dates
@@ -32,7 +27,7 @@ import kotlinx.coroutines.withContext
 
 /**
  * The Sports hub (Settings → Sports) on live TV: your teams' and leagues' games, which of your channels shows each
- * (from the guide; else the UK listings), and the cards, rows and pinned shortcuts built from them.
+ * (from the guide; else the UK listings), and the cards and rows built from them.
  *
  * [watch]: play a channel full screen; [toast]: a short message.
  */
@@ -127,7 +122,6 @@ internal class SportsHub(
             // 1: every team's / league's games (small requests to ESPN), shown as soon as they're in.
             coroutineScope {
                 follows.map { f ->
-                    f.logo?.let { ShortcutLogos.map["sport:${f.shortcutId}"] = ServiceLogo(it, square = true) }
                     async {
                         if (t0 - (loadedAt[f.shortcutId] ?: 0L) < 5 * 60_000L && games.containsKey(f.shortcutId)) return@async
                         val all = runCatching { sportsVm.games(f) }.getOrDefault(emptyList())
@@ -216,6 +210,10 @@ internal class SportsHub(
         return live to all.map { it.first }
     }
 
+    /** A reminder is set for [g] (on its channel around kick-off, or waiting for the guide to list it). */
+    fun reminded(g: SportGame, channel: ChannelListItem?, reminders: List<io.github.petebutty.viewarr.data.dvr.Reminder>): Boolean =
+        sportsVm.gameWatch.wantsReminder(g.id) || reminders.any { r -> (channel == null || r.channelId == channel.id) && kotlin.math.abs(r.start - g.start) <= 60 * 60_000L && r.end > g.start }
+
     /** Kick-off reminder on [channel] (a game with no guide listing: a listings channel, club stream…): set, or off again. */
     fun toggleKickOffReminder(g: SportGame, channel: ChannelListItem) {
         val r = dvr.reminderAt(channel.id, g.start)
@@ -253,17 +251,15 @@ internal class SportsHub(
                 val want = !gw.wantsRecording(g.id); gw.setRecording(g.id, want)
                 toast(if (want) "${g.title} will be recorded once it's in your TV guide" else "Won't record ${g.title}")
             } else null,
-            if (ch != null && !started) CardOption("Remind me") {
-                dvr.remind(ch.first, ch.second); toast("We'll remind you: ${g.title} on ${ch.first.name}")
+            // (Shows whether it's set, and takes it off again: Remind me said nothing it had done. Peter, 2026-11-18.)
+            if (ch != null && !started) CardOption(if (dvr.reminderFor(ch.first.id, ch.second) != null) "✓ Reminder set: cancel it" else "Remind me") {
+                val r = dvr.reminderFor(ch.first.id, ch.second)
+                if (r != null) { dvr.forget(r.id); toast("Reminder cancelled: ${g.title}") }
+                else { dvr.remind(ch.first, ch.second); toast("🔔 Reminder set: ${g.title} on ${ch.first.name}") }
             } else null,
             if (ch != null && !started) CardOption("Record") {
                 dvr.record(ch.first, ch.second); gw.markDone(g.id); toast("Recording ${g.title} on ${ch.first.name}")
             } else null,
-            f?.let { fl ->
-                CardOption(if (fl.pinned) "Unpin ${fl.name}" else "Pin ${fl.name}: its own shortcut") {
-                    sportsVm.setPinned(fl, !fl.pinned); toast(if (fl.pinned) "${fl.name}: back under Sports" else "${fl.name}: pinned to your shortcuts")
-                }
-            },
         )
         return OsdPoster(
             key = "sg-${g.id}",
@@ -274,7 +270,7 @@ internal class SportsHub(
                 else -> Dates.dayTime(g.start) + "  ·  " + (ch?.first?.name ?: on.joinToString(", ").ifEmpty { if (notOnTv) "not on UK TV" else "not in your guide yet" })
             },
             image = g.homeLogo, logo = true,
-            emoji = if (g.homeLogo == null) sportsVm.league(g.league).emoji else null, tint = ShortcutColours.sports,
+            emoji = if (g.homeLogo == null) sportsVm.league(g.league).emoji else null, tint = SportColours.sports,
             options = options,
         ) {
             when {
@@ -290,48 +286,6 @@ internal class SportsHub(
             }
         }
     }
-
-    /** A pinned team's / league's own rows: On now, Next games, Results. */
-    fun gamesRows(key: String, follows: List<SportFollow>): List<OsdRow> {
-        val list = games[key].orEmpty()
-        val fol = follows.firstOrNull { it.shortcutId == key }
-        return listOf(
-            OsdRow("On now", list.filter { it.first.state == "in" }.map { (g, c) -> card(g, c, fol) }),
-            OsdRow("Next games", list.filter { it.first.state == "pre" }.map { (g, c) -> card(g, c, fol) }),
-            OsdRow("Results", list.filter { it.first.state == "post" }.reversed().map { (g, c) -> card(g, c, fol) }),
-        ).filter { it.items.isNotEmpty() }
-    }
-
-    /**
-     * The Sports shortcut's rows (like a network's): what's on now across everything you follow, then a row per team
-     * and league: its games on now and coming up, then its latest results.
-     */
-    fun rows(follows: List<SportFollow>): List<OsdRow> {
-        val onNow = follows.flatMap { games[it.shortcutId].orEmpty() }.filter { it.first.state == "in" }.distinctBy { it.first.id }
-        return (listOf(OsdRow("On now", onNow.map { (g, c) -> card(g, c) })) +
-            follows.map { f ->
-                val list = games[f.shortcutId].orEmpty()
-                val ordered = list.filter { it.first.state != "post" } + list.filter { it.first.state == "post" }.reversed().take(3)
-                OsdRow(f.name, ordered.map { (g, c) -> card(g, c, f) })
-            }).filter { it.items.isNotEmpty() }
-    }
-
-    /** A followed team's / league's shortcut: OK watches its game on now, else says when the next one is. */
-    fun shortcut(f: SportFollow): Pair<LiveShortcut, () -> Unit> =
-        LiveShortcut(
-            f.shortcutId, f.name, AppIcons.LiveTv,
-            emoji = if (f.logo == null) sportsVm.league(f.league).emoji else null,
-            logoName = if (f.logo != null) "sport:${f.shortcutId}" else null,
-            colors = ShortcutColours.sports,
-        ) to {
-            val list = games[f.shortcutId].orEmpty()
-            val live = list.firstOrNull { it.first.state == "in" && it.second != null }?.second
-            if (live != null) watch(live.first)
-            else {
-                val next = list.firstOrNull { it.first.state == "pre" }?.first
-                toast(next?.let { "Next: ${it.title}, " + Dates.dayTime(it.start) } ?: "No games found for ${f.name} yet")
-            }
-        }
 
     private companion object {
         const val DAY = 86_400_000L

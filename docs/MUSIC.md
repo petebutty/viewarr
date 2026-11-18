@@ -11,16 +11,29 @@ Viewarr joins them into one library: an album on two servers shows once. Each so
 
 Plays count on the server they came from. Navidrome scrobbles, so ListenBrainz and Last.fm get them too if you've set that up there.
 
-> **Lyrics, song radio, favourites and artist information need Navidrome.** With only Plex, Jellyfin or Emby, you can still browse and play everything.
+> **Lyrics, favourites and artist information need Navidrome.** With only Plex, Jellyfin or Emby, you can still browse and play everything, and radio and the mixes still work, with fewer suggestions.
 
-## Finding music
+## The Music home
 
-**Music** in the menu has:
+**Music** in the menu opens on a home page made from what you play. *(0.29.0 and later.)* Rows include:
 
-- a short **Music home** (with **Shuffle my library** and **Recently added**),
-- **Albums A–Z**, **Artists**, **Playlists**, **Genres**, **Favourites** and **Recently added**.
+- **Made for you**: **Your Mix** (from the artists you play most) and three daily mixes, each from one of your artists. They're built fresh each day, and stay the same for the rest of the day.
+- **Jump back in**: what you played lately.
+- **Because you played…**: artists like one you play, then that artist's top songs and the albums they're on.
+- **New in your library**.
+- **Hidden in your library**: artists you own but never play.
+- **Rediscover** (albums you played a lot, but not lately), **Your favourites**, **Most played** and **Random picks**.
+- **Genres** and **Decades** as picture tiles, and your **Playlists**.
 
-Each has search and voice search. Music also shows up in Viewarr's main search.
+The highlighted card shows at the top, with a **Start radio** button. Above the rows are **Albums A–Z**, **Artists**, **Playlists**, **Genres**, **Search** and **Shuffle all**.
+
+Everything comes from your own music server: nothing is sent anywhere else. **Navidrome gives the most**, as it knows which artists and songs are alike. Jellyfin and Plex give fewer suggestions: the mixes are made from your artists' own albums and random songs, and the "Because you played…" rows may not show. Rows with nothing in them are left out.
+
+Each list has search and voice search. Music also shows up in Viewarr's main search.
+
+### Endless radio
+
+Start a radio from a song (**Song radio**), an artist (**Radio**), or a card on the Music home (**Start radio**). It plays songs like the one you started from, and when the queue runs low it adds more like the last song, never repeating a song in that session. It ends quietly only when your server has nothing new left to suggest.
 
 ### Hold OK for more
 
@@ -46,7 +59,7 @@ Now Playing shows the artwork, the song, a visualiser, and these buttons:
 - **Shuffle** and **Repeat**
 - **Big visualiser**: the visualiser fills the screen (press again for less)
 - **Queue**: see what's coming up. Play a song next, move it up or down, or remove it.
-- **Song radio**: a mix based on the song playing
+- **Song radio**: an endless radio based on the song playing
 - **Add to favourites**
 - **Sleep timer**: stop after a number of minutes, at the **End of this song**, or the **End of this album**
 - **Stop**

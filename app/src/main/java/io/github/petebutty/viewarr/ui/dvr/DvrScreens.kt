@@ -1,6 +1,5 @@
 package io.github.petebutty.viewarr.ui.dvr
 
-import io.github.petebutty.viewarr.ui.theme.appBackground
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.heightIn
@@ -10,7 +9,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -22,12 +20,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -55,8 +51,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import java.text.SimpleDateFormat
-import java.util.Locale
 import javax.inject.Inject
 import io.github.petebutty.viewarr.data.dvr.DvrResult
 import io.github.petebutty.viewarr.data.dvr.ReminderStore
@@ -137,8 +131,6 @@ class DvrViewModel @Inject constructor(
         repo.playback(rec)?.let { (url, headers) -> VodStream(url, rec.title, headers) }
 }
 
-private val dayTime = SimpleDateFormat("EEE d MMM, HH:mm", Locale.UK)
-private val time = SimpleDateFormat("HH:mm", Locale.UK)
 private fun span(start: Long, end: Long) = "${io.github.petebutty.viewarr.ui.theme.Dates.dayTime(start)}–${io.github.petebutty.viewarr.ui.theme.Dates.time(end)}"
 private fun episodeTag(season: Int?, episode: Int?) = if (season != null && episode != null) " · S$season · E$episode" else ""
 
@@ -338,8 +330,17 @@ private val HoldKinds = listOf(
 
 private sealed interface DvrRow {
     data class Header(val text: String) : DvrRow
+    /** A quiet line under an empty section ("Nothing recorded yet…"). */
+    data class Note(val text: String) : DvrRow
     data class Rec(val rec: DvrRecording) : DvrRow
     data class Rule(val rule: SeriesRule) : DvrRow
+}
+
+/** A recording's or rule's key in the list (null: a header or note, which can't take focus). */
+private fun rowKey(r: DvrRow): String? = when (r) {
+    is DvrRow.Rec -> "r-${r.rec.id}"
+    is DvrRow.Rule -> "s-${r.rule.tvgId}-${r.rule.title}"
+    else -> null
 }
 
 /** The Recordings page: what's recording, scheduled, recorded, and the series rules. All stored on Dispatcharr. */
@@ -373,16 +374,39 @@ fun RecordingsScreen(
         val done = recordings.filter { it.state == DvrState.Recorded || it.state == DvrState.Failed }.sortedByDescending { it.start }
         if (now.isNotEmpty()) { add(DvrRow.Header("Recording now")); now.forEach { add(DvrRow.Rec(it)) } }
         add(DvrRow.Header("Scheduled (${scheduled.size})")); scheduled.forEach { add(DvrRow.Rec(it)) }
+        if (scheduled.isEmpty()) add(DvrRow.Note("Nothing scheduled. Hold OK on a programme in the TV guide to record it."))
         add(DvrRow.Header("Recorded (${done.size})")); done.forEach { add(DvrRow.Rec(it)) }
+        if (done.isEmpty()) add(DvrRow.Note("Nothing recorded yet."))
         add(DvrRow.Header("Series recordings (${rules.size})")); rules.forEach { add(DvrRow.Rule(it)) }
+        if (rules.isEmpty()) add(DvrRow.Note("No series recordings. Hold OK on an episode in the TV guide → Record series."))
     }
-    val firstItem = rows.indexOfFirst { it !is DvrRow.Header }
+    // (Only recordings and rules take focus: a header or a note can't.)
+    val focusable = rows.mapIndexedNotNull { i, r -> if (r is DvrRow.Rec || r is DvrRow.Rule) i else null }
+    val firstItem = focusable.firstOrNull() ?: -1
     // The row you were on (its options closing, or coming back to the page): the highlight goes back there, not the top.
-    val rowFocus = remember { HashMap<Int, FocusRequester>() }
-    var lastRow by remember { androidx.compose.runtime.mutableIntStateOf(-1) }
-    fun focusBack() { if (runCatching { rowFocus[lastRow]!!.requestFocus() }.isFailure) runCatching { focusRequester.requestFocus() } }
+    // Kept by the recording / rule, not its place in the list: after deleting the last one, the place is gone and the
+    // highlight went to the top instead of the row before it.
+    val rowFocus = remember { HashMap<String, FocusRequester>() }
+    var lastKey by remember { mutableStateOf<String?>(null) }
+    var lastIndex by remember { androidx.compose.runtime.mutableIntStateOf(-1) }
+    fun focusBack() {
+        val same = lastKey?.let { rowFocus[it] }
+        if (same != null && runCatching { same.requestFocus() }.isSuccess) return
+        // That row is gone: the focusable row before its place, else the first.
+        val prev = focusable.lastOrNull { it < lastIndex } ?: firstItem
+        val key = rows.getOrNull(prev)?.let(::rowKey)
+        if (key == null || runCatching { rowFocus[key]!!.requestFocus() }.isFailure) runCatching { focusRequester.requestFocus() }
+    }
     LaunchedEffect(firstItem >= 0, focusEnabled, picked == null) {
         if (!focusEnabled || picked != null || firstItem < 0) return@LaunchedEffect
+        awaitFrame()
+        focusBack()
+    }
+    // The highlighted row left the list (deleted, cancelled) after its options closed: the row before it.
+    val rowKeys = rows.mapNotNull(::rowKey)
+    LaunchedEffect(rowKeys) {
+        val k = lastKey ?: return@LaunchedEffect
+        if (!focusEnabled || picked != null || k in rowKeys) return@LaunchedEffect
         awaitFrame()
         focusBack()
     }
@@ -422,20 +446,21 @@ fun RecordingsScreen(
                 allowed == null && recordings.isEmpty() -> Text("Loading…", color = AppColors.TextSecondary)
                 else -> LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp), contentPadding = PaddingValues(bottom = 110.dp)) {
                     // (Bottom 110 as Music and Movies: the music mini player covers the bottom of the screen.)
-                    items(rows.size, key = { i -> when (val r = rows[i]) {
+                    items(rows.size, key = { i -> rowKey(rows[i]) ?: when (val r = rows[i]) {
                         is DvrRow.Header -> "h-${r.text}"
-                        is DvrRow.Rec -> "r-${r.rec.id}"
-                        is DvrRow.Rule -> "s-${r.rule.tvgId}-${r.rule.title}"
+                        is DvrRow.Note -> "n-${r.text}"
+                        else -> "x-$i"
                     } }) { i ->
                         when (val row = rows[i]) {
                             is DvrRow.Header -> RowTitle(row.text, Modifier.padding(top = 14.dp, start = 4.dp))
+                            is DvrRow.Note -> Text(row.text, fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(start = 4.dp, top = 4.dp, bottom = 6.dp))
                             // (The menu's own recording row, so a recording looks the same in the menu and on this page.)
                             is DvrRow.Rec -> RecordingRow(
                                 title = (if (row.rec.state == DvrState.Recording) "● " else "") + row.rec.title + episodeTag(row.rec.season, row.rec.episode) + if (row.rec.state == DvrState.Failed) "  (failed)" else "",
                                 details = "${channels[row.rec.channelId]?.name ?: "Channel"}  ·  ${span(row.rec.start, row.rec.end)}",
                                 live = row.rec.state == DvrState.Recording,
-                                modifier = (if (i == firstItem) Modifier.focusRequester(focusRequester) else Modifier).focusRequester(rowFocus.getOrPut(i) { FocusRequester() }).onFocusChanged {
-                                    if (it.hasFocus) lastRow = i
+                                modifier = (if (i == firstItem) Modifier.focusRequester(focusRequester) else Modifier).focusRequester(rowFocus.getOrPut(rowKey(row)!!) { FocusRequester() }).onFocusChanged {
+                                    if (it.hasFocus) { lastKey = rowKey(row); lastIndex = i }
                                     if (it.hasFocus) hover = (row.rec.title + episodeTag(row.rec.season, row.rec.episode)) to "${channels[row.rec.channelId]?.name ?: "Channel"}  ·  ${span(row.rec.start, row.rec.end)}"
                                 },
                                 // Hold OK: the options (stop, cancel, delete…).
@@ -451,8 +476,8 @@ fun RecordingsScreen(
                                 details = (if (row.rule.mode == "new") "New episodes" else "Every episode") +
                                     (row.rule.tvgId.takeIf { it.isNotEmpty() }?.let { "  ·  $it" } ?: "  ·  Any channel"),
                                 live = false,
-                                modifier = (if (i == firstItem) Modifier.focusRequester(focusRequester) else Modifier).focusRequester(rowFocus.getOrPut(i) { FocusRequester() }).onFocusChanged {
-                                    if (it.hasFocus) lastRow = i
+                                modifier = (if (i == firstItem) Modifier.focusRequester(focusRequester) else Modifier).focusRequester(rowFocus.getOrPut(rowKey(row)!!) { FocusRequester() }).onFocusChanged {
+                                    if (it.hasFocus) { lastKey = rowKey(row); lastIndex = i }
                                     if (it.hasFocus) hover = row.rule.label to (if (row.rule.mode == "new") "Series recording · new episodes" else "Series recording · every episode")
                                 },
                                 onClick = { picked = row; vm.clearMessage() },

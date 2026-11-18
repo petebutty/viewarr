@@ -96,6 +96,9 @@ class AppViewModel @Inject constructor(
     playbackStore: PlaybackStore,
     private val settingsSync: SettingsSync,
     private val watchSync: WatchSync,
+    private val serverSports: io.github.petebutty.viewarr.data.sync.ServerSports,
+    private val gameWatch: io.github.petebutty.viewarr.data.sports.GameWatch,
+    private val sportsRepo: io.github.petebutty.viewarr.data.sports.SportsRepository,
     accessLoader: AccessLoader,
     house: House,
 ) : ViewModel() {
@@ -104,8 +107,21 @@ class AppViewModel @Inject constructor(
 
     init {
         settingsSync.start()
-        // IPTV / addon watch progress shared between boxes through Dispatcharr (WatchSync).
-        watchSync.start()
+        // Live now and the games' channels, worked out on Dispatcharr by the Viewarr plugin (when it's installed): a
+        // small read, wanted for the guide's Live now, so straight away.
+        serverSports.start()
+        // The rest one after another once the first screen has settled (they all started together, 2026-11-18).
+        viewModelScope.launch {
+            io.github.petebutty.viewarr.ui.common.AppStart.after(8_000)
+            // IPTV / addon watch progress shared between boxes through Dispatcharr (WatchSync).
+            watchSync.start()
+            io.github.petebutty.viewarr.ui.common.AppStart.after(14_000)
+            // Live score alerts for what this user follows (from the plugin), as a banner on this TV.
+            serverSports.startAlerts(sportsRepo.follows)
+            io.github.petebutty.viewarr.ui.common.AppStart.after(20_000)
+            // "Record all of a team's games" and pending game recordings shared with Dispatcharr (the plugin records them).
+            gameWatch.startSharing()
+        }
         // What the signed-in person may do (an admin's locks on their Dispatcharr user).
         accessLoader.start(viewModelScope)
         // The house's outside addresses from the Viewarr plugin on Dispatcharr (when it's installed).
@@ -259,6 +275,8 @@ fun AppRoot(vm: AppViewModel = hiltViewModel()) {
                 // Settings → Appearance → Clock.
                 if (!splashShown && AppColors.palette.opt(UiOpts.CLOCK) == 1) Clock(Modifier.align(Alignment.TopEnd))
                 // Over everything: the "update available" pop-up (and the automatic check on start).
+                // A poster's trailer full screen (OK while it plays in the card).
+                io.github.petebutty.viewarr.ui.media.PosterTrailerHost()
                 if (!splashShown) UpdateHost()
                 // Once after an update: a few lines on what's new.
                 if (!splashShown) WhatsNewHost()
@@ -279,6 +297,8 @@ fun AppRoot(vm: AppViewModel = hiltViewModel()) {
         }
         // Settings → Troubleshooting → Send a report, over everything.
         if (ReportUi.open) ReportScreen(onClose = { ReportUi.open = false })
+        // Live score alerts (the plugin), over everything but the splash.
+        io.github.petebutty.viewarr.ui.common.AlertBanner.Host()
         if (splashAlpha > 0f) Box(Modifier.fillMaxSize().graphicsLayer { alpha = splashAlpha }) {
             ViewarrSplash()
         }

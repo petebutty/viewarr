@@ -13,7 +13,7 @@ import kotlinx.coroutines.delay
 import io.github.petebutty.viewarr.data.settings.BtnScreen
 import io.github.petebutty.viewarr.data.settings.ButtonMap
 import io.github.petebutty.viewarr.ui.common.BarLayout
-import io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge
+import io.github.petebutty.viewarr.ui.player.PlayerBridge
 import io.github.petebutty.viewarr.data.settings.LocalRemote
 import io.github.petebutty.viewarr.playback.SleepTimer
 import io.github.petebutty.viewarr.ui.common.EdgeBlocked
@@ -107,14 +107,14 @@ fun pressFilmButton(
             (p.durationMs - p.positionMs).takeIf { it > 0 }?.let { System.currentTimeMillis() + it },
         )
         // A page over the film (it carries on in the corner).
-        PlayerButton.Movies, PlayerButton.Shows, PlayerButton.Recordings -> { toCorner(menu); LiveShortcutsBridge.openPage(b.name); return false }
+        PlayerButton.Movies, PlayerButton.Shows, PlayerButton.Recordings -> { toCorner(menu); PlayerBridge.openPage(b.name); return false }
         PlayerButton.Info -> menu.infoOn = !menu.infoOn
         PlayerButton.Details -> { panels.detailsOn = !panels.detailsOn; if (panels.detailsOn) menu.open = false }
         PlayerButton.SwitchPlayer -> switchPlayer?.invoke()
         PlayerButton.Stop -> { onClose(); return false }
         // Settings over the film, which carries on full screen behind it (it went to the corner, showing whatever page
         // was underneath, the TV guide if it was started from live TV; Peter, 2026-11-16). Closing Settings: the film.
-        PlayerButton.Settings -> { menu.open = false; VodHost.behind = true; LiveShortcutsBridge.openSettings(); return false }
+        PlayerButton.Settings -> { menu.open = false; VodHost.behind = true; PlayerBridge.openSettings(); return false }
         // TV guide: the film carries on in the mini player while the guide opens (Back on it: full screen again).
         PlayerButton.Guide -> { openGuideOverFilm(menu); return false }
     }
@@ -131,11 +131,11 @@ fun minimiseToLiveTv(onClose: () -> Unit) {
     // Settings → Playback → Back from a film: its own page (standard since 0.28.5, Gtunney / Peter) leaves the mini
     // player over the page it was started from (its title page, usually); "The TV guide and menu" opens those.
     if (AppColors.palette.opt(UiOpts.FILM_BACK) != 1) return
-    LiveShortcutsBridge.openMenuOnLiveTv()
+    PlayerBridge.openMenuOnLiveTv()
 }
 
 /** The TV guide over a film (its button, or a remote button set to TV guide): the film carries on in the mini player. */
-fun openGuideOverFilm(menu: PlayerMenu) { toCorner(menu); LiveShortcutsBridge.openGuide() }
+fun openGuideOverFilm(menu: PlayerMenu) { toCorner(menu); PlayerBridge.openGuide() }
 
 /**
  * Back, one step: closes what's open (audio & subtitles, the seek preview, details, the rows, the
@@ -147,6 +147,9 @@ fun filmBackStep(panels: FilmPanels, menu: PlayerMenu, scrub: Scrubber, skip: In
         panels.tracksOpen -> panels.tracksOpen = false
         scrub.active -> { scrub.cancel(); showOsd() }
         panels.detailsOn -> panels.detailsOn = false
+        // In the rows under the controls: back up to the buttons (the Episodes button's own row: closes the bar).
+        // (Back reaches here before the controls see the key, so it's this step, not PlayerControls, that does it.)
+        menu.open && menu.onEpisodes -> { menu.onEpisodes = false; if (menu.episodesOnly) menu.open = false }
         menu.open -> { menu.open = false; hideOsd() }
         // The next episode's countdown: Back keeps watching this one (after anything open over it).
         skip.cancelNext() -> Unit

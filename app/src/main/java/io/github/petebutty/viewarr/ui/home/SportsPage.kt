@@ -22,6 +22,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -67,6 +68,7 @@ import io.github.petebutty.viewarr.ui.theme.Dates
 import io.github.petebutty.viewarr.ui.theme.NoScale
 import io.github.petebutty.viewarr.ui.theme.Tokens
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -91,13 +93,17 @@ internal fun SportsPage(
     onToast: (String) -> Unit,
     onOpenMenu: () -> Unit,
     onBack: () -> Unit,
+    /** ＋ Follow: Settings → Sports, to find and follow a team or league. */
+    onFollow: () -> Unit = {},
 ) {
     // A filter pill being moved (its team / league id): hold OK on one → Move. (The shared Carry / reorderable, as
     // every list: ◀ ▶ move it, OK or Back put it down. UI review, Tier 4, 2026-11-17.)
     val carry = rememberCarry()
     // (Not while a game's page is open over it: this one won, so Back left Sports for the menu, landing on Music. Nor
     // while a pill is carried: Back puts it down.)
-    BackHandler(enabled = focusEnabled && hub.openGame == null && !carry.active) { Log.i("Sports", "Back: to the menu"); onBack() }
+    BackHandler(enabled = focusEnabled && hub.openGame == null) {
+        if (carry.active) carry.drop() else { Log.i("Sports", "Back: to the menu"); onBack() }
+    }
     // Hold OK on a game: its options.
     CardMenuHost()
     // (The game page keeps clear of the live window by itself: HomeScreen works it out where the page is drawn, so a
@@ -123,6 +129,8 @@ internal fun SportsPage(
     }
     // Where each game is on, and why (GamePlacer: shared with Live now). Made once per channel list, not on every move.
     val placer = remember(channels) { GamePlacer(channels) }
+    // (For the 🔔 on games with a reminder set.)
+    val remindersNow by hub.dvr.reminders.collectAsState()
     // The team / league picked along the top (null: everything you follow).
     var filter by remember { mutableStateOf<String?>(null) }
     pillMenu?.let { f ->
@@ -181,8 +189,9 @@ internal fun SportsPage(
         )
         // All, then each team / league you follow: OK shows just its games. Fixed above the list (they were its first
         // item and scrolled away with it: UI review, 2026-11-17).
-        if (follows.size > 1) SportsPills(
-            follows = follows, filter = filter, carry = carry, panelFocus = panelFocus, onOpenMenu = onOpenMenu,
+        // (Always there now: the last pill is ＋ Follow. Peter, 2026-11-18.)
+        SportsPills(
+            follows = follows, filter = filter, carry = carry, panelFocus = panelFocus, onOpenMenu = onOpenMenu, onFollow = onFollow,
             onMove = { f, by -> hub.sportsVm.move(f, by) },
             onOptions = { id -> returnTo = "f-$id"; pillMenu = follows.firstOrNull { it.shortcutId == id } },
             onPick = { id -> returnTo = "f-$id"; filter = id },
@@ -200,6 +209,7 @@ internal fun SportsPage(
                     val lineKey = "g-${c.game.id}"
                     FixtureLine(
                         c,
+                        reminded = c.game.state == "pre" && hub.reminded(c.game, c.channel, remindersNow),
                         modifier = (if (r == 0 && i == 0) Modifier.focusRequester(focusRequester) else Modifier)
                             .focusRequester(panelFocus.getOrPut(lineKey) { FocusRequester() })
                             .onFocusChanged { if (it.isFocused) hover = c }
@@ -281,17 +291,24 @@ private fun SportsPills(
     onMove: (SportFollow, Int) -> Unit,
     onOptions: (String) -> Unit,
     onPick: (String?) -> Unit,
+    onFollow: () -> Unit = {},
 ) {
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
     Column(Modifier.fillMaxWidth()) {
         LazyRow(contentPadding = PaddingValues(start = Tokens.Gutter, end = Tokens.Gutter, top = 4.dp, bottom = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             val picks = listOf<Pair<String?, String>>(null to "All") + follows.map { it.shortcutId to it.name }
             itemsIndexed(picks, key = { _, p -> "f-${p.first}" }) { i, (id, name) ->
                 val carried = id != null && carry.isCarried(id)
+                var focused by remember { mutableStateOf(false) }
                 AppPill(
                     text = if (carried) "‹ $name ›" else name, selected = filter == id, carried = carried,
                     modifier = Modifier.focusRequester(panelFocus.getOrPut("f-$id") { FocusRequester() })
-                        // (Moving off it some other way puts it down.)
-                        .onFocusChanged { if (!it.isFocused && carried) carry.drop() }
+                        // (Moving off it some other way puts it down: after a moment, as the row redrawing after a move
+                        // blurs the pill for a frame and dropped the carry at once.)
+                        .onFocusChanged {
+                            focused = it.isFocused
+                            if (!it.isFocused && carried && id != null) scope.launch { delay(300); if (!focused && carry.isCarried(id)) carry.drop() }
+                        }
                         .reorderable(
                             carried = carried,
                             onMove = { by -> follows.firstOrNull { it.shortcutId == id }?.let { onMove(it, by) } },
@@ -303,6 +320,13 @@ private fun SportsPills(
                     onLongClick = if (id != null) ({ onOptions(id) }) else null,
                     onClick = { onPick(id) },
                 )
+            }
+            // Last: find and follow another team or league (Settings → Sports).
+            item(key = "f-follow") {
+                AppPill(text = "＋ Follow a team", selected = false, carried = false,
+                    modifier = Modifier.focusRequester(panelFocus.getOrPut("f-follow") { FocusRequester() })
+                        .leftOpens(enabled = follows.isEmpty() && !carry.active, onMenu = onOpenMenu),
+                    onLongClick = null, onClick = onFollow)
             }
         }
         if (carry.active) Text(movingHint(ReorderAxis.Horizontal), fontSize = 12.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(start = Tokens.Gutter, bottom = 4.dp))
@@ -331,7 +355,7 @@ private fun whenLine(c: GameCard): String {
  * score between, the competition, and where it's on (orange: one of your channels, OK watches it).
  */
 @Composable
-private fun FixtureLine(c: GameCard, modifier: Modifier, onLongClick: (() -> Unit)? = null, onClick: () -> Unit) {
+private fun FixtureLine(c: GameCard, modifier: Modifier, reminded: Boolean = false, onLongClick: (() -> Unit)? = null, onClick: () -> Unit) {
     val g = c.game
     // The standard list-row highlight: accent fill, OnAccent text (it was a navy fill of its own; UI review, Tier 3).
     var focused by remember { mutableStateOf(false) }
@@ -351,10 +375,12 @@ private fun FixtureLine(c: GameCard, modifier: Modifier, onLongClick: (() -> Uni
             val (time, timeColour) = when (g.state) {
                 "in" -> (g.detail ?: "LIVE") to Color(0xFFFF5A5F)
                 "post" -> "FT" to AppColors.TextSecondary
-                else -> Dates.dayTime(g.start).substringAfterLast(' ') to Color.White
+                else -> Dates.time(g.start) to Color.White
             }
             val main = if (focused) on else Color.White
             val dim = if (focused) on else AppColors.TextSecondary
+            // (🔔: a reminder is set for it. Peter, 2026-11-18: Remind me showed nothing.)
+            Text(if (reminded) "🔔" else "", fontSize = 12.sp, maxLines = 1, modifier = Modifier.width(18.dp))
             Text(time, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = if (focused) on else timeColour, maxLines = 1, modifier = Modifier.width(56.dp))
             Row(Modifier.weight(1f), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
                 Text(g.home, fontSize = 14.sp, color = main, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))

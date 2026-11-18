@@ -12,16 +12,18 @@ A classic IPTV-style guide with channel logos, categories, and programmes going 
 
 - **Programme title logos**: the highlighted programme's own title logo (from TMDB) at the top of the guide, instead of plain text. Settings → Appearance → **Programme title logos**; **Title logos by group** switches them off for chosen channel groups (sports and event groups, say). *(0.28.7 and later.)*
 - **Long programme names scroll** on the highlighted programme, so they can be read in full. *(0.28.7 and later.)*
+- **The info panel** at the top shows the channel, the times, what's on next and the programme's badges. *(0.29.0 and later.)*
+- **Cleaner cells**: very short programmes are merged into their neighbours, with small gaps between programmes and rounded rows. *(0.29.0 and later.)*
 
 ### Guide times out by an hour or more
 
 When a provider's guide is hours out (another time zone, or summer time handled wrongly), move it:
 
-- **The whole source**: Settings → Live TV → **Guide time offset**, from −12 h to +12 h in half hours.
-- **Only some channels**: hold OK on one in the guide → **Guide times**, then + / − 30 minutes or an hour (channels sharing its guide move with it). Shifted channels show their offset (for example **+1 h**) beside their name.
+- **The whole source**: Settings → Live TV → **EPG offset**, from −12 h to +12 h in half hours.
+- **Only some channels**: hold OK on one in the guide → **EPG offset**, then + / − 30 minutes or an hour (channels sharing its guide move with it). The offset shows in that menu, not beside the channel's name.
 - **M3U playlists**: a channel's own `tvg-shift` is used by itself.
 
-The programmes are moved when the guide is fetched (it's fetched again straight after a change), so the times are right everywhere: the guide, the info bar, reminders, recordings sent to Dispatcharr and catch-up. Dispatcharr's own series rules still record by its own guide's times. *(0.28.9 and later.)*
+The listings move straight away, and the times are right everywhere: the guide, the info bar, reminders, recordings sent to Dispatcharr and catch-up. Dispatcharr's own series rules still record by its own guide's times. *(0.28.9 and later.)*
 
 - **OK** on a programme on now: it plays in the preview window at the top left. OK again goes full screen.
 - **OK** on a past programme: replay it (catch-up, where the channel has it).
@@ -38,10 +40,11 @@ What the guide shows:
 
 - **How much time**: Settings → Appearance → TV guide → **Timeline** shows 1½ to 6 hours across the screen (2½ as standard).
 - A progress bar under what's on now: on every channel, only the one you're watching, or off (**Settings → Appearance → TV guide → Progress bars**).
-- A picture of the highlighted programme at the top: the guide's own artwork from Dispatcharr when it has some, otherwise one found on TMDB. Turn it off with **Programme pictures**.
+- A picture of the highlighted programme: the guide's own artwork from Dispatcharr when it has some, otherwise one found on TMDB. Turn it off with **Programme pictures**. **Programme picture shows as** chooses **Background** (it fills the screen behind the guide) or **Banner** (a picture card beside the programme's details).
+- **Elapsed shading**: on a programme that's on now, the part that's already gone is lightly shaded up to the time line.
 - **Programme corners**: rounded or square boxes for programmes and channel names.
 - **Channel numbers**, **Channel logos** and **Episode numbers** ("S15E4") can each be turned on or off.
-- **Catch-up icons**: the replay icon on programmes and channel names, channel names only, or off. Catch-up still works with it off.
+- **Catch-up icons**: the replay icon on programmes and channel names, channel names only, beside the highlighted channel only, or off. Catch-up still works with it off.
 - **End of a list**: past the last channel, jump to the other end or stop.
 
 All of these are in **Settings → Appearance → TV guide**.
@@ -52,7 +55,7 @@ All of these are in **Settings → Appearance → TV guide**.
 
 Press **Left** on what's on now to see your channel groups. Moving through them changes the guide behind as you go. **OK** picks one and takes you back into the guide. **Left** again brings the main menu.
 
-**Hold OK** on a group for **↕ Move** (then Up / Down, and OK or Back to put it down) or **✕ Hide from this list**; ★ Favourites and All channels can be hidden the same way. Hidden groups gather at the end under **Hidden groups**; OK on one shows it again. Hiding only takes it out of the list: its channels stay in All channels, by number and in links. Your order and hidden groups are kept for each Live TV source. *(0.28.1 and later.)*
+**Hold OK** on a group for **↕ Move** (then Up / Down, and OK or Back to put it down) or **✕ Hide from this list**; ★ Favourites and All channels can be hidden the same way. Hidden groups gather at the end under **Hidden groups**; OK on one shows it again. Don't want that row? Turn off **Settings → Appearance → Menu → Hidden groups row**, and hold OK on any group → **Show hidden groups** instead. Hiding only takes it out of the list: its channels stay in All channels, by number and in links. Your order and hidden groups are kept for each Live TV source. *(0.28.1 and later.)*
 
 Don't need **All channels**? Hide it in **Settings → Live TV → "All channels" group**. The groups then start with your own, and the guide opens on the first of them.
 
@@ -177,7 +180,9 @@ To record, your Dispatcharr user needs **DVR access: Manage** (Dispatcharr → U
 
 ## Reminders
 
-Set a reminder from the hold-OK menu in the guide, or from search. You get a pop-up when the programme starts.
+Set a reminder from the hold-OK menu in the guide, from search, or with **Remind me** on a game. Games with a reminder set show 🔔.
+
+Reminder pop-ups are **off** until you turn them on, in **Settings → Menu & navigation → Notifications**: switch on **Notifications**, then **Reminders**. **Remind me** there sets how early it comes up: when it starts, or 2, 5, 10 or 15 minutes before. *(0.29.0 and later.)*
 
 ## Multi-view
 
@@ -210,7 +215,13 @@ Both are in the live TV controls (**OK** while watching).
 
 ## Live now
 
-**Live now** in the menu lists what's on the sport and event channels now and starting soon. Match pictures come from TheSportsDB.
+**Live now** in the menu lists what's on the sport and event channels now and starting soon, including NBA and other US games. Match pictures come from TheSportsDB.
+
+Choose what it shows in **Settings → Live TV**:
+
+- **Live now groups**: which channel groups it looks through.
+- **Live now sports**: which sports it shows.
+- **Live now leagues** *(0.29.0 and later)*: **Only what I follow** shows just your teams' and leagues' games (darts, snooker, racing and other events still go by Live now sports). **Follow a team or league** takes you to Settings → Sports. With the [Viewarr plugin](#viewarr-plugin-optional), the leagues with games listed are shown too, each On or Off.
 
 ## Sports
 
@@ -235,7 +246,15 @@ Viewarr finds where each game is on by itself: first your own TV guide (a progra
 
 With the **UK Sport on TV** Dispatcharr plugin installed (optional), games also show their UK channel weeks ahead, including Amazon Prime and club TV.
 
+**Score alerts** *(0.29.0 and later)*: goals, kick-offs, half-time and results as a banner, in the news ticker, or both. No team has alerts to start with: choose them in **Settings → Sports → Score alerts** (followed or not), and switch on **Notifications** in Settings → Menu & navigation. See [Settings](SETTINGS.md#sports).
+
 If your provider has channels for the clubs themselves (for example "BOLTON WANDERERS" or "SPFL - HIBS FC", in a football group), an English, Scottish or Welsh league or cup game that's on none of your other channels points at the home club's channel, or the away club's, marked "(club stream)". That's how the Saturday 3pm games are shown abroad. Televised games come first in each row; games not on UK TV follow them.
+
+## Viewarr plugin (optional)
+
+The [Viewarr plugin](https://github.com/petebutty/viewarr-plugin) runs on your Dispatcharr server. With it, Dispatcharr works out **Live now**, which channel shows each game (including UK football on TV weeks ahead), **sport recordings** and **score alerts** once for the whole house, even with every TV off. Each TV then just reads the answer.
+
+Viewarr works fully without it: each TV does all of this itself, as before. The plugin's page explains how to install it.
 
 ## Dispatcharr plugins
 

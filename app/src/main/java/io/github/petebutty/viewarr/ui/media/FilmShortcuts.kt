@@ -3,7 +3,7 @@ package io.github.petebutty.viewarr.ui.media
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import io.github.petebutty.viewarr.ui.player.LiveShortcutsBridge
+import io.github.petebutty.viewarr.ui.player.PlayerBridge
 import io.github.petebutty.viewarr.ui.common.InfoRows
 import io.github.petebutty.viewarr.ui.player.OsdPoster
 import io.github.petebutty.viewarr.ui.player.OsdRow
@@ -27,7 +27,7 @@ internal object FilmShortcuts {
         val kinds = InfoRows.active(InfoRows.FILM)
         val rows = kinds.mapNotNull { k ->
             if (k == InfoRows.Kind.NEXT) next
-            else LiveShortcutsBridge.filmRows.firstOrNull { it.first == k.id }?.second
+            else PlayerBridge.filmRows.firstOrNull { it.first == k.id }?.second
         }
         return if (withNext && next != null && rows.none { it.title == NEXT_TITLE }) listOf(next) + rows else rows
     }
@@ -63,6 +63,6 @@ internal object FilmShortcuts {
 /** The rows under the film bar load what live TV's do while its controls are up (Sports, Live now). */
 @Composable
 internal fun FilmShortcutDialogs(menu: PlayerMenu) {
-    LaunchedEffect(menu.open) { LiveShortcutsBridge.filmMenuOpen = menu.open }
-    DisposableEffect(Unit) { onDispose { LiveShortcutsBridge.filmMenuOpen = false } }
+    LaunchedEffect(menu.open) { PlayerBridge.filmMenuOpen = menu.open }
+    DisposableEffect(Unit) { onDispose { PlayerBridge.filmMenuOpen = false } }
 }

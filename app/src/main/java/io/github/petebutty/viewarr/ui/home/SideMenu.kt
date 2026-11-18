@@ -59,6 +59,8 @@ import io.github.petebutty.viewarr.data.local.GroupWithCount
 import io.github.petebutty.viewarr.data.repository.SyncState
 import io.github.petebutty.viewarr.data.session.Session
 import io.github.petebutty.viewarr.ui.common.GroupNames
+import io.github.petebutty.viewarr.ui.common.HeldOk
+import io.github.petebutty.viewarr.ui.common.ignoreHeldOk
 import io.github.petebutty.viewarr.ui.common.MenuItem
 import io.github.petebutty.viewarr.ui.common.Carry
 import io.github.petebutty.viewarr.ui.common.OptionsPopup
@@ -165,43 +167,53 @@ internal fun MenuOverlay(
     val groupId by vm.groupId.collectAsStateWithLifecycle()
     val channels by vm.channels.collectAsStateWithLifecycle()
     val sync by vm.sync.collectAsStateWithLifecycle()
+    // (Its focus requesters and plain flags in one remembered holder: MenuOverlay is at the method-size limit.)
+    val fi = remember { MenuHolder() }
     var section by remember {
         mutableStateOf(if (onSettings) Section.Settings else if (onLibrary) Section.Library else if (channelsPanel != null) Section.Tv else when (page) { Page.Tv -> Section.Tv; Page.Movies -> Section.Movies; Page.Shows -> Section.Shows; Page.Music -> Section.Music; Page.Recordings -> Section.Recordings; Page.Search -> Section.Search })
     }
-    var showAppearance by remember { mutableStateOf(false) }
+    var showAppearance by fi.showAppearance
     // Settings → Live TV, Troubleshooting and Search settings (the pages SettingsMap lays out, and the search over them).
-    var showLive by remember { mutableStateOf(false) }
-    val liveItem = remember { FocusRequester() }
-    var showTrouble by remember { mutableStateOf(false) }
-    val troubleItem = remember { FocusRequester() }
-    var showSearchSettings by remember { mutableStateOf(false) }
-    val searchSettingsItem = remember { FocusRequester() }
+    var showLive by fi.showLive
+    val liveItem = fi.liveItem
+    var showTrouble by fi.showTrouble
+    val troubleItem = fi.troubleItem
+    var showSearchSettings by fi.showSearchSettings
+    val searchSettingsItem = fi.searchSettingsItem
     // From Search settings: the section and setting the page opens on.
-    var mappedStart by remember { mutableStateOf<Pair<String, String>?>(null) }
-    var showHomeRows by remember { mutableStateOf(false) }
-    var showPlugins by remember { mutableStateOf(false) }
-    val pluginsItem = remember { FocusRequester() }
-    val homeRowsItem = remember { FocusRequester() }
-    var showRemote by remember { mutableStateOf(false) }
-    var showNavigation by remember { mutableStateOf(false) }
-    val navigationItem = remember { FocusRequester() }
-    var showSports by remember { mutableStateOf(false) }
-    val sportsItem = remember { FocusRequester() }
-    var showPlayback by remember { mutableStateOf(false) }
-    val playbackItem = remember { FocusRequester() }
-    var showAddons by remember { mutableStateOf(false) }
-    val addonsItem = remember { FocusRequester() }
-    val remoteItem = remember { FocusRequester() }
-    val appearanceItem = remember { FocusRequester() }
-    var showUpdates by remember { mutableStateOf(false) }
-    var showAbout by remember { mutableStateOf(false) }
-    val updatesItem = remember { FocusRequester() }
-    val aboutItem = remember { FocusRequester() }
-    var returnTo by remember { mutableStateOf<FocusRequester?>(null) }
+    var mappedStart by fi.mappedStart
+    var showHomeRows by fi.showHomeRows
+    /** Home page & menu opened on My Library (Right on it while editing the menu). */
+    var homeRowsMine by fi.homeRowsMine
+    var showPlugins by fi.showPlugins
+    val pluginsItem = fi.pluginsItem
+    val homeRowsItem = fi.homeRowsItem
+    var showRemote by fi.showRemote
+    var showNavigation by fi.showNavigation
+    val navigationItem = fi.navigationItem
+    var showSports by fi.showSports
+    // (Opened from another settings page: Back goes back to that page, not to Sports in the settings list.)
+    var sportsJumped by fi.sportsJumped
+    // "Follow a team" from elsewhere in Settings (Live now leagues) opens Settings → Sports.
+    LaunchedEffect(io.github.petebutty.viewarr.ui.settings.SettingsJump.sports) {
+        if (io.github.petebutty.viewarr.ui.settings.SettingsJump.sports) { showSports = true; sportsJumped = true; io.github.petebutty.viewarr.ui.settings.SettingsJump.sports = false }
+    }
+    val sportsItem = fi.sportsItem
+    var showPlayback by fi.showPlayback
+    val playbackItem = fi.playbackItem
+    var showAddons by fi.showAddons
+    val addonsItem = fi.addonsItem
+    val remoteItem = fi.remoteItem
+    val appearanceItem = fi.appearanceItem
+    var showUpdates by fi.showUpdates
+    var showAbout by fi.showAbout
+    val updatesItem = fi.updatesItem
+    val aboutItem = fi.aboutItem
+    var returnTo by fi.returnTo
     // A hovered main entry's page switch, after a short pause (cancelled when focus moves on).
-    var hoverJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    var hoverJob by fi.hoverJob
     // The service highlighted in the main list (null: one of the main entries).
-    var serviceOn by remember { mutableStateOf<String?>(null) }
+    var serviceOn by fi.serviceOn
     // After closing a full settings page, land back on its menu item (not wherever focus happens to fall). While this
     // is pending, a main-list entry the highlight passes through on the way doesn't open (see the entries' onFocusChanged).
     LaunchedEffect(returnTo) {
@@ -225,16 +237,16 @@ internal fun MenuOverlay(
     val remote = LocalRemote.current
     val navFocus = remember { Section.entries.associateWith { FocusRequester() } }
     // The top of the main list's entries (under logo, hints and search), for the side lists to line up with.
-    var mainListTop by remember { mutableStateOf(0.dp) }
+    var mainListTop by fi.mainListTop
     // The highlight is on the menu's top drawn over a folded list (its keys are its own then).
-    var foldedHeaderFocused by remember { mutableStateOf(false) }
+    var foldedHeaderFocused by fi.foldedHeaderFocused
     val density = androidx.compose.ui.platform.LocalDensity.current
     // Someone without Live TV (Profiles → What they can do): no Live TV entry; Movies is the menu's home instead.
     val liveOn = Access.liveTv
     val homeSection = if (liveOn) Section.Tv else Section.Movies
-    val editMenusFocus = remember { FocusRequester() }
+    val editMenusFocus = fi.editMenusFocus
     // The ⚙ beside Edit menus (Settings without going to the bottom of the list); Back from Settings returns to it.
-    val gearFocus = remember { FocusRequester() }
+    val gearFocus = fi.gearFocus
     // Where focus goes when the entry it wanted isn't there: Live TV, else Movies, else the ⚙ (or Done editing),
     // so the menu is never left with nothing highlighted (Movies can be switched off).
     fun focusHome() {
@@ -242,17 +254,17 @@ internal fun MenuOverlay(
         if (runCatching { gearFocus.requestFocus() }.isSuccess) return
         runCatching { editMenusFocus.requestFocus() }
     }
-    var settingsFromGear by remember { mutableStateOf(false) }
-    val settingsFirst = remember { FocusRequester() }
-    val groupsFocus = remember { FocusRequester() }
+    var settingsFromGear by fi.settingsFromGear
+    val settingsFirst = fi.settingsFirst
+    val groupsFocus = fi.groupsFocus
     // Movies / Shows: the newest titles in your libraries, beside the menu.
-    val recentFocus = remember { FocusRequester() }
+    val recentFocus = fi.recentFocus
     // From the guide the menu opens on the channel groups alone; Left again slides the main menu out beside them.
     // (Movies, Shows, Music too: opening on their own list, the main list starts hidden rather than showing for a
     // moment and then sliding away, which jolted the page beside it.)
     // Left back to the main list: shown at once in place of the list beside it, before focus gets there (no frame
     // with both up, which flashed).
-    var forceMain by remember { mutableStateOf(false) }
+    var forceMain by fi.forceMain
     var showMain by remember {
         // (From the full-screen channel list: the channel groups alone beside it, whichever page is behind; Left again
         // brings the main list.)
@@ -265,7 +277,7 @@ internal fun MenuOverlay(
     // Back from Users & profiles / the PIN dialog (drawn over the menu): Settings stays the open list, so the row
     // they came from can take focus again (focus otherwise fell to the top of the menu).
     val profilePage = ProfileUi.users || ProfileUi.pin
-    var hadProfilePage by remember { mutableStateOf(false) }
+    var hadProfilePage by fi.hadProfilePage
     LaunchedEffect(profilePage) {
         if (hadProfilePage && !profilePage) { section = Section.Settings; showMain = true }
         hadProfilePage = profilePage
@@ -275,18 +287,27 @@ internal fun MenuOverlay(
     // Editing the main list in place (hold OK on an entry → Edit the menu, or Move): OK shows / hides, hold OK its
     // options. (UI review, Tier 4, 2026-11-17: hold OK opens Move / Hide / Edit the menu, the shared options pop-up;
     // Move picks up with the shared Carry, ▲ ▼ move, OK / Back / Left put down.)
-    var editingMain by remember { mutableStateOf(false) }
+    var editingMain by fi.editingMain
     val mainCarry = rememberCarry()
     // Edit mode was opened only to move one entry (Move from the options): putting it down leaves edit mode again.
-    var moveOnly by remember { mutableStateOf(false) }
+    var moveOnly by fi.moveOnly
     // The entry whose hold-OK options are open (by id: "Movies", "svc:Netflix", "Sports"…).
-    var entryMenu by remember { mutableStateOf<String?>(null) }
+    var entryMenu by fi.entryMenu
     // A channel group being moved (GroupList), kept here so the column's own Left / Back leave it alone meanwhile.
     val groupCarry = rememberCarry()
-    var mainFollow by remember { mutableStateOf<String?>(null) }
+    var mainFollow by fi.mainFollow
     // The main list's entries while editing (by id: "Movies", "svc:Netflix"…).
     val mainFocus = remember { HashMap<String, FocusRequester>() }
+    // The list beside the main list was gone into from the main list (OK / Right / Left on an entry, the ⚙): Back is
+    // the main list again, one level at a time. Opened straight onto a list (the guide's groups), Back closes the menu.
+    var subFromMain by fi.subFromMain
+    // The guide as the menu opened (its group, and where its highlight was): moving through the groups shows each in
+    // the guide behind, and Back out of the menu puts it back (it stayed on the last group looked at, at row 0).
+    // (One remembered holder, not three: MenuOverlay is at the method-size limit.)
+    val guideReturn = remember { GuideReturn(vm) }
+    fun restoreGuide() = guideReturn.restore()
     fun revealMain() {
+        subFromMain = false
         // Back from a service's rows: onto the service itself.
         val target = serviceOn?.let { if (editingMain) mainFocus["svc:$it"] else serviceFocus[it] }
             ?: (if (editingMain && (section == Section.Movies || section == Section.Shows)) mainFocus[section.name] else null)
@@ -302,8 +323,9 @@ internal fun MenuOverlay(
     LaunchedEffect(Unit) {
         awaitFrame()
         awaitFrame()
-        // A service's page (NOW, Netflix…) or Sports open behind: back on that entry in the main list.
-        val entry = openEntry?.takeIf { !onSettings }
+        // A service's page (NOW, Netflix…) or Sports open behind: back on that entry in the main list. (Not when the
+        // channel groups were asked for: the "Channel groups menu" button, or Left from the live channel list.)
+        val entry = openEntry?.takeIf { !onSettings && !onGroups && channelsPanel == null }
         if (entry != null) {
             // (The main list first, so its entries exist to be focused.)
             showMain = true; forceMain = true
@@ -334,13 +356,14 @@ internal fun MenuOverlay(
     fun enter(s: Section) {
         when (s) {
             // Into the channel groups: on the guide the main list slides back out (Left brings it again).
-            Section.Tv -> runCatching { groupsFocus.requestFocus() }
-            Section.Settings -> runCatching { settingsFirst.requestFocus() }
+            Section.Tv -> { subFromMain = true; runCatching { groupsFocus.requestFocus() } }
+            Section.Settings -> { subFromMain = true; runCatching { settingsFirst.requestFocus() } }
             // Movies / Shows themselves: their own rows, not a library left open from My Library (or a service).
             Section.Movies -> { moviesMedia.openLibrary(null, MediaType.Movie); moviesMedia.jumpTo(null); onOpenPage(Page.Movies) }
             Section.Shows -> { showsMedia.openLibrary(null, MediaType.Show); showsMedia.jumpTo(null); onOpenPage(Page.Shows) }
-            // My Library: into its list of libraries (moving through them shows each behind).
-            Section.Library -> runCatching { recentFocus.requestFocus() }
+            // My Library: its page, into its rows, as Movies / Shows (it tried its side list, which isn't on screen with
+            // the one-panel menu, so OK did nothing. Peter, 2026-11-18). Left still opens its list of libraries.
+            Section.Library -> onMyLibrary(true)
             Section.Recordings -> onOpenPage(Page.Recordings)
             Section.Music -> onOpenPage(Page.Music)
             Section.Search -> onOpenPage(Page.Search)
@@ -365,17 +388,18 @@ internal fun MenuOverlay(
             Section.Movies, Section.Shows, Section.Library, Section.Music, Section.Recordings, Section.Search -> recentFocus
             else -> return
         }
+        subFromMain = true
         if (runCatching { target.requestFocus() }.isFailure) {
             // (The list not drawn yet, e.g. just switched to: a frame or two later.)
             menuScope.launch { awaitFrame(); awaitFrame(); runCatching { target.requestFocus() } }
         }
     }
     // Back steps out one level: from the right-hand list to the main list, then closes the menu.
-    var subListFocused by remember { mutableStateOf(false) }
+    var subListFocused by fi.subListFocused
     // Movies / Shows: the library whose categories fill the list column (the library list slid away), or null.
-    var menuCats by remember { mutableStateOf<MediaLibrary?>(null) }
+    var menuCats by fi.menuCats
     // Movies / Shows: editing the list in place (libraries on / off and their order, the rows under "Jump to a row").
-    var menuEditing by remember { mutableStateOf(false) }
+    var menuEditing by fi.menuEditing
     LaunchedEffect(section) { menuCats = null; menuEditing = false }
     // Into a section's own list (Movies' rows, Recordings, Music…): the main list slides out to the left, as the
     // guide's channel groups always did, so the menu doesn't cover half the screen. Left brings it back.
@@ -391,11 +415,12 @@ internal fun MenuOverlay(
     val libMusicSources = libMusicAll.filter { it.on }.map { it.name }
     // A service's rows being moved (its rows list beside it), and the row whose hold-OK options are open.
     val rowCarry = rememberCarry()
-    var rowMenu by remember { mutableStateOf<String?>(null) }
+    var rowMenu by fi.rowMenu
     fun endEditMain() {
         editingMain = false; mainCarry.drop(); moveOnly = false; mainFollow = null; menuEditing = false; rowCarry.drop()
         menuScope.launch { awaitFrame(); awaitFrame(); runCatching { focusHome() } }
     }
+    val fullPage = showAppearance || showRemote || showNavigation || showSports || showPlayback || showAddons || showUpdates || showAbout || showHomeRows || showPlugins || showLive || showTrouble || showSearchSettings
     BackHandler {
         // (A page switch still waiting from the highlight resting on an entry mustn't land after Back.)
         hoverJob?.cancel()
@@ -408,14 +433,20 @@ internal fun MenuOverlay(
             // A library's categories: back to the library list. Editing the list: done.
             menuCats != null -> menuCats = null
             menuEditing -> menuEditing = false
-            // Opened from the live channel list: Back goes back to the channels.
-            channelsPanel != null -> onClose()
+            // A list gone into from the main list (Settings, Movies' libraries…): the main list again, as Left (Back
+            // closed the whole menu). One level per Back.
+            subListFocused && subFromMain && !fullPage -> revealMain()
+            // From the live channel list: Back from the main list is the groups again; from the groups, the channels.
+            // (Beside the channel list both lists can show: the main list is up whenever showMain is.)
+            channelsPanel != null -> if (showMain && !subListFocused) {
+                showMain = false; forceMain = false; subFromMain = false
+                runCatching { groupsFocus.requestFocus() }
+            } else { restoreGuide(); onClose() }
             // Opened by Back in the guide (as classic IPTV apps): Back from the groups asks to exit.
-            backOut && section == Section.Tv -> onBackOut()
-            // (A section's list: Back closes the menu too, in one press; Left is the way back to the main list.)
+            backOut && section == Section.Tv -> { restoreGuide(); onBackOut() }
             // The main list: Back closes the menu, on the page you're on. (It used to go to Live TV first, which also
             // switched the page behind to the guide: two presses, and the wrong page.)
-            else -> if (backOut) onBackOut() else onClose()
+            else -> { restoreGuide(); if (backOut) onBackOut() else onClose() }
         }
     }
 
@@ -428,19 +459,25 @@ internal fun MenuOverlay(
     val stripColour = if (seeThrough) AppColors.MenuPanel else Color.Transparent
     val divider = AppColors.TextSecondary.copy(alpha = 0.15f)
     // Channel groups previewed in the channel column while you move through them (a short pause keeps it smooth).
-    var previewJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    var previewJob by fi.previewJob
     val serviceRowsFocus = remember { FocusRequester() }
+    // Only once you've stopped on an entry (Peter, 2026-11-18: flying through the menu loaded every page's rows as it
+    // passed, which stuttered): no Up / Down for 0.6 s, then its page behind.
+    suspend fun settled() {
+        delay(600)
+        while (System.currentTimeMillis() - MenuNav.lastMove < 600) delay(120)
+    }
     fun hoverService(name: String) {
         hoverJob?.cancel()
-        hoverJob = menuScope.launch { delay(300); onService(name, null, false) }
+        hoverJob = menuScope.launch { settled(); onService(name, null, false) }
     }
     fun hoverPage(s: Section, fresh: Boolean = false) {
         val p = when (s) { Section.Tv -> Page.Tv; Section.Movies -> Page.Movies; Section.Shows -> Page.Shows; Section.Music -> Page.Music; Section.Recordings -> Page.Recordings; else -> null }
         hoverJob?.cancel()
         // My Library: its own page behind (your servers' rows from Movies and Shows). (Peter, 2026-11-17: the guide stayed.)
-        if (s == Section.Library) hoverJob = menuScope.launch { delay(300); onMyLibrary(false) }
+        if (s == Section.Library) hoverJob = menuScope.launch { settled(); onMyLibrary(false) }
         if (p != null) hoverJob = menuScope.launch {
-            delay(300)
+            settled()
             // Arriving on Movies / Shows from another entry (e.g. My Library): their own rows, not a library left
             // open there. (Coming back Left from their own list keeps the library you were in.)
             if (fresh && s == Section.Movies && moviesMedia.browse.value != null) { moviesMedia.openLibrary(null, MediaType.Movie); moviesMedia.jumpTo(null) }
@@ -461,16 +498,19 @@ internal fun MenuOverlay(
     val savedSources by liveSources.saved.collectAsStateWithLifecycle()
     val activeSource by liveSources.active.collectAsStateWithLifecycle()
     val headSource = activeSource?.label?.takeIf { savedSources.size > 1 && AppColors.palette.opt(UiOpts.MENU_HEAD_SOURCE) == 0 }
-    val fullPage = showAppearance || showRemote || showNavigation || showSports || showPlayback || showAddons || showUpdates || showAbout || showHomeRows || showPlugins || showLive || showTrouble || showSearchSettings
     LaunchedEffect(fullPage) { onFullPage(fullPage) }
     // Beside the preview: the strip steps out of the way (still there underneath for focus to come back to).
     val besidePreview = fullPage && previewOn
-    Box(Modifier.fillMaxSize()) {
+    // Opened by holding OK (a button set to the menu): the rest of that press, its repeats and release, mustn't press
+    // the entry the highlight lands on.
+    Box(Modifier.fillMaxSize().ignoreHeldOk()) {
     Row(Modifier.fillMaxSize().graphicsLayer { alpha = if (besidePreview) 0f else 1f }) {
     // Settings → Appearance → Main menu → Colour tint: the whole menu's glass (both panels, so they always match) in the
     // colour of the section you're on.
     val tintOn = AppColors.palette.opt(UiOpts.MENU_TINT) == 1 && !fullPage
     Row(Modifier.fillMaxHeight().onSizeChanged { onWidth(it.width) }.background(stripColour)
+        // (Every Up / Down in the menu: when it last moved, so pages load only once it has stopped.)
+        .onPreviewKeyEvent { e -> if (e.type == KeyEventType.KeyDown && (e.key == Key.DirectionUp || e.key == Key.DirectionDown)) MenuNav.lastMove = System.currentTimeMillis(); false }
         // (Not Settings: a grey tint just looked washed out; it keeps the plain glass.)
         .then(if (tintOn && section != Section.Settings) Modifier.background(sectionColour(section).copy(alpha = 0.10f)) else Modifier)) {
         // Left again: the main list appears beside the groups.
@@ -496,7 +536,7 @@ internal fun MenuOverlay(
                     Section.Tv -> "Right › guide  ·  Left › groups"
                     Section.Movies -> "Right ›  go into Movies"
                     Section.Shows -> "Right ›  go into Shows"
-                    Section.Library -> "Right ›  your libraries"
+                    Section.Library -> "Right ›  My Library  ·  ‹ Left: your libraries"
                     Section.Music -> "Right ›  your music"
                     Section.Recordings -> "Right ›  go into Recordings"
                     Section.Search -> "Right ›  search"
@@ -540,7 +580,9 @@ internal fun MenuOverlay(
                 if (!editingMain) io.github.petebutty.viewarr.ui.common.RoundBarButton(
                     icon = io.github.petebutty.viewarr.ui.common.AppIcons.Settings, label = "Settings", size = 34.dp,
                     onClick = {
-                        section = Section.Settings; serviceOn = null; settingsFromGear = true
+                        // (A page switch still waiting from the entry the highlight left mustn't land under Settings.)
+                        hoverJob?.cancel()
+                        section = Section.Settings; serviceOn = null; settingsFromGear = true; subFromMain = true
                         menuScope.launch { awaitFrame(); awaitFrame(); runCatching { settingsFirst.requestFocus() } }
                     },
                     // (Also Settings' own place in the menu: everything returning to "Settings" lands here.)
@@ -570,7 +612,6 @@ internal fun MenuOverlay(
                     // bring it up); the keyboard's search key opens the search page with what was typed.
                     var menuQuery by remember { mutableStateOf("") }
                     var menuTyping by remember { mutableStateOf(false) }
-                    var menuBoxFocused by remember { mutableStateOf(false) }
                     val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
                     fun startSearch() {
                         keyboard?.hide(); menuTyping = false
@@ -581,18 +622,20 @@ internal fun MenuOverlay(
                     SearchField(
                         value = menuQuery,
                         onValueChange = { menuQuery = it },
-                        placeholder = if (menuTyping) "Type, then search" else "Search…",
+                        // (One word: anything longer is cut short in the slim pill.)
+                        placeholder = "Search",
                         readOnly = !menuTyping,
                         compact = true,
                         listening = menuVoice.listening,
                         litWhenFocused = true,
                         keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = { startSearch() }, onDone = { startSearch() }),
                         modifier = Modifier.weight(1f).height(34.dp)
-                            .onFocusChanged { menuBoxFocused = it.isFocused; if (!it.isFocused) { menuTyping = false; keyboard?.hide() } }
+                            .onFocusChanged { if (!it.isFocused) { menuTyping = false; keyboard?.hide() } }
                             .onPreviewKeyEvent { e ->
                                 if (e.key == Key.DirectionUp) return@onPreviewKeyEvent true
                                 if (!menuTyping && (e.key == Key.DirectionCenter || e.key == Key.Enter || e.key == Key.NumPadEnter)) {
-                                    if (e.type == KeyEventType.KeyUp) { menuTyping = true; menuScope.launch { awaitFrame(); keyboard?.show() } }
+                                    // (On the release, but not the release of a held OK that opened something else.)
+                                    if (e.type == KeyEventType.KeyUp && !HeldOk.releasePending) { menuTyping = true; menuScope.launch { awaitFrame(); keyboard?.show() } }
                                     return@onPreviewKeyEvent true
                                 }
                                 if (!menuTyping && e.type == KeyEventType.KeyDown && e.key == Key.DirectionRight) { openEntryPage(section); return@onPreviewKeyEvent true }
@@ -755,6 +798,8 @@ internal fun MenuOverlay(
                                     when {
                                         id.startsWith("svc:") -> runCatching { serviceRowsFocus.requestFocus() }
                                         id == Section.Movies.name || id == Section.Shows.name -> { menuEditing = true }
+                                        // My Library: which of your servers' rows it shows, and their order.
+                                        id == Section.Library.name -> { homeRowsMine = true; showHomeRows = true }
                                         else -> Unit
                                     }
                                     true
@@ -768,7 +813,7 @@ internal fun MenuOverlay(
                             onLongClick = { entryMenu = id },
                             modifier = Modifier
                                 .focusRequester(mainFocus.getOrPut(id) { FocusRequester() })
-                                .onFocusChanged { if (it.isFocused && returnTo == null) { serviceOn = id; hoverJob?.cancel(); hoverJob = menuScope.launch { delay(300); onLiveEntry(id, false) } } }
+                                .onFocusChanged { if (it.isFocused && returnTo == null) { serviceOn = id; hoverJob?.cancel(); hoverJob = menuScope.launch { settled(); onLiveEntry(id, false) } } }
                                 .onPreviewKeyEvent { e -> if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionRight) { hoverJob?.cancel(); onLiveEntry(id, true); true } else false },
                         )
                         // A service: its page behind as you move onto it; OK straight in; Right onto its rows (to reorder them).
@@ -812,7 +857,9 @@ internal fun MenuOverlay(
         // Room at the top for the hint (and the heading under it, in the padding as before). On its own (the main list
         // folded away): its first entry level with the main list's first, so stepping between them (channel groups ⇄
         // Live TV) doesn't jump up and down. (Peter, 2026-11-17: the groups started well above the main list.)
-        val aligned = single && !mainShown && !fullPage
+        // (Beside the live channel list too: the groups had no header there, so Up from the first group went nowhere.
+        // Not while that list's programme panel has folded the groups away to nothing.)
+        val aligned = (single || (channelsPanel != null && !ChannelPanelState.programmesOpen)) && !mainShown && !fullPage
         // (Measured from the header's ⚙ / Search row; before its first drawing, about where it lands.)
         val subTop = if (aligned) maxOf(mainListTop.takeIf { it > 0.dp } ?: 170.dp, if (subHint) 40.dp else 24.dp)
             else if (subHint) 40.dp else 24.dp
@@ -1105,7 +1152,11 @@ internal fun MenuOverlay(
             channelsPanel { runCatching { groupsFocus.requestFocus() } }
         }
     }
-        Box(Modifier.weight(1f).fillMaxHeight().background(Color.Black.copy(alpha = 0.4f * (if (seeThrough) AppColors.palette.menuAlpha else 1f))))
+        // The rest of the screen: dimmed only over full-screen video (the menu sits over the picture there). Over a
+        // page (the guide) the page is pushed along beside the menu, not under it: no shade (Peter, 2026-11-17: a dark
+        // band slid over the guide as the menu opened, its edge showing mid-slide).
+        if (seeThrough) Box(Modifier.weight(1f).fillMaxHeight().background(Color.Black.copy(alpha = 0.4f * AppColors.palette.menuAlpha)))
+        else Spacer(Modifier.weight(1f))
     }
     // With the preview up: the page full width, a clear window where the picture is, and its list of sections
     // starting below it (SettingsPage).
@@ -1144,7 +1195,7 @@ internal fun MenuOverlay(
                 }
             },
             others = listOf(
-                other("Remote buttons", "buttons remote presets tivimate skip size channel change delay zapping search button colour extra spare learn") { showRemote = true },
+                other("Remote buttons", "buttons remote presets classic skip size channel change delay zapping search button colour extra spare learn") { showRemote = true },
                 other("Home page & menu", "home page rows libraries order menu lists recently added continue watching") { showHomeRows = true },
                 other("Sports", "teams leagues games football basketball nfl follow") { showSports = true },
                 other("Accounts & sources", "accounts sources sign in plex jellyfin emby trakt seerr dispatcharr iptv playlist addons music navidrome server") { onAccounts() },
@@ -1162,10 +1213,11 @@ internal fun MenuOverlay(
         })
     }
     if (showHomeRows) {
-        HomeRowsSettingsScreen(onBack = {
-            runCatching { homeRowsItem.requestFocus() }
+        HomeRowsSettingsScreen(startMine = homeRowsMine, onBack = {
             showHomeRows = false
-            returnTo = homeRowsItem
+            // (From the menu's edit mode, My Library: back to it there, not to Settings.)
+            if (homeRowsMine) { homeRowsMine = false; mainFollow = null; mainFollow = Section.Library.name }
+            else { runCatching { homeRowsItem.requestFocus() }; returnTo = homeRowsItem }
         })
     }
     if (showRemote) {
@@ -1177,9 +1229,9 @@ internal fun MenuOverlay(
     }
     if (showSports) {
         SportsSettingsScreen(onBack = {
-            runCatching { sportsItem.requestFocus() }
             showSports = false
-            returnTo = sportsItem
+            if (sportsJumped) sportsJumped = false
+            else { runCatching { sportsItem.requestFocus() }; returnTo = sportsItem }
         })
     }
     if (showAbout) {
@@ -1253,6 +1305,7 @@ internal fun GroupList(carry: Carry, sourcesVm: LiveSourcesViewModel, focusReque
     // with no Cancel: UI review, Tier 4, 2026-11-17); the hidden ones gather at the end, folded.
     var optionsFor by remember { mutableStateOf<Int?>(null) }
     var showHidden by remember { mutableStateOf(false) }
+    val hiddenTotal = hiddenGroups.size + (if (hideAll) 1 else 0) + (if (favHidden && favouriteCount > 0) 1 else 0)
     // After Move / Hide / Show / a source switch the row that had the highlight changes or goes: the highlight is put
     // back (on that group, else the group shown) instead of being lost.
     val rowFocus = remember { HashMap<Int, FocusRequester>() }
@@ -1279,6 +1332,10 @@ internal fun GroupList(carry: Carry, sourcesVm: LiveSourcesViewModel, focusReque
                 // (★ Favourites and All channels can't be moved.)
                 if (onMove != null && g != null) PopupOption("Move") { carry.pickUp(id.toString()); refocus = id } else null,
                 hideIt?.let { h -> PopupOption("Hide from this list") { h(); refocus = REFOCUS_SHOWN } },
+                // With the "Hidden groups" row switched off (Settings → Appearance → Menu, the default), this is the
+                // way back to them: it lists them at the end until the menu closes.
+                if (hiddenTotal > 0 && onHide != null && AppColors.palette.opt(UiOpts.MENU_HIDDEN) == 0 && !showHidden)
+                    PopupOption("Show hidden groups ($hiddenTotal)") { showHidden = true } else null,
             ),
             onClose = { optionsFor = null },
         )
@@ -1356,9 +1413,10 @@ internal fun GroupList(carry: Carry, sourcesVm: LiveSourcesViewModel, focusReque
             )
             }
         }
-        // Hidden groups, folded at the end: OK on one shows it in the list again.
-        val hiddenCount = hiddenGroups.size + (if (hideAll) 1 else 0) + (if (favHidden && favouriteCount > 0) 1 else 0)
-        if (hiddenCount > 0 && onHide != null) {
+        // Hidden groups, folded at the end: OK on one shows it in the list again. The row is optional (abbey, 2026-11-17:
+        // clutter): off, it only appears after "Show hidden groups" in a group's hold-OK menu.
+        val hiddenCount = hiddenTotal
+        if (hiddenCount > 0 && onHide != null && (showHidden || AppColors.palette.opt(UiOpts.MENU_HIDDEN) == 1)) {
             item(key = "hidden") {
                 MenuItem(text = "Hidden groups ($hiddenCount)", trailing = if (showHidden) "▴" else "▾", selected = false, dim = true,
                     onClick = { showHidden = !showHidden }, modifier = Modifier.rightIgnored())
@@ -1474,9 +1532,6 @@ internal fun SettingsPanel(playbackItem: FocusRequester, onPlayback: () -> Unit,
 @Composable
 internal fun SettingsGroup(title: String, first: Boolean = false) = MenuGroupLabel(title, first)
 
-/** The Refresh shortcut at the end of the live TV row (not a saved shortcut). */
-internal const val REFRESH_SHORTCUT = "action:refresh"
-
 /** A group's heading in the side menu's lists: small capitals with a rule above, so it can't be mistaken for an item. */
 @Composable
 internal fun MenuGroupLabel(title: String, first: Boolean = false) {
@@ -1521,7 +1576,9 @@ internal object MenuScrolls {
 // (A name no real group has. It was "\u0000favourites", but a NUL can't be written into the settings file safely.)
 internal const val FAV_HIDDEN = "★ favourites (hidden)"
 /** optionsFor's stand-in for All channels (real groups have positive ids; Favourites is GuideViewModel.FAVOURITES). */
-private const val ALL_ID = -3
+/** The "All channels" entry in the groups list (its own number: -3 was Live now's too, so hiding Live now hid All
+ * channels. Gtunney, 2026-11-17). */
+private const val ALL_ID = -10
 
 /**
  * Hold OK on a main-menu entry: Move (picks it up: edit mode for the move, so hidden entries show where it lands),
@@ -1539,4 +1596,73 @@ private fun MainEntryOptions(label: String, shown: Boolean, editing: Boolean, on
         ),
         onClose = onClose,
     )
+}
+
+/** When the menu's highlight last moved Up / Down (its pages load only once it has stopped). */
+internal object MenuNav {
+    @Volatile var lastMove = 0L
+}
+
+/** MenuOverlay's focus requesters and plain flags (one remembered holder, not one slot each: the method-size limit). */
+private class MenuHolder {
+    val showAppearance = mutableStateOf(false)
+    val showLive = mutableStateOf(false)
+    val showTrouble = mutableStateOf(false)
+    val showSearchSettings = mutableStateOf(false)
+    val mappedStart = mutableStateOf<Pair<String, String>?>(null)
+    val showHomeRows = mutableStateOf(false)
+    val homeRowsMine = mutableStateOf(false)
+    val showPlugins = mutableStateOf(false)
+    val showRemote = mutableStateOf(false)
+    val showNavigation = mutableStateOf(false)
+    val showSports = mutableStateOf(false)
+    val sportsJumped = mutableStateOf(false)
+    val showPlayback = mutableStateOf(false)
+    val showAddons = mutableStateOf(false)
+    val showUpdates = mutableStateOf(false)
+    val showAbout = mutableStateOf(false)
+    val returnTo = mutableStateOf<FocusRequester?>(null)
+    val hoverJob = mutableStateOf<kotlinx.coroutines.Job?>(null)
+    val serviceOn = mutableStateOf<String?>(null)
+    val mainListTop = mutableStateOf(0.dp)
+    val foldedHeaderFocused = mutableStateOf(false)
+    val settingsFromGear = mutableStateOf(false)
+    val forceMain = mutableStateOf(false)
+    val hadProfilePage = mutableStateOf(false)
+    val editingMain = mutableStateOf(false)
+    val moveOnly = mutableStateOf(false)
+    val entryMenu = mutableStateOf<String?>(null)
+    val mainFollow = mutableStateOf<String?>(null)
+    val subFromMain = mutableStateOf(false)
+    val subListFocused = mutableStateOf(false)
+    val menuCats = mutableStateOf<MediaLibrary?>(null)
+    val menuEditing = mutableStateOf(false)
+    val rowMenu = mutableStateOf<String?>(null)
+    val previewJob = mutableStateOf<kotlinx.coroutines.Job?>(null)
+    val liveItem = FocusRequester()
+    val troubleItem = FocusRequester()
+    val searchSettingsItem = FocusRequester()
+    val pluginsItem = FocusRequester()
+    val homeRowsItem = FocusRequester()
+    val navigationItem = FocusRequester()
+    val sportsItem = FocusRequester()
+    val playbackItem = FocusRequester()
+    val addonsItem = FocusRequester()
+    val remoteItem = FocusRequester()
+    val appearanceItem = FocusRequester()
+    val updatesItem = FocusRequester()
+    val aboutItem = FocusRequester()
+    val editMenusFocus = FocusRequester()
+    val gearFocus = FocusRequester()
+    val settingsFirst = FocusRequester()
+    val groupsFocus = FocusRequester()
+    val recentFocus = FocusRequester()
+}
+
+/** The guide as the menu opened (its group and highlight), put back when the menu is cancelled with Back. */
+private class GuideReturn(private val vm: GuideViewModel) {
+    private val group = vm.groupId.value
+    private val cursor = vm.cursor.value
+    private val channel = vm.channels.value.getOrNull(vm.cursor.value.row)?.id
+    fun restore() { if (vm.groupId.value != group) vm.restoreView(group, cursor, channel) }
 }

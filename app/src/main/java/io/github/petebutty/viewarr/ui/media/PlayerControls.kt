@@ -208,7 +208,8 @@ class PlayerMenu {
         if (down) touch()
         // The next episodes: Left / Right along them, OK plays one, Up (or Back) leaves the row.
         // The rows under the bar: Left / Right along one, Down / Up between them (rows passed slide away above; Up from
-        // the first goes back to the buttons), OK plays / opens the card, Back to the buttons.
+        // the first goes back to the buttons), OK plays / opens the card. (Back to the buttons is Back's step in
+        // FilmControls.kt filmBackStep: VodKeys takes Back before the controls see it.)
         if (onEpisodes) {
             if (downSizes.isEmpty()) { onEpisodes = false; if (episodesOnly) open = false; return true }
             downRow = downRow.coerceIn(0, downSizes.lastIndex)
@@ -220,7 +221,6 @@ class PlayerMenu {
                 RemoteAction.Up -> if (down) {
                     if (downRow > 0) { downRow--; episode = rowStart(downRow) } else { onEpisodes = false; if (episodesOnly) open = false }
                 }
-                RemoteAction.Back -> if (down) { onEpisodes = false; if (episodesOnly) open = false }
                 RemoteAction.Down -> if (down && downRow < downSizes.lastIndex) { downRow++; episode = rowStart(downRow) }
                 else -> return false
             }

@@ -29,6 +29,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.border
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -84,14 +85,15 @@ fun MusicOptionsHost(vm: MusicViewModel) {
         if (song != null) {
             add(PopupOption("Play next") { vm.playNext(listOf(song)) })
             add(PopupOption("Add to queue") { vm.addToQueue(listOf(song)) })
-            add(PopupOption("Song radio") { vm.radio(song) })
+            add(PopupOption("Start radio") { vm.radio(song) })
             add(PopupOption(if (song.id in starred) "★ Remove from favourites" else "☆ Add to favourites") { vm.toggleStar(song.id, "song") })
         } else if (card != null) {
             val kind = when (card.kind) { MusicKind.Album -> "album"; MusicKind.Artist -> "artist"; else -> null }
-            if (card.kind == MusicKind.Album || card.kind == MusicKind.Playlist) {
+            if (card.kind == MusicKind.Album || card.kind == MusicKind.Playlist || card.kind == MusicKind.Mix) {
                 add(PopupOption("Play next") { vm.songsOf(card) { vm.playNext(it) } })
                 add(PopupOption("Add to queue") { vm.songsOf(card) { vm.addToQueue(it) } })
             }
+            if (card.kind != MusicKind.Genre && card.kind != MusicKind.Decade) add(PopupOption("Start radio") { vm.radioFrom(card) })
             if (kind != null) add(PopupOption(if (card.id in starred) "★ Remove from favourites" else "☆ Add to favourites") { vm.toggleStar(card.id, kind) })
         }
     }
@@ -141,8 +143,9 @@ fun LyricsPanel(lyrics: Lyrics, position: Long, duration: Long, modifier: Modifi
 @Composable
 fun QueuePanel(onClose: () -> Unit) {
     val carry = rememberCarry()
-    // (Back while a song is carried puts it down: Modifier.reorderable takes that press itself.)
-    BackHandler { if (!carry.active) onClose() }
+    // (Back while a song is carried puts it down: Modifier.reorderable takes that press itself; here too, should it
+    // ever reach this.)
+    BackHandler { if (carry.active) carry.drop() else onClose() }
     BackLayer()
     var picked by remember { mutableStateOf<Int?>(null) }
     val list = rememberLazyListState(initialFirstVisibleItemIndex = (MusicPlayer.index - 2).coerceAtLeast(0))
@@ -152,6 +155,21 @@ fun QueuePanel(onClose: () -> Unit) {
     // Keys that follow a song as it moves (the same song twice: its 1st, 2nd… copy), so the highlight moves with it.
     val keys = queueKeys(MusicPlayer.queue)
     val keysNow by androidx.compose.runtime.rememberUpdatedState(keys)
+    // Remove from queue: the highlight goes to the song now in its place (or the one before, at the end); it was left
+    // on nothing. One requester per key; tried a few times, as the options window is still closing.
+    val rowReq = remember { HashMap<String, FocusRequester>() }
+    var focusedKey by remember { mutableStateOf<String?>(null) }
+    var refocus by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(refocus) {
+        val k = refocus ?: return@LaunchedEffect
+        repeat(12) {
+            kotlinx.coroutines.delay(40)
+            runCatching { rowReq[k]?.requestFocus() }
+            awaitFrame()
+            if (focusedKey == k) { refocus = null; return@LaunchedEffect }
+        }
+        refocus = null
+    }
     // Its own window (ViewarrPopup), on the right of Now Playing: the remote can't be left behind it.
     ViewarrPopup(onClose = { if (!carry.active) onClose() }) {
         Box(Modifier.fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.CenterEnd) {
@@ -173,7 +191,10 @@ fun QueuePanel(onClose: () -> Unit) {
                                 selected = now || carried,
                                 onClick = { MusicPlayer.jumpTo(i) },
                                 onLongClick = { picked = i },
-                                modifier = (if (now) Modifier.focusRequester(nowFocus) else Modifier).reorderable(
+                                modifier = (if (now) Modifier.focusRequester(nowFocus) else Modifier)
+                                    .focusRequester(rowReq.getOrPut(key) { FocusRequester() })
+                                    .onFocusChanged { if (it.isFocused) focusedKey = key else if (focusedKey == key) focusedKey = null }
+                                    .reorderable(
                                     carried = carried,
                                     onMove = { dir ->
                                         val from = keysNow.indexOf(key)
@@ -202,7 +223,11 @@ fun QueuePanel(onClose: () -> Unit) {
             options = buildList {
                 if (MusicPlayer.queue.size > 1) add(carry.moveOption(key))
                 add(PopupOption("Play next") { MusicPlayer.move(i, (MusicPlayer.index + if (i > MusicPlayer.index) 1 else 0).coerceIn(0, MusicPlayer.queue.lastIndex)) })
-                if (i != MusicPlayer.index) add(PopupOption("Remove from queue") { MusicPlayer.removeAt(i) })
+                if (i != MusicPlayer.index) add(PopupOption("Remove from queue") {
+                    MusicPlayer.removeAt(i)
+                    val left = queueKeys(MusicPlayer.queue)
+                    refocus = left.getOrNull(i) ?: left.lastOrNull()
+                })
             },
             onClose = { picked = null },
             width = Tokens.PopupNarrow + 40.dp,

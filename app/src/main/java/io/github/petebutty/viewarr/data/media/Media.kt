@@ -47,9 +47,6 @@ data class EpisodeInfo(
 /** One episode in your Plex library: its item key, resume point and whether it's been watched. */
 data class PlexEpisode(val ratingKey: String, val viewOffsetMs: Long, val watched: Boolean)
 
-/** A shortcut's logo: [square] app icons (streaming services) fill the circle; network logos sit on a light disc. */
-data class ServiceLogo(val url: String, val square: Boolean)
-
 /**
  * A row of titles. Rows with the same [group] are shown as one (e.g. continue watching on every server, or the
  * same library's recently added on two Plex servers); [groupName] is the library name for the merged title.
@@ -272,7 +269,6 @@ data class MediaDetail(
     val language: String? = null,
     val budget: Long? = null,
     val revenue: Long? = null,
-    val voteCount: Int? = null,
     val reviews: List<Review> = emptyList(),
     val similar: List<MediaItem> = emptyList(),
     /** The collection a film belongs to ("Dune Collection") and all its films, in release order. */

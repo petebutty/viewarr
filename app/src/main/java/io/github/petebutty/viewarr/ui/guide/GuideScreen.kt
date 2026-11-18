@@ -21,6 +21,7 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -47,6 +48,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
@@ -66,12 +72,14 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.tv.material3.LocalTextStyle
 import androidx.tv.material3.Text
 import io.github.petebutty.viewarr.data.dvr.DvrRecording
 import io.github.petebutty.viewarr.data.dvr.DvrState
 import io.github.petebutty.viewarr.data.local.ChannelListItem
 import io.github.petebutty.viewarr.data.local.GuideProgram
 import io.github.petebutty.viewarr.data.repository.SyncState
+import io.github.petebutty.viewarr.ui.common.Badge
 import io.github.petebutty.viewarr.ui.common.GroupNames
 import io.github.petebutty.viewarr.ui.common.NewsTicker
 import io.github.petebutty.viewarr.ui.common.RemoteAction
@@ -79,6 +87,7 @@ import io.github.petebutty.viewarr.ui.common.RemoteKeys
 import io.github.petebutty.viewarr.ui.common.Ticker
 import io.github.petebutty.viewarr.ui.theme.AppColors
 import io.github.petebutty.viewarr.ui.theme.Dates
+import io.github.petebutty.viewarr.ui.theme.Tokens
 import io.github.petebutty.viewarr.ui.theme.UiOpts
 import io.github.petebutty.viewarr.ui.theme.Wallpaper
 import kotlinx.coroutines.android.awaitFrame
@@ -91,8 +100,15 @@ private val ChannelColumn = 230.dp
 private val RowHeight = 38.dp
 private const val PAGE = 7
 
-private val CellText = TextStyle(color = Color.White, fontSize = 13.sp)
-private val CellTextFocused = CellText.copy(fontWeight = FontWeight.SemiBold)
+/**
+ * The programme names drawn on the grid, in the app's font (Settings → Appearance → Font; read from the text style
+ * AppRoot provides: a fixed style here ignored it and the guide alone stayed in the standard font).
+ */
+@Composable
+private fun rememberCellText(): TextStyle {
+    val font = LocalTextStyle.current.fontFamily
+    return remember(font) { TextStyle(color = Color.White, fontSize = 13.sp, fontFamily = font) }
+}
 
 private val timeFormat get() = Dates.time
 private val dateFormat get() = Dates.dayTime
@@ -201,8 +217,12 @@ fun GuideScreen(
                     return@onPreviewKeyEvent true
                 }
                 if (e.key == Key.DirectionLeft) {
-                    // (The Viewarr way: back through the programmes, tap or hold.)
-                    if (e.type == KeyEventType.KeyDown) vm.moveLeft()
+                    // (The Viewarr way: back through the programmes, tap or hold. Already at "now" and nowhere further
+                    // back: the menu, as Left at the edge of any page. UI review, 2026-11-18.)
+                    if (e.type == KeyEventType.KeyDown) {
+                        val atNow = vm.isAtNow()
+                        if (!vm.moveLeft() && atNow && e.nativeKeyEvent.repeatCount == 0) onOpenMenu()
+                    }
                     return@onPreviewKeyEvent true
                 }
                 // OK: a tap selects (play / info); holding it opens the record options.
@@ -264,8 +284,20 @@ fun GuideScreen(
             value = vm.logoFor(t)
         }
         // "What's selected" wallpaper: the highlighted programme's picture.
-        LaunchedEffect(art) { art?.let { Wallpaper.selected = it } }
-        InfoPanel(selectedChannel, focused, now, serverUrl, art, titleLogo)
+        // Banner (Settings → Appearance → Programme picture shows as): a card in the info area, not the background.
+        val banner = AppColors.palette.opt(UiOpts.GUIDE_ART_PLACE) == 1
+        LaunchedEffect(art, banner) { if (banner) Wallpaper.selected = null else art?.let { Wallpaper.selected = it } }
+        // Scheduled / in-progress Dispatcharr recordings, per channel: a red dot on the programme, a badge in the panel.
+        val recordedByChannel = remember(recordings) {
+            recordings.filter { it.state == DvrState.Scheduled || it.state == DvrState.Recording }
+                .groupBy({ it.channelId }, { it.start..it.end })
+        }
+        InfoPanel(
+            channel = selectedChannel, program = focused, now = now, serverUrl = serverUrl,
+            channelPrograms = selectedChannel?.let { programs[it.id] }.orEmpty(),
+            recorded = selectedChannel?.let { recordedByChannel[it.id] }.orEmpty(),
+            art = art, titleLogo = titleLogo, banner = banner,
+        )
         Spacer(Modifier.height(10.dp))
 
         if (channels.isEmpty()) {
@@ -278,7 +310,7 @@ fun GuideScreen(
                         SyncState.Idle -> "No channels yet. Add a live TV source in Settings → Accounts & sources."
                     },
                     color = AppColors.TextSecondary,
-                    fontSize = 18.sp,
+                    fontSize = 14.sp,
                 )
             }
             return@Column
@@ -286,15 +318,27 @@ fun GuideScreen(
 
         BoxWithConstraints(Modifier.fillMaxWidth().weight(1f)) {
             val gridWidth = maxWidth - ChannelColumn
-            // Scheduled / in-progress Dispatcharr recordings, per channel: drawn as a red dot on the programme.
-            val recordedByChannel = remember(recordings) {
-                recordings.filter { it.state == DvrState.Scheduled || it.state == DvrState.Recording }
-                    .groupBy({ it.channelId }, { it.start..it.end })
-            }
 
             Column(Modifier.fillMaxSize()) {
                 TimeHeader(now, cursor.windowStart, sync, gridWidth)
-                LazyColumn(state = listState, userScrollEnabled = false, modifier = Modifier.fillMaxSize()) {
+                // The last row is usually only part on screen. It's faded out over its bottom 24 units rather than the
+                // list being cut to whole rows: the centring above counts the visible rows (and leaves the part one out),
+                // so a list of whole rows would have put the highlight a row off centre and needed that code reworked.
+                // A fade touches no layout or scrolling. (Drawn off screen first so the fade is a true alpha, whatever
+                // is behind the guide: a flat colour, a wallpaper or the picture.)
+                LazyColumn(
+                    state = listState, userScrollEnabled = false,
+                    modifier = Modifier.fillMaxSize()
+                        .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+                        .drawWithContent {
+                            drawContent()
+                            val fade = 24.dp.toPx()
+                            drawRect(
+                                Brush.verticalGradient(0f to Color.Black, 1f to Color.Transparent, startY = size.height - fade, endY = size.height),
+                                topLeft = Offset(0f, size.height - fade), size = Size(size.width, fade), blendMode = BlendMode.DstIn,
+                            )
+                        },
+                ) {
                     // One copy of the channels for the count, the keys and the rows (the list changing size between
                     // them, e.g. another group, asked for a channel past its end and crashed).
                     val list = channels
@@ -313,7 +357,6 @@ fun GuideScreen(
                             serverUrl = serverUrl,
                             textMeasurer = textMeasurer,
                             gridWidth = gridWidth,
-                            shiftMin = vm.totalShiftMin(channel),
                         )
                     }
                 }
@@ -335,7 +378,19 @@ fun GuideScreen(
 }
 
 @Composable
-private fun InfoPanel(channel: ChannelListItem?, program: GuideProgram?, now: Long, serverUrl: String, art: String? = null, titleLogo: String? = null) {
+private fun InfoPanel(
+    channel: ChannelListItem?,
+    program: GuideProgram?,
+    now: Long,
+    serverUrl: String,
+    /** This channel's programmes (for Next / Then) and the recordings covering it (for the Recording badge). */
+    channelPrograms: List<GuideProgram> = emptyList(),
+    recorded: List<LongRange> = emptyList(),
+    art: String? = null,
+    titleLogo: String? = null,
+    banner: Boolean = false,
+) {
+    val boxArt = art.takeUnless { banner }
     Row(Modifier.fillMaxWidth().height(180.dp)) {
         Box(
             Modifier
@@ -344,10 +399,10 @@ private fun InfoPanel(channel: ChannelListItem?, program: GuideProgram?, now: Lo
                 .background(AppColors.PreviewBox, RoundedCornerShape(8.dp)),
             contentAlignment = Alignment.Center,
         ) {
-            if (art != null) {
+            if (boxArt != null) {
                 // The show's own picture, with the channel's logo small in the corner.
                 AsyncImage(
-                    model = art,
+                    model = boxArt,
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(8.dp)),
@@ -367,59 +422,34 @@ private fun InfoPanel(channel: ChannelListItem?, program: GuideProgram?, now: Lo
                 )
             }
         }
-        // (A logo that fails to load gives the name back, rather than no title at all.)
-        var logoFailed by remember(titleLogo) { mutableStateOf(false) }
-        Column(Modifier.weight(1f).padding(start = 24.dp, top = 4.dp)) {
-            Row(verticalAlignment = Alignment.Top) {
-                // The show's logo (TMDB) in place of its name when it has one; the name otherwise.
-                if (titleLogo != null && program != null && !logoFailed) Box(Modifier.weight(1f).height(44.dp), contentAlignment = Alignment.CenterStart) {
-                    AsyncImage(
-                        model = titleLogo,
-                        contentDescription = guideTitle(program),
-                        contentScale = ContentScale.Fit,
-                        alignment = Alignment.CenterStart,
-                        onError = { logoFailed = true },
-                        modifier = Modifier.fillMaxHeight().then(Modifier.widthIn(max = 360.dp)),
-                    )
-                } else Text(
-                    program?.let(::guideTitle) ?: channel?.name.orEmpty(),
-                    fontSize = 22.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = AppColors.TextPrimary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-                channel?.groupName?.let {
-                    Text(GroupNames.display(it), fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(start = 16.dp))
-                }
-            }
+        // The panel is a fixed 180 units tall: the column is clipped so a long synopsis can't run under the grid.
+        // The banner (the picture as a card on the right) takes the room the Next / Then column would have; its badges
+        // then sit in the time row instead.
+        val sideColumn = !banner
+        Column(Modifier.weight(1f).padding(start = 24.dp, top = 4.dp).fillMaxHeight().clipToBounds()) {
+            // Channel number · name · group, small, above the programme (the group used to sit alone at the row's end).
+            if (channel != null) Text(
+                listOfNotNull(channel.number?.let(::formatNumber), channel.name, channel.groupName?.let(GroupNames::display)).joinToString("  ·  "),
+                fontSize = 13.sp,
+                color = AppColors.TextSecondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            InfoTitle(channel, program, titleLogo)
             if (program != null) {
                 Spacer(Modifier.height(6.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        "${program.startTime.local().format(timeFormat)} – ${program.endTime.local().format(timeFormat)}",
-                        fontSize = 14.sp,
-                        color = AppColors.TextPrimary,
-                    )
-                    if (program.startTime <= now && program.endTime > now) {
-                        val fraction = (now - program.startTime).toFloat() / (program.endTime - program.startTime)
-                        Spacer(Modifier.width(14.dp))
-                        Box(Modifier.width(110.dp).height(4.dp).background(Color(0x33FFFFFF), RoundedCornerShape(2.dp))) {
-                            Box(Modifier.fillMaxWidth(fraction).fillMaxHeight().background(AppColors.TextPrimary, RoundedCornerShape(2.dp)))
-                        }
-                        Spacer(Modifier.width(10.dp))
-                        Text("${(program.endTime - now) / 60_000} min left", fontSize = 14.sp, color = AppColors.TextSecondary)
-                    }
+                    InfoTimes(program, channel, now)
                     Badges(program)
+                    if (!sideColumn) InfoBadges(channel, program, now, recorded)
                 }
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(8.dp))
                 val description = listOfNotNull(program.subTitle, program.description).joinToString(" — ")
                 Text(
                     description,
                     fontSize = 14.sp,
                     color = AppColors.TextSecondary,
-                    maxLines = 5,
+                    maxLines = 4,
                     overflow = TextOverflow.Ellipsis,
                 )
             } else if (channel != null) {
@@ -427,7 +457,112 @@ private fun InfoPanel(channel: ChannelListItem?, program: GuideProgram?, now: Lo
                 Text("No guide information", fontSize = 14.sp, color = AppColors.TextSecondary)
             }
         }
+        if (sideColumn && channel != null) NextUpColumn(channel, program, now, channelPrograms, recorded)
+        // Banner: the programme's picture as a card on the right (16:9, the panel's height).
+        if (banner && art != null) AsyncImage(
+            model = art,
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.padding(start = 16.dp).fillMaxHeight().aspectRatio(16f / 9f).clip(RoundedCornerShape(8.dp)),
+        )
     }
+}
+
+/** The programme's title logo (TMDB) when it has one, else its name (or the channel's, with no guide). */
+@Composable
+private fun InfoTitle(channel: ChannelListItem?, program: GuideProgram?, titleLogo: String?) {
+    // (A logo that fails to load gives the name back, rather than no title at all.)
+    var logoFailed by remember(titleLogo) { mutableStateOf(false) }
+    if (titleLogo != null && program != null && !logoFailed) Box(Modifier.fillMaxWidth().height(44.dp), contentAlignment = Alignment.CenterStart) {
+        AsyncImage(
+            model = titleLogo,
+            contentDescription = guideTitle(program),
+            contentScale = ContentScale.Fit,
+            alignment = Alignment.CenterStart,
+            onError = { logoFailed = true },
+            modifier = Modifier.fillMaxHeight().then(Modifier.widthIn(max = 360.dp)),
+        )
+    } else Text(
+        program?.let(::guideTitle) ?: channel?.name.orEmpty(),
+        fontSize = 22.sp,
+        fontWeight = FontWeight.SemiBold,
+        color = AppColors.TextPrimary,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+    )
+}
+
+/**
+ * The time row: "19:00 – 20:00", then how far through it is (on now: a bar and the minutes left; later: when it
+ * starts and how long it is; over: when it ended, and that it can be replayed).
+ */
+@Composable
+private fun InfoTimes(program: GuideProgram, channel: ChannelListItem?, now: Long) {
+    Text(
+        "${program.startTime.local().format(timeFormat)} – ${program.endTime.local().format(timeFormat)}",
+        fontSize = 14.sp,
+        color = AppColors.TextPrimary,
+    )
+    val length = (program.endTime - program.startTime) / 60_000
+    when {
+        program.startTime <= now && program.endTime > now -> {
+            val fraction = (now - program.startTime).toFloat() / (program.endTime - program.startTime)
+            Spacer(Modifier.width(14.dp))
+            Box(Modifier.width(180.dp).height(4.dp).background(Color(0x33FFFFFF), RoundedCornerShape(2.dp))) {
+                Box(Modifier.fillMaxWidth(fraction).fillMaxHeight().background(AppColors.Accent, RoundedCornerShape(2.dp)))
+            }
+            Spacer(Modifier.width(10.dp))
+            Text("${(program.endTime - now) / 60_000} min left", fontSize = 14.sp, color = AppColors.TextSecondary)
+        }
+        program.startTime > now -> {
+            Spacer(Modifier.width(14.dp))
+            Text("Starts in ${(program.startTime - now) / 60_000} min  ·  $length min", fontSize = 14.sp, color = AppColors.TextSecondary)
+        }
+        else -> {
+            Spacer(Modifier.width(14.dp))
+            val catchup = if ((channel?.catchupDays ?: 0) > 0) "  ·  Catch-up" else ""
+            Text("Ended ${program.endTime.local().format(timeFormat)}$catchup", fontSize = 14.sp, color = AppColors.TextSecondary)
+        }
+    }
+}
+
+/** On the right of the panel: what's on this channel next and after that, and the programme's badges under them. */
+@Composable
+private fun NextUpColumn(channel: ChannelListItem, program: GuideProgram?, now: Long, channelPrograms: List<GuideProgram>, recorded: List<LongRange>) {
+    // After the highlighted programme (or after now, with nothing highlighted).
+    val from = program?.endTime ?: now
+    val coming = remember(channelPrograms, from) { channelPrograms.filter { it.startTime >= from }.sortedBy { it.startTime }.take(2) }
+    // (260 wide: the screen is laid out at 960 units, and the title column needs its share.)
+    Column(Modifier.width(260.dp).padding(start = 24.dp, top = 4.dp).fillMaxHeight().clipToBounds()) {
+        listOf("Next", "Then").forEachIndexed { i, label ->
+            val p = coming.getOrNull(i) ?: return@forEachIndexed
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(label, fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.width(40.dp))
+                Text(p.startTime.local().format(timeFormat), fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(end = 8.dp))
+                Text(guideTitle(p), fontSize = 13.sp, color = AppColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            Spacer(Modifier.height(4.dp))
+        }
+        if (program != null) {
+            Spacer(Modifier.height(6.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) { InfoBadges(channel, program, now, recorded) }
+        }
+    }
+}
+
+/** The highlighted programme's own badges: it can be replayed, its series / episode, it's being (or will be) recorded. */
+@Composable
+private fun InfoBadges(channel: ChannelListItem?, program: GuideProgram, now: Long, recorded: List<LongRange>) {
+    val replayable = (channel?.catchupDays ?: 0) > 0 && program.startTime < now
+    val episode = when {
+        program.season != null && program.episode != null -> "S${program.season} E${program.episode}"
+        program.episode != null -> "E${program.episode}"
+        else -> null
+    }
+    val isRecorded = recorded.any { r -> minOf(r.last, program.endTime) - maxOf(r.first, program.startTime) > (program.endTime - program.startTime) / 2 }
+    if (replayable) Badge("↺ Catch-up", filled = false, modifier = Modifier.padding(end = 8.dp))
+    if (episode != null) Badge(episode, filled = false, modifier = Modifier.padding(end = 8.dp))
+    if (isRecorded) Badge("● Recording", modifier = Modifier.padding(end = 8.dp))
 }
 
 @Composable
@@ -437,16 +572,7 @@ private fun Badges(program: GuideProgram) {
         "NEW".takeIf { program.isNew },
         "PREMIERE".takeIf { program.isPremiere },
     )
-    labels.forEach {
-        Spacer(Modifier.width(10.dp))
-        Text(
-            it,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.Bold,
-            color = AppColors.OnAccent,
-            modifier = Modifier.background(AppColors.Accent, RoundedCornerShape(3.dp)).padding(horizontal = 6.dp, vertical = 1.dp),
-        )
-    }
+    labels.forEach { Badge(it, modifier = Modifier.padding(start = 10.dp)) }
 }
 
 @Composable
@@ -477,13 +603,51 @@ private fun TimeHeader(now: Long, windowStart: Long, sync: SyncState, gridWidth:
                 // (Hourly marks on a long timeline, so the times don't crowd.)
                 t += if (hourly) 2 * GuideViewModel.STEP_MS else GuideViewModel.STEP_MS
             }
+            HeaderTicks(now, windowStart)
         }
         if (sync is SyncState.Running) {
             Text(
                 sync.message,
                 fontSize = 12.sp,
                 color = AppColors.Accent,
-                modifier = Modifier.align(Alignment.CenterEnd).background(AppColors.Background).padding(start = 8.dp),
+                // (Over the times on a scrim, not a solid block of the background colour: that showed as a dark patch
+                // on wallpapers and glass themes.)
+                modifier = Modifier.align(Alignment.CenterEnd).background(AppColors.Scrim).padding(start = 8.dp),
+            )
+        }
+    }
+}
+
+/**
+ * Along the bottom of the time header: a faint tick every half hour (so the blocks below can be read against the
+ * times), and a small accent arrow over the top of the "now" line. (Drawn over the header's grid part, so x is the
+ * same as the line's: the grid's width times the share of the window.)
+ */
+@Composable
+private fun HeaderTicks(now: Long, windowStart: Long) {
+    val tick = AppColors.TextSecondary.copy(alpha = 0.25f)
+    val accent = AppColors.Accent
+    val windowEnd = windowStart + GuideViewModel.VISIBLE_MS
+    Canvas(Modifier.fillMaxSize()) {
+        val pxPerMs = size.width / GuideViewModel.VISIBLE_MS
+        val tickH = 8.dp.toPx()
+        var t = windowStart
+        while (t < windowEnd) {
+            val x = (t - windowStart) * pxPerMs
+            drawLine(tick, Offset(x, size.height - tickH), Offset(x, size.height), 1.dp.toPx())
+            t += GuideViewModel.STEP_MS
+        }
+        if (now >= windowStart && now < windowEnd) {
+            val x = (now - windowStart) * pxPerMs
+            val half = 3.dp.toPx()
+            drawPath(
+                Path().apply {
+                    moveTo(x - half, size.height - 2 * half)
+                    lineTo(x + half, size.height - 2 * half)
+                    lineTo(x, size.height)
+                    close()
+                },
+                accent,
             )
         }
     }
@@ -503,17 +667,19 @@ private fun GuideRow(
     serverUrl: String,
     textMeasurer: TextMeasurer,
     gridWidth: Dp = 0.dp,
-    shiftMin: Int = 0,
 ) {
     val guideAlpha = AppColors.palette.guideAlpha
     val windowEnd = windowStart + GuideViewModel.VISIBLE_MS
-    Row(Modifier.fillMaxWidth().height(RowHeight).padding(vertical = 1.dp)) {
+    val cellText = rememberCellText()
+    val cellTextFocused = cellText.copy(fontWeight = FontWeight.SemiBold)
+    Row(Modifier.fillMaxWidth().height(RowHeight).padding(vertical = 1.5.dp)) {
         Row(
             Modifier
                 .width(ChannelColumn)
                 .fillMaxHeight()
                 .padding(end = 4.dp)
-                .background(if (selected) AppColors.RowSelected else AppColors.CellFuture.copy(alpha = guideAlpha), RoundedCornerShape(if (AppColors.palette.squareCorners) 0.dp else 6.dp))
+                // The highlighted channel's tile: a wash of the accent (the same radius as every list row).
+                .background(if (selected) AppColors.Accent.copy(alpha = 0.22f) else AppColors.CellFuture.copy(alpha = guideAlpha), RoundedCornerShape(if (AppColors.palette.squareCorners) 0.dp else Tokens.RowRadius))
                 .padding(end = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Start,
@@ -546,8 +712,9 @@ private fun GuideRow(
                 modifier = Modifier.padding(start = 8.dp).weight(1f),
             )
             // Its guide moved (Guide time offset / Guide times): shown so it's never forgotten.
-            if (shiftMin != 0) Text(shiftLabel(shiftMin), fontSize = 11.sp, color = AppColors.Accent, maxLines = 1, modifier = Modifier.padding(start = 4.dp))
-            if (channel.catchupDays > 0 && AppColors.palette.opt(UiOpts.CATCHUP_ICONS) != 2) CatchupIcon(Modifier.padding(start = 4.dp).size(14.dp))
+            // (No "+2h" by the name: abbey, 2026-11-17. The offset is in the channel's hold-OK menu.)
+            // ("Highlighted channel only": the icon on every channel said nothing. UI review, 2026-11-18.)
+            if (channel.catchupDays > 0 && AppColors.palette.opt(UiOpts.CATCHUP_ICONS).let { it != 2 && (it != 3 || selected) }) CatchupIcon(Modifier.padding(start = 4.dp).size(14.dp))
         }
         val catchupFrom = if (channel.catchupDays > 0) now - channel.catchupDays * 86_400_000L else null
         val onAccent = AppColors.OnAccent
@@ -556,6 +723,7 @@ private fun GuideRow(
         val iconColor = AppColors.TextSecondary
         val square = AppColors.palette.squareCorners
         val progressBars = AppColors.palette.progressBars
+        val shadeElapsed = AppColors.palette.opt(UiOpts.GUIDE_SHADE) == 0
         // The highlighted programme's name, when it doesn't fit its block, scrolls along (pause, scroll, pause), as
         // the channel list's does. Only the row with the highlight animates (read in drawing, so only it redraws).
         // (Only when its name doesn't fit its block: a name that fits leaves the row still, with nothing redrawn.)
@@ -565,13 +733,13 @@ private fun GuideRow(
         val overflows = focusedP != null && gridPx > 0f && run {
             val visibleMs = minOf(focusedP.endTime, windowEnd) - maxOf(focusedP.startTime, windowStart)
             val cellPx = visibleMs * gridPx / GuideViewModel.VISIBLE_MS - with(density) { 22.dp.toPx() }
-            textMeasurer.measure(text = guideTitle(focusedP), style = CellTextFocused, maxLines = 1, softWrap = false).size.width > cellPx
+            textMeasurer.measure(text = guideTitle(focusedP), style = cellTextFocused, maxLines = 1, softWrap = false).size.width > cellPx
         }
         // The scrolling name, measured once (not every frame), at a steady speed: a short pause, along, a pause, back.
         // It's drawn on its own layer over the row, so only it redraws as it moves (the whole row's text was measured
         // and drawn again every frame, too much for a frame on some boxes: it juddered).
-        val marqueeText = if (overflows && focusedP != null) remember(focusedP.rowId, focusedP.title) {
-            textMeasurer.measure(text = guideTitle(focusedP), style = CellTextFocused.copy(color = AppColors.OnAccent), maxLines = 1, softWrap = false)
+        val marqueeText = if (overflows && focusedP != null) remember(focusedP.rowId, focusedP.title, cellTextFocused) {
+            textMeasurer.measure(text = guideTitle(focusedP), style = cellTextFocused.copy(color = AppColors.OnAccent), maxLines = 1, softWrap = false)
         } else null
         // Where it goes (set while the row draws): its left edge, the room it has, the row's height.
         val marqueeAt = remember { FloatArray(3) }
@@ -588,15 +756,20 @@ private fun GuideRow(
         Box(Modifier.weight(1f).fillMaxHeight()) {
         Canvas(Modifier.matchParentSize()) {
             val pxPerMs = size.width / GuideViewModel.VISIBLE_MS
-            val gap = 2.dp.toPx()
+            val gap = 3.dp.toPx()
             val pad = 8.dp.toPx()
-            val radius = if (square) CornerRadius.Zero else CornerRadius(6.dp.toPx())
+            val radius = if (square) CornerRadius.Zero else CornerRadius(Tokens.RowRadius.toPx())
             val outline = Stroke(1.dp.toPx())
+            // Blocks narrower than this (five-minute fillers, news bulletins) get no name, no gap and no corners, so a
+            // run of them reads as one quiet strip rather than a row of stubs with cut-off letters.
+            val minText = 34.dp.toPx()
             val ordered = if (focusedRowId == null) programs else programs.sortedBy { it.rowId == focusedRowId }
             for (p in ordered) {
                 if (p.endTime <= windowStart || p.startTime >= windowEnd) continue
                 val x0 = (maxOf(p.startTime, windowStart) - windowStart) * pxPerMs
-                val x1 = (minOf(p.endTime, windowEnd) - windowStart) * pxPerMs - gap
+                val xEnd = (minOf(p.endTime, windowEnd) - windowStart) * pxPerMs
+                val tiny = xEnd - x0 < minText
+                val x1 = if (tiny) xEnd else xEnd - gap
                 if (x1 - x0 < 1f) continue
                 val isFocused = p.rowId == focusedRowId
                 val color = when {
@@ -605,9 +778,19 @@ private fun GuideRow(
                     p.startTime <= now && p.endTime > now -> AppColors.CellCurrent
                     else -> AppColors.CellFuture
                 }
+                val corners = if (tiny) CornerRadius.Zero else radius
                 // Settings → Appearance → Transparency → Guide (the highlighted programme stays solid).
-                drawRoundRect(if (isFocused) color else color.copy(alpha = color.alpha * guideAlpha), topLeft = Offset(x0, 0f), size = Size(x1 - x0, size.height), cornerRadius = radius)
-                if (!isFocused) drawRoundRect(Color.White.copy(alpha = 0.08f), topLeft = Offset(x0, 0f), size = Size(x1 - x0, size.height), cornerRadius = radius, style = outline)
+                drawRoundRect(if (isFocused) color else color.copy(alpha = color.alpha * guideAlpha), topLeft = Offset(x0, 0f), size = Size(x1 - x0, size.height), cornerRadius = corners)
+                // On now: the part already gone lightly shaded up to the time line (Settings → Appearance → Elapsed shading).
+                if (shadeElapsed && p.startTime <= now && p.endTime > now) {
+                    val nowX = ((now - windowStart) * pxPerMs).coerceIn(x0, x1)
+                    if (nowX > x0) clipRect(x0, 0f, nowX, size.height) {
+                        drawRoundRect((if (isFocused) onAccent else Color.White).copy(alpha = 0.10f), topLeft = Offset(x0, 0f), size = Size(x1 - x0, size.height), cornerRadius = corners)
+                    }
+                }
+                // No outline on solid blocks (the gap between them is the edge); a faint one only when the guide is
+                // see-through, so blocks still read as blocks over a picture.
+                if (!isFocused && !tiny && guideAlpha < 1f) drawRoundRect(Color.White.copy(alpha = 0.03f), topLeft = Offset(x0, 0f), size = Size(x1 - x0, size.height), cornerRadius = corners, style = outline)
                 // On now: a bar along the bottom showing how far through it is (Settings → Appearance → Progress bars:
                 // every channel, only the one you're watching, or none).
                 val barsHere = when (progressBars) { 0 -> true; 1 -> playingLive; else -> false }
@@ -633,25 +816,32 @@ private fun GuideRow(
                 val isPlaying = p.rowId == playingRowId || (playingLive && p.startTime <= now && p.endTime > now)
                 if (isPlaying && !isFocused) {
                     val w = 2.5.dp.toPx()
-                    drawRoundRect(accent, topLeft = Offset(x0 + w / 2, w / 2), size = Size(x1 - x0 - w, size.height - w), cornerRadius = radius,
+                    drawRoundRect(accent, topLeft = Offset(x0 + w / 2, w / 2), size = Size(x1 - x0 - w, size.height - w), cornerRadius = corners,
                         style = Stroke(w))
                 }
                 val replayable = catchupFrom != null && p.startTime < now && p.startTime >= catchupFrom
                 val iconSide = 12.dp.toPx()
                 var textX = x0 + pad
-                if (replayable && programmeIcons && x1 - x0 > iconSide + 2 * pad) {
+                if (!tiny && replayable && programmeIcons && x1 - x0 > iconSide + 2 * pad) {
                     drawCatchupIcon(Offset(textX, (size.height - iconSide) / 2f), iconSide, if (isFocused) onAccent else iconColor)
                     textX += iconSide + 5.dp.toPx()
                 }
                 val textWidth = (x1 - textX - pad).toInt()
-                val scrolls = isFocused && marqueeText != null && textWidth > 12 && marqueeText.size.width > textWidth
+                val hasText = !tiny && textWidth > 0
+                val scrolls = isFocused && marqueeText != null && hasText && marqueeText.size.width > textWidth
                 if (scrolls) {
                     // Too long for its block: drawn by the layer above (only it redraws as it moves).
                     marqueeAt[0] = textX; marqueeAt[1] = textWidth.toFloat(); marqueeAt[2] = size.height
-                } else if (textWidth > 12) {
+                } else if (hasText) {
+                    // Over and gone (no catch-up to replay it): its name steps back, so what you can still watch stands out.
+                    val style = when {
+                        isFocused -> cellTextFocused.copy(color = AppColors.OnAccent)
+                        p.endTime <= now && !replayable -> cellText.copy(color = Color.White.copy(alpha = 0.5f))
+                        else -> cellText
+                    }
                     val layout = textMeasurer.measure(
                         text = guideTitle(p),
-                        style = if (isFocused) CellTextFocused.copy(color = AppColors.OnAccent) else CellText,
+                        style = style,
                         overflow = TextOverflow.Ellipsis,
                         maxLines = 1,
                         constraints = Constraints(maxWidth = textWidth),

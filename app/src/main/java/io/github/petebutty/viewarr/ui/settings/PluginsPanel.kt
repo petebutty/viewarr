@@ -149,7 +149,8 @@ fun PluginsSettingsScreen(onBack: () -> Unit, vm: PluginsViewModel = hiltViewMod
                                 onClick = { selected = p.key },
                                 modifier = (if (p == ui.installed.first()) Modifier.focusRequester(firstFocus) else Modifier)
                                     .focusRequester(memory.of("side:" + p.key))
-                                    .onFocusChanged { if (it.isFocused) { selected = p.key; memory.last = "side:" + p.key } },
+                                    .onFocusChanged { if (it.isFocused) { selected = p.key; memory.last = "side:" + p.key } }
+                                    .leftGoesBack(onBack),
                             )
                         }
                         item(key = "store") {
@@ -161,7 +162,8 @@ fun PluginsSettingsScreen(onBack: () -> Unit, vm: PluginsViewModel = hiltViewMod
                                 onClick = { selected = STORE },
                                 modifier = (if (ui.installed.isEmpty()) Modifier.focusRequester(firstFocus) else Modifier)
                                     .focusRequester(memory.of("side:store"))
-                                    .onFocusChanged { if (it.isFocused) { selected = STORE; memory.last = "side:store" } },
+                                    .onFocusChanged { if (it.isFocused) { selected = STORE; memory.last = "side:store" } }
+                                    .leftGoesBack(onBack),
                             )
                         }
                     }

@@ -1,7 +1,7 @@
 # Shown once, the first time a new version opens (not on a fresh install). Keep it to the few things worth knowing.
 # Lines starting with "- " are the points; the first line without "#" or "-" is the heading.
-A new look, My Library, and Live now in the guide
-- A new logo, and the menu takes the page's own background
-- My Library shows your own servers' films and shows (choose its rows in Settings)
-- Live now is a group in the TV guide, with real live sport only
-- EPG offset is a slider per channel, and the guide's Timeline is in its hold-OK menu
+Browsing styles, a rebuilt Music, and quieter notifications
+- Settings → Appearance → Browsing style: Viewarr, Cinema (big trailer panel) or Lite
+- Music has Your Mix, daily mixes, Because you played… and endless radio
+- Notifications are off until you choose them (Settings → Menu & navigation → Notifications)
+- Faster start-up, and pages open from what's kept on the box

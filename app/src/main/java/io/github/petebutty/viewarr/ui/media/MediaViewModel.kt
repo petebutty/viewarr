@@ -15,7 +15,6 @@ import io.github.petebutty.viewarr.data.media.RowsState
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
@@ -65,7 +64,6 @@ import io.github.petebutty.viewarr.data.settings.ThemeStore
 import io.github.petebutty.viewarr.data.trailers.TrailerRepository
 import io.github.petebutty.viewarr.playback.FrameRateMatcher
 import io.github.petebutty.viewarr.ui.common.PendingOrder
-import io.github.petebutty.viewarr.ui.player.ShortcutLogos
 import io.github.petebutty.viewarr.ui.theme.AppColors
 import io.github.petebutty.viewarr.ui.theme.TitleParts
 import io.github.petebutty.viewarr.ui.theme.UiOpts
@@ -272,10 +270,15 @@ class MediaViewModel @Inject constructor(
         row.group == "deck" || row.title.startsWith("Continue watching") || row.id.contains("-resume-") || row.id.startsWith("upcoming-")
     /** Films / Shows: Settings → Home rows decides order and which are shown. Search results are left alone. */
     private val layoutType = MutableStateFlow<MediaType?>(null)
+    /** Each server's / library's Continue watching, for Settings → Home page & menu → Continue watching from. */
+    val continueSources = _rows.map { r -> r.rows.mapNotNull { ContinueFrom.ofRow(it) } }
+        .stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, emptyList())
     /** The rows as shown: repeats across servers combined when that's switched on. */
-    private val shownRows = kotlinx.coroutines.flow.combine(_rows, mergeRows, droppedShows, localWatch.rowEntries, layoutType) { r00, merge, dropped, local, type ->
+    private val shownRows = kotlinx.coroutines.flow.combine(_rows, mergeRows, droppedShows, localWatch.rowEntries, layoutType) { r000, merge, dropped, local, type ->
+        // Continue watching from a server / IPTV switched off (Settings → Home page & menu): that row goes.
+        val r00 = r000.copy(rows = r000.rows.filter { row -> ContinueFrom.ofRow(row)?.let { ContinueFrom.on(it) } != false })
         // Continue watching (IPTV): kept on the box, so it joins the page's rows here (Movies / Shows, not search).
-        val iptv = type?.let { t -> localWatch.continueItems(t, local) }.orEmpty()
+        val iptv = type?.takeIf { ContinueFrom.on(ContinueFrom.IPTV) }?.let { t -> localWatch.continueItems(t, local) }.orEmpty()
         val r0 = if (iptv.isEmpty() || type == null || r00.rows.isEmpty()) r00
             else r00.copy(rows = listOf(MediaRow("iptv-resume-${type.name}", "Continue watching on IPTV", iptv, group = "deck")) + r00.rows)
         val r = if (dropped.isEmpty()) r0 else r0.copy(rows = r0.rows.map { row ->
@@ -323,7 +326,7 @@ class MediaViewModel @Inject constructor(
     fun setSearchFocus(f: SearchFilter?) { _searchFocus.value = f }
 
     /**
-     * A live TV shortcut's set of rows (RowSets: "🇬🇧 UK" = rows named 🇬🇧…, "Plex" = your Plex rows): only those
+     * A service's page (menu → a service; RowSets: "🇬🇧 UK" = rows named 🇬🇧…, "Plex" = your Plex rows): only those
      * on the page, rows hidden from the normal home page included. Cleared by any other way onto the page.
      */
     private val rowSet = MutableStateFlow<String?>(null)
@@ -332,7 +335,7 @@ class MediaViewModel @Inject constructor(
     private val rowSetExtra = MutableStateFlow<List<MediaRow>>(emptyList())
     fun showRowSet(key: String?, extra: List<MediaRow> = emptyList()) { rowSetExtra.value = extra; rowSet.value = key }
     // Settings → Home page & menu → Network rows: off the home page unless chosen (an addon like AIOMetadata can add
-    // dozens; they're reached through their shortcuts).
+    // dozens; they're reached through their service pages in the menu).
     private val setRowsHome = androidx.compose.runtime.snapshotFlow {
         AppColors.palette.opt(UiOpts.SET_ROWS_HOME) == 1
     }
@@ -369,28 +372,18 @@ class MediaViewModel @Inject constructor(
     fun setMyLibraryOrder(keys: List<String>) { viewModelScope.launch { rowLayouts.setMyLibraryOrder(keys) } }
     fun resetMyLibrary() { viewModelScope.launch { rowLayouts.resetMyLibrary() } }
 
-    /**
-     * The page's own home rows (as the page opens normally), for the live TV shortcuts' previews (Movies / Shows):
-     * [rows] becomes a network's set while one of their shortcuts is open, and the Shows shortcut showed Prime Video's.
-     */
-    val homeRows: kotlinx.coroutines.flow.StateFlow<RowsState> = kotlinx.coroutines.flow.combine(shownRows, layout, setRowsHome) { r, l, home ->
-        val grouped = if (home) emptySet() else RowSets.sets(r.rows).filter { it.startsWith("name:") }.toSet()
-        val own = r.rows.filter { row -> RowSets.name(row)?.let { "name:$it" !in grouped } ?: true }
-        r.copy(rows = if (l != null) l.ordered(own).filter { !l.off(it.id) } else own)
-    }.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, RowsState(emptyList(), done = false))
-
     /** Every row in the chosen order with whether it's hidden, for Settings → Home rows. */
     val editableRows: kotlinx.coroutines.flow.StateFlow<Pair<List<Pair<MediaRow, Boolean>>, Boolean>> =
         kotlinx.coroutines.flow.combine(shownRows, layout, setRowsHome) { r, l, home ->
             val lay = l ?: RowLayout()
-            // Network rows that are kept off the home page (their shortcuts open them) aren't listed here either.
+            // Network rows that are kept off the home page (their service pages open them) aren't listed here either.
             val grouped = if (home) emptySet() else RowSets.sets(r.rows).filter { it.startsWith("name:") }.toSet()
             lay.ordered(r.rows).filter { row -> RowSets.name(row)?.let { "name:$it" !in grouped } ?: true }
                 .map { it to lay.off(it.id) } to r.done
         }.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, emptyList<Pair<MediaRow, Boolean>>() to false)
 
     /** The menu's Catalogues list (Movies / Shows → Right): in the page's order, with its own on / off. */
-    // (Every row, network rows included: the live TV shortcuts are built from these.)
+    // (Every row, network rows included: the menu's service entries are built from these.)
     val menuRows: kotlinx.coroutines.flow.StateFlow<RowsState> = kotlinx.coroutines.flow.combine(shownRows, layout) { r, l ->
         val lay = l ?: RowLayout()
         r.copy(rows = lay.ordered(r.rows).filter { it.id !in lay.menuHidden })
@@ -718,27 +711,33 @@ class MediaViewModel @Inject constructor(
         }
     }
 
-    /**
-     * A shortcut's Refresh: just these rows fetched again from their addons, put back in place. Rows that aren't an
-     * addon's (Plex, Trakt…) or that fail keep what they had. [onDone]: how many came back fresh.
-     */
-    fun refreshRows(ids: Collection<String>, onDone: (Int) -> Unit = {}) {
-        viewModelScope.launch {
-            val fresh = kotlinx.coroutines.coroutineScope {
-                ids.map { id -> async { runCatching { repo.refreshAddonRow(id) }.getOrNull() } }.awaitAll().filterNotNull()
-            }.associateBy { it.id }
-            if (fresh.isNotEmpty()) _rows.value = _rows.value.let { st -> st.copy(rows = st.rows.map { fresh[it.id] ?: it }) }
-            onDone(fresh.size)
-        }
-    }
-
     fun load(type: MediaType, force: Boolean = false) {
         if (!force && loaded == type) return
         loaded = type
         layoutType.value = type
         rowsJob?.cancel()
         _rows.value = RowsState(emptyList(), done = false)
-        rowsJob = viewModelScope.launch { repo.rows(type).collect { _rows.value = it } }
+        rowsJob = viewModelScope.launch {
+            // The rows as last loaded (kept on the box: data/media/RowsCache) straight away, then the fresh ones as
+            // they come; until those are all in, rows not loaded yet keep their saved copy, so nothing blinks out.
+            val profile = runCatching { kotlin.math.abs(store.current().hashCode()).toString(36) }.getOrDefault("x")
+            val saved = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { io.github.petebutty.viewarr.data.media.RowsCache.read(appContext, type, profile) }
+            if (saved != null && _rows.value.rows.isEmpty()) _rows.value = RowsState(saved, done = false)
+            // With saved rows on screen, the full refresh waits (it was the memory burst a few seconds into every
+            // start, 2026-11-18): saved under 30 minutes ago, until a minute into the app; older, until 15 seconds in.
+            // (A forced reload, e.g. after changing addons or signing in, never waits.)
+            if (saved != null && !force) {
+                val age = io.github.petebutty.viewarr.data.media.RowsCache.ageMs(appContext, type, profile) ?: Long.MAX_VALUE
+                io.github.petebutty.viewarr.ui.common.AppStart.after(if (age < 30 * 60_000L) 60_000 else 15_000)
+            }
+            repo.rows(type).collect { fresh ->
+                _rows.value = if (fresh.done || saved == null) fresh
+                    else fresh.copy(rows = fresh.rows + saved.filter { s -> fresh.rows.none { it.id == s.id } })
+                if (fresh.done && fresh.rows.isNotEmpty()) kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    io.github.petebutty.viewarr.data.media.RowsCache.write(appContext, type, profile, fresh.rows)
+                }
+            }
+        }
     }
 
     // ---- Search: a person's films and shows, in place of the results until Back
@@ -783,19 +782,7 @@ class MediaViewModel @Inject constructor(
     /** Quick picks under the search box (titles and names that match what's typed). */
     suspend fun suggestions(q: String): List<String> = if (q.trim().length < 2) emptyList() else runCatching { repo.suggestions(q.trim()) }.getOrDefault(emptyList())
 
-    /** Live TV shortcuts' logos (network / service name → logo), looked up once per name per run. */
-    fun loadShortcutLogos(names: Map<String, MediaItem?>) {
-        names.forEach { (name, sample) ->
-            if (ShortcutLogos.asked.add(name)) viewModelScope.launch {
-                safely { repo.serviceLogo(name, sample) }?.let { ShortcutLogos.map[name] = it }
-            }
-            if (ShortcutLogos.askedWide.add(name)) viewModelScope.launch {
-                safely { repo.wideLogo(name) }?.let { ShortcutLogos.wide[name] = it }
-            }
-        }
-    }
-
-    /** Live TV controls → poster rows: Continue watching for this type (every server), refreshed after 2 min. */
+    /** Continue watching for this type (every server), for the rows under the info bars; refreshed after 2 min. */
     private val _continueItems = MutableStateFlow<List<MediaItem>?>(null)
     val continueItems = kotlinx.coroutines.flow.combine(_continueItems, droppedShows) { items, dropped -> items?.filterNot { isDropped(it, dropped) } }
         .stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, null)
@@ -1083,7 +1070,14 @@ class MediaViewModel @Inject constructor(
     fun refreshWatchNext() { viewModelScope.launch { watchNext.refresh() } }
 
     /** Titles opened from inside a title page (More like this): Back goes back through them, one at a time. */
-    private val detailStack = ArrayList<MediaItem>()
+    // The title pages underneath (opened from More like this), kept as they were loaded: Back shows the one below
+    // as it was, not reloaded with the highlight back on Play (UI review, 2026-11-18).
+    private val detailStack = ArrayList<DetailUi>()
+    /** The More like this poster Back came from: the restored page puts the highlight there, then clears this. */
+    private val _returnToSimilar = androidx.compose.runtime.mutableStateOf<String?>(null)
+    var returnToSimilar: String?
+        get() = _returnToSimilar.value
+        set(v) { _returnToSimilar.value = v }
 
     /** From the guide's Go to show / film: its page; a show opens on its episodes, at the one you're up to (S1 E1 if none). */
     suspend fun goToTitle(title: String, season: Int?, episode: Int?, year: Int? = null): Boolean = watchFromStart(title, season, episode, year, play = false)
@@ -1119,7 +1113,7 @@ class MediaViewModel @Inject constructor(
             repo.groupFor(item.key)?.let { g -> openLibrary(g, libType.value ?: layoutType.value ?: item.type, parent = _browse.value?.library) }
             return
         }
-        _detail.value?.detail?.item?.takeIf { it.key != item.key }?.let { detailStack.add(it) }
+        _detail.value?.takeIf { it.detail.item.key != item.key }?.let { detailStack.add(it) }
         showDetail(item)
     }
 
@@ -1261,12 +1255,37 @@ class MediaViewModel @Inject constructor(
     }
 
     /** Films: Mark watched / unwatched (your servers and Trakt). */
+    /**
+     * Marked watched: out of every Continue watching row now, and out of the saved copy of the rows, instead of
+     * waiting for the next full refresh (Peter, 2026-11-18: it stayed there).
+     */
+    private fun dropFromContinue(item: MediaItem) {
+        fun same(i: MediaItem) = i.key == item.key || (i.type == item.type && ((item.tmdbId != null && i.tmdbId == item.tmdbId) || (item.imdbId != null && i.imdbId == item.imdbId)))
+        // (The info bar's / home's Continue watching list too.)
+        _continueItems.value?.let { l -> _continueItems.value = l.filterNot(::same) }
+        val cur = _rows.value
+        val rows = cur.rows.map { r -> if (dropsFrom(r) && !r.id.startsWith("upcoming-")) r.copy(items = r.items.filterNot(::same)) else r }
+        if (rows == cur.rows) return
+        _rows.value = cur.copy(rows = rows)
+        val type = loaded ?: return
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val profile = runCatching { kotlin.math.abs(store.current().hashCode()).toString(36) }.getOrDefault("x")
+            if (io.github.petebutty.viewarr.data.media.RowsCache.ageMs(appContext, type, profile) != null)
+                io.github.petebutty.viewarr.data.media.RowsCache.write(appContext, type, profile, rows)
+        }
+    }
+
     fun toggleWatched() {
         val d = _detail.value ?: return
         val to = d.watched != true
         _detail.update { it?.copy(watched = to) }
         viewModelScope.launch {
-            val ok = runCatching { repo.setFilmWatched(d.detail.item, d.copies.orEmpty(), to) }.getOrDefault(false)
+            // Viewarr's own watch list too (IPTV and addon films; shared through Dispatcharr): that alone counts as
+            // done. With no Plex / Jellyfin / Emby copy and no Trakt it said "couldn't change it" every time (ullms,
+            // 2026-11-17).
+            val local = runCatching { localWatch.setWatched(d.detail.item, to); true }.getOrDefault(false)
+            val ok = runCatching { repo.setFilmWatched(d.detail.item, d.copies.orEmpty(), to) }.getOrDefault(false) || local
+            if (ok && to) dropFromContinue(d.detail.item)
             _detail.update {
                 if (it?.detail?.item?.key != d.detail.item.key) it
                 else if (ok) it.copy(message = if (to) "Marked as watched" else "Marked as unwatched")
@@ -1284,8 +1303,14 @@ class MediaViewModel @Inject constructor(
     fun close() {
         detailJob?.cancel()
         playJob?.cancel()
+        val closed = _detail.value?.detail?.item?.key
         val previous = detailStack.removeLastOrNull()
-        if (previous != null) showDetail(previous) else _detail.value = null
+        when {
+            previous == null -> _detail.value = null
+            // (Its loading was cut short when the next page opened: loaded again.)
+            previous.copies == null -> { returnToSimilar = closed; showDetail(previous.detail.item) }
+            else -> { returnToSimilar = closed; _detail.value = previous }
+        }
     }
 
     // ---------------------------------------------------------------- shows: seasons & episodes
@@ -1805,6 +1830,7 @@ class MediaViewModel @Inject constructor(
     fun markIptvWatched(item: MediaItem, watched: Boolean) {
         viewModelScope.launch {
             safely { localWatch.setWatched(item, watched) } ?: return@launch
+            if (watched) dropFromContinue(item)
             _notice.value = if (watched) "Marked ${item.title} as watched." else "Marked ${item.title} as not watched."
         }
     }

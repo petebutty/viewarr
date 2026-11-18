@@ -6,6 +6,7 @@ import io.github.petebutty.viewarr.ui.common.followingSetting
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -294,12 +295,14 @@ internal fun ChannelPrograms(
     val list = programs
     val nowIndex = list?.indexOfFirst { it.endTime > now }?.coerceAtLeast(0) ?: 0
     val state = rememberLazyListState()
-    LaunchedEffect(list != null) {
-        if (list.isNullOrEmpty()) return@LaunchedEffect
-        state.scrollToItem(maxOf(0, nowIndex - 2))
+    // The highlight comes in here at once: on "Loading…", then what's on now; or on "No programme information" (the
+    // channel rows can't take it while the panel is open, so with nothing to land on the remote went dead until Back).
+    LaunchedEffect(list?.isEmpty()) {
+        if (!list.isNullOrEmpty()) state.scrollToItem(maxOf(0, nowIndex - 2))
         awaitFrame(); awaitFrame()
         runCatching { focusRequester.requestFocus() }
     }
+    val placeholder = Modifier.padding(8.dp).focusRequester(focusRequester).focusable()
     val hhmm = Dates.time
     val day = java.time.format.DateTimeFormatter.ofPattern("EEE d")
     val zone = java.time.ZoneId.systemDefault()
@@ -314,8 +317,8 @@ internal fun ChannelPrograms(
         Column {
             Text(ch.name, fontSize = 13.sp, color = AppColors.Accent, modifier = Modifier.padding(start = 8.dp, bottom = 8.dp))
             when {
-                list == null -> Text("Loading…", fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(8.dp))
-                list.isEmpty() -> Text("No programme information for this channel.", fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(8.dp))
+                list == null -> Text("Loading…", fontSize = 13.sp, color = AppColors.TextSecondary, modifier = placeholder)
+                list.isEmpty() -> Text("No programme information for this channel.", fontSize = 13.sp, color = AppColors.TextSecondary, modifier = placeholder)
                 else -> LazyColumn(state = state, verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     items(list.size, key = { list[it].rowId }) { i ->
                         val p = list[i]

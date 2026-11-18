@@ -296,10 +296,6 @@ class PlaybackStore @Inject constructor(@ApplicationContext private val context:
         context.playbackStore.edit { if (value.isBlank()) it.remove(stringPreferencesKey(key)) else it[stringPreferencesKey(key)] = value }
     }
 
-    suspend fun reset() {
-        context.playbackStore.edit { it.clear() }
-    }
-
     private inline fun <reified E : Enum<E>> Preferences.read(key: String): E =
         this[stringPreferencesKey(key)]?.let { name -> enumValues<E>().firstOrNull { it.name == name } } ?: enumValues<E>().first()
 

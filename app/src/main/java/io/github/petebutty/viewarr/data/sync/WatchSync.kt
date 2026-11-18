@@ -1,5 +1,7 @@
 package io.github.petebutty.viewarr.data.sync
 
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.getValue
 import android.content.Context
 import android.util.Log
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -47,7 +49,35 @@ class WatchSync @Inject constructor(
     private val sessions: SessionStore,
     private val store: LocalWatchStore,
     private val http: HttpJson,
+    // (For names and posters of titles another app shared without them. A Provider: no build-time loop.)
+    private val catalog: javax.inject.Provider<io.github.petebutty.viewarr.data.media.CatalogRepository>,
+    private val accounts: io.github.petebutty.viewarr.data.accounts.AccountStore,
 ) {
+    /**
+     * Settings → Playback → Watch progress → Sync IPTV progress with my Emby / Jellyfin (off until switched on): this
+     * user's Emby / Jellyfin address, user and sign-in left in their own Dispatcharr app data ([SERVERS_KEY], readable
+     * only by them and admins), so the Viewarr plugin (0.5.2+) keeps their IPTV watch progress in step with that
+     * server, both ways, without Trakt. Off: the details are taken back out. (ullms asked for it, 2026-11-17.)
+     */
+    suspend fun shareServers(on: Boolean) {
+        val s = sessions.session.first()?.takeIf { !it.isDirect } ?: return
+        val a = accounts.current()
+        val list = if (!on) emptyList() else listOfNotNull(a.emby?.let { "emby" to it }, a.jellyfin?.let { "jellyfin" to it })
+        // Plex too: its address and this person's own server token (a Plex Home user's), no user id needed.
+        val plex = a.plex?.takeIf { on }
+        val body = buildJsonObject {
+            put("servers", kotlinx.serialization.json.JsonArray(list.map { (kind, m) ->
+                buildJsonObject {
+                    put("kind", kind); put("url", m.serverUrl); put("user_id", m.userId); put("token", m.token); put("name", m.serverName)
+                }
+            } + listOfNotNull(plex?.let { p ->
+                buildJsonObject { put("kind", "plex"); put("url", p.serverUrl); put("token", p.token); put("name", p.serverName) }
+            })))
+            put("at", System.currentTimeMillis() / 1000)
+        }
+        val w = http.put(s.serverUrl.trimEnd('/') + "/api/accounts/users/me/app-data/$SERVERS_KEY/", body, mapOf("X-API-Key" to s.apiKey))
+        Log.i(TAG, "Emby / Jellyfin / Plex watch sync ${if (on) "on (${list.size + (if (plex != null) 1 else 0)} servers)" else "off"}: ${w.code}")
+    }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val lock = Mutex()
     private val prefs by lazy { context.getSharedPreferences("watch_sync", Context.MODE_PRIVATE) }
@@ -57,6 +87,11 @@ class WatchSync @Inject constructor(
     fun start() {
         if (started) return
         started = true
+        // Settings → Playback → Watch progress → Sync now.
+        requestSync = { scope.launch { runCatching { sync(force = true) }.onFailure { Log.w(TAG, "sync failed: ${it.message}") } } }
+        // Settings → … → Sync IPTV progress with my Emby / Jellyfin; and on start, if on (a sign-in may have changed).
+        setServers = { on -> scope.launch { runCatching { shareServers(on) } } }
+        if (serversOn) scope.launch { delay(8_000); runCatching { shareServers(true) } }
         // A change here (played, ticked, un-ticked): synced within a minute.
         scope.launch { store.entries.drop(1).collect { dirty = true } }
         scope.launch {
@@ -75,7 +110,10 @@ class WatchSync @Inject constructor(
     }
 
     /** One sync: read the shared copy, merge with this box, write it back if it changed, and take in what's newer. */
-    suspend fun sync() = lock.withLock {
+    suspend fun sync(force: Boolean = false) = lock.withLock {
+        // Settings → Playback → Watch progress → Sync with Dispatcharr (on unless switched off; ullms asked for the
+        // option, for his companion plugin, 2026-11-17). [force]: Sync now, even when off.
+        if (!force && !enabled) return@withLock
         val s = sessions.session.first()?.takeIf { !it.isDirect } ?: return@withLock
         val url = s.serverUrl.trimEnd('/') + "/api/accounts/users/me/app-data/$KEY/"
         val headers = mapOf("X-API-Key" to s.apiKey)
@@ -118,12 +156,31 @@ class WatchSync @Inject constructor(
             val w = http.put(url, JsonObject(merged), headers)
             if (!w.ok) { Log.w(TAG, "couldn't save the shared copy (${w.code})"); return@withLock }
         }
+        // Names and posters for titles shared without them (a companion plugin writes only ids and progress), and for
+        // entries already saved as "Unknown": looked up on TMDB first (a few dozen at most per sync).
+        // (Also those with a name but no poster: the plugin's Plex / Emby / Jellyfin sync sends names only, and their
+        // cards were blank in Continue watching. Peter, 2026-11-18. One lookup per show, not per episode.)
+        val posterless = store.entries.value.filter { it.poster == null && it.tmdbId != null }.map { Ref(it.type, it.tmdbId, null, null, null, null) }
+        val unnamed = (merged.mapNotNull { (k, v) -> parseKey(k)?.takeIf { (v.text("title") == null || v.text("poster") == null) && it.tmdb != null } } +
+            localByKey.values.filter { it.title == UNKNOWN && it.tmdbId != null }.map { Ref(it.type, it.tmdbId, null, null, null, null) } + posterless)
+            .distinctBy { it.type + ":" + it.tmdb }.take(40)
+        val names = HashMap<String, Pair<String, String?>>()
+        for (r in unnamed) runCatching { catalog.get().tmdbName(r.type, r.tmdb!!) }.getOrNull()?.let { names[r.type + ":" + r.tmdb] = it }
         // The shared copy → this box (newer there).
         var taken = 0
         store.syncEdit { list ->
             val out = list.toMutableList()
+            // Taken from a server by the plugin (Plex / Emby / Jellyfin: "src"), never played in Viewarr: only kept for
+            // shows already watched here. Others are that server's own watching, shown in its own rows; they were
+            // added as blank IPTV cards (Peter, 2026-11-18) and go again here, without telling the server anything.
+            fun fromServerOnly(v: JsonObject) = v.text("src") != null && v.text("key") == null
+            val showsHere = out.filter { it.key != it.id && it.tmdbId != null }.map { it.type + ":" + it.tmdbId }.toSet()
+            val gone = out.filter { e -> e.key == e.id && merged[keyOf(e)]?.let(::fromServerOnly) == true && (e.type + ":" + e.tmdbId) !in showsHere }
+            if (gone.isNotEmpty()) { out.removeAll(gone.toSet()); Log.i(TAG, "dropped ${gone.size} taken from a server, never played here") }
             for ((k, v) in merged) {
                 val here = localByKey[k]
+                if (here == null && fromServerOnly(v) && parseKey(k)?.let { r -> (r.type + ":" + r.tmdb) !in showsHere } != false) continue
+                if (here != null && here in gone) continue
                 if (here != null && here.changed / 1000 + LEEWAY_S >= v.updatedAt()) continue
                 val ref = parseKey(k) ?: continue
                 val at = v.updatedAt() * 1000
@@ -132,19 +189,30 @@ class WatchSync @Inject constructor(
                 // A "watching" item with no position: nothing to take in. Checked before this box's entry is removed
                 // (removing it first lost it here, and the next sync then sent the other boxes an "unwatched" marker).
                 if (status != "unwatched" && status != "watched" && pos <= 0) continue
+                // (A "removed" mark for something this box doesn't have: nothing to do. It was counted as taken in,
+                // and redone, on every sync: "86 taken in" each time. 2026-11-18.)
+                if (status == "unwatched" && here == null) continue
                 out.removeAll { keyOf(it) == k }
                 when (status) {
                     "unwatched" -> Unit
-                    "watched" -> out += base(here, ref, v).copy(watched = true, positionMs = 0, changedAt = at, updatedAt = here?.updatedAt ?: at)
-                    else -> out += base(here, ref, v).copy(watched = false, positionMs = pos, durationMs = (v.long("dur") ?: 0) * 1000,
+                    "watched" -> out += base(here, ref, v, names).copy(watched = true, positionMs = 0, changedAt = at, updatedAt = here?.updatedAt ?: at)
+                    else -> out += base(here, ref, v, names).copy(watched = false, positionMs = pos, durationMs = (v.long("dur") ?: 0) * 1000,
                         changedAt = at, updatedAt = at, hidden = false)
                 }
                 taken++
+            }
+            // Entries already saved as "Unknown": their TMDB name now.
+            for (i in out.indices) {
+                val e = out[i]
+                val n = e.tmdbId?.let { names[e.type + ":" + it] }
+                if (e.title == UNKNOWN && n != null) { out[i] = e.copy(title = n.first, poster = e.poster ?: n.second); taken++ }
+                else if (e.poster == null && n?.second != null) { out[i] = e.copy(poster = n.second); taken++ }
             }
             out
         }
         prefs.edit().putStringSet(snapKey, store.entries.value.map { keyOf(it) }.toSet()).apply()
         if (changedRemote || taken > 0) Log.i(TAG, "synced: ${merged.size} on Dispatcharr${if (changedRemote) ", saved" else ""}${if (taken > 0) ", $taken taken in" else ""}")
+        lastSync = System.currentTimeMillis()
     }
 
     private fun JsonObject.updatedAt(): Long = (this["updated_at"] as? JsonPrimitive)?.longOrNull ?: 0
@@ -181,20 +249,44 @@ class WatchSync @Inject constructor(
         return null
     }
 
-    /** The entry to update, or a new one for a title this box hasn't seen (another box, or Emby, watched it). */
-    private fun base(here: LocalWatch?, ref: Ref, v: JsonObject): LocalWatch {
-        if (here != null) return here
-        val title = v.text("title")?.replace(Regex("\\s+S\\d+E\\d+$"), "") ?: ref.slug?.replace('_', ' ') ?: "Unknown"
+    /**
+     * The entry to update, or a new one for a title this box hasn't seen (another box, or Emby, watched it). An entry
+     * with no name (a companion plugin writes only the ids and progress) takes its name and poster from TMDB: they all
+     * showed "Unknown" in Continue watching (ullms, 2026-11-17).
+     */
+    private fun base(here: LocalWatch?, ref: Ref, v: JsonObject, names: Map<String, Pair<String, String?>>): LocalWatch {
+        val named = ref.tmdb?.let { names[ref.type + ":" + it] }
+        if (here != null) {
+            if (named == null) return here
+            if (here.title != UNKNOWN) return if (here.poster == null) here.copy(poster = named.second) else here
+            return here.copy(title = named.first, poster = here.poster ?: named.second)
+        }
+        val given = v.text("title")?.replace(Regex("\\s+S\\d+E\\d+$"), "")
+        val title = given ?: named?.first ?: ref.slug?.replace('_', ' ') ?: UNKNOWN
         val id = when { ref.tmdb != null -> "tmdb:${ref.type}:${ref.tmdb}"; ref.imdb != null -> "imdb:${ref.imdb}"; else -> "title:${ref.slug}" }
         return LocalWatch(
-            id = id, type = v.text("type") ?: ref.type, title = title, poster = v.text("poster"),
+            id = id, type = v.text("type") ?: ref.type, title = title, poster = v.text("poster") ?: named?.second,
             tmdbId = ref.tmdb, imdbId = ref.imdb, key = v.text("key") ?: id, season = ref.season, episode = ref.episode,
         )
     }
 
     companion object {
         const val KEY = "viewarr_vod_progress"
+        const val SERVERS_KEY = "viewarr_watch_servers"
+        /** Settings switch for the Emby / Jellyfin sync (a palette title part marked when ON: off by default). */
+        const val SERVERS_SWITCH = "watchsrv:+on"
+        val serversOn get() = !io.github.petebutty.viewarr.ui.theme.AppColors.palette.shows(SERVERS_SWITCH)
+        /** Switch it (Settings): set by the settings screen to [shareServers] on the singleton. */
+        var setServers: (Boolean) -> Unit = {}
+        /** Settings switch (a palette title part: on unless hidden). */
+        const val ENABLE_KEY = "watchsync"
+        val enabled get() = io.github.petebutty.viewarr.ui.theme.AppColors.palette.shows(ENABLE_KEY)
+        /** When it last synced (Settings shows it); 0: not yet this time. */
+        var lastSync by androidx.compose.runtime.mutableLongStateOf(0L)
+        /** Sync now (set once it's started). */
+        var requestSync: () -> Unit = {}
         private const val TAG = "WatchSync"
+        private const val UNKNOWN = "Unknown"
         private const val LEEWAY_S = 5L
         private const val UNWATCHED_KEEP_DAYS = 90
         private const val MAX_BYTES = 115_000

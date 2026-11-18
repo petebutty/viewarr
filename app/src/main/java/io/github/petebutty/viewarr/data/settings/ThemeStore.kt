@@ -159,7 +159,7 @@ class ThemeStore @Inject constructor(@ApplicationContext private val context: Co
         /** The Viewarr look's display options (UiOpts): its info bar, lettering and guide details. */
         private val VIEWARR_LOOK = mapOf(
             "font" to 4, "text_size" to 1, "banner_glass" to 1, "banner_border" to 0, "banner_badges" to 0,
-            "banner_episode" to 1, "banner_number" to 1, "catchup_icons" to 1, "clock" to 0,
+            "banner_episode" to 1, "banner_number" to 1, "catchup_icons" to 3, "clock" to 0,
         )
         /** The theme migration last applied (26: the glass design's Viewarr theme). */
         val THEME_VERSION = intPreferencesKey("theme_version")

@@ -53,7 +53,7 @@ fun WhatsNewHost() {
             val notes = runCatching { context.assets.open("whats_new.txt").bufferedReader().readText().hashCode().toString() }.getOrNull()
             val seenNotes = prefs.getString("seen_notes", null)
             val sameSeries = seen != null && seen.substringBeforeLast('.') == current.substringBeforeLast('.')
-            show = updated && (if (seenNotes != null) seenNotes != notes else !sameSeries)
+            show = updated && (if (seenNotes != null) seenNotes != notes else !sameSeries) && io.github.petebutty.viewarr.ui.common.Notify.whatsNew
             prefs.edit().putString("seen_version", current).putString("seen_notes", notes).putBoolean("legacy_check", true).apply()
         }
     }

@@ -17,7 +17,6 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import io.github.petebutty.viewarr.BuildConfig
 import io.github.petebutty.viewarr.data.local.GuideDatabases
 import io.github.petebutty.viewarr.data.session.SessionStore
-import io.github.petebutty.viewarr.data.settings.RemoteChoice
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -155,8 +154,6 @@ class AboutViewModel @Inject constructor(
     }
 }
 
-private class Value(override val label: String) : RemoteChoice
-
 /** Settings → About: version, this TV, what Viewarr stores (and clearing it), and the Live TV sources. */
 @Composable
 fun AboutSettingsScreen(onBack: () -> Unit, vm: AboutViewModel = hiltViewModel()) {
@@ -165,22 +162,22 @@ fun AboutSettingsScreen(onBack: () -> Unit, vm: AboutViewModel = hiltViewModel()
     // Row titles must be unique on a page (they key its list).
     fun rows(list: List<AboutRow>) = list.mapIndexed { i, r ->
         val title = if (list.take(i).any { it.title == r.title }) "${r.title} (${i + 1})" else r.title
-        SettingItem(title, r.note, emptyList(), Value(r.value), action = {}, onSelect = {})
+        SettingItem(title, r.note, emptyList(), PlainChoice(r.value), action = {}, onSelect = {})
     }
     // Always the same four sections (the page sets itself up for its sections once); filled in when gathered.
     val i = info ?: AboutInfo(emptyList(), emptyList(), emptyList(), emptyList())
     val loading = info == null
     val categories = listOf(
         SettingCategory("Viewarr", if (loading) "Gathering details…" else "This version of Viewarr.", rows(i.viewarr) + listOf(
-            SettingItem("Changelog", "What changed in each version of Viewarr, newest first.", emptyList(), Value("OK: read"), action = { io.github.petebutty.viewarr.ui.update.Changelog.open = true }, onSelect = {}),
-            SettingItem("Show the tour", "The tour of how Viewarr works, from the first run.", emptyList(), Value("OK: show"), action = { Tour.requested = true }, onSelect = {}),
+            SettingItem("Changelog", "What changed in each version of Viewarr, newest first.", emptyList(), PlainChoice("OK: read"), action = { io.github.petebutty.viewarr.ui.update.Changelog.open = true }, onSelect = {}),
+            SettingItem("Show the tour", "The tour of how Viewarr works, from the first run.", emptyList(), PlainChoice("OK: show"), action = { Tour.requested = true }, onSelect = {}),
         )),
         SettingCategory("This TV", if (loading) "Gathering details…" else "The box Viewarr is running on.", rows(i.device)),
         SettingCategory(
             "Storage", if (loading) "Measuring…" else "What Viewarr keeps on this TV.",
             rows(i.storage) + if (loading) emptyList() else listOf(
-                SettingItem("Clear artwork", "Posters, logos and backdrops are fetched again as you browse.", emptyList(), Value("OK: clear"), action = { vm.clearArtwork() }, onSelect = {}),
-                SettingItem("Delete downloaded updates", "Update files that have already been installed.", emptyList(), Value("OK: delete"), action = { vm.clearUpdates() }, onSelect = {}),
+                SettingItem("Clear artwork", "Posters, logos and backdrops are fetched again as you browse.", emptyList(), PlainChoice("OK: clear"), action = { vm.clearArtwork() }, onSelect = {}),
+                SettingItem("Delete downloaded updates", "Update files that have already been installed.", emptyList(), PlainChoice("OK: delete"), action = { vm.clearUpdates() }, onSelect = {}),
             ),
         ),
         SettingCategory("Live TV sources", "Your saved sources and their guides (the three most recent are kept on the TV).", rows(i.sources)),

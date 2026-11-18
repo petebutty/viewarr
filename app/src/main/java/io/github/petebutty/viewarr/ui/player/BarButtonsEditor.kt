@@ -38,7 +38,7 @@ import io.github.petebutty.viewarr.ui.theme.Tokens
 import kotlinx.coroutines.delay
 
 /**
- * Whether a pop-up of the info bar is open (the Info bar buttons editor, a shortcut's or a card's options, Choose
+ * Whether a pop-up of the info bar is open (the Info bar buttons editor, a card's options, Choose
  * rows): the info bar doesn't close on its own meanwhile. Counted, as one can open over another (the editor's own
  * hold-OK options over the editor). (A plain flag before: Peter, 2026-11-17 UI review.)
  */

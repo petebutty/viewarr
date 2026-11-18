@@ -2,7 +2,7 @@
 
 A quick tour of the Settings menu, page by page. Open it from the bottom of the main menu.
 
-A line at the top of Settings describes the highlighted entry, and every section says what it covers. Settings pages that have many options also have a reset button.
+A line at the top of Settings describes the highlighted entry in full, and every section says what it covers. Settings with several choices open a drop-down list. Settings pages that have many options also have a reset button.
 
 Some entries only show for some people: **Users & profiles** and **Dispatcharr plugins** are for Dispatcharr admins, and an admin can lock accounts, settings or signing out for a profile (see [Profiles](PROFILES.md)).
 
@@ -46,12 +46,13 @@ Everything to do with how Viewarr looks, in sections:
 | Section | What it covers |
 |---|---|
 | **Theme** | **Background colour** (Viewarr's charcoal, or Classic blue, Ocean blue, Sky blue and others), **Highlight colour** (orange by default, including Bright cyan), **Text size**, **Font**, **Clock**, **Date format** (Tue 10 Nov, Tue, Nov 10, Tue 10/11 or Tue 11/10) and **Time format**. |
-| **Wallpaper** | None, one of sixteen built-in designs, or the artwork of the programme you've highlighted. |
+| **Wallpaper** | None, one of sixteen built-in designs, or the artwork of the programme you've highlighted. **Wallpaper shade**: what darkens the wallpaper and the Movies / Shows artwork, your **Background colour** or **Black** (darker without tinting, so pictures keep their own colours). |
 | **Glass & transparency** | **Glass**, **Glass colour**, **Guide**, **Wallpaper dimming**, **Pop-up glass** and the info bar's **border**. |
-| **TV guide** | Channel numbers, logos, **Programme corners**, progress bars, **Channel list width** (Medium, Narrow or Wide), **Channel list progress** (a bar under the programme in the channel list: every channel, the highlighted one only, or off) and its **Highlighted progress colour**, episode numbers, catch-up icons, programme pictures and **Programme title logos**. |
+| **TV guide** | Channel numbers, logos, **Programme corners**, progress bars, **Channel list width** (Medium, Narrow or Wide), **Channel list progress** (a bar under the programme in the channel list: every channel, the highlighted one only, or off) and its **Highlighted progress colour**, episode numbers, **Timeline**, **Catch-up icons** (programmes and channels, channel names only, the highlighted channel only, or off), **Elapsed shading** (the part of a programme on now that's already gone), **Programme pictures**, **Programme picture shows as** (Background or Banner) and **Programme title logos**. |
 | **Info bar & controls** | **Info bar style** (Glass, Square glass, Pill, Fade, Full-width bar, Minimal, Faded glass, Feathered glass, Side fade, Outline, Corner card, Floating card, Slim strip or Frosted) and **corners**, **Info bar size** and **width**, **Clock on the info bar**, **Preview cards**, **Rows under the info bar** (which rows each player shows when you press Down, and their order, with a preview), the channel number, episode numbers, picture-quality, source (where the live stream comes from) and frame-rate badges, and **Player controls size**. |
-| **Menu** | Headings, colour edge and tint, hints, the TV and LIVE marks, and **Button hints**. |
-| **Posters** | **Library posters** size, **Where it's from** and **Progress bars**. |
+| **Menu** | Headings, colour edge and tint, hints, the TV and LIVE marks, and **Hidden groups row** (a "Hidden groups" row at the end of the channel groups; off, hold OK on any group → **Show hidden groups**). |
+| **Browsing style** | **Viewarr**, **Cinema** or **Lite**: the look of Movies, Shows and the streaming services' pages in one go. Under it, **Top panel** (Normal, Big or Off) and **Row posters**. See [Films & shows](FILMS-AND-SHOWS.md#browsing-styles). |
+| **Posters** | **Library posters** size, **Where it's from**, **Progress bars**, **Other posters faded** (a slider) and **Highlight zoom**. |
 | **Title pages** | What a title page shows, and **Age ratings**. |
 | **Ratings** | Which ratings show, and their order. |
 | **Subtitles** | **Size**, **Colour** and **Background**. |
@@ -62,7 +63,7 @@ Everything to do with how Viewarr looks, in sections:
 
 ### Home page & menu
 
-Which libraries the menu lists for Movies and Shows (on or off, order, names), and which rows the Movies and Shows pages show, in what order. Each row says where it comes from. Also **Combine rows from different servers**. See [Films & shows](FILMS-AND-SHOWS.md#choosing-your-rows).
+Which libraries the menu lists for Movies and Shows (on or off, order, names), and which rows the Movies and Shows pages show, in what order. Each row says where it comes from. Also **Combine rows from different servers**, and **Continue watching from**: one switch for each server, IPTV and Trakt (see [Films & shows](FILMS-AND-SHOWS.md#continue-watching-from)). See [Films & shows](FILMS-AND-SHOWS.md#choosing-your-rows).
 
 ### Remote buttons
 
@@ -73,8 +74,19 @@ Every button on your remote, and what it does in the TV guide, on live TV, in fi
 | Section | Settings |
 |---|---|
 | **Start** | **App opens on**: live TV (**Last channel** plays the channel you watched last, full screen), the TV guide, or one of your libraries. If Android closes Viewarr while it's in the background (the Home button, another app), it opens where you were instead: the channel, the film's page, or the page you were on (within 6 hours). Leaving with Back or Exit starts fresh next time. |
+| **Menu** | **Button hints**: what the buttons do on each screen. |
 | **What the menu lists** | Which entries the main menu shows (Live now, Sports, Movies, Shows, Music, Recordings, Search and your streaming services). |
 | **Poster rows** | **Moving between rows** and **Poster position**. |
+| **Notifications** | Everything Viewarr pops up by itself. *(0.29.0 and later.)* |
+
+#### Notifications
+
+Every kind of pop-up is **off** until you turn it on. First switch on **Notifications**, then choose each kind:
+
+- **Score alerts**: Off, **Banner**, **News ticker**, or **Banner and ticker**. Which kinds of alert, and for which teams, are set in **Settings → Sports** (see [Sports](#sports)).
+- **Reminders**: a card when a programme or game you set a reminder for is about to start. **Remind me** sets how early: when it starts, or 2, 5, 10 or 15 minutes before.
+- **Update available**: a card when a new Viewarr is out. **Settings → Updates → Check for updates** always works.
+- **What's new**: a card once after an update. **Settings → About → Changelog** still has it.
 
 ## Watching
 
@@ -83,8 +95,10 @@ Every button on your remote, and what it does in the TV guide, on live TV, in fi
 | Section | Settings |
 |---|---|
 | **Watching** | **Up / Down while watching** (change channel, or browse in the info bar), **Browsing channels**, **Highlight the corner picture**, **Still watching?** |
-| **TV guide** | **TV guide days ahead** (1, 3, 5 or 7), **TV guide refresh**, **End of a list**. |
+| **TV guide** | **TV guide days ahead** (1, 3, 5 or 7), **TV guide refresh**, **EPG offset** (the whole source's guide moved earlier or later), **End of a list**. |
 | **Channel groups** | **"All channels" group** (shown or hidden). |
+| **Live now groups** and **Live now sports** | Which channel groups Live now looks through, and which sports it shows. |
+| **Live now leagues** | **Only what I follow**: Live now shows just your teams' and leagues' games. **Follow a team or league** takes you to Settings → Sports. With the [Viewarr plugin](LIVE-TV.md#viewarr-plugin-optional), the leagues with games listed follow, each On or Off. *(0.29.0 and later.)* |
 
 How the guide and info bar look is in **Appearance**. See [Live TV](LIVE-TV.md).
 
@@ -99,12 +113,14 @@ How the guide and info bar look is in **Appearance**. See [Live TV](LIVE-TV.md).
 | **Streams** | **Play order**, **Addon streams**, **Cached only**, **Try the next stream**, **Best quality allowed**, **Plex quality**, **Buffer**. |
 | **Auto-play match** | Rules (4K, 1080p, HEVC, Atmos, English…) switched on and sorted by importance; **Add your own…**; **Reset the rules**. |
 | **Episodes** | **Skip intros**, **Skip credits**, **Play next episode automatically**, **After a film or episode**, **Next episode countdown**. |
-| **Trailers** | **Trailer previews**, **Start after**, **Preview sound**. |
+| **Trailers** | **Trailer previews**, **Start after**, **Then the big panel**, **Trailer previews play** (in a corner window or in the poster), **Preview sound**. |
 | **Music** | **Lyrics from LRCLIB**. |
 
 ### Sports
 
 Your teams and leagues: type a team, league or sport, or pick a sport, then a league, then a team. Their games show on the **Sports** page in the menu. See [Live TV](LIVE-TV.md#sports).
+
+**Score alerts** *(0.29.0 and later)*: Off, Banner, News ticker, or Banner and ticker; then each kind on or off (**Goals and scores**, **Kick-off / tip-off**, **Half-time**, **Full time / final**). No team has alerts to start with: hold OK on a team or league in the search results (followed or not) to turn its alerts on. Teams with alerts are listed with 🔔; OK on one turns its alerts off. Alerts also need **Notifications** switched on (see [Notifications](#notifications)).
 
 ### Watchlist
 
@@ -139,7 +155,7 @@ See [Profiles](PROFILES.md#your-setup-saved-on-dispatcharr) and [Privacy](PRIVAC
 ### Updates
 
 - **Check for updates**: looks for a newer Viewarr on GitHub. If there is one, you can install it straight away.
-- **Check automatically**: checks when Viewarr starts (at most twice a day).
+- **Check automatically**: checks when Viewarr starts or comes back on screen (at most every 30 minutes). A card about a new version only shows if **Notifications → Update available** is on.
 - **Include test versions**: test versions (pre-releases) get new features first. Viewarr's releases are all test versions for now, so turning this off means no updates yet.
 
 ### About

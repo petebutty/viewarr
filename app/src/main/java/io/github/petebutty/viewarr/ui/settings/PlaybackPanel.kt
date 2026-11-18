@@ -59,7 +59,6 @@ class PlaybackSettingsViewModel @Inject constructor(
     val settings = store.settings.stateIn(viewModelScope, SharingStarted.Eagerly, PlaybackSettings())
 
     fun set(key: String, value: RemoteChoice) = viewModelScope.launch { store.set(key, value as Enum<*>) }
-    fun reset() = viewModelScope.launch { store.reset() }
     /** Just these settings back to their defaults (a page's Reset; the rest stay as they are). */
     fun resetKeys(keys: List<String>) = viewModelScope.launch { keys.forEach { store.setText(it, "") } }
     fun setText(key: String, value: String) = viewModelScope.launch { store.setText(key, value) }
@@ -75,11 +74,13 @@ fun playbackCategories(vm: PlaybackSettingsViewModel = hiltViewModel(), opts: Ui
     val guideVm: GuideViewModel = hiltViewModel()
     guideVm.shiftVersion.collectAsStateWithLifecycle().value
     val shiftNow = guideVm.sourceShiftMin()
+    // (The groups list redraws as the groups arrive, and the starting ticks once the plugin's groups are known.)
+    guideVm.groups.collectAsStateWithLifecycle().value
+    val liveDefaultsLoaded = androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+    androidx.compose.runtime.LaunchedEffect(Unit) { guideVm.loadLiveGroupDefaults(); liveDefaultsLoaded.value = true }
+    liveDefaultsLoaded.value
     // Tidy group names, its clean-up and Live now sports: kept with the appearance settings (palette title parts).
     val appearance: AppearanceViewModel = hiltViewModel()
-    val liveOnOff = listOf(LiveOnOff("On"), LiveOnOff("Off"))
-    fun onOffItem(title: String, description: String, on: Boolean, set: (Boolean) -> Unit) =
-        SettingItem(title, description, liveOnOff, if (on) liveOnOff[0] else liveOnOff[1]) { c -> set(c == liveOnOff[0]) }
     fun item(title: String, description: String, key: String, all: List<RemoteChoice>, current: RemoteChoice) =
         SettingItem(title, description, all, current) { vm.set(key, it) }
     val k = PlaybackStore.Companion
@@ -89,7 +90,7 @@ fun playbackCategories(vm: PlaybackSettingsViewModel = hiltViewModel(), opts: Ui
         SettingCategory(
             "Player", "Which player plays films, shows and recordings, and how it behaves.",
             listOf(
-                item("Player", "The built-in player is lighter and handles surround sound best. If it can't play a file, Viewarr switches to mpv by itself. Choose mpv to use it for everything.", k.ENGINE, choices<PlayerEngine>(), s.engine),
+                item("Player", "The built-in player is lighter and handles surround sound best. Choose mpv to use it for everything.", k.ENGINE, choices<PlayerEngine>(), s.engine),
                 item("Video view", "Standard: the box's own video hardware shows the film (lighter, HDR and Dolby Vision as the file has them, a smooth glide into the corner). Compatible: drawn by Viewarr, for a box where Standard leaves the picture black.", k.VIDEO_VIEW, choices<VideoView>(), s.videoView),
                 item("Resume", "Carry on where you stopped last time, or always start at the beginning.", k.RESUME, choices<ResumeMode>(), s.resume),
                 optItem(opts, "Time on the right", "Under the seek bar of films and episodes: how long is left (15:05 left), the time it ends (Ends at 21:43, in your time format), or both.", UiOpts.FILM_TIME_RIGHT),
@@ -97,6 +98,34 @@ fun playbackCategories(vm: PlaybackSettingsViewModel = hiltViewModel(), opts: Ui
                 optItem(opts, "Player controls size", "How big the seek bar, title and buttons are while a film or episode plays. Smaller sizes cover less of the picture.", UiOpts.CONTROLS_SIZE),
                 optItem(opts, "Seek-bar previews", "Pictures above the seek bar. Without the server's own, the box reads the film a second time to make them: \"Server's only\" or Off saves bandwidth and memory.", UiOpts.SEEK_PREVIEWS),
                 item("mpv decoding", "Direct to screen is smoothest, and changes by itself when a film has picture subtitles (as Blu-rays do). Try software only if the picture glitches or shows colour blocks.", k.MPV_DECODING, choices<MpvDecoding>(), s.mpvDecoding),
+            ),
+        ),
+        // Watch progress for IPTV and addon films and shows, shared through Dispatcharr (data/sync/WatchSync.kt): other
+        // TVs signed in to the same Dispatcharr user, and companion plugins (e.g. syncing with Emby / Jellyfin).
+        SettingCategory(
+            "Watch progress", "Only for films and episodes you play from your IPTV provider or addons (not Plex, Jellyfin or Emby: they keep their own). If you use Trakt for your watch history, you don't need any of these: leave them off.",
+            listOf(
+                onOffItem(
+                    "Sync with Dispatcharr",
+                    "On: where you stopped in an IPTV or addon film or episode, and what you've finished, is saved on your Dispatcharr (in your own user's storage), so every TV signed in as you carries on from the same place. Off: each TV remembers only what was played on it.",
+                    io.github.petebutty.viewarr.data.sync.WatchSync.enabled,
+                ) { on -> appearance.setTitlePart(io.github.petebutty.viewarr.data.sync.WatchSync.ENABLE_KEY, on); if (on) io.github.petebutty.viewarr.data.sync.WatchSync.requestSync() },
+                onOffItem(
+                    "Sync IPTV progress with my Emby / Jellyfin / Plex",
+                    "For people without Trakt. On: when you finish or stop an IPTV film or episode, the Viewarr plugin on your Dispatcharr marks the same title in your Emby, Jellyfin or Plex (and the other way round for titles you've watched on IPTV), every 5 minutes. Needs \"Sync with Dispatcharr\" on and the Viewarr plugin installed. To do it, Viewarr gives the plugin your sign-in for those servers, kept in your own Dispatcharr storage. Off: the sign-in is taken back out and nothing more is synced.",
+                    io.github.petebutty.viewarr.data.sync.WatchSync.serversOn,
+                ) { on ->
+                    appearance.setTitlePart(io.github.petebutty.viewarr.data.sync.WatchSync.SERVERS_SWITCH, !on)
+                    io.github.petebutty.viewarr.data.sync.WatchSync.setServers(on)
+                },
+                SettingItem(
+                    "Sync now",
+                    "Saves this TV's IPTV watch progress to Dispatcharr and takes in anything newer from your other TVs now, instead of waiting for the next automatic sync (every 5 minutes).",
+                    emptyList(),
+                    PlainChoice(io.github.petebutty.viewarr.data.sync.WatchSync.lastSync.takeIf { it > 0 }?.let { "Last: " + io.github.petebutty.viewarr.ui.theme.Dates.time(it) } ?: "OK: sync"),
+                    action = { io.github.petebutty.viewarr.data.sync.WatchSync.requestSync() },
+                    onSelect = {},
+                ),
             ),
         ),
         SettingCategory(
@@ -112,7 +141,7 @@ fun playbackCategories(vm: PlaybackSettingsViewModel = hiltViewModel(), opts: Ui
             listOf(
                 item("Language", "The soundtrack picked when a film has several.", k.AUDIO_LANG, choices<AudioLanguage>(), s.audioLanguage),
                 item("Surround passthrough", "Only turn on if you have an AV receiver or soundbar that decodes Dolby / DTS. Fixes stuttering sound on weak boxes.", k.PASSTHROUGH, choices<Passthrough>(), s.passthrough),
-                item("Channels", "Stereo mixes surround down to two speakers, so speech isn't too quiet on TV speakers.", k.DOWNMIX, choices<Downmix>(), s.downmix),
+                item("Sound channels", "Stereo mixes surround down to two speakers, so speech isn't too quiet on TV speakers.", k.DOWNMIX, choices<Downmix>(), s.downmix),
                 item("Night mode", "Evens out loud and quiet parts: quieter explosions, clearer speech (mpv).", k.NIGHT, choices<NightMode>(), s.nightMode),
                 item("Volume boost", "Louder than normal, for quiet films (mpv).", k.VOLUME_BOOST, choices<VolumeBoost>(), s.volumeBoost),
                 item("Audio sync", "If voices are out of step with lips, move the sound earlier or later (mpv).", k.AUDIO_DELAY, choices<AudioDelay>(), s.audioDelay),
@@ -183,14 +212,58 @@ fun playbackCategories(vm: PlaybackSettingsViewModel = hiltViewModel(), opts: Ui
         // Tidy group names: which marks are left out.
         SettingCategory(
             "Group name clean-up", "With Tidy group names on (Live TV → Channel groups): the marks left out of channel group names. Switch one off to keep it.",
-            GroupNames.words.map { w -> onOffItem(w, "", GroupNames.removes(w)) { on -> appearance.setTitlePart(GroupNames.wordKey(w), on) } },
+            GroupNames.words.map { w -> onOffItem(w, "On: \"$w\" is left out of group names", GroupNames.removes(w)) { on -> appearance.setTitlePart(GroupNames.wordKey(w), on) } },
         ),
-        // Live now (📡 in the TV guide's groups, and the shortcut): the sports you want in it.
+        // Live now: which channel groups it searches (Peter, 2026-11-17: the user picks them). Starting ticks: the event
+        // feeds' groups and sporty-named ones.
         SettingCategory(
-            "Live now sports", "Which sports go in Live now (📡 Live now in the TV guide's channel groups, and the Live now shortcut). Switch off the ones you're not interested in. Events whose sport isn't known always show.",
-            LiveSports.names.map { name ->
-                onOffItem(name, "", AppColors.palette.shows(LiveSports.key(name))) { on -> appearance.setTitlePart(LiveSports.key(name), on) }
+            "Live now groups", "The channel groups Live now looks through for live sport. To start with: your event channels' groups and any group whose name sounds like sport. Switch on a group it missed, or off one you don't want.",
+            guideVm.realGroups.map { g ->
+                onOffItem(io.github.petebutty.viewarr.ui.common.GroupNames.display(g.name), "On: Live now looks through this group  ·  ${g.channelCount} channels", guideVm.liveGroupOn(g.name)) { on ->
+                    val k = g.name.trim().lowercase()
+                    appearance.setTitlePart("lngrp:" + (if (on) "-" else "+") + k, true)
+                    appearance.setTitlePart("lngrp:" + (if (on) "+" else "-") + k, false)
+                }
             },
+        ),
+        // Live now (📡 in the TV guide's groups): the sports you want in it.
+        SettingCategory(
+            "Live now sports", "Which sports go in Live now (📡 Live now in the TV guide's channel groups). Switch off the ones you're not interested in. Events whose sport isn't known always show.",
+            LiveSports.names.map { name ->
+                onOffItem(name, "On: $name events go in Live now", AppColors.palette.shows(LiveSports.key(name))) { on -> appearance.setTitlePart(LiveSports.key(name), on) }
+            },
+        ),
+        // Notifications: everything Viewarr pops up by itself, all off with one switch, or each kind.
+        SettingCategory(
+            "Notifications", "Everything Viewarr shows by itself. Off: nothing pops up at all. On: choose each kind below.",
+            buildList {
+                val n = io.github.petebutty.viewarr.ui.common.Notify
+                // (A present title part = on here: everything starts off. See Notify.)
+                add(onOffItem("Notifications", "Off to start: nothing pops up at all. On: choose each kind below.", !AppColors.palette.shows(n.ON)) { on -> appearance.setTitlePart(n.ON, !on) })
+                if (!AppColors.palette.shows(n.ON)) {
+                    val sa = io.github.petebutty.viewarr.data.sports.ScoreAlerts
+                    val modes = sa.modes.map { PlainChoice(it) }
+                    add(SettingItem("Score alerts", "Goals, kick-offs and results for the teams and leagues you follow, and where they show. Which kinds, and per team: Settings → Sports.",
+                        modes, modes.first { it.label == sa.mode }) { c -> sa.partsFor(c.label).forEach { (k, v) -> appearance.setTitlePart(k, v) } })
+                    add(onOffItem("Reminders", "A card when something you set a reminder for (a programme or a game) is about to start.", !AppColors.palette.shows(n.REMINDERS)) { on -> appearance.setTitlePart(n.REMINDERS, !on) })
+                    if (!AppColors.palette.shows(n.REMINDERS)) add(optItem(opts, "Remind me", "How early the reminder comes up: when it starts, or 2, 5, 10 or 15 minutes before.", io.github.petebutty.viewarr.ui.theme.UiOpts.REMIND_LEAD))
+                    add(onOffItem("Update available", "A card when a new Viewarr is out, checked when the app opens. Settings → About → Check for updates still works.", !AppColors.palette.shows(n.UPDATES)) { on -> appearance.setTitlePart(n.UPDATES, !on) })
+                    add(onOffItem("What's new", "A card once after an update with what changed. Settings → About → Changelog still has it.", !AppColors.palette.shows(n.WHATS_NEW)) { on -> appearance.setTitlePart(n.WHATS_NEW, !on) })
+                }
+            },
+        ),
+        // Live now by league, or only what you follow (Peter, 2026-11-17). The leagues: those with games in the
+        // server's list (the Viewarr plugin) right now.
+        SettingCategory(
+            "Live now leagues", "Only what I follow: Live now shows just your teams' and leagues' games (Settings → Sports); darts, snooker, racing and other events still go by Live now sports. Below: the leagues the server has listed games for (none without the Viewarr plugin: use Only what I follow then), switch off the ones you don't want.",
+            listOf(
+                SettingItem("Follow a team or league", "Find a team or league and follow it (Settings → Sports): its games are then in Live now with \"Only what I follow\" and on the Sports page, and it can have score alerts (OK on it in Settings → Sports).",
+                    emptyList(), PlainChoice("OK: follow"), action = { SettingsJump.sports = true }, onSelect = {}),
+                onOffItem("Only what I follow", "On: Live now shows only your followed teams' and leagues' games (Settings → Sports). Off: every league below.", LiveSports.followedOnly) { on -> appearance.setTitlePart("live:everything", !on) },
+            ) +
+                io.github.petebutty.viewarr.data.sync.ServerSports.latest?.games?.values.orEmpty()
+                    .mapNotNull { g -> g.leaguePath?.let { it to (g.league ?: it) } }.distinctBy { it.first }.sortedBy { it.second }
+                    .map { (lp, name) -> onOffItem(name, "On: this league's games go in Live now", LiveSports.leagueOn(lp)) { on -> appearance.setTitlePart(LiveSports.leagueKey(lp), on) } },
         ),
         // Low-memory mode: no trailer previews (a second player while you browse): locked.
         SettingCategory(
@@ -198,6 +271,8 @@ fun playbackCategories(vm: PlaybackSettingsViewModel = hiltViewModel(), opts: Ui
             listOf(
                 item("Trailer previews", "When you rest on a poster in Movies or Shows, its trailer plays in a small window at the top.", k.TRAILER_PREVIEW, choices<TrailerPreview>(), s.trailerPreview),
                 item("Start after", "How long to stay on a poster before its trailer starts.", k.TRAILER_DELAY, choices<TrailerDelay>(), s.trailerDelay),
+                optItem(opts, "Then the big panel", "With trailers in the poster: how long it plays in the card before it grows into a big panel in the middle with sound, the same trailer playing on (OK does it at once). In the panel OK opens the title page, Back closes it.", io.github.petebutty.viewarr.ui.theme.UiOpts.TRAILER_GROW),
+                optItem(opts, "Trailer previews play", "In a corner window at the top of the page, or in the poster itself: it widens to a 16:9 picture with the trailer playing inside, and shrinks back when you move on.", io.github.petebutty.viewarr.ui.theme.UiOpts.TRAILER_STYLE),
                 item("Preview sound", "Off plays previews silently. The Trailer button on a title page always has sound.", k.TRAILER_SOUND, choices<TrailerSound>(), s.trailerSound),
             ).map { it.locked(lowLock) },
         ),
@@ -216,10 +291,10 @@ fun playbackCategories(vm: PlaybackSettingsViewModel = hiltViewModel(), opts: Ui
             listOf(
                 // Locked and uploaded only on Send; the code it gives is what to share in Discord.
                 SettingItem("Send a report", "Something not working? This sends what Viewarr was doing to the developer, with passwords, keys, addresses and names taken out, and gives you a short code to share in Discord.",
-                    listOf(ReportLabel("")), ReportLabel(""), action = { ReportUi.noteMode = false; ReportUi.open = true }, onSelect = {}),
+                    listOf(PlainChoice("")), PlainChoice(""), action = { ReportUi.noteMode = false; ReportUi.open = true }, onSelect = {}),
                 // Just a message (no log): a bug that doesn't need one, or an idea.
                 SettingItem("Send a note", "Found a bug that doesn't need a log, or have an idea? Write a message to the developer and get a short code to share in Discord.",
-                    listOf(ReportLabel("")), ReportLabel(""), action = { ReportUi.noteMode = true; ReportUi.open = true }, onSelect = {}),
+                    listOf(PlainChoice("")), PlainChoice(""), action = { ReportUi.noteMode = true; ReportUi.open = true }, onSelect = {}),
                 item("Show playback info", "Shows the video and audio format, decoder and dropped frames while playing.", k.STATS, choices<StatsOverlay>(), s.stats),
                 optItem(opts, "Low-memory mode", "For boxes with 1–2 GB. Turns off the heavy extras across the app (box-made seek previews, guide pictures, logos, wallpaper, artwork, trailers, multi-view, extra ratings); their settings show as locked until it's off. Try it if Viewarr is slow or closes.", UiOpts.LOW_MEMORY),
             ),
@@ -251,6 +326,3 @@ fun playbackReset(vm: PlaybackSettingsViewModel, opts: UiOptsViewModel) {
     vm.resetKeys(PlaybackKeys)
     opts.reset(PlaybackOpts)
 }
-
-/** On / Off for the switches kept as palette title parts (Tidy group names, its clean-up, Live now sports). */
-private data class LiveOnOff(override val label: String) : RemoteChoice
