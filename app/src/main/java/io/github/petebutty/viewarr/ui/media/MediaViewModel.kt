@@ -1,6 +1,7 @@
 package io.github.petebutty.viewarr.ui.media
 
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import androidx.lifecycle.ViewModel
@@ -75,6 +76,7 @@ import io.github.petebutty.viewarr.ui.player.RowSets
  */
 fun DetailUi.upTo(): Triple<Int, Int, Boolean>? {
     val item = detail.item
+    // (The card's own episode counts too: every source is read now, so whichever row it came from is right.)
     val card = item.nextSeason?.let { s -> item.nextEpisode?.let { e -> Triple(s, e, item.progress != null) } }
     return listOfNotNull(card, nextUp).maxWithOrNull(compareBy({ it.first }, { it.second }))?.let(::realEpisode)
 }
@@ -89,7 +91,7 @@ private fun DetailUi.realEpisode(t: Triple<Int, Int, Boolean>): Triple<Int, Int,
     val real = seasons.filter { it.number > 0 }.sortedBy { it.number }
     val known = real.filter { it.episodes > 0 }
     if (known.isEmpty()) return t
-    fun watched(k: Pair<Int, Int>) = plexEpisodes[k]?.watched == true || serverEpisodes[k]?.watched == true || k in traktEpisodes
+    fun watched(k: Pair<Int, Int>) = episodeWatched(k)
     var s = t.first; var e = t.second; var partial = t.third; var moved = false
     repeat(1000) {
         val len = known.firstOrNull { it.number == s }?.episodes ?: return if (moved) Triple(s, e, false) else t
@@ -134,13 +136,17 @@ data class DetailUi(
     val serverEpisodes: Map<Pair<Int, Int>, PlexEpisode> = emptyMap(),
     /** Episodes Trakt says you've watched (wherever you watched them). */
     val traktEpisodes: Set<Pair<Int, Int>> = emptySet(),
+    /** Episodes watched or started in Viewarr (this box's record, shared through Dispatcharr): LocalWatchStore.episodesOf. */
+    val localEpisodes: Map<Pair<Int, Int>, PlexEpisode> = emptyMap(),
+    /** Episodes Trakt has a paused point for (from any app): CatalogRepository.traktPlaybackOf. */
+    val traktPlayback: Map<Pair<Int, Int>, io.github.petebutty.viewarr.data.sync.TraktPos> = emptyMap(),
     /** IPTV provider series: (season, episode) → stream address. */
     val providerEpisodes: Map<Pair<Int, Int>, String> = emptyMap(),
     /** The episode whose play options are open. */
     val episode: EpisodeInfo? = null,
     /** IMDb / Rotten Tomatoes (from Plex) and Trakt, beside TMDB's. */
     val ratings: List<RatingBadge> = emptyList(),
-    /** Films: watched on any of your servers or Trakt (null while checking). */
+    /** Films: watched on Trakt, any of your servers, or in Viewarr's record (null while checking). */
     val watched: Boolean? = null,
     /** Films on your own server: their audio / subtitle tracks, and what you picked for this Play (null = usual). */
     val tracks: TitleTracks? = null,
@@ -273,6 +279,21 @@ class MediaViewModel @Inject constructor(
     /** Each server's / library's Continue watching, for Settings → Home page & menu → Continue watching from. */
     val continueSources = _rows.map { r -> r.rows.mapNotNull { ContinueFrom.ofRow(it) } }
         .stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, emptyList())
+    /**
+     * Films finished here this session (stopped past 80%): kept out of Continue watching straight away, before the
+     * rows are next loaded (Peter, 2026-11-18: Chainsaw Man stayed there after the credits, its bar at the start).
+     */
+    private val finishedHere = MutableStateFlow<Set<String>>(emptySet())
+    private fun filmKeys(tmdb: Int?, imdb: String?) = listOfNotNull(tmdb?.let { "tmdb:$it" }, imdb?.takeIf { it.isNotBlank() }?.let { "imdb:$it" })
+    /**
+     * A film finished: here this session, or (unless [fromTrakt]: Trakt's own Continue watching, where a re-watch
+     * Trakt says is under way stays) in Trakt's history. For Continue watching (WatchState.mergeContinue).
+     */
+    fun finishedFilm(i: MediaItem, fromTrakt: Boolean = false): Boolean = i.type == MediaType.Movie &&
+        (filmKeys(i.tmdbId, i.imdbId).any { it in finishedHere.value } || (!fromTrakt && repo.traktWatchedMovie(i)))
+    /** Continue watching as one, from every source: each title once, finished ones out (WatchState.mergeContinue). */
+    private fun oneContinue(r: RowsState): RowsState = r.copy(rows = mergeContinue(r.rows,
+        { row -> dropsFrom(row) && !row.id.startsWith("upcoming-") }, { i, trakt -> finishedFilm(i, trakt) }))
     /** The rows as shown: repeats across servers combined when that's switched on. */
     private val shownRows = kotlinx.coroutines.flow.combine(_rows, mergeRows, droppedShows, localWatch.rowEntries, layoutType) { r000, merge, dropped, local, type ->
         // Continue watching from a server / IPTV switched off (Settings → Home page & menu): that row goes.
@@ -284,7 +305,17 @@ class MediaViewModel @Inject constructor(
         val r = if (dropped.isEmpty()) r0 else r0.copy(rows = r0.rows.map { row ->
             if (dropsFrom(row)) row.copy(items = row.items.filterNot { isDropped(it, dropped) }) else row
         }.filter { it.items.isNotEmpty() || !dropsFrom(it) })
-        if (merge) r.copy(rows = io.github.petebutty.viewarr.data.media.mergeRows(r.rows)) else r
+        r to merge
+    }.let { rows ->
+        // (Again when a film's finished here or Trakt's history changes; combined across servers after, so the
+        // merged row keeps the title from the row that won.)
+        kotlinx.coroutines.flow.combine(rows, finishedHere, repo.traktWatchedState) { (r, merge), _, _ ->
+            val one = oneContinue(r)
+            if (merge) one.copy(rows = io.github.petebutty.viewarr.data.media.mergeRows(one.rows)) else one
+        }
+            // (Sorting and merging the rows off the main thread: profiled at ~0.35 s of it in 12 s of browsing while
+            // rows were arriving, which made the poster slides drop frames. Peter, 2026-11-19.)
+            .flowOn(kotlinx.coroutines.Dispatchers.Default)
     }
 
     /** The key a dropped show is saved under: its TMDB id, else IMDb, else its name. */
@@ -359,6 +390,8 @@ class MediaViewModel @Inject constructor(
         else if (l != null) r.copy(rows = l.ordered(r.rows).filter { !l.off(it.id) || it.id == extra }) else r.copy(rows = focusFirst(orderSearch(f.apply(r.rows)), focus))
     }.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, RowsState(emptyList(), done = false))
     // My Library's page takes your own servers' rows from both pages, and its saved order / on-off (MyLibrary).
+
+
     init {
         viewModelScope.launch {
             kotlinx.coroutines.flow.combine(shownRows, layoutType) { r, t -> r to t }.collect { (r, t) ->
@@ -437,6 +470,23 @@ class MediaViewModel @Inject constructor(
     }
     private val _detail = MutableStateFlow<DetailUi?>(null)
     val detail = _detail.asStateFlow()
+
+    // The open show's episodes in Viewarr's own record, kept in step as they change (played, ticked, synced in from
+    // another TV): the ticks, bars and Up next read them along with Trakt's and the servers'.
+    // (Here, after _detail: an init above it ran its first collect while _detail was still unset and crashed at start.)
+    init {
+        viewModelScope.launch {
+            localWatch.entries.collect {
+                _detail.update { d -> if (d == null || d.detail.item.type != MediaType.Show) d else d.copy(localEpisodes = localWatch.episodesOf(d.detail.item)) }
+            }
+        }
+        // Trakt's paused points too (loaded with the rows, moved by each scrobble): the episodes' bars follow.
+        viewModelScope.launch {
+            repo.traktPlaybackState.collect {
+                _detail.update { d -> if (d == null || d.detail.item.type != MediaType.Show) d else d.copy(traktPlayback = repo.traktPlaybackOf(d.detail.item)) }
+            }
+        }
+    }
     /** What's playing. Set through here so the Audio & subtitles picked on a film's page go with its own copy. */
     private inner class Playing {
         val flow = MutableStateFlow<VodStream?>(null)
@@ -1176,7 +1226,7 @@ class MediaViewModel @Inject constructor(
             took("copies (${copies.size})")
             _detail.update { it?.copy(copies = copies) }
             if (full.item.type == MediaType.Movie) launch {
-                val w = runCatching { repo.filmWatched(full.item, copies) }.getOrNull()
+                val w = filmWatchedNow(full.item, copies)
                 _detail.update { if (it?.detail?.item?.key == full.item.key) it.copy(watched = w) else it }
             }
             if (full.item.type == MediaType.Movie) launch {
@@ -1200,6 +1250,7 @@ class MediaViewModel @Inject constructor(
             }
             if (show) {
                 fun same(u: DetailUi?) = u?.detail?.item?.key == full.item.key
+                _detail.update { if (same(it)) it!!.copy(localEpisodes = localWatch.episodesOf(full.item), traktPlayback = repo.traktPlaybackOf(full.item)) else it }
                 launch {
                     // Your Trakt history: episodes watched anywhere get their tick.
                     runCatching { repo.traktWatched() }
@@ -1220,21 +1271,8 @@ class MediaViewModel @Inject constructor(
                     // one stray play of an earlier episode (S3 E3 after E5) used to drag Up next back to it.
                     val said = runCatching { repo.nextEpisodeFor(full.item, copies) }.getOrNull()
                     val local = localWatch.nextUp(full.item)
-                    val worked = run {
-                        val plex = plexEps.await(); val server = serverEps.await()
-                        val trakt = runCatching { repo.traktWatched(); repo.traktEpisodesOf(full.item) }.getOrDefault(emptySet())
-                        val all = (plex.keys + server.keys + trakt).filter { it.first > 0 }.distinct().sortedWith(compareBy({ it.first }, { it.second }))
-                        fun watched(k: Pair<Int, Int>) = plex[k]?.watched == true || server[k]?.watched == true || k in trakt
-                        fun offset(k: Pair<Int, Int>) = (plex[k]?.viewOffsetMs ?: 0).coerceAtLeast(server[k]?.viewOffsetMs ?: 0)
-                        val last = all.lastOrNull(::watched)
-                        // The furthest episode started but not finished, past the last one finished: carry on with it.
-                        val started = all.lastOrNull { !watched(it) && offset(it) > 0 }
-                            ?.takeIf { s -> last == null || compareValuesBy(s, last, { p -> p.first }, { p -> p.second }) > 0 }
-                        if (started != null) return@run Triple(started.first, started.second, true)
-                        last ?: return@run null
-                        val after = all.firstOrNull { compareValuesBy(it, last, { p -> p.first }, { p -> p.second }) > 0 && !watched(it) } ?: return@run null
-                        Triple(after.first, after.second, offset(after) > 0)
-                    }
+                    val trakt = runCatching { repo.traktWatched(); repo.traktEpisodesOf(full.item) }.getOrDefault(emptySet())
+                    val worked = workedUpTo(plexEps.await(), serverEps.await(), trakt, localWatch.episodesOf(full.item), repo.traktPlaybackOf(full.item))
                     val next = listOfNotNull(said, local, worked).maxWithOrNull(compareBy({ it.first }, { it.second }))
                     took("up to")
                     _detail.update { if (same(it)) it!!.copy(nextUp = next, nextUpChecked = true) else it }
@@ -1275,21 +1313,42 @@ class MediaViewModel @Inject constructor(
         }
     }
 
+    /** A film watched anywhere: Viewarr's record, Trakt, or one of your servers' copies. null: couldn't tell. */
+    private suspend fun filmWatchedNow(item: MediaItem, copies: List<LibraryCopy>): Boolean? {
+        if (localWatch.isWatched(item)) return true
+        return runCatching { repo.filmWatched(item, copies) }.getOrNull()
+    }
+
+    /** Where a Mark as watched took: [ok] when anywhere did, and the places to name ("Trakt", "Plex"; not this TV). */
+    private class Saved(val ok: Boolean, val where: List<String>)
+
+    /**
+     * Mark watched / not watched EVERYWHERE the title is (Peter, 2026-11-19): Trakt (connected, Send plays to Trakt
+     * on), every server copy, and Viewarr's record for IPTV titles (or ones it already has, or with nowhere else).
+     */
+    private suspend fun saveWatched(item: MediaItem, copies: List<LibraryCopy>, to: Boolean, onIptv: Boolean,
+                                    season: Int? = null, episode: Int? = null, plexKey: String? = null, serverId: String? = null): Saved {
+        val places = runCatching {
+            if (season != null && episode != null) repo.setEpisodeWatched(item, copies, season, episode, plexKey, serverId, to)
+            else repo.setFilmWatched(item, copies, to)
+        }.getOrElse { emptyList() }
+        val local = if (onIptv || places == null || localWatch.has(item, season, episode))
+            runCatching { localWatch.setWatched(item, to, season, episode); true }.getOrDefault(false) else false
+        return Saved(local || !places.isNullOrEmpty(), places.orEmpty())
+    }
+
     fun toggleWatched() {
         val d = _detail.value ?: return
         val to = d.watched != true
         _detail.update { it?.copy(watched = to) }
         viewModelScope.launch {
-            // Viewarr's own watch list too (IPTV and addon films; shared through Dispatcharr): that alone counts as
-            // done. With no Plex / Jellyfin / Emby copy and no Trakt it said "couldn't change it" every time (ullms,
-            // 2026-11-17).
-            val local = runCatching { localWatch.setWatched(d.detail.item, to); true }.getOrDefault(false)
-            val ok = runCatching { repo.setFilmWatched(d.detail.item, d.copies.orEmpty(), to) }.getOrDefault(false) || local
-            if (ok && to) dropFromContinue(d.detail.item)
+            val copies = d.copies.orEmpty()
+            val saved = saveWatched(d.detail.item, copies, to, onIptv = copies.any { it.source == PROVIDER } || d.detail.item.origin == "IPTV")
+            if (saved.ok && to) dropFromContinue(d.detail.item)
             _detail.update {
                 if (it?.detail?.item?.key != d.detail.item.key) it
-                else if (ok) it.copy(message = if (to) "Marked as watched" else "Marked as unwatched")
-                else it.copy(watched = !to, message = "Couldn't change it on your servers or Trakt. Try again in a moment.")
+                else if (saved.ok) it.copy(message = markedMessage(to, saved.where))
+                else it.copy(watched = !to, message = "Couldn't change it. Try again in a moment.")
             }
         }
     }
@@ -1423,7 +1482,7 @@ class MediaViewModel @Inject constructor(
         _detail.update { it?.copy(message = null, episode = null) }
         _playing.value = VodStream(
             url = url, title = "${d.detail.item.title} · S$season · E$episode", watch = iptvTarget(d.detail.item, season, episode),
-            boxPreviews = false, from = "IPTV", resumeMs = localWatch.resumeMs(d.detail.item, season, episode),
+            boxPreviews = false, from = "IPTV", resumeMs = otherResumeMs(d.detail.item, season, episode),
         )
     }
 
@@ -1498,7 +1557,7 @@ class MediaViewModel @Inject constructor(
                     return true
                 }
                 _detail.update { it?.copy(message = null, episode = null) }
-                playIfCurrent(d.detail.item.key, autoStream(found) { opt -> VodStream(opt.url, title, opt.headers, watch = watch, boxPreviews = false, from = opt.addon) })
+                playIfCurrent(d.detail.item.key, autoStream(found) { opt -> VodStream(opt.url, title, opt.headers, watch = watch, boxPreviews = false, from = opt.addon, resumeMs = otherResumeMs(item, season, episode)) })
                 return true
             }
             suspend fun iptv(): Boolean {
@@ -1675,7 +1734,9 @@ class MediaViewModel @Inject constructor(
         val title = listOfNotNull(d?.detail?.item?.title, ep?.let { "S${it.season} · E${it.number}" }).joinToString(" · ").ifEmpty { option.name }
         return VodStream(
             option.url, title, option.headers, from = option.addon,
-            watch = d?.detail?.item?.let { watchTarget(it, ep?.season, ep?.number) },
+            // (Kept on the box like IPTV: addons remember nothing, so Continue watching and your other TVs follow.)
+            watch = d?.detail?.item?.let { iptvTarget(it, ep?.season, ep?.number) },
+            resumeMs = d?.detail?.item?.let { otherResumeMs(it, ep?.season, ep?.number) } ?: 0,
             // Addon links (debrid, AIOStreams) often allow one connection: a second one for seek previews can get the
             // stream refused mid-film.
             boxPreviews = false,
@@ -1774,23 +1835,72 @@ class MediaViewModel @Inject constructor(
     }
 
     private fun watchTarget(item: MediaItem, season: Int?, episode: Int?) =
-        WatchTarget(item.type, tmdbId = item.tmdbId, imdbId = item.imdbId, season = season, episode = episode)
+        WatchTarget(item.type, tmdbId = item.tmdbId, imdbId = item.imdbId, season = season, episode = episode, item = item)
 
     /** IPTV: as [watchTarget], plus the title so where you stop is kept on the box. */
     private fun iptvTarget(item: MediaItem, season: Int?, episode: Int?) = watchTarget(item, season, episode).copy(iptv = item)
 
     /** IPTV films / episodes carry on from where you stopped on this box (the provider doesn't remember). */
     private fun VodStream.withLocalResume(item: MediaItem, season: Int?, episode: Int?) =
-        if (resumeMs > 0) this else copy(resumeMs = localWatch.resumeMs(item, season, episode))
+        if (resumeMs > 0) this else copy(resumeMs = otherResumeMs(item, season, episode))
 
-    /** Player progress → Plex timeline and Trakt scrobble. Trakt only hears about changes (start/pause/stop). */
+    /**
+     * Where an IPTV or addon play carries on from (they don't remember themselves): this box's record, else Trakt's
+     * paused point from another app (its % of the running time). 0: from the start.
+     */
+    private fun otherResumeMs(item: MediaItem, season: Int?, episode: Int?): Long {
+        localWatch.resumeMs(item, season, episode).takeIf { it > 0 }?.let { return it }
+        val d = _detail.value?.takeIf { it.detail.item.key == item.key }
+        val ep = if (season != null && episode != null) season to episode else null
+        val pos = if (ep != null) d?.traktPlayback?.get(ep) ?: repo.traktPlaybackOf(item)[ep] else repo.traktFilmPos(item)
+        pos ?: return 0
+        val runtime = (if (ep != null) d?.episodes?.firstOrNull { it.season == season && it.number == episode }?.runtimeMin else null) ?: d?.detail?.runtimeMin
+        return runtime?.takeIf { it > 0 }?.let { (pos.pct * it * 60_000L).toLong() } ?: 0
+    }
+
+    /** Player progress → Plex / Jellyfin / Emby timeline and Trakt scrobble. Trakt only hears about changes (start/pause/stop). */
     private var lastState = ""
     private var localSavedAt = 0L
+    // Skips while playing, for Trakt (Peter, 2026-11-18: skipping to the credits left Trakt's "Now watching" near the
+    // start): where the last report was, and when a jump was seen (sent once the skipping settles).
+    private var traktLastPos = -1L
+    private var traktLastAt = 0L
+    private var traktJumpAt = 0L
     /** A show's episodes by TMDB's season counts (when the provider's own list isn't known). */
     private fun DetailUi.seasonEpisodeKeys(): Set<Pair<Int, Int>> =
         seasons.filter { it.number > 0 && it.episodes > 0 }.flatMap { s -> (1..s.episodes).map { s.number to it } }.toSet()
+    // A play from IPTV or an addon is reported to the same title on your servers as well (Peter, 2026-11-19: "if I
+    // watch an IPTV VOD show, Plex should update, Trakt should update, and my Viewarr boxes should update"): the
+    // server copies are looked up once per stream, and the reports go to them as if it were playing from there.
+    private var relayUrl: String? = null
+    private var relayPlex: String? = null
+    private var relayServer: Pair<String, String>? = null
+    private var relayJob: kotlinx.coroutines.Job? = null
+    private fun relayFor(stream: VodStream, target: WatchTarget) {
+        if (relayUrl == stream.url) return
+        relayUrl = stream.url; relayPlex = null; relayServer = null
+        relayJob?.cancel()
+        val item = target.item ?: return
+        relayJob = viewModelScope.launch {
+            val copies = runCatching { repo.copiesOf(item) }.getOrDefault(emptyList())
+            val k = target.season?.let { s -> target.episode?.let { e -> s to e } }
+            val plex = copies.firstOrNull { it.source == "Plex" && it.ref != null }?.ref?.let { ref ->
+                if (k == null) ref else runCatching { repo.plexEpisodes(ref) }.getOrNull()?.get(k)?.ratingKey
+            }
+            val server = copies.firstOrNull { (it.source == "Jellyfin" || it.source == "Emby") && it.ref != null }?.let { c ->
+                val id = if (k == null) c.ref else runCatching { repo.serverEpisodes(c.source, c.ref!!) }.getOrNull()?.get(k)?.ratingKey
+                id?.let { c.source to it }
+            }
+            if (relayUrl != stream.url) return@launch
+            relayPlex = plex; relayServer = server
+            val where = listOfNotNull(plex?.let { "Plex" }, server?.first)
+            android.util.Log.i("Catalog", "watch relay: ${item.title}${k?.let { " S${it.first} E${it.second}" } ?: ""} is ${if (where.isEmpty()) "not on your servers" else "also on " + where.joinToString(" and ")}")
+        }
+    }
+
     fun reportProgress(stream: VodStream, state: String, positionMs: Long, durationMs: Long) {
-        val target = stream.watch ?: return
+        val target = stream.watch ?: run { if (state != lastState) { android.util.Log.i("Catalog", "watch report: $state, but this stream has nothing to report to"); lastState = state }; return }
+        if (target.plexRatingKey == null && target.serverSource == null) relayFor(stream, target)
         // Set straight away (not in the coroutine): the player closes right after reporting the end.
         if (state == "stopped" && durationMs > 0 && positionMs >= durationMs * 0.95 && System.currentTimeMillis() - nextStartedAt > 5_000) endedNearEnd = target
         // The TV home screen's Watch Next row follows: once the servers have the new position, refresh it.
@@ -1808,13 +1918,47 @@ class MediaViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
-            target.plexRatingKey?.let { repo.reportPlex(it, state, positionMs, durationMs) }
-            if (target.serverSource != null && target.serverItemId != null) repo.reportServer(target.serverSource, target.serverItemId, state, positionMs)
+            // (One rule, no switches. Peter, 2026-11-19: "it should all just work". The server a film plays from always
+            // hears everything, as any Plex / Jellyfin player does: its resume point, its tick and its own Trakt link
+            // then just work. Trakt connected: told about every play too (repo.scrobbleTrakt checks Send plays to
+            // Trakt); Trakt takes a repeat of the same watch from Plex's webhook as the same watch.)
+            val nearEnd = durationMs > 0 && positionMs >= durationMs * io.github.petebutty.viewarr.data.sync.WatchSource.WATCHED_AT
+            target.plexRatingKey?.let { repo.reportPlex(it, state, positionMs, durationMs, markWatched = true) }
+            if (target.serverSource != null && target.serverItemId != null) repo.reportServer(target.serverSource, target.serverItemId, state, positionMs, durationMs)
+            // Not from a server: the same title on your servers hears it too (a stop waits for the look-up to finish).
+            if (target.plexRatingKey == null && target.serverSource == null) {
+                if (state == "stopped") kotlinx.coroutines.withTimeoutOrNull(8_000) { relayJob?.join() }
+                if (relayUrl == stream.url) {
+                    relayPlex?.let { repo.reportPlex(it, state, positionMs, durationMs, markWatched = true) }
+                    relayServer?.let { (src, id) -> repo.reportServer(src, id, state, positionMs, durationMs) }
+                }
+            }
+            // A skip while playing (the position jumped more than 20 s from where it should be): once there's been no
+            // jump for 3 s, Trakt is told the new place, the same "start" it gets when playing begins.
+            val now = System.currentTimeMillis()
+            if (state == "playing" && traktLastPos >= 0) {
+                val expected = traktLastPos + (now - traktLastAt)
+                if (kotlin.math.abs(positionMs - expected) > 20_000) { traktJumpAt = now; android.util.Log.i("Catalog", "trakt: skip seen (${(positionMs - expected) / 1000} s)") }
+                else if (traktJumpAt > 0 && now - traktJumpAt > 3_000 && state == lastState) {
+                    traktJumpAt = 0
+                    val pct = if (durationMs > 0) positionMs.toFloat() / durationMs else 0f
+                    repo.scrobbleTrakt("start", target, pct)
+                }
+            }
+            // A film finished here (past 80%): out of Continue watching now.
+            if (state == "stopped" && nearEnd && target.type == MediaType.Movie) {
+                val keys = filmKeys(target.tmdbId, target.imdbId)
+                if (keys.isNotEmpty()) finishedHere.value = finishedHere.value + keys
+            }
+            traktLastPos = if (state == "playing") positionMs else -1L
+            traktLastAt = now
             if (state != lastState) {
+                android.util.Log.i("Catalog", "watch report: $state at ${positionMs / 1000}s, tmdb=${target.tmdbId} plex=${target.plexRatingKey != null} trakt=${io.github.petebutty.viewarr.data.sync.WatchSource.sendToTrakt}")
                 lastState = state
                 val action = when (state) { "playing" -> "start"; "paused" -> "pause"; else -> "stop" }
                 val pct = if (durationMs > 0) positionMs.toFloat() / durationMs else 0f
-                repo.scrobbleTrakt(action, target, pct)
+                // (Trakt refuses a pause or stop under 1% (422), so those aren't sent: the sound-wake pause at the start was one.)
+                if (action == "start" || pct >= 0.01f) repo.scrobbleTrakt(action, target, pct)
             }
             if (state == "stopped") lastState = ""
         }
@@ -1826,18 +1970,54 @@ class MediaViewModel @Inject constructor(
     suspend fun hasIptv(item: MediaItem): Boolean = item.origin == "IPTV" ||
         runCatching { repo.copiesOf(item) }.getOrDefault(emptyList()).any { it.source == PROVIDER }
 
-    /** Mark a film watched / not watched on this box (IPTV keeps nothing itself). */
+    /** Hold OK on an IPTV film: watched anywhere (for the pop-up's Mark as watched / not watched). */
+    suspend fun quickWatched(item: MediaItem): Boolean {
+        if (localWatch.isWatched(item)) return true
+        val copies = runCatching { repo.copiesOf(item) }.getOrDefault(emptyList())
+        return runCatching { repo.filmWatched(item, copies) }.getOrDefault(false)
+    }
+
+    /** Mark an IPTV film watched / not watched: everywhere it is (Trakt, your servers' copies, this box's record). */
     fun markIptvWatched(item: MediaItem, watched: Boolean) {
         viewModelScope.launch {
-            safely { localWatch.setWatched(item, watched) } ?: return@launch
+            val copies = runCatching { repo.copiesOf(item) }.getOrDefault(emptyList())
+            val saved = saveWatched(item, copies, watched, onIptv = true)
+            if (!saved.ok) { _notice.value = "Couldn't change it. Try again in a moment."; return@launch }
             if (watched) dropFromContinue(item)
-            _notice.value = if (watched) "Marked ${item.title} as watched." else "Marked ${item.title} as not watched."
+            _notice.value = markedMessage(watched, saved.where, item.title) + "."
         }
     }
 
-    /** One episode watched / not watched on this box (the title page's episode options). */
-    fun markIptvEpisode(item: MediaItem, season: Int, episode: Int, watched: Boolean) {
-        viewModelScope.launch { safely { localWatch.setWatched(item, watched, season, episode) } }
+    /**
+     * One episode watched / not watched (the title page's episode options): everywhere it is (Trakt, Plex / Jellyfin /
+     * Emby, and Viewarr's record when it's on IPTV). Peter, 2026-11-19.
+     */
+    fun markEpisode(season: Int, episode: Int, watched: Boolean) {
+        val d = _detail.value ?: return
+        val item = d.detail.item
+        val k = season to episode
+        val plexKey = d.plexEpisodes[k]?.ratingKey
+        val serverId = d.serverEpisodes[k]?.ratingKey
+        // Shown straight away; put back if nothing took it.
+        fun apply(to: Boolean) = _detail.update {
+            if (it?.detail?.item?.key != item.key) it else it.copy(
+                plexEpisodes = it.plexEpisodes[k]?.let { e -> it.plexEpisodes + (k to e.copy(watched = to, viewOffsetMs = 0)) } ?: it.plexEpisodes,
+                serverEpisodes = it.serverEpisodes[k]?.let { e -> it.serverEpisodes + (k to e.copy(watched = to, viewOffsetMs = 0)) } ?: it.serverEpisodes,
+                traktEpisodes = if (to) it.traktEpisodes + k else it.traktEpisodes - k,
+                localEpisodes = it.localEpisodes + (k to PlexEpisode("local", 0, to)),
+                traktPlayback = it.traktPlayback - k,
+            )
+        }
+        apply(watched)
+        viewModelScope.launch {
+            val onIptv = k in d.providerEpisodes || k in d.localEpisodes
+            val saved = saveWatched(item, d.copies.orEmpty(), watched, onIptv, season, episode, plexKey, serverId)
+            if (!saved.ok) apply(!watched)
+            _detail.update {
+                if (it?.detail?.item?.key != item.key) it
+                else it.copy(message = if (!saved.ok) "Couldn't change it. Try again in a moment." else markedMessage(watched, saved.where))
+            }
+        }
     }
 
     /** Out of Continue watching on IPTV (played again, it comes back). */

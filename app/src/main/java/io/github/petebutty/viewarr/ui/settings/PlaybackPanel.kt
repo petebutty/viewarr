@@ -1,7 +1,6 @@
 package io.github.petebutty.viewarr.ui.settings
 
 import io.github.petebutty.viewarr.ui.common.GroupNames
-import io.github.petebutty.viewarr.data.guide.LiveSports
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -79,8 +78,10 @@ fun playbackCategories(vm: PlaybackSettingsViewModel = hiltViewModel(), opts: Ui
     val liveDefaultsLoaded = androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
     androidx.compose.runtime.LaunchedEffect(Unit) { guideVm.loadLiveGroupDefaults(); liveDefaultsLoaded.value = true }
     liveDefaultsLoaded.value
-    // Tidy group names, its clean-up and Live now sports: kept with the appearance settings (palette title parts).
+    // Tidy group names and its clean-up: kept with the appearance settings (palette title parts).
     val appearance: AppearanceViewModel = hiltViewModel()
+    // Settings → Live TV → Live now's list (ui/settings/LiveNowSettings.kt).
+    val liveNowList = liveNowPicksState()
     fun item(title: String, description: String, key: String, all: List<RemoteChoice>, current: RemoteChoice) =
         SettingItem(title, description, all, current) { vm.set(key, it) }
     val k = PlaybackStore.Companion
@@ -100,38 +101,13 @@ fun playbackCategories(vm: PlaybackSettingsViewModel = hiltViewModel(), opts: Ui
                 item("mpv decoding", "Direct to screen is smoothest, and changes by itself when a film has picture subtitles (as Blu-rays do). Try software only if the picture glitches or shows colour blocks.", k.MPV_DECODING, choices<MpvDecoding>(), s.mpvDecoding),
             ),
         ),
-        // Watch progress for IPTV and addon films and shows, shared through Dispatcharr (data/sync/WatchSync.kt): other
-        // TVs signed in to the same Dispatcharr user, and companion plugins (e.g. syncing with Emby / Jellyfin).
-        SettingCategory(
-            "Watch progress", "Only for films and episodes you play from your IPTV provider or addons (not Plex, Jellyfin or Emby: they keep their own). If you use Trakt for your watch history, you don't need any of these: leave them off.",
-            listOf(
-                onOffItem(
-                    "Sync with Dispatcharr",
-                    "On: where you stopped in an IPTV or addon film or episode, and what you've finished, is saved on your Dispatcharr (in your own user's storage), so every TV signed in as you carries on from the same place. Off: each TV remembers only what was played on it.",
-                    io.github.petebutty.viewarr.data.sync.WatchSync.enabled,
-                ) { on -> appearance.setTitlePart(io.github.petebutty.viewarr.data.sync.WatchSync.ENABLE_KEY, on); if (on) io.github.petebutty.viewarr.data.sync.WatchSync.requestSync() },
-                onOffItem(
-                    "Sync IPTV progress with my Emby / Jellyfin / Plex",
-                    "For people without Trakt. On: when you finish or stop an IPTV film or episode, the Viewarr plugin on your Dispatcharr marks the same title in your Emby, Jellyfin or Plex (and the other way round for titles you've watched on IPTV), every 5 minutes. Needs \"Sync with Dispatcharr\" on and the Viewarr plugin installed. To do it, Viewarr gives the plugin your sign-in for those servers, kept in your own Dispatcharr storage. Off: the sign-in is taken back out and nothing more is synced.",
-                    io.github.petebutty.viewarr.data.sync.WatchSync.serversOn,
-                ) { on ->
-                    appearance.setTitlePart(io.github.petebutty.viewarr.data.sync.WatchSync.SERVERS_SWITCH, !on)
-                    io.github.petebutty.viewarr.data.sync.WatchSync.setServers(on)
-                },
-                SettingItem(
-                    "Sync now",
-                    "Saves this TV's IPTV watch progress to Dispatcharr and takes in anything newer from your other TVs now, instead of waiting for the next automatic sync (every 5 minutes).",
-                    emptyList(),
-                    PlainChoice(io.github.petebutty.viewarr.data.sync.WatchSync.lastSync.takeIf { it > 0 }?.let { "Last: " + io.github.petebutty.viewarr.ui.theme.Dates.time(it) } ?: "OK: sync"),
-                    action = { io.github.petebutty.viewarr.data.sync.WatchSync.requestSync() },
-                    onSelect = {},
-                ),
-            ),
-        ),
+        // Watch progress: which one place keeps track of what you've watched, and its options (WatchProgressItems.kt).
+        watchProgressCategory(opts, appearance),
         SettingCategory(
             "Video", "Picture size and smoothness.",
             listOf(
                 item("Match frame rate", "Switches the TV to the video's own rate for smoother motion: a film's 24 Hz, or a live channel's 50 or 60 Hz (once its rate is certain, a few seconds in, and only full screen). Some TVs go black for a second when it switches; live TV only switches when a channel's rate differs from the TV's.", k.FRAME_RATE, choices<FrameRateMatch>(), s.frameRate),
+                optItem(opts, "Sound after a frame-rate switch", "How long a film waits after the TV switches rate before its sound starts. Some TVs and sound systems (over HDMI ARC especially) need a few seconds to pick the sound back up; too short and a film can start silent. Only used when the TV actually switches.", io.github.petebutty.viewarr.ui.theme.UiOpts.AFR_SOUND_DELAY),
                 item("Picture size", "How the picture fills the screen when its shape doesn't match the TV.", k.PICTURE_SIZE, choices<PictureSize>(), s.pictureSize),
                 item("Deinterlace", "Smooths combing lines on older TV recordings and broadcasts (mpv).", k.DEINTERLACE, choices<Deinterlace>(), s.deinterlace),
             ),
@@ -207,6 +183,11 @@ fun playbackCategories(vm: PlaybackSettingsViewModel = hiltViewModel(), opts: Ui
                     GroupNames.tidy,
                 ) { on -> appearance.setTitlePart(GroupNames.TIDY_KEY, !on) },
                 optItem(opts, "Still watching?", "After this long without a button press, live TV asks whether you're still there and stops if nobody answers within a minute (frees a provider connection when the TV's left on).", UiOpts.STILL_WATCHING),
+                optItem(opts, "Start with the best source", "A channel with several streams behind it (Dispatcharr) starts on the best one: the highest quality (Dispatcharr's own check of each stream, or the FHD / HD / SD in its name), streams that failed lately after the rest, Dispatcharr's own order to break ties. A stream that doesn't start or keeps stopping is remembered as failed for a day (three fails in a week: all week) and the next best plays. Off: Dispatcharr's own first stream, as before.", UiOpts.BEST_SOURCE),
+                optItem(opts, "Event channels: only with a listing", "With the Viewarr plugin: a channel in an event group (TNT events, live football slots, pay-per-view…) is listed only while the guide has something on it now or starting within 24 hours, and a group of nothing but empty event channels is left out altogether. Reminders, recordings, links and the Sports page still reach them. Off: every event channel, all the time. Club TV channels always show.", UiOpts.EVENT_ONLY_LISTED),
+                // Reports (hold OK on a channel → Report a problem): the plugin's changes with Undo, guides to pick, this TV's own.
+                SettingItem("Reports", "Problems reported from the TVs in the house (hold OK on a channel → Report a problem): what the Viewarr plugin on Dispatcharr changed from them (admins can undo each one), channels that still need the right guide picked, and this TV's own reports. Without the plugin, reports are kept on this TV.",
+                    emptyList(), PlainChoice("OK: open"), action = { SettingsJump.reports = true }, onSelect = {}),
             ),
         ),
         // Tidy group names: which marks are left out.
@@ -226,13 +207,9 @@ fun playbackCategories(vm: PlaybackSettingsViewModel = hiltViewModel(), opts: Ui
                 }
             },
         ),
-        // Live now (📡 in the TV guide's groups): the sports you want in it.
-        SettingCategory(
-            "Live now sports", "Which sports go in Live now (📡 Live now in the TV guide's channel groups). Switch off the ones you're not interested in. Events whose sport isn't known always show.",
-            LiveSports.names.map { name ->
-                onOffItem(name, "On: $name events go in Live now", AppColors.palette.shows(LiveSports.key(name))) { on -> appearance.setTitlePart(LiveSports.key(name), on) }
-            },
-        ),
+        // Live now: the teams, leagues and sports it's limited to, searched for and added (the old per-sport and
+        // per-league switches are gone; Peter, 2026-11-19).
+        liveNowCategory(liveNowList),
         // Notifications: everything Viewarr pops up by itself, all off with one switch, or each kind.
         SettingCategory(
             "Notifications", "Everything Viewarr shows by itself. Off: nothing pops up at all. On: choose each kind below.",
@@ -249,30 +226,19 @@ fun playbackCategories(vm: PlaybackSettingsViewModel = hiltViewModel(), opts: Ui
                     if (!AppColors.palette.shows(n.REMINDERS)) add(optItem(opts, "Remind me", "How early the reminder comes up: when it starts, or 2, 5, 10 or 15 minutes before.", io.github.petebutty.viewarr.ui.theme.UiOpts.REMIND_LEAD))
                     add(onOffItem("Update available", "A card when a new Viewarr is out, checked when the app opens. Settings → About → Check for updates still works.", !AppColors.palette.shows(n.UPDATES)) { on -> appearance.setTitlePart(n.UPDATES, !on) })
                     add(onOffItem("What's new", "A card once after an update with what changed. Settings → About → Changelog still has it.", !AppColors.palette.shows(n.WHATS_NEW)) { on -> appearance.setTitlePart(n.WHATS_NEW, !on) })
+                    add(onOffItem("Reports from the house", "A quiet card when the Viewarr plugin changes a channel from someone's report (admins: OK undoes it), or a wrong-guide report needs someone to pick the right guide (the person who reported it, and admins).", !AppColors.palette.shows(n.REPORTS)) { on -> appearance.setTitlePart(n.REPORTS, !on) })
                 }
             },
-        ),
-        // Live now by league, or only what you follow (Peter, 2026-11-17). The leagues: those with games in the
-        // server's list (the Viewarr plugin) right now.
-        SettingCategory(
-            "Live now leagues", "Only what I follow: Live now shows just your teams' and leagues' games (Settings → Sports); darts, snooker, racing and other events still go by Live now sports. Below: the leagues the server has listed games for (none without the Viewarr plugin: use Only what I follow then), switch off the ones you don't want.",
-            listOf(
-                SettingItem("Follow a team or league", "Find a team or league and follow it (Settings → Sports): its games are then in Live now with \"Only what I follow\" and on the Sports page, and it can have score alerts (OK on it in Settings → Sports).",
-                    emptyList(), PlainChoice("OK: follow"), action = { SettingsJump.sports = true }, onSelect = {}),
-                onOffItem("Only what I follow", "On: Live now shows only your followed teams' and leagues' games (Settings → Sports). Off: every league below.", LiveSports.followedOnly) { on -> appearance.setTitlePart("live:everything", !on) },
-            ) +
-                io.github.petebutty.viewarr.data.sync.ServerSports.latest?.games?.values.orEmpty()
-                    .mapNotNull { g -> g.leaguePath?.let { it to (g.league ?: it) } }.distinctBy { it.first }.sortedBy { it.second }
-                    .map { (lp, name) -> onOffItem(name, "On: this league's games go in Live now", LiveSports.leagueOn(lp)) { on -> appearance.setTitlePart(LiveSports.leagueKey(lp), on) } },
         ),
         // Low-memory mode: no trailer previews (a second player while you browse): locked.
         SettingCategory(
             "Trailers", "YouTube trailers for films and shows.",
             listOf(
-                item("Trailer previews", "When you rest on a poster in Movies or Shows, its trailer plays in a small window at the top.", k.TRAILER_PREVIEW, choices<TrailerPreview>(), s.trailerPreview),
-                item("Start after", "How long to stay on a poster before its trailer starts.", k.TRAILER_DELAY, choices<TrailerDelay>(), s.trailerDelay),
-                optItem(opts, "Then the big panel", "With trailers in the poster: how long it plays in the card before it grows into a big panel in the middle with sound, the same trailer playing on (OK does it at once). In the panel OK opens the title page, Back closes it.", io.github.petebutty.viewarr.ui.theme.UiOpts.TRAILER_GROW),
-                optItem(opts, "Trailer previews play", "In a corner window at the top of the page, or in the poster itself: it widens to a 16:9 picture with the trailer playing inside, and shrinks back when you move on.", io.github.petebutty.viewarr.ui.theme.UiOpts.TRAILER_STYLE),
+                // (In the order you'd set them: on, where, when, then the big panel. Peter, 2026-11-18: they were muddled.)
+                item("Trailer previews", "When you rest on a poster in Movies or Shows, its trailer plays.", k.TRAILER_PREVIEW, choices<TrailerPreview>(), s.trailerPreview),
+                optItem(opts, "Trailer previews play", "In the window at the top of the page, or in the poster itself (it widens to a 16:9 picture and shrinks back when you move on).", io.github.petebutty.viewarr.ui.theme.UiOpts.TRAILER_STYLE),
+                item("Start after", "How long to rest on a poster before its trailer starts.", k.TRAILER_DELAY, choices<TrailerDelay>(), s.trailerDelay),
+                optItem(opts, "Then the big panel", "Trailers in the poster only: how long it plays in the poster before it grows into the big panel. OK grows it straight away; in the panel OK opens the title page.", io.github.petebutty.viewarr.ui.theme.UiOpts.TRAILER_GROW),
                 item("Preview sound", "Off plays previews silently. The Trailer button on a title page always has sound.", k.TRAILER_SOUND, choices<TrailerSound>(), s.trailerSound),
             ).map { it.locked(lowLock) },
         ),
@@ -318,7 +284,7 @@ private val PlaybackKeys = PlaybackStore.run {
 }
 private val PlaybackOpts = UiOpts.run {
     // (The next episode countdown's older form, UP_NEXT, too: it's read when the newer one isn't set.)
-    listOf(FILM_TIME_RIGHT, CONTROLS_TIME, SEEK_PREVIEWS, PLAY_ORDER, AFTER_FILM, FILM_BACK, UP_NEXT_S, UP_NEXT, MUSIC_LRCLIB)
+    listOf(FILM_TIME_RIGHT, CONTROLS_TIME, SEEK_PREVIEWS, PLAY_ORDER, AFTER_FILM, FILM_BACK, UP_NEXT_S, UP_NEXT, MUSIC_LRCLIB, SEND_TO_TRAKT)
 }
 
 /** The Playback page's Reset: what it lists back to how a fresh install has it. */

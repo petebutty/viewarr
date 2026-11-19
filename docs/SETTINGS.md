@@ -14,7 +14,7 @@ Add, change, check or remove everything you connect:
 
 - **Live TV**: Dispatcharr, an IPTV login (Xtream Codes) or an M3U playlist. Save several sources, name them, and use **Choose groups** to leave out groups you never watch (logins and playlists).
 - **TMDB**: posters, descriptions and discovery for Movies & Shows.
-- **Trakt**: watchlist, history, recommendations and continue watching. Includes **Sync with Trakt now** and **Copy watched to Plex**.
+- **Trakt**: watchlist, history, recommendations and continue watching. **Sync with Trakt now** and **Copy watched to Plex** are in **Playback → Watch progress**.
 - **Plex**: your Plex sign-in, and **Plex servers** to switch each server on or off.
 - **Addons**: addon links such as AIOMetadata and AIOStreams. Switch each one on or off; an addon that's off adds no rows, search results or streams.
 - **Jellyfin** and **Emby**.
@@ -46,9 +46,9 @@ Everything to do with how Viewarr looks, in sections:
 | Section | What it covers |
 |---|---|
 | **Theme** | **Background colour** (Viewarr's charcoal, or Classic blue, Ocean blue, Sky blue and others), **Highlight colour** (orange by default, including Bright cyan), **Text size**, **Font**, **Clock**, **Date format** (Tue 10 Nov, Tue, Nov 10, Tue 10/11 or Tue 11/10) and **Time format**. |
-| **Wallpaper** | None, one of sixteen built-in designs, or the artwork of the programme you've highlighted. **Wallpaper shade**: what darkens the wallpaper and the Movies / Shows artwork, your **Background colour** or **Black** (darker without tinting, so pictures keep their own colours). |
+| **Wallpaper** | None, one of sixteen built-in designs, or the artwork of the programme you've highlighted. **Movies and Shows background**: What's selected (the highlighted title's artwork, default), your wallpaper, or None (no picture at all). **Wallpaper in the TV guide**: off gives the guide a plain background. |
 | **Glass & transparency** | **Glass**, **Glass colour**, **Guide**, **Wallpaper dimming**, **Pop-up glass** and the info bar's **border**. |
-| **TV guide** | Channel numbers, logos, **Programme corners**, progress bars, **Channel list width** (Medium, Narrow or Wide), **Channel list progress** (a bar under the programme in the channel list: every channel, the highlighted one only, or off) and its **Highlighted progress colour**, episode numbers, **Timeline**, **Catch-up icons** (programmes and channels, channel names only, the highlighted channel only, or off), **Elapsed shading** (the part of a programme on now that's already gone), **Programme pictures**, **Programme picture shows as** (Background or Banner) and **Programme title logos**. |
+| **TV guide** | Channel numbers, logos, **Programme corners**, **Next and Then** (the two lines at the top right of the guide; off hides them), **Episode badge at the top** (the "S12 E4" badge under them), **Catch-up badge at the top**, progress bars, **Channel list width** (Medium, Narrow or Wide), **Channel list progress** (a bar under the programme in the channel list: every channel, the highlighted one only, or off) and its **Highlighted progress colour**, episode numbers, **Timeline**, **Catch-up icons** (programmes and channels, channel names only, the highlighted channel only, or off), **Elapsed shading** (the part of a programme on now that's already gone), **Programme pictures**, **Programme picture shows as** (Background or Banner) and **Programme title logos**. |
 | **Info bar & controls** | **Info bar style** (Glass, Square glass, Pill, Fade, Full-width bar, Minimal, Faded glass, Feathered glass, Side fade, Outline, Corner card, Floating card, Slim strip or Frosted) and **corners**, **Info bar size** and **width**, **Clock on the info bar**, **Preview cards**, **Rows under the info bar** (which rows each player shows when you press Down, and their order, with a preview), the channel number, episode numbers, picture-quality, source (where the live stream comes from) and frame-rate badges, and **Player controls size**. |
 | **Menu** | Headings, colour edge and tint, hints, the TV and LIVE marks, and **Hidden groups row** (a "Hidden groups" row at the end of the channel groups; off, hold OK on any group → **Show hidden groups**). |
 | **Browsing style** | **Viewarr**, **Cinema** or **Lite**: the look of Movies, Shows and the streaming services' pages in one go. Under it, **Top panel** (Normal, Big or Off) and **Row posters**. See [Films & shows](FILMS-AND-SHOWS.md#browsing-styles). |
@@ -95,10 +95,12 @@ Every kind of pop-up is **off** until you turn it on. First switch on **Notifica
 | Section | Settings |
 |---|---|
 | **Watching** | **Up / Down while watching** (change channel, or browse in the info bar), **Browsing channels**, **Highlight the corner picture**, **Still watching?** |
+| **Sources** | **Start with the best source** (On to start with): a Dispatcharr channel starts on its best-ranked stream (quality, then whether it has failed lately, then Dispatcharr's order), and a stream that fails is remembered and moved down. Off: Dispatcharr's own first stream. See [Live TV](LIVE-TV.md#source-switching-and-stream-info). |
+| **Reports** | Problems reported from the TVs (hold OK on a channel → **Report a problem…**): **Needs your pick** (channels whose right guide the plugin couldn't find: OK chooses one), **Changes made from reports** (what the Viewarr plugin changed, newest first; admins: OK → **Undo**) and **Your reports**. Without the plugin, reports are kept on the TV. See [Live TV](LIVE-TV.md#report-a-problem). |
 | **TV guide** | **TV guide days ahead** (1, 3, 5 or 7), **TV guide refresh**, **EPG offset** (the whole source's guide moved earlier or later), **End of a list**. |
-| **Channel groups** | **"All channels" group** (shown or hidden). |
-| **Live now groups** and **Live now sports** | Which channel groups Live now looks through, and which sports it shows. |
-| **Live now leagues** | **Only what I follow**: Live now shows just your teams' and leagues' games. **Follow a team or league** takes you to Settings → Sports. With the [Viewarr plugin](LIVE-TV.md#viewarr-plugin-optional), the leagues with games listed follow, each On or Off. *(0.29.0 and later.)* |
+| **Channel groups** | **"All channels" group** (shown or hidden). **Event channels: only with a listing** (Off to start with): with the Viewarr plugin, an event channel (TNT events, live football slots, pay-per-view) is listed only while the guide has something on it now or within 24 hours, and a group of empty event channels is left out; reminders, recordings, links and the Sports page still reach them. Off: every event channel, all the time. See [Live TV](LIVE-TV.md#channel-groups). |
+| **Live now groups** | Which channel groups Live now looks through. |
+| **Live now** | Your list of teams, leagues and sports for Live now. Empty: it shows everything live. **Add a team, league or sport** searches (or press Down for the sport buttons) and OK adds one; Live now then shows only what's in the list. OK on one removes it. *(0.29.1 and later; replaces Live now sports and Live now leagues.)* |
 
 How the guide and info bar look is in **Appearance**. See [Live TV](LIVE-TV.md).
 
@@ -107,13 +109,14 @@ How the guide and info bar look is in **Appearance**. See [Live TV](LIVE-TV.md).
 | Section | What it covers |
 |---|---|
 | **Player** | **Player** (built-in or mpv), **Video view**, **Resume**, **Time on the right** (time left, ends at, or both), **Controls stay up for**, **Seek-bar previews**, **mpv decoding**. |
-| **Video** | **Match frame rate** (Off, Films and episodes, Live TV, or Both), **Picture size**, **Deinterlace**. |
+| **Watch progress** | Nothing to choose: Viewarr keeps your watching in step everywhere it can. At the top, what's connected and what it does: **Trakt** (gets every play and every Mark as watched; its history gives ticks and Continue watching), each of **Plex / Jellyfin / Emby** (told where you are and when you finish, as its own apps would) and **Dispatcharr** (IPTV progress shared between your TVs). Then two switches, both on to start: **Send plays to Trakt** (off: Viewarr only reads Trakt) and **Share IPTV progress between TVs**. Also **Sync with Trakt now**, **Copy watched to Plex**, **Sync IPTV progress with my Emby / Jellyfin / Plex** (for people without Trakt: off by itself while Trakt is connected, so Trakt doesn't get the same watch twice) and **Sync now**. **Counts as watched at** 80%. *(0.29.1 and later.)* |
+| **Video** | **Match frame rate** (Off, Films and episodes, Live TV, or Both), **Sound after a frame-rate switch** (1–5 seconds, 3 to start: raise it if films start silent after the TV switches), **Picture size**, **Deinterlace**. |
 | **Audio** | **Language**, **Surround passthrough**, **Channels**, **Night mode**, **Volume boost**, **Lip sync**. |
 | **Subtitles** | **Show subtitles** and **Language** (how they look is in Appearance). |
 | **Streams** | **Play order**, **Addon streams**, **Cached only**, **Try the next stream**, **Best quality allowed**, **Plex quality**, **Buffer**. |
 | **Auto-play match** | Rules (4K, 1080p, HEVC, Atmos, English…) switched on and sorted by importance; **Add your own…**; **Reset the rules**. |
 | **Episodes** | **Skip intros**, **Skip credits**, **Play next episode automatically**, **After a film or episode**, **Next episode countdown**. |
-| **Trailers** | **Trailer previews**, **Start after**, **Then the big panel**, **Trailer previews play** (in a corner window or in the poster), **Preview sound**. |
+| **Trailers** | **Trailer previews**, **Trailer previews play** (in the window at the top or in the poster), **Start after** (1 to 5 seconds), **Then the big panel** (1 to 5 seconds, or Never), **Preview sound**. |
 | **Music** | **Lyrics from LRCLIB**. |
 
 ### Sports

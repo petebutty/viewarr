@@ -92,7 +92,8 @@ class DvrViewModel @Inject constructor(
     val rules = repo.rules
     val allowed = repo.allowed
     val xc = repo.xc
-    val channels = guide.observeChannels(null).map { list -> list.associateBy { it.id } }
+    // (By id, every channel: a recording or reminder on an event channel hidden from the lists still names and plays it.)
+    val channels = guide.observeAllChannels().map { list -> list.associateBy { it.id } }
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
     private val _message = MutableStateFlow<String?>(null)
     val message = _message.asStateFlow()
@@ -179,7 +180,7 @@ fun ProgramInfoDialog(channel: ChannelListItem, program: GuideProgram, vm: DvrVi
     val sub = listOfNotNull(program.subTitle?.takeIf { it.isNotBlank() }).joinToString()
     ChoicePanel(
         title = program.title + episodeTag(program.season, program.episode),
-        subtitle = "${channel.name}  ·  ${span(program.startTime, program.endTime)}$status",
+        subtitle = if (program.noGuide) channel.name else "${channel.name}  ·  ${span(program.startTime, program.endTime)}$status",
         choices = listOf((if (rec != null) "Cancel this recording" else "Record or remind me") to onRecord, "Cancel" to onClose),
         message = null,
         onClose = onClose,
@@ -203,6 +204,8 @@ fun RecordDialog(
     favourite: Pair<String, () -> Unit>? = null,
     /** More choices for the channel (Guide times…). */
     extra: List<Pair<String, () -> Unit>> = emptyList(),
+    /** Report a problem with the channel (its own line in Edit this menu, so hiding the guide tools doesn't hide it). */
+    onReport: (() -> Unit)? = null,
     onClose: () -> Unit,
 ) {
     val dvrMessage by vm.message.collectAsStateWithLifecycle()
@@ -229,6 +232,8 @@ fun RecordDialog(
     // Dispatcharr's dvr_access: Standard users can only watch recordings unless an admin lets them record.
     val canRecord = vm.allowed.collectAsStateWithLifecycle().value != false && !vm.xc.collectAsStateWithLifecycle().value && Access.record
     val future = program.startTime > System.currentTimeMillis()
+    // Nothing listed on the channel: only the channel's own choices (favourite, guide tools, Report a problem).
+    val noGuide = program.noGuide
     // A film (TMDB says so, or the guide lists it like one: no series / episode, "Action · 2017 —"): no series recording.
     val guideVm: GuideRequestViewModel = androidx.hilt.navigation.compose.hiltViewModel()
     val matched by guideVm.match.collectAsStateWithLifecycle()
@@ -240,7 +245,11 @@ fun RecordDialog(
     val hidden = { kind: String -> !AppColors.palette.shows("hold:$kind") }
     var editing by remember { mutableStateOf(false) }
     val appearance: AppearanceViewModel = androidx.hilt.navigation.compose.hiltViewModel()
-    val all = if (canRecord && rec != null) buildList<Triple<String?, String, () -> Unit>> {
+    val all = if (noGuide) buildList<Triple<String?, String, () -> Unit>> {
+        favourite?.let { add(Triple("fav", it.first, it.second)) }
+        extra.forEach { e -> add(Triple("times", e.first, e.second)) }
+        onReport?.let { add(Triple("report", "⚑  Report a problem…", it)) }
+    } else if (canRecord && rec != null) buildList<Triple<String?, String, () -> Unit>> {
         // Already set to record: just the way to undo it (and keep it), not the record / remind options again.
         if (rec.state == DvrState.Recording) add(Triple(null, "Stop recording", { run { vm.stop(rec) } }))
         else add(Triple(null, "Cancel this recording", { run { vm.cancel(rec) } }))
@@ -252,6 +261,7 @@ fun RecordDialog(
         seerrChoices.forEach { (l, f) -> add(Triple("request", l, { if (l == SEERR_MORE) f() else run(f) })) }
         favourite?.let { add(Triple("fav", it.first, it.second)) }
         extra.forEach { e -> add(Triple("times", e.first, e.second)) }
+        onReport?.let { add(Triple("report", "⚑  Report a problem…", it)) }
         onDetails?.let { add(Triple("details", "Details", it)) }
     } else buildList<Triple<String?, String, () -> Unit>> {
         // The film or episode from your servers (Plex, Jellyfin, Emby) or addons: from the start if it's on or has
@@ -283,6 +293,7 @@ fun RecordDialog(
         seerrChoices.forEach { (l, f) -> add(Triple("request", l, { if (l == SEERR_MORE) f() else run(f) })) }
         favourite?.let { add(Triple("fav", it.first, it.second)) }
         extra.forEach { e -> add(Triple("times", e.first, e.second)) }
+        onReport?.let { add(Triple("report", "⚑  Report a problem…", it)) }
         onDetails?.let { add(Triple("details", "Details", it)) }
     }
     val choices: List<Pair<String, () -> Unit>> = if (editing) buildList {
@@ -325,6 +336,7 @@ private val HoldKinds = listOf(
     "request" to "Request (Seerr)",
     "fav" to "Add to / remove from favourites",
     "times" to "EPG offset and Timeline",
+    "report" to "Report a problem",
     "details" to "Details",
 )
 

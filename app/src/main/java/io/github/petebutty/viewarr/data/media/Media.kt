@@ -44,8 +44,8 @@ data class EpisodeInfo(
     val runtimeMin: Int?,
 )
 
-/** One episode in your Plex library: its item key, resume point and whether it's been watched. */
-data class PlexEpisode(val ratingKey: String, val viewOffsetMs: Long, val watched: Boolean)
+/** One episode on a server (or this box): its key, where you stopped, watched, and when last played ([at], ms; 0 = not known). */
+data class PlexEpisode(val ratingKey: String, val viewOffsetMs: Long, val watched: Boolean, val at: Long = 0)
 
 /**
  * A row of titles. Rows with the same [group] are shown as one (e.g. continue watching on every server, or the
@@ -232,8 +232,11 @@ data class WatchTarget(
     val imdbId: String? = null,
     val season: Int? = null,
     val episode: Int? = null,
-    /** Played from IPTV (Dispatcharr / Xtream VOD): the title, so where you stopped is kept on the box (LocalWatchStore). */
+    /** Played from IPTV (Dispatcharr / Xtream VOD) or an addon, which remember nothing themselves: the title, so where
+     *  you stopped is kept on the box (LocalWatchStore) and shared with your other TVs. */
     val iptv: MediaItem? = null,
+    /** The title itself, to find the same one on your servers: a play from IPTV or an addon is reported to them too. */
+    val item: MediaItem? = null,
 )
 
 /** One stream an addon offered for a title. */

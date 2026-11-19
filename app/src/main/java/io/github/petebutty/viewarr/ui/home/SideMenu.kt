@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -194,7 +195,7 @@ internal fun MenuOverlay(
     var showSports by fi.showSports
     // (Opened from another settings page: Back goes back to that page, not to Sports in the settings list.)
     var sportsJumped by fi.sportsJumped
-    // "Follow a team" from elsewhere in Settings (Live now leagues) opens Settings → Sports.
+    // "Follow a team" from elsewhere (the Sports page) opens Settings → Sports.
     LaunchedEffect(io.github.petebutty.viewarr.ui.settings.SettingsJump.sports) {
         if (io.github.petebutty.viewarr.ui.settings.SettingsJump.sports) { showSports = true; sportsJumped = true; io.github.petebutty.viewarr.ui.settings.SettingsJump.sports = false }
     }
@@ -669,7 +670,11 @@ internal fun MenuOverlay(
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             menuHeader(false, null)
-            Column(Modifier.weight(1f).verticalScroll(MenuScrolls.main), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            // (Faded at its top / bottom edge while there's more list that way: a row scrolled half under the edge left a
+            // sliver of itself under the Search row. Peter, 2026-11-18.)
+            val clearOfFade = with(androidx.compose.ui.platform.LocalDensity.current) { remember(this) { clearOfEdges(32.dp.toPx()) } }
+            androidx.compose.runtime.CompositionLocalProvider(androidx.compose.foundation.gestures.LocalBringIntoViewSpec provides clearOfFade) {
+            Column(Modifier.weight(1f).scrollEdgeFade(MenuScrolls.main).verticalScroll(MenuScrolls.main), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             // Settings → Appearance → Movies & Shows off: a live-TV-only menu.
             // The main list: Live TV, then the rest in your order (hold OK on one to edit the menu here), then Settings.
             // (Settings → Appearance → Main menu switches entries on and off too.)
@@ -844,7 +849,7 @@ internal fun MenuOverlay(
             // (No Settings entry at the bottom: the ⚙ at the top opens it, Peter.)
             if (editingMain) MenuItem(text = "✓  Done", selected = false, onClick = { endEditMain() }, modifier = Modifier.padding(top = 8.dp))
             if (mainCarry.active) Text(movingHint(), fontSize = 12.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(start = 12.dp, top = 8.dp))
-                    }
+                    } } // (LocalBringIntoViewSpec: the highlighted row kept clear of the faded edges)
         } 
         } }
 
@@ -1567,6 +1572,24 @@ internal fun sectionIcon(s: Section): String = when (s) {
  * Where the main list and the Settings list were scrolled to, kept while Viewarr is open: the menu opens already in
  * place, rather than starting at the top and scrolling itself to the highlighted entry each time.
  */
+/** A soft fade at the top / bottom edge of a scrolling list, only on the side where more of it is hidden. */
+internal fun Modifier.scrollEdgeFade(state: androidx.compose.foundation.ScrollState, edge: androidx.compose.ui.unit.Dp = 28.dp): Modifier =
+    this.graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen }
+        .then(androidx.compose.ui.Modifier.drawWithContent {
+            drawContent()
+            val sz = this.size
+            val e = edge.toPx().coerceAtMost(sz.height / 3f)
+            if (state.value > 0) drawRect(
+                androidx.compose.ui.graphics.Brush.verticalGradient(0f to Color.Transparent, 1f to Color.Black, startY = 0f, endY = e),
+                size = androidx.compose.ui.geometry.Size(sz.width, e), blendMode = androidx.compose.ui.graphics.BlendMode.DstIn,
+            )
+            if (state.value < state.maxValue) drawRect(
+                androidx.compose.ui.graphics.Brush.verticalGradient(0f to Color.Black, 1f to Color.Transparent, startY = sz.height - e, endY = sz.height),
+                topLeft = androidx.compose.ui.geometry.Offset(0f, sz.height - e), size = androidx.compose.ui.geometry.Size(sz.width, e),
+                blendMode = androidx.compose.ui.graphics.BlendMode.DstIn,
+            )
+        })
+
 internal object MenuScrolls {
     val main = androidx.compose.foundation.ScrollState(0)
     val settings = androidx.compose.foundation.ScrollState(0)
@@ -1665,4 +1688,17 @@ private class GuideReturn(private val vm: GuideViewModel) {
     private val cursor = vm.cursor.value
     private val channel = vm.channels.value.getOrNull(vm.cursor.value.row)?.id
     fun restore() { if (vm.groupId.value != group) vm.restoreView(group, cursor, channel) }
+}
+
+/** Scrolls a list just enough to keep the highlighted row [margin] px clear of both edges (out of the faded part). */
+internal fun clearOfEdges(margin: Float) = object : androidx.compose.foundation.gestures.BringIntoViewSpec {
+    override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float {
+        val m = margin.coerceAtMost(((containerSize - size) / 2f).coerceAtLeast(0f))
+        val end = offset + size
+        return when {
+            offset < m -> offset - m
+            end > containerSize - m -> end - (containerSize - m)
+            else -> 0f
+        }
+    }
 }

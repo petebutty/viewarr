@@ -134,6 +134,7 @@ class HomeState(
         set(v) {
             pageState.value = if (v == Page.Tv && !Access.liveTv) Page.Movies else v
             io.github.petebutty.viewarr.ui.theme.Wallpaper.titleBehind = pageState.value == Page.Movies || pageState.value == Page.Shows
+            io.github.petebutty.viewarr.ui.theme.Wallpaper.guideOnScreen = pageState.value == Page.Tv
         }
     /** Where Viewarr opens: a guide or channel start becomes Movies for someone without Live TV. */
     fun startFor(start: StartPage) =
@@ -799,6 +800,8 @@ class HomeState(
                 return@root true
             }
         }
+        // A card from a report (the plugin changed a channel; a guide to pick): OK acts on it, Back dismisses it.
+        if (io.github.petebutty.viewarr.ui.report.HouseNotice.onKey(e)) return@root true
         // The rest of a press whose table action left the film (search, the guide, the menu…): not for the page now open.
         VodHost.eatKey?.let { k ->
             if (e.nativeKeyEvent.keyCode != k || (e.type == KeyEventType.KeyDown && e.nativeKeyEvent.repeatCount == 0)) VodHost.eatKey = null

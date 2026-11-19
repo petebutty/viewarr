@@ -170,6 +170,12 @@ class LocalWatchStore @Inject constructor(
     fun resumeMs(item: MediaItem, season: Int? = null, episode: Int? = null): Long =
         entries.value.firstOrNull { it.id == idOf(item) && it.season == season && it.episode == episode && !it.watched }?.positionMs ?: 0
 
+    /** Something kept here for this film (or this one episode): played or marked on this box or another TV. */
+    fun has(item: MediaItem, season: Int? = null, episode: Int? = null): Boolean {
+        val id = idOf(item)
+        return entries.value.any { it.id == id && it.season == season && it.episode == episode }
+    }
+
     fun isWatched(item: MediaItem): Boolean {
         val id = idOf(item)
         return entries.value.any { it.id == id && it.season == null && it.watched }
@@ -179,7 +185,7 @@ class LocalWatchStore @Inject constructor(
     fun episodesOf(item: MediaItem): Map<Pair<Int, Int>, PlexEpisode> {
         val id = idOf(item)
         return entries.value.filter { it.id == id && it.season != null && it.episode != null }
-            .associate { (it.season!! to it.episode!!) to PlexEpisode("local", it.positionMs, it.watched) }
+            .associate { (it.season!! to it.episode!!) to PlexEpisode("local", it.positionMs, it.watched, it.changed) }
     }
 
     /** Where the show carries on (season, episode, part way through) from what's been watched here; null: nothing yet,
@@ -226,7 +232,8 @@ class LocalWatchStore @Inject constructor(
     )
 
     companion object {
-        const val WATCHED = 0.9
+        // (0.8, as Trakt and the servers count it, so one stop means the same everywhere. Peter, 2026-11-19.)
+        const val WATCHED = 0.8
         private const val TAG = "LocalWatch"
         private const val MAX = 400
 

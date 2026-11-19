@@ -256,7 +256,7 @@ fun SportsSettingsScreen(onBack: () -> Unit, vm: SportsViewModel = hiltViewModel
                 Text("Settings", fontSize = 14.sp, color = AppColors.Accent)
                 Text("Sports", fontSize = 30.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, modifier = Modifier.padding(bottom = 16.dp))
                 Text(
-                    "Follow your teams and leagues: type a name or a sport, or press Down for the sport buttons and browse a sport's leagues, then a league's teams. Sports in the menu shows them as panels: what's on now across them all, then a row for each with its next games and recent results; OK on a game goes to the channel showing it (from your TV guide, the UK Sport on TV plugin or the event channels). " +
+                    "Follow your teams and leagues: type a name or a sport, or press Down for the sport buttons and browse a sport's leagues, then a league's teams. Sports in the menu shows them as panels: what's on now across them all, then a row for each with its next games and recent results; OK on a game goes to the channel showing it (from your TV guide, the Viewarr plugin or the event channels). " +
                         "\n\nFixtures come from ESPN's public sports data (only the team or league is asked about). Saved for this profile.",
                     fontSize = 13.sp, color = AppColors.TextSecondary,
                 )
@@ -448,7 +448,7 @@ fun SportsSettingsScreen(onBack: () -> Unit, vm: SportsViewModel = hiltViewModel
  * Asks for the highlight again every 40 ms, up to [tries] times, until [landed] says a row has it (a pop-up just
  * closed still has the remote for a moment, and a request made meanwhile is lost). True: it landed.
  */
-private suspend fun retryFocus(tries: Int, request: () -> Unit, landed: () -> Boolean): Boolean {
+internal suspend fun retryFocus(tries: Int, request: () -> Unit, landed: () -> Boolean): Boolean {
     repeat(tries) {
         delay(40)
         runCatching { request() }
@@ -463,7 +463,7 @@ private fun Header(t: String) = Text(t, fontSize = 15.sp, fontWeight = FontWeigh
 
 /** A team or league: its crest (or its sport), its name and league, and what OK does. */
 @Composable
-private fun SportRow(f: SportFollow, trailing: String, modifier: Modifier = Modifier, onLongClick: (() -> Unit)? = null, onClick: () -> Unit) {
+internal fun SportRow(f: SportFollow, trailing: String, modifier: Modifier = Modifier, onLongClick: (() -> Unit)? = null, onClick: () -> Unit) {
     MenuItem(
         modifier = modifier, onLongClick = onLongClick,
         text = f.name + (if (f.kind == SportFollow.Kind.League) "  (league)" else "") + (f.detail?.let { "  ·  $it" } ?: ""),
@@ -476,10 +476,10 @@ private fun SportRow(f: SportFollow, trailing: String, modifier: Modifier = Modi
  * Down goes to [target] when it's on screen (a request to one not yet drawn would crash), else wherever Down normally
  * goes.
  */
-private fun Modifier.downTo(target: () -> FocusRequester?): Modifier = keyTo(androidx.compose.ui.input.key.Key.DirectionDown, target)
+internal fun Modifier.downTo(target: () -> FocusRequester?): Modifier = keyTo(androidx.compose.ui.input.key.Key.DirectionDown, target)
 
 /** [key] goes to [target] when it's on screen, else wherever that key normally goes. */
-private fun Modifier.keyTo(key: androidx.compose.ui.input.key.Key, target: () -> FocusRequester?): Modifier = this.onPreviewKeyEvent { e ->
+internal fun Modifier.keyTo(key: androidx.compose.ui.input.key.Key, target: () -> FocusRequester?): Modifier = this.onPreviewKeyEvent { e ->
     if (e.type != androidx.compose.ui.input.key.KeyEventType.KeyDown || e.key != key) return@onPreviewKeyEvent false
     val t = target() ?: return@onPreviewKeyEvent false
     runCatching { t.requestFocus() }.isSuccess

@@ -70,7 +70,6 @@ import androidx.compose.material3.Text as M3Text
 import io.github.petebutty.viewarr.ui.settings.AddonSwitches
 import io.github.petebutty.viewarr.ui.settings.LiveSourcesItems
 import io.github.petebutty.viewarr.ui.settings.PlexServersItems
-import io.github.petebutty.viewarr.ui.settings.TraktSyncItems
 
 /** First-run setup, or (Manage) the Settings → Accounts & sources screen: same steps either way. */
 @Composable
@@ -375,7 +374,7 @@ private fun ServiceOptions(item: SetupItem, status: String, onChange: () -> Unit
             // The on/off switches that belong with the service: each Plex server, each Stremio addon.
             if (item == SetupItem.Plex) PlexServersItems()
             if (item == SetupItem.Stremio) AddonSwitches()
-            if (item == SetupItem.Trakt) TraktSyncItems()
+            // (Trakt's Sync now and Copy watched to Plex: Settings → Playback → Watch progress. Peter, 2026-11-18.)
             // Live TV: sources are removed one by one in the list above.
             if (item != SetupItem.LiveTv) MenuItem(
                 text = if (confirm) "Press OK again to disconnect" else "Disconnect",

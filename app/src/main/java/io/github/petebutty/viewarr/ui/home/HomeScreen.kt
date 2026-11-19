@@ -1082,6 +1082,8 @@ private fun BoxScope.DialogsLayer(
                 "🕒  EPG offset${vm.channelShiftMin(ch).takeIf { it != 0 }?.let { ": " + shiftLabel(it) } ?: "…"}" to { hs.recordTarget = null; hs.guideShiftFor = ch },
                 "↔  Timeline: ${io.github.petebutty.viewarr.ui.theme.UiOpts.choices.getValue(io.github.petebutty.viewarr.ui.theme.UiOpts.GUIDE_SPAN).getOrNull(AppColors.palette.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.GUIDE_SPAN)) ?: ""}" to { hs.recordTarget = null; hs.guideTimelineOpen = true },
             ),
+            // Wrong guide, times out, dead stream, logo, name… to the Viewarr plugin (ui/report/ReportFlow).
+            onReport = { hs.recordTarget = null; io.github.petebutty.viewarr.ui.report.ReportFlow.open(ch, playback.currentStreamId(ch)) },
             onChooseSeasons = { m -> hs.recordTarget = null; hs.seasonPick = m },
             onWatchFromStart = {
                 hs.recordTarget = null
@@ -1387,9 +1389,9 @@ private fun BoxScope.PagesLayer(
                 // it's on now, still to come or already aired.
                 onLongSelect = { channel, program ->
                     ButtonMap.changed(remote, BtnScreen.Guide, BtnPress.OkHold)?.let { hs.doButton(BtnScreen.Guide, it); return@GuideScreen }
-                    if (program != null) hs.recordTarget = channel to program
-                    // No programme listed (nothing to record): hold OK just adds / removes the favourite.
-                    else hs.toast(if (vm.toggleFavourite(channel)) "${channel.name} added to favourites" else "${channel.name} removed from favourites")
+                    // No programme listed: the channel's menu all the same (favourites, EPG offset, Report a problem:
+                    // a channel with no guide is the one to report; Peter, 2026-11-19), without the record options.
+                    hs.recordTarget = channel to (program ?: io.github.petebutty.viewarr.data.local.GuideProgram.noGuide(channel.id))
                 },
             )
         }
@@ -1625,6 +1627,7 @@ private fun rememberInfoBarRows(hs: HomeState): List<OsdRow> {
             subtitle = on?.let { displayTitle(it) },
             image = channelLogo(session?.serverUrl.orEmpty(), ch), logo = true,
             progress = on?.let { p -> ((chNow - p.startTime).toFloat() / (p.endTime - p.startTime).coerceAtLeast(1)).coerceIn(0f, 1f) },
+            options = listOf(CardOption("Report a problem…") { io.github.petebutty.viewarr.ui.report.ReportFlow.open(ch) }),
         ) {
             hs.osdVisible = false
             playback.play(ch, sessionNow)
@@ -1652,7 +1655,7 @@ private fun rememberInfoBarRows(hs: HomeState): List<OsdRow> {
             RowKind.NEXT -> return null
             // The film / show playing's page: its recommendations.
             RowKind.SIMILAR -> OsdRow("More like this", (if (showsVm.playing.value != null) showsVm else moviesVm).similarToPlaying().take(20).map { titleCard(it) })
-            RowKind.CONTINUE -> OsdRow("Continue watching", (servers + iptv + traktAll).distinctBy { it.tmdbId?.let { id -> "${it.type}:$id" } ?: it.key }.take(25).map { titleCard(it, resume = true) })
+            RowKind.CONTINUE -> OsdRow("Continue watching", io.github.petebutty.viewarr.ui.media.continueInOrder(servers, iptv, traktAll) { moviesVm.finishedFilm(it) }.distinctBy { it.tmdbId?.let { id -> "${it.type}:$id" } ?: it.key }.take(25).map { titleCard(it, resume = true) })
             RowKind.CONTINUE_IPTV -> OsdRow("Continue watching on IPTV", iptv.map { titleCard(it, resume = true) })
             RowKind.CONTINUE_TRAKT -> OsdRow("Continue watching on Trakt", traktAll.map { titleCard(it, resume = true) })
             RowKind.CONTINUE_SERVERS -> OsdRow("Continue watching on your servers", servers.map { titleCard(it, resume = true) })

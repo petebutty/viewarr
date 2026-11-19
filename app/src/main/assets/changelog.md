@@ -1,5 +1,34 @@
 # Viewarr changelog (built by tools/changelog.py from the GitHub releases; don't edit by hand)
 
+## 0.29.1 · 19 Nov 2026
+
+A smaller update: smoother browsing, live TV that picks the best stream, and reports from the TV.
+
+### Smoother Movies and Shows
+- **Much smoother scrolling**, above all on 4K boxes: the page draws far less on every frame, and works out rows and channels in the background.
+- **Works like the Android TV home screen**: the highlighted poster stays in the first place and the row slides under it; the highlight goes with the poster as it arrives and grows into place. Up and Down bring the next row to the top.
+- **Title and artwork wait until you stop** on a poster, so moving along a row stays quick.
+- **Eight posters across** a row and two whole rows under the top panel; rows start nearer the screen's edge, so no half poster peeks in.
+- **A quieter background**: the title's artwork fills just the top right of the page and fades into the background.
+- **Settings → Appearance → Wallpaper → Movies and Shows background**: What's selected, your wallpaper, or None (no picture at all). **Wallpaper in the TV guide** can be switched off for a plain guide.
+- The corner trailer window stays empty until the trailer plays (no still first).
+- My Library pages fit under the live TV or mini-player window.
+
+### Live TV
+- **Start with the best source** (Settings → Live TV, on to start with): each channel starts on its best-quality stream, and a stream that fails is remembered and moved down.
+- **Report a problem**: hold OK on a channel → Report a problem (wrong guide, guide times, no picture, wrong logo or name). With the Viewarr plugin on Dispatcharr the fix is made for the whole house, with Undo; **Choose the right guide** searches every guide source. Channels that won't play are reported by themselves. **Settings → Live TV → Reports** shows what was changed.
+- **Live now**: Settings → Live TV → Live now is now a list you build: search for any team, league or sport to add it, OK on one to remove it. Empty, Live now shows everything live.
+- **Event channels: only with a listing** (Settings → Live TV, off to start with): event slots with nothing in the guide in the next 24 hours are hidden, and their group goes too until a game is listed.
+- Channels Dispatcharr hides (an event manager's empty slots) are hidden in Viewarr too.
+
+### TV guide
+- **Settings → Appearance → TV guide**: **Next and Then**, **Episode badge at the top** and **Catch-up badge at the top** can each be switched off. The Catch-up badge now sits on the right.
+- Hold OK on a channel with no guide opens its menu (favourites, guide offset, Report a problem) instead of toggling the favourite.
+
+### Also
+- Removed: the "Your films and shows" wallpaper, and the automatic pause and play after a frame-rate switch.
+- Fixes for crashes found while testing.
+
 ## 0.29.0 · 18 Nov 2026
 
 ### Browsing styles for Movies and Shows

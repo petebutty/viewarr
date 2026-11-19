@@ -43,8 +43,8 @@ Each part can still be changed on its own (the style then says **Custom**):
 
 With **Settings → Playback → Trailers → Trailer previews play** set to **In the poster** (Cinema does this for you):
 
-1. Rest on a poster and, after a moment (**Start after**), it widens and its trailer plays inside it, without sound.
-2. After a while (**Then the big panel**: 5, 10 or 15 seconds, or Never) the trailer grows into a big panel in the middle, with sound. **OK** on the playing poster does this at once.
+1. Rest on a poster and, after a moment (**Start after**), it widens and its trailer plays inside it (with sound when **Preview sound** is on).
+2. After a while (**Then the big panel**: 1 to 5 seconds, or Never) the trailer grows into a big panel in the middle. **OK** on the playing poster does this at once.
 3. In the big panel, **OK** opens the title's page. **Back** or an arrow closes the panel.
 
 ### Choosing your rows
@@ -125,19 +125,19 @@ With **Addon streams** set to play the best one automatically, Viewarr picks fro
 - **Streams → Cached only**: leave out Usenet and torrent streams that aren't instant, in the lists too.
 - **Streams → Try the next stream** (on as standard): if the stream fails or hasn't started after 20 seconds, the next one plays (up to 3 more). Built-in player only.
 
-Shows get **Play / Resume S·E**, carrying on from Plex, Jellyfin / Emby or Trakt.
+Shows get **Play / Resume S·E**, carrying on from the furthest point you've reached anywhere (see [What you've watched](#what-youve-watched)).
 
 Also on title pages:
 
 - **From the start**: part-way through? A button beside Resume plays it from the beginning.
 - **Audio & subtitles**: pick them before Play (films on your Plex, Jellyfin or Emby).
-- **Mark watched / unwatched** on your servers and Trakt. A film marked watched leaves Continue watching straight away.
+- **Mark watched / unwatched**, saved everywhere the title is: Trakt, each server it's on, and Viewarr's own record for IPTV (the message says where). A film marked watched leaves Continue watching straight away.
 
 How addon streams are picked is set in **Settings → Playback → Streams**: choose from the list yourself, or let Viewarr start the best cached stream within your quality limit (**Best quality allowed**).
 
 ### Seasons and episodes
 
-The seasons and that season's episodes sit on the show's page. It opens on the season you're up to, with watched ticks and progress bars. **OK** plays an episode; **hold OK** to pick its source.
+The seasons and that season's episodes sit on the show's page. It opens on the season you're up to, with watched ticks and progress bars (from Trakt, your servers and IPTV together). **OK** plays an episode; **hold OK** to pick its source.
 
 Addons with their own titles (no IMDb or TMDB id, such as fan edits) get proper title pages with their seasons and episodes. Addon TV, sports and event catalogues play straight away.
 
@@ -163,6 +163,20 @@ More rows can go under it, in your order: Continue watching (everything together
 
 **Previous episode** and **Next episode** buttons can be added to the bar (hold OK on a button → OK on them, marked *not added*). They show while an episode plays, and say which episode they'll play.
 
+### What you've watched
+
+It all just works, whatever mix you use *(0.29.1 and later)*. There's nothing to choose:
+
+- **Playing**: the server a film or episode plays from (Plex, Jellyfin or Emby) is told where you are, your pauses and skips, and marks it watched past 80%, as its own apps would. With Trakt connected, Trakt is told about every play too, wherever it plays from (servers, IPTV or addons). If Plex also sends your plays to Trakt, Trakt counts it as the same watch.
+- **Playing from IPTV or an addon**: the same title on your servers is told too, so Plex, Jellyfin or Emby show it as watched or part-way, and where you stopped is kept on this TV and shared with your other TVs through Dispatcharr.
+- **Mark as watched / not watched** goes everywhere the title is: Trakt, every server copy, and Viewarr's own record for IPTV.
+- **Ticks**: watched if Trakt, a server or Viewarr's record says so.
+- **Progress bars and resume**: the newest place you stopped, from your servers, Viewarr's record or Trakt (so a film paused in another Trakt app carries on from there on IPTV or an addon).
+- **Continue watching**: Trakt's, each server's and IPTV's rows together, each title once, and anything finished anywhere taken out. Each one's **Continue watching from** switch still works.
+- **Up next**: the furthest point you've reached in any of them.
+
+**Settings → Playback → Watch progress** lists what's connected. **Send plays to Trakt** (on to start) can be switched off if another app already sends your plays there; Viewarr still reads Trakt.
+
 ### Watch progress for IPTV
 
 Dispatcharr and IPTV providers don't remember where you stopped, so Viewarr does it on the box, for each profile:
@@ -172,7 +186,7 @@ Dispatcharr and IPTV providers don't remember where you stopped, so Viewarr does
 - **Continue watching on IPTV** joins the Movies and Shows rows (combined with your servers' Continue watching when rows are combined).
 - Hold OK on a film for **Mark as watched / not watched** and **Remove from Continue watching**; hold OK on an episode for **Mark as watched**.
 
-**Shared between your TVs** *(0.28.9 and later)*: with Dispatcharr, your progress and ticks are also kept on your Dispatcharr user (in its app-data store, key `viewarr_vod_progress`), so every box signed in as you carries on where another left off, and an episode un-ticked on one is un-ticked on the others. Synced when Viewarr starts, every 5 minutes, and a minute after you stop or tick something; the newest change wins. Plain Xtream / M3U logins keep it on the box only.
+**Shared between your TVs** *(0.28.9 and later; Settings → Playback → Watch progress → Share IPTV progress between TVs, on to start)*: with Dispatcharr, your progress and ticks are also kept on your Dispatcharr user (in its app-data store, key `viewarr_vod_progress`), so every box signed in as you carries on where another left off, and an episode un-ticked on one is un-ticked on the others. Synced when Viewarr starts, every 5 minutes, and a minute after you stop or tick something; the newest change wins. Plain Xtream / M3U logins keep it on the box only.
 
 The format is open for companion Dispatcharr plugins (for example one that syncs it with Emby / Jellyfin):
 
@@ -254,10 +268,10 @@ Press OK on it to move to the next choice.
 
 Sign in to Trakt in **Settings → Accounts & sources → Trakt** (a code to approve on your phone).
 
-- Watch progress is sent back to Plex, Jellyfin / Emby and Trakt.
+- Everything you watch in Viewarr is scrobbled to Trakt (Settings → Playback → Watch progress → **Send plays to Trakt**, on to start), and Trakt's history adds to the ticks, Continue watching and Up next.
 - **Continue watching (Trakt)**, a row for under the info bar: the shows you've watched lately (in any app that tells Trakt), each at its next episode.
-- Your **Trakt watched history** comes back: episodes and films you've watched anywhere get their tick, and Play / Resume carries on from the furthest place any of them knows.
-- **Sync with Trakt now** is in **Settings → Accounts & sources → Trakt**, with an optional **Copy watched to Plex** (it marks on your Plex servers what Trakt says you've watched, and never un-marks anything).
+- Your **Trakt watched history** comes back: episodes and films you've watched in any app that tells Trakt get their tick, and Play / Resume carries on from where Trakt says you're up to.
+- **Sync with Trakt now** is in **Settings → Playback → Watch progress**, with an optional **Copy watched to Plex** (it marks on your Plex servers what Trakt says you've watched, and never un-marks anything).
 
 ## Watch Next
 

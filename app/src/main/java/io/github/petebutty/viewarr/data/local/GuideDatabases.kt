@@ -49,7 +49,7 @@ class GuideDatabases @Inject constructor(@ApplicationContext private val context
         }
         prefs.edit().putString(KEY_RECENT, recent.take(KEEP).joinToString(",")).apply()
         return open.getOrPut(name) {
-            Room.databaseBuilder(context, AppDatabase::class.java, name).fallbackToDestructiveMigration().build()
+            Room.databaseBuilder(context, AppDatabase::class.java, name).addMigrations(MIGRATION_6_7).fallbackToDestructiveMigration().build()
         }
     }
 
@@ -65,5 +65,11 @@ class GuideDatabases @Inject constructor(@ApplicationContext private val context
     private companion object {
         const val KEEP = 3
         const val KEY_RECENT = "recent"
+        /** 7: the hidden event channels table (HiddenChannelEntity); the guide already on the box is kept. */
+        val MIGRATION_6_7 = object : androidx.room.migration.Migration(6, 7) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS `hidden_channels` (`id` INTEGER NOT NULL, PRIMARY KEY(`id`))")
+            }
+        }
     }
 }

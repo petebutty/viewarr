@@ -59,8 +59,8 @@ class WatchSync @Inject constructor(
      * only by them and admins), so the Viewarr plugin (0.5.2+) keeps their IPTV watch progress in step with that
      * server, both ways, without Trakt. Off: the details are taken back out. (ullms asked for it, 2026-11-17.)
      */
-    suspend fun shareServers(on: Boolean) {
-        val s = sessions.session.first()?.takeIf { !it.isDirect } ?: return
+    suspend fun shareServers(on: Boolean): Boolean {
+        val s = sessions.session.first()?.takeIf { !it.isDirect } ?: return false
         val a = accounts.current()
         val list = if (!on) emptyList() else listOfNotNull(a.emby?.let { "emby" to it }, a.jellyfin?.let { "jellyfin" to it })
         // Plex too: its address and this person's own server token (a Plex Home user's), no user id needed.
@@ -77,6 +77,24 @@ class WatchSync @Inject constructor(
         }
         val w = http.put(s.serverUrl.trimEnd('/') + "/api/accounts/users/me/app-data/$SERVERS_KEY/", body, mapOf("X-API-Key" to s.apiKey))
         Log.i(TAG, "Emby / Jellyfin / Plex watch sync ${if (on) "on (${list.size + (if (plex != null) 1 else 0)} servers)" else "off"}: ${w.code}")
+        return w.ok
+    }
+
+    /** What the plugin was last given ([shareServers]): null not yet this run. */
+    @Volatile private var sharedAs: Boolean? = null
+
+    /**
+     * The plugin's server sync as it should be: [serversOn] (the switch, and Trakt not connected: with Trakt, the
+     * plugin copying IPTV watches into Plex would reach Trakt a second and third time). Acts only on a change, so it's
+     * cheap to call from the sync loop: connecting Trakt takes the sign-in back out within a minute.
+     */
+    private suspend fun applyServers() {
+        if (!WatchSource.known) return
+        val want = serversOn
+        if (sharedAs == want) return
+        // Switched off and never shared this run: nothing to take back (switching it off already did).
+        if (sharedAs == null && !want && !serversSwitch) { sharedAs = false; return }
+        if (runCatching { shareServers(want) }.getOrDefault(false)) sharedAs = want
     }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val lock = Mutex()
@@ -90,8 +108,8 @@ class WatchSync @Inject constructor(
         // Settings → Playback → Watch progress → Sync now.
         requestSync = { scope.launch { runCatching { sync(force = true) }.onFailure { Log.w(TAG, "sync failed: ${it.message}") } } }
         // Settings → … → Sync IPTV progress with my Emby / Jellyfin; and on start, if on (a sign-in may have changed).
-        setServers = { on -> scope.launch { runCatching { shareServers(on) } } }
-        if (serversOn) scope.launch { delay(8_000); runCatching { shareServers(true) } }
+        setServers = { on -> scope.launch { val want = on && !WatchSource.hasTrakt; if (runCatching { shareServers(want) }.getOrDefault(false)) sharedAs = want } }
+        scope.launch { delay(8_000); runCatching { applyServers() } }
         // A change here (played, ticked, un-ticked): synced within a minute.
         scope.launch { store.entries.drop(1).collect { dirty = true } }
         scope.launch {
@@ -99,6 +117,7 @@ class WatchSync @Inject constructor(
             var lastFull = 0L
             while (true) {
                 val now = System.currentTimeMillis()
+                runCatching { applyServers() }
                 if (dirty || now - lastFull > 5 * 60_000L) {
                     dirty = false
                     lastFull = now
@@ -113,7 +132,9 @@ class WatchSync @Inject constructor(
     suspend fun sync(force: Boolean = false) = lock.withLock {
         // Settings → Playback → Watch progress → Sync with Dispatcharr (on unless switched off; ullms asked for the
         // option, for his companion plugin, 2026-11-17). [force]: Sync now, even when off.
-        if (!force && !enabled) return@withLock
+        // (Whatever else is connected: IPTV and addon progress is shared between TVs only through here. Not before the
+        // accounts have been read once, so a start-up blip can't act on a blank copy.)
+        if (!force && (!enabled || !WatchSource.known)) return@withLock
         val s = sessions.session.first()?.takeIf { !it.isDirect } ?: return@withLock
         val url = s.serverUrl.trimEnd('/') + "/api/accounts/users/me/app-data/$KEY/"
         val headers = mapOf("X-API-Key" to s.apiKey)
@@ -275,7 +296,10 @@ class WatchSync @Inject constructor(
         const val SERVERS_KEY = "viewarr_watch_servers"
         /** Settings switch for the Emby / Jellyfin sync (a palette title part marked when ON: off by default). */
         const val SERVERS_SWITCH = "watchsrv:+on"
-        val serversOn get() = !io.github.petebutty.viewarr.ui.theme.AppColors.palette.shows(SERVERS_SWITCH)
+        /** The switch itself (Settings → Playback → Watch progress). */
+        val serversSwitch get() = !io.github.petebutty.viewarr.ui.theme.AppColors.palette.shows(SERVERS_SWITCH)
+        /** In effect: the switch on and Trakt not connected (with Trakt it turns itself off; see applyServers). */
+        val serversOn get() = serversSwitch && !WatchSource.hasTrakt
         /** Switch it (Settings): set by the settings screen to [shareServers] on the singleton. */
         var setServers: (Boolean) -> Unit = {}
         /** Settings switch (a palette title part: on unless hidden). */

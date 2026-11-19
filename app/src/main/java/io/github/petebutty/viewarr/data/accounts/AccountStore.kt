@@ -97,7 +97,14 @@ class AccountStore @Inject constructor(
 
     // Nothing saved yet: one device id for this run (a new one on every read signed Plex / Jellyfin in under an id
     // that was never used again).
-    val accounts: Flow<Accounts> = context.accountsStore.data.map { prefs -> decode(prefs[BLOB]) ?: Accounts(deviceId = firstRunDeviceId) }
+    // (Each read also tells WatchSource what's signed in: Watch progress and Send plays to Trakt need it.
+    // Only a real read: a key store blip's blank copy would look like signed out.)
+    val accounts: Flow<Accounts> = context.accountsStore.data.map { prefs ->
+        val blob = prefs[BLOB]
+        val a = decode(blob)
+        if (a != null || blob == null) io.github.petebutty.viewarr.data.sync.WatchSource.note(a ?: Accounts())
+        a ?: Accounts(deviceId = firstRunDeviceId)
+    }
 
     /**
      * The sign-ins, or null while they're saved but can't be read (the box's key store failing for a moment). [accounts]

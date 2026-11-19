@@ -21,7 +21,7 @@ fun Button(
     compact: Boolean = false,
     content: @Composable RowScope.() -> Unit,
 ) = androidx.tv.material3.Button(
-    onClick = onClick,
+    onClick = if (onLongClick != null) HeldOk.guard(onClick) else onClick,
     onLongClick = onLongClick,
     modifier = modifier,
     enabled = enabled,

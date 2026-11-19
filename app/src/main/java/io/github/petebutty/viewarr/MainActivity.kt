@@ -20,7 +20,28 @@ import io.github.petebutty.viewarr.ui.common.HeldOk
 class MainActivity : ComponentActivity() {
     @Inject lateinit var themeStore: ThemeStore
 
+    private var okDown = false
+    private var okHeld = false
+    private var okHoldEndedAt = 0L
+
     override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
+        // A stuttering Bluetooth remote's extra presses (KeyBounce): dropped before anything sees them.
+        if (io.github.petebutty.viewarr.ui.common.KeyBounce.drop(event)) return true
+        // Holding OK on some boxes (Ugoos: the remote repeats the hold over infrared, and the box's remote service turns
+        // an infrared OK hold into a Search key) opened voice search over the hold-OK menu (Peter, 2026-11-19). A Search /
+        // Assist key that arrives while OK is down, or just after a hold, is the hold, not a search.
+        val isOk = event.keyCode == android.view.KeyEvent.KEYCODE_DPAD_CENTER || event.keyCode == android.view.KeyEvent.KEYCODE_ENTER ||
+            event.keyCode == android.view.KeyEvent.KEYCODE_NUMPAD_ENTER
+        if (isOk) {
+            if (event.action == android.view.KeyEvent.ACTION_DOWN) { okDown = true; if (event.repeatCount > 0) okHeld = true }
+            else if (event.action == android.view.KeyEvent.ACTION_UP) { okDown = false; if (okHeld) okHoldEndedAt = android.os.SystemClock.uptimeMillis(); okHeld = false }
+        }
+        if (event.keyCode == android.view.KeyEvent.KEYCODE_SEARCH || event.keyCode == android.view.KeyEvent.KEYCODE_ASSIST || event.keyCode == android.view.KeyEvent.KEYCODE_VOICE_ASSIST) {
+            if (okDown || android.os.SystemClock.uptimeMillis() - okHoldEndedAt < 1_500) {
+                if (event.action == android.view.KeyEvent.ACTION_DOWN) android.util.Log.i("KeyBounce", "dropped a ${android.view.KeyEvent.keyCodeToString(event.keyCode)} that came with an OK hold")
+                return true
+            }
+        }
         // Holding OK opens things (record options, an episode's menu): the hold is decided on its first repeat, so the
         // release that ends it means nothing. It's still delivered, marked (HeldOk.releasePending): dropped here, a TV
         // Surface that had noted its long click never forgot it, and skipped the next tap's click (every row with a

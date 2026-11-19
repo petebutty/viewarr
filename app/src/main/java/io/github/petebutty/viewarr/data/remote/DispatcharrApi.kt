@@ -36,6 +36,10 @@ interface DispatcharrApi {
     @GET("api/channels/channels/")
     suspend fun channels(): List<ChannelDto>
 
+    /** Channel profiles with the ids of their enabled channels ({"id", "name", "channels": [...]}). */
+    @GET("api/channels/profiles/")
+    suspend fun channelProfiles(): ResponseBody
+
     @GET("api/channels/groups/")
     suspend fun groups(): List<GroupDto>
 

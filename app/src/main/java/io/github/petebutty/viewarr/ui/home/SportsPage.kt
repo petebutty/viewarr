@@ -1,5 +1,13 @@
 package io.github.petebutty.viewarr.ui.home
 
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.requiredWidth
+import androidx.compose.foundation.layout.wrapContentWidth
+import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawBehind
 import io.github.petebutty.viewarr.ui.theme.appBackground
 import android.util.Log
 import androidx.activity.compose.BackHandler
@@ -181,7 +189,19 @@ internal fun SportsPage(
     // Its own wallpaper, drawn whole: Sports opens over another page (Shows…), which showed through when it had no
     // background (Peter, 2026-11-17). The same wallpaper as the app's, so it still runs on under the menu.
     // (Readable: the wallpaper dimmed well down behind the fixture list, as Settings. Peter, 2026-11-17: too see-through.)
-    Column(Modifier.fillMaxSize().appBackground(readable = true).onFocusChanged { pageHasFocus = it.hasFocus }) {
+    // (The same background as the other pages, with a light shade for the list: the "readable" Settings style fell
+    // back to a flat colour when there's no picture wallpaper, so Sports looked solid. Peter, 2026-11-18.)
+    // (Drawn at full-screen size and shifted back by where the page starts, so it lines up with the menu's copy of
+    // the same wallpaper: drawn from the page's own edge it left a seam where the menu ends. Peter, 2026-11-18.)
+    var pageX by remember { mutableStateOf(0) }
+    val screenW = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp.dp
+    Box(Modifier.fillMaxSize().clipToBounds().onGloballyPositioned { pageX = it.positionInRoot().x.toInt() }) {
+    Box(Modifier.wrapContentWidth(Alignment.Start, unbounded = true).requiredWidth(screenW).fillMaxHeight()
+        .offset { androidx.compose.ui.unit.IntOffset(-pageX, 0) }
+        .appBackground(titleArt = io.github.petebutty.viewarr.ui.theme.Wallpaper.titleBehind)
+        .drawBehind { drawRect(AppColors.palette.shade.copy(alpha = 0.35f)) })
+    Column(Modifier.fillMaxSize()
+        .onFocusChanged { pageHasFocus = it.hasFocus }) {
         SportsHeader(hover ?: sections.firstOrNull()?.second?.firstOrNull(), besidePreview)
         if (follows.isEmpty()) Text(
             "Nothing followed yet: add teams and leagues in Settings → Sports.",
@@ -244,7 +264,7 @@ internal fun SportsPage(
                 }
             }
         }
-    }
+    } } // (the background Box)
 }
 
 /**

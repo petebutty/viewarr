@@ -35,6 +35,7 @@ Viewarr doesn't provide any content. It plays only what your own servers and acc
 - **An info bar you arrange yourself**, in **11 styles** from glass to a soft fade: show, hide and move its buttons, and add extras such as Favourite, Last channel, Audio sync, a Sleep timer and TV settings. Browse channels in it without changing until you press OK. Press Down for **rows you choose** under it: next episodes, Continue watching, favourite or recent channels, what's on now and more.
 - **Frame rate matching** for films and live TV (the TV switches to 50 Hz for UK channels), with frame-rate badges on the info bar; for films and shows the TV switches as they open, with the frame rate from Plex, Jellyfin or Emby, so the sound works from the start.
 - **Source switching without a break**: the channel keeps playing while its backup stream opens, then swaps in; stalled streams reconnect by themselves, and the info bar shows which provider you're on.
+- **Report a problem** on any channel (wrong guide, times out, dead stream, logo, name) by holding OK: with the [Viewarr plugin](docs/LIVE-TV.md#report-a-problem) the fix reaches the whole house, with Undo for admins.
 - **Every remote button your way**, with Classic and Viewarr presets.
 - **Your setup saved on Dispatcharr**, so a new TV picks it up. *(Profiles for everyone in the house, and sharing with friends in another house, are coming soon.)*
 - **Easy setup** from your phone with a QR code, and **Search settings** to find any option by name.

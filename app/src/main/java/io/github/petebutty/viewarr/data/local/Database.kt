@@ -34,6 +34,15 @@ data class GroupEntity(
     val name: String,
 )
 
+/**
+ * An event channel kept out of the lists for now (Settings → Live TV → Event channels: only with a listing): one of
+ * the Viewarr plugin's quiet channels with nothing in the guide on now or in the next 24 hours. Written by
+ * GuideRepository as the guide and the plugin's data change; the list, group and guide-row queries leave these out,
+ * so every screen agrees. Looking a channel up by id (links, reminders, recordings, Sports) doesn't. (Peter, 2026-11-19.)
+ */
+@Entity(tableName = "hidden_channels")
+data class HiddenChannelEntity(@PrimaryKey val id: Int)
+
 @Entity(tableName = "programs", indices = [Index(value = ["tvgId", "startTime"]), Index("endTime")])
 data class ProgramEntity(
     @PrimaryKey(autoGenerate = true) val rowId: Long = 0,
@@ -125,38 +134,61 @@ data class GuideProgram(
 ) {
     /** The synopsis (unpacked the first time it's read). */
     val description: String? get() = packedDescription?.text?.takeIf { it.isNotEmpty() }
+
+    /** A stand-in for a channel with nothing listed (its hold-OK menu still opens: favourites, EPG offset, Report). */
+    val noGuide get() = rowId == NO_GUIDE
+
+    companion object {
+        const val NO_GUIDE = -1L
+        fun noGuide(channelId: Int, now: Long = System.currentTimeMillis()) = GuideProgram(
+            channelId, NO_GUIDE, "No guide information", null, null, now, now + 3_600_000L, null, null, false, false, false,
+        )
+    }
 }
 
 @Dao
 interface GuideDao {
+    // (The list, group and guide-row queries leave out hidden_channels, the event channels with nothing listed: see
+    // HiddenChannelEntity. observeAllChannels is the one that doesn't, for looking a channel up by id.)
     @Query(
         """
         SELECT c.id, c.uuid, c.name, c.number, c.logoId, c.logoUrl, g.name AS groupName, c.guideKey, c.catchupDays
         FROM channels c LEFT JOIN channel_groups g ON g.id = c.groupId
-        WHERE (:groupId IS NULL OR c.groupId = :groupId)
+        WHERE (:groupId IS NULL OR c.groupId = :groupId) AND c.id NOT IN (SELECT id FROM hidden_channels)
         ORDER BY c.number IS NULL, c.number, c.name, c.id
         """
     )
     fun observeChannels(groupId: Int?): Flow<List<ChannelListItem>>
 
+    /** Every channel, hidden event channels too: for finding one by id (links, reminders, recordings, Sports). */
+    @Query(
+        """
+        SELECT c.id, c.uuid, c.name, c.number, c.logoId, c.logoUrl, g.name AS groupName, c.guideKey, c.catchupDays
+        FROM channels c LEFT JOIN channel_groups g ON g.id = c.groupId
+        ORDER BY c.number IS NULL, c.number, c.name, c.id
+        """
+    )
+    fun observeAllChannels(): Flow<List<ChannelListItem>>
+
     /**
      * A list-made group's channels (by uuid): in [order]'s order when given ("|uuid|uuid|…|": Live now, live first then
-     * starting soon), else channel order (favourites).
+     * starting soon), else channel order (favourites). [everyChannel]: hidden event channels too (Live now).
      */
     @Query(
         """
         SELECT c.id, c.uuid, c.name, c.number, c.logoId, c.logoUrl, g.name AS groupName, c.guideKey, c.catchupDays
         FROM channels c LEFT JOIN channel_groups g ON g.id = c.groupId
-        WHERE c.uuid IN (:uuids)
+        WHERE c.uuid IN (:uuids) AND (:everyChannel OR c.id NOT IN (SELECT id FROM hidden_channels))
         ORDER BY instr(:order, '|' || c.uuid || '|') = 0, instr(:order, '|' || c.uuid || '|'), c.number IS NULL, c.number, c.name, c.id
         """
     )
-    fun observeChannelsIn(uuids: List<String>, order: String): Flow<List<ChannelListItem>>
+    fun observeChannelsIn(uuids: List<String>, order: String, everyChannel: Boolean): Flow<List<ChannelListItem>>
 
     @Query(
         """
         SELECT g.id, g.name, COUNT(c.id) AS channelCount
         FROM channel_groups g JOIN channels c ON c.groupId = g.id
+        WHERE c.id NOT IN (SELECT id FROM hidden_channels)
         GROUP BY g.id
         ORDER BY MIN(c.number IS NULL), MIN(c.number), g.name
         """
@@ -169,7 +201,7 @@ interface GuideDao {
                p.season, p.episode, p.isNew, p.isLive, p.isPremiere, p.image
         FROM (
             SELECT id, guideKey FROM channels
-            WHERE (:groupId IS NULL OR groupId = :groupId)
+            WHERE (:groupId IS NULL OR groupId = :groupId) AND id NOT IN (SELECT id FROM hidden_channels)
             ORDER BY number IS NULL, number, name, id
             LIMIT :count OFFSET :offset
         ) c
@@ -186,7 +218,7 @@ interface GuideDao {
                p.season, p.episode, p.isNew, p.isLive, p.isPremiere, p.image
         FROM (
             SELECT id, guideKey FROM channels
-            WHERE uuid IN (:uuids)
+            WHERE uuid IN (:uuids) AND (:everyChannel OR id NOT IN (SELECT id FROM hidden_channels))
             ORDER BY instr(:order, '|' || uuid || '|') = 0, instr(:order, '|' || uuid || '|'), number IS NULL, number, name, id
             LIMIT :count OFFSET :offset
         ) c
@@ -195,7 +227,7 @@ interface GuideDao {
         ORDER BY c.id, p.startTime
         """
     )
-    fun observeProgramBlockIn(uuids: List<String>, order: String, offset: Int, count: Int, start: Long, end: Long): Flow<List<GuideProgram>>
+    fun observeProgramBlockIn(uuids: List<String>, order: String, everyChannel: Boolean, offset: Int, count: Int, start: Long, end: Long): Flow<List<GuideProgram>>
 
     @Query("SELECT COUNT(*) FROM programs")
     suspend fun programCount(): Int
@@ -306,6 +338,33 @@ interface GuideDao {
         insertPrograms(programs)
     }
 
+    /**
+     * The channels that stay listed whatever the plugin calls them: in a "Club TV" group, or with a programme on now
+     * or starting before [until] (the guide's own emptiness is what hides an event channel). Re-read as the guide,
+     * channels and groups change.
+     */
+    @Query(
+        """
+        SELECT c.id FROM channels c LEFT JOIN channel_groups g ON g.id = c.groupId
+        WHERE g.name = 'Club TV' COLLATE NOCASE
+           OR EXISTS (SELECT 1 FROM programs p WHERE p.tvgId = c.guideKey AND p.endTime > :now AND p.startTime < :until)
+        """
+    )
+    fun observeListedOrClub(now: Long, until: Long): Flow<List<Int>>
+
+    @Query("DELETE FROM hidden_channels")
+    suspend fun clearHidden()
+
+    @Insert
+    suspend fun insertHidden(rows: List<HiddenChannelEntity>)
+
+    /** The hidden event channels, replaced in one go (the lists change once). */
+    @Transaction
+    suspend fun replaceHidden(ids: Collection<Int>) {
+        clearHidden()
+        if (ids.isNotEmpty()) insertHidden(ids.map(::HiddenChannelEntity))
+    }
+
     @Query("DELETE FROM channels")
     suspend fun clearChannels()
 
@@ -317,8 +376,8 @@ interface GuideDao {
 }
 
 @Database(
-    entities = [ChannelEntity::class, GroupEntity::class, ProgramEntity::class],
-    version = 6,
+    entities = [ChannelEntity::class, GroupEntity::class, ProgramEntity::class, HiddenChannelEntity::class],
+    version = 7,
     exportSchema = false,
 )
 @androidx.room.TypeConverters(PackedConverters::class)

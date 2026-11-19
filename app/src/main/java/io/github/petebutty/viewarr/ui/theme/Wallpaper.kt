@@ -14,6 +14,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.IntOffset
@@ -152,10 +153,17 @@ object Wallpaper {
      */
     var titleBehind by mutableStateOf(false)
 
+    /** The TV guide is the page on screen (Wallpaper in the TV guide: Off draws a plain background there). Set by the home screen. */
+    var guideOnScreen by mutableStateOf(false)
+
+    /** Movies / Shows use the highlighted title's artwork as their background (Settings → Appearance → Wallpaper). */
+    val titleArtOn get() = AppColors.palette.opt(UiOpts.TITLE_BG) == 0
+
     /** The wallpaper (setting) and the Movies / Shows artwork are separate pictures: a page over Movies (e.g. Settings)
      *  shows the wallpaper, not the film. */
     internal val wall = PictureLayer()
     internal val titleArt = PictureLayer()
+
 }
 
 /** Loads the pictures for the wallpaper and the Movies / Shows pages. Once, at the root. */
@@ -167,7 +175,12 @@ fun WallpaperLoader() {
         val result = runCatching {
             context.imageLoader.execute(ImageRequest.Builder(context).data(url).size(1280, 720).allowHardware(false).build())
         }.getOrNull() as? SuccessResult ?: return
-        val bmp = runCatching { result.drawable.toBitmap().asImageBitmap() }.getOrNull() ?: return
+        val raw = runCatching { result.drawable.toBitmap() }.getOrNull() ?: return
+        // The Movies / Shows artwork comes ready-shaded (one picture, drawn once a frame): at 4K the backdrop plus its
+        // background colour and two shading gradients were four full-screen passes on every frame of a row's slide,
+        // and the graphics chip ran at ~45 ms a frame (Peter, 2026-11-19: Cinema's slide looked jerky).
+        val baked: android.graphics.Bitmap? = if (layer === Wallpaper.titleArt) runCatching { bakeTitleArt(raw, AppColors.palette.main, AppColors.palette.shade) }.getOrNull() else null
+        val bmp = (baked ?: raw).asImageBitmap()
         // A soft cross-fade from the last picture (it only runs once the highlight has rested, so it doesn't cost
         // frames while moving through the guide; a newer pick cancels it and fades on from where it was).
         layer.previous = layer.image ?: layer.previous
@@ -197,7 +210,7 @@ fun WallpaperLoader() {
     }
     LaunchedEffect(Unit) {
         // Low-memory mode: no full-screen artwork behind title pages.
-        snapshotFlow { (Wallpaper.titlePages > 0 && AppColors.palette.heavyExtras) to Wallpaper.title }.collectLatest { (open, url) ->
+        snapshotFlow { (Wallpaper.titlePages > 0 && AppColors.palette.heavyExtras && Wallpaper.titleArtOn) to Wallpaper.title }.collectLatest { (open, url) ->
             if (!open) { Wallpaper.titleArt.clear(); return@collectLatest }
             delay(300)
             show(Wallpaper.titleArt, url)
@@ -223,14 +236,25 @@ fun Modifier.appBackground(titleArt: Boolean = false, readable: Boolean = false)
         drawRect(Brush.horizontalGradient(0f to sh.copy(alpha = 0.6f), 0.45f to sh.copy(alpha = 0.35f), 1f to sh.copy(alpha = 0.15f)))
         return@drawBehind
     }
-    if (titleArt) {
-        // The title's artwork, darker on the left behind the text and toward the rows below, clearer to the right.
+    // TV guide with "Wallpaper in the TV guide" off: the plain background colour.
+    if (!titleArt && Wallpaper.guideOnScreen && p.opt(UiOpts.GUIDE_WALL) == 1) { drawRect(p.main); return@drawBehind }
+    // Movies and Shows background: None (a tester, 2026-11-19: no picture there at all, whatever the wallpaper).
+    if (titleArt && p.opt(UiOpts.TITLE_BG) == 2) { drawRect(p.main); return@drawBehind }
+    if (titleArt && Wallpaper.titleArtOn) {
+        // The title's artwork, already shaded (bakeTitleArt): darker on the left behind the text and toward the rows
+        // below, clearer to the right. One picture over the background colour; just the picture once it's there.
+        // Only the top right of the page (about half the width, 60% of the height), fading into the plain
+        // background on its left and lower edges; the rest of the page is just the background colour (Peter,
+        // 2026-11-19: as WuPlay, far less to paint than full-screen artwork at 4K).
         val layer = Wallpaper.titleArt
         drawRect(p.main)
-        if (layer.image != null) {
-            drawLayer(layer)
-            drawRect(Brush.horizontalGradient(0f to sh.copy(alpha = 0.9f), 0.35f to sh.copy(alpha = 0.65f), 0.75f to sh.copy(alpha = 0.2f), 1f to sh.copy(alpha = 0.1f)))
-            drawRect(Brush.verticalGradient(0.35f to Color.Transparent, 1f to sh.copy(alpha = 0.85f)))
+        val img = layer.image
+        if (img != null) {
+            val left = size.width * ART_LEFT
+            val w = size.width - left
+            val h = w * 9f / 16f
+            layer.previous?.takeIf { layer.fade < 1f }?.let { drawImage(it, dstOffset = IntOffset(left.roundToInt(), 0), dstSize = IntSize(w.roundToInt(), h.roundToInt())) }
+            drawImage(img, dstOffset = IntOffset(left.roundToInt(), 0), dstSize = IntSize(w.roundToInt(), h.roundToInt()), alpha = layer.fade)
         }
         return@drawBehind
     }
@@ -239,7 +263,7 @@ fun Modifier.appBackground(titleArt: Boolean = false, readable: Boolean = false)
             WallpaperStyles.getOrElse(p.wallpaperStyle) { WallpaperStyles[0] }.draw(this, p.highlight)
             drawRect(sh.copy(alpha = p.wallpaperDim))
         }
-        3 -> {
+        3, 4 -> {
             if (Wallpaper.wall.image == null) { drawRect(p.main); return@drawBehind }
             drawRect(Color.Black)
             drawLayer(Wallpaper.wall)
@@ -254,6 +278,41 @@ private fun DrawScope.drawLayer(layer: PictureLayer) {
     layer.previous?.takeIf { layer.fade < 1f }?.let { drawCover(it, 1f) }
     drawCover(img, layer.fade)
 }
+
+/**
+ * The title's artwork as the Movies / Shows background, shaded once: cropped to 16:9 at 1280×720 on the background
+ * colour, darkened on the left (behind the text) and toward the bottom (behind the rows), clearer to the right.
+ * The same look the page used to paint with two gradients on every frame.
+ */
+private fun bakeTitleArt(src: android.graphics.Bitmap, main: Color, shade: Color): android.graphics.Bitmap {
+    val w = 1280; val h = 720
+    val out = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888)
+    val c = android.graphics.Canvas(out)
+    c.drawColor(main.toArgbInt())
+    val scale = max(w.toFloat() / src.width, h.toFloat() / src.height)
+    val sw = (w / scale).roundToInt().coerceAtMost(src.width); val sh = (h / scale).roundToInt().coerceAtMost(src.height)
+    val sx = (src.width - sw) / 2; val sy = (src.height - sh) / 2
+    c.drawBitmap(src, android.graphics.Rect(sx, sy, sx + sw, sy + sh), android.graphics.Rect(0, 0, w, h), android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG))
+    // Melting into the page's own colour at the left and bottom edges (so the picture has no visible border), with a
+    // touch of shade over the rest.
+    fun m(f: Float) = main.copy(alpha = f).toArgbInt()
+    fun a(f: Float) = shade.copy(alpha = f).toArgbInt()
+    c.drawColor(a(0.15f))
+    val across = android.graphics.Paint().apply {
+        shader = android.graphics.LinearGradient(0f, 0f, w.toFloat(), 0f, intArrayOf(m(1f), m(0.75f), m(0.2f), m(0f)), floatArrayOf(0f, 0.18f, 0.45f, 0.7f), android.graphics.Shader.TileMode.CLAMP)
+    }
+    c.drawRect(0f, 0f, w.toFloat(), h.toFloat(), across)
+    val down = android.graphics.Paint().apply {
+        shader = android.graphics.LinearGradient(0f, 0f, 0f, h.toFloat(), intArrayOf(m(0f), m(0f), m(0.7f), m(1f)), floatArrayOf(0f, 0.5f, 0.82f, 1f), android.graphics.Shader.TileMode.CLAMP)
+    }
+    c.drawRect(0f, 0f, w.toFloat(), h.toFloat(), down)
+    return out
+}
+
+private fun Color.toArgbInt(): Int = this.toArgb()
+
+/** Where the Movies / Shows artwork starts across the page (the rest to the left is the plain background). */
+private const val ART_LEFT = 0.42f
 
 /** Fills the area with the picture, cropped to fit (like ContentScale.Crop). */
 private fun DrawScope.drawCover(img: ImageBitmap, alpha: Float) {

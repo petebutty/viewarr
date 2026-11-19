@@ -94,7 +94,7 @@ internal class SportsHub(
     }
 
     /**
-     * Games your guide doesn't reach yet: the channels showing them (Sky's TV guide, the UK Sport on TV plugin, else
+     * Games your guide doesn't reach yet: the channels showing them (the Viewarr plugin, else Sky's TV guide or
      * TheSportsDB: see GuideViewModel.ukMatch).
      */
     val tv = mutableStateMapOf<String, List<String>>()
@@ -166,7 +166,7 @@ internal class SportsHub(
                         continue
                     }
                 }
-                // Not in the guide (yet): who's showing it (Sky's TV guide, the UK Sport on TV plugin, else TheSportsDB).
+                // Not in the guide (yet): who's showing it (the Viewarr plugin, else Sky's TV guide or TheSportsDB).
                 if (g.state != "post" && g.start < t0 + 60 * DAY && g.id !in tv) {
                     // No answer yet (listings not read, TheSportsDB busy): looked for again next time, not never.
                     val m = runCatching { guide.ukMatch(g) }.getOrNull()
@@ -212,7 +212,14 @@ internal class SportsHub(
 
     /** A reminder is set for [g] (on its channel around kick-off, or waiting for the guide to list it). */
     fun reminded(g: SportGame, channel: ChannelListItem?, reminders: List<io.github.petebutty.viewarr.data.dvr.Reminder>): Boolean =
-        sportsVm.gameWatch.wantsReminder(g.id) || reminders.any { r -> (channel == null || r.channelId == channel.id) && kotlin.math.abs(r.start - g.start) <= 60 * 60_000L && r.end > g.start }
+        sportsVm.gameWatch.wantsReminder(g.id) || reminders.any { r ->
+            kotlin.math.abs(r.start - g.start) <= 60 * 60_000L && r.end > g.start &&
+                // On a known channel: a reminder on that channel. With no channel (a 3pm game not on UK TV), only a
+                // reminder naming one of its teams: any reminder near kick-off lit the bell on every such game
+                // (Peter, 2026-11-19: "random notifications I didn't add").
+                (if (channel != null) r.channelId == channel.id
+                 else listOf(g.home, g.away).filter { it.length >= 4 }.any { t -> r.title.contains(t, ignoreCase = true) })
+        }
 
     /** Kick-off reminder on [channel] (a game with no guide listing: a listings channel, club stream…): set, or off again. */
     fun toggleKickOffReminder(g: SportGame, channel: ChannelListItem) {

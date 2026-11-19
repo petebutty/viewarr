@@ -24,6 +24,12 @@ object HeldOk {
 
     /** [e] is the release of a held OK: not a press. */
     fun isHeldRelease(e: KeyEvent) = releasePending && e.type == KeyEventType.KeyUp && isOk(e)
+
+    /**
+     * A click that ignores the release of a held OK: holding OK on a card opened its menu, and letting go clicked the
+     * card as well (an episode played under its own menu, then again: a second player, out of memory. 2026-11-18).
+     */
+    fun guard(onClick: () -> Unit): () -> Unit = { if (!releasePending) onClick() }
 }
 
 /**

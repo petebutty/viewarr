@@ -76,6 +76,9 @@ class PlaybackViewModel @Inject constructor(
     private val xtream: XtreamClient,
     private val http: HttpJson,
     private val guide: GuideRepository,
+    private val healthSync: io.github.petebutty.viewarr.data.sync.HealthSync,
+    private val channelReports: io.github.petebutty.viewarr.data.report.ChannelReports,
+    private val houseSync: io.github.petebutty.viewarr.data.report.HouseSync,
 ) : ViewModel() {
 
     // ---------------------------------------------------------------- Timeshift: pause / rewind live TV with catch-up
@@ -191,7 +194,9 @@ class PlaybackViewModel @Inject constructor(
                 if (_channel.value?.id != ch.id) return@launch
                 if (status.code == 401 || status.code == 403) _sourceNote.value = ADMIN_ONLY
                 if (list.size < 2) _sourceNote.value = "This channel has only one source."
-                _sources.value = list
+                // Start with the best source on: the list in that order, the best marked.
+                _sources.value = if (!bestSourceOn || list.size < 2) list
+                    else sourceRank.order(sourceKey(s, ch), list, ids).mapIndexed { i, src -> if (i > 0) src else src.copy(quality = listOfNotNull(src.quality, "★ best").joinToString("  ·  ")) }
             }.onFailure {
                 _sourceNote.value = "Couldn't load the sources."
                 _sources.value = emptyList()
@@ -371,6 +376,8 @@ class PlaybackViewModel @Inject constructor(
         failoverTried += src.streamId
         forgetRememberedSource(ch, src.streamId)
         val busy = !free || p.playerError?.errorCode == PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS
+        // (A provider with no line free isn't the stream's fault: not held against it in the best order.)
+        if (!busy && !houseSync.quiet(ch.id)) Log.i("Playback", "source ${src.streamId} failed (didn't start): ${sourceRank.recordFail(sourceKey(s, ch), src.streamId)} fails in 7 days")
         Log.i("Playback", "source ${src.streamId}: didn't start (${p.playerError?.errorCodeName ?: "no picture in 10 s"}): back to the channel")
         _sourceNote.value = if (busy) "${src.name} is busy: ${src.provider.ifEmpty { "its provider" }} has no connection free right now. Back to the channel."
             else "${src.name} didn't start. Back to the channel."
@@ -402,7 +409,7 @@ class PlaybackViewModel @Inject constructor(
 
     // ------------------------------------------------------------------ Failover and remembered sources
     /** Sources tried on this channel since it was picked (a failover never goes round in circles). */
-    private val failoverTried = HashSet<Int>()
+    private val failoverTried = LinkedHashSet<Int>()
     private val sourcePrefs by lazy { context.getSharedPreferences("channel_sources", Context.MODE_PRIVATE) }
     private fun sourceKey(s: Session, ch: ChannelListItem) = s.serverUrl.trimEnd('/') + "|" + ch.uuid
 
@@ -438,23 +445,56 @@ class PlaybackViewModel @Inject constructor(
      * This source won't start (nothing in 10 s, or the built-in player can't read it): the channel's next source, as
      * the Sources menu switches (gap-free when its provider has a line free). None left untried: mpv.
      */
-    private fun autoFailover(why: String) {
+    private fun autoFailover(why: String, orElse: (() -> Unit)? = null) {
         val s = session ?: return
         val ch = _channel.value ?: return
         if (switching) return
         viewModelScope.launch {
-            val list = runCatching { fetchSources(s, ch) }.getOrNull().orEmpty()
+            val key = sourceKey(s, ch)
+            sourcesCache.remove(key) // (a fail: the list and who's playing are asked for afresh)
+            val list = runCatching { cachedSources(s, ch) }.getOrNull().orEmpty()
             if (_channel.value?.id != ch.id || switching) return@launch
             val current = direct?.takeIf { it.first == ch.id }?.third ?: list.firstOrNull { it.current }?.streamId
-            current?.let { failoverTried += it; forgetRememberedSource(ch, it); failedSources[it] = System.currentTimeMillis() }
-            val next = list.firstOrNull { it.hash != null && it.streamId != current && it.streamId !in failoverTried }
-            if (next == null) { useMpv("$why; no other source left"); return@launch }
+            // (A quiet channel, club TV or an event channel, is off air by nature: tried in turn, never held against.)
+            val quiet = houseSync.quiet(ch.id)
+            current?.let {
+                failoverTried += it; forgetRememberedSource(ch, it); failedSources[it] = System.currentTimeMillis()
+                if (!quiet) {
+                    Log.i("Playback", "source $it failed ($why): ${sourceRank.recordFail(key, it)} fails in 7 days")
+                    healthSync.changed(soon = true)
+                }
+            }
+            // The next by rank (Start with the best source), else Dispatcharr's next.
+            val left = list.filter { it.hash != null && it.streamId != current && it.streamId !in failoverTried }
+            val next = (if (bestSourceOn) sourceRank.order(key, left, list.map { it.streamId }) else left).firstOrNull()
+            if (next == null) {
+                // Every source tried and none played: reported to the plugin by itself (Settings → Live TV → Reports
+                // lists it), so a dead channel is known in the house without anyone pressing anything.
+                if (!quiet) autoReport(ch, current ?: failoverTried.lastOrNull() ?: list.singleOrNull()?.streamId, why)
+                if (orElse != null) orElse() else useMpv("$why; no other source left"); return@launch
+            }
             val from = list.firstOrNull { it.streamId == current }?.name ?: "This source"
             Log.i("Playback", "channel ${ch.id}: source $current $why: failing over to ${next.streamId} (${next.provider})")
             _sources.value = list
             switchSource(next)
             _sourceNote.value = "$from didn't start: trying ${next.name}"
         }
+    }
+
+    /** A channel none of whose sources would play: a "dead" report filed by Viewarr itself (once an hour per channel). */
+    private val autoReported = HashMap<Int, Long>()
+    private fun autoReport(ch: ChannelListItem, streamId: Int?, why: String) {
+        val now = System.currentTimeMillis()
+        if (now - (autoReported[ch.id] ?: 0L) < 3_600_000L) return
+        autoReported[ch.id] = now
+        runCatching {
+            channelReports.add(io.github.petebutty.viewarr.data.report.ChannelReport(
+                id = java.util.UUID.randomUUID().toString(), at = now / 1000, channelId = ch.id,
+                kind = io.github.petebutty.viewarr.data.report.ChannelReport.DEAD, streamId = streamId,
+                note = "Automatic: $why on every source", channelName = ch.name,
+            ))
+        }
+        Log.i("Playback", "channel ${ch.id}: no source played ($why): reported")
     }
 
     /** The channel's sources in Dispatcharr's order, with the one playing marked. */
@@ -468,7 +508,117 @@ class PlaybackViewModel @Inject constructor(
         val playing = direct?.takeIf { it.first == ch.id }?.third ?: status.body.int("stream_id").takeIf { status.code in 200..299 }
         return ids.map { id ->
             val st = http.get(api(s, "api/channels/streams/$id/"), h).body
-            LiveSource(id, st.str("name") ?: "Stream $id", st.int("m3u_account")?.let { names[it] } ?: "", id == playing, st.str("stream_hash"))
+            LiveSource(id, st.str("name") ?: "Stream $id", st.int("m3u_account")?.let { names[it] } ?: "", id == playing, st.str("stream_hash"), qualityOf(st.child("stream_stats")))
+        }
+    }
+
+    // ------------------------------------------------------------------ Best source first (Peter, 2026-11-19)
+    /** Each source's record on this box (fails, last good play) and the best order: see SourceRank. */
+    // (A fail reaches the plugin within 30 s; a good play waits for the 10-minute push.)
+    private val sourceRank by lazy { val sync = healthSync; SourceRank(context).also { it.onChange = { fail -> sync.changed(soon = fail) } } }
+    /**
+     * The stream [ch] is playing from, when known: the one played directly (best source / a switch), else the one
+     * Dispatcharr's status named in the sources list (admin users). For a "dead stream" report (Report a problem).
+     */
+    fun currentStreamId(ch: ChannelListItem): Int? {
+        if (_channel.value?.id != ch.id) return null
+        // (A channel that never started has no current stream in Dispatcharr's status: the one tried last, then.)
+        return direct?.takeIf { it.first == ch.id }?.third ?: _sources.value?.firstOrNull { it.current }?.streamId ?: failoverTried.lastOrNull()
+    }
+    /** Someone reported [streamId] dead (Report a problem): noted as a fail, so this box's order learns at once. */
+    fun noteSourceFailed(ch: ChannelListItem, streamId: Int) {
+        val s = session ?: return
+        if (s.isDirect) return
+        Log.i("Playback", "source $streamId reported dead: ${sourceRank.recordFail(sourceKey(s, ch), streamId)} fails in 7 days")
+    }
+    /** Settings → Live TV → Start with the best source. */
+    private val bestSourceOn get() = AppColors.palette.bestSource
+    /** A channel's sources as last fetched (server|channel → when, the list): a start within 30 minutes doesn't ask again. */
+    private val sourcesCache = HashMap<String, Pair<Long, List<LiveSource>>>()
+    private suspend fun cachedSources(s: Session, ch: ChannelListItem): List<LiveSource> {
+        val k = sourceKey(s, ch)
+        sourcesCache[k]?.takeIf { System.currentTimeMillis() - it.first < 30 * 60_000L }?.let { return it.second }
+        return fetchSources(s, ch).also { if (it.isNotEmpty()) sourcesCache[k] = System.currentTimeMillis() to it }
+    }
+
+    /**
+     * A fresh channel start with Start with the best source on: the channel is shown loading while its sources are
+     * looked up (kept 30 minutes, so zapping doesn't ask again; 3 s at most), the best is chosen (chooseBest), then
+     * the stream is asked for as usual, with the start's own stall watch.
+     */
+    private var bestJob: Job? = null
+    private fun startOnBest(channel: ChannelListItem, s: Session, leaving: Triple<Int, String, Int>?) {
+        // The source this TV played directly on the last channel is let go in Dispatcharr now (when nobody else has
+        // it), so its provider's line is free for this channel rather than held for a grace period.
+        leaving?.let { d -> viewModelScope.launch {
+            val hash = d.second.substringAfterLast('/')
+            val viewers = runCatching { http.get(api(s, "proxy/ts/status/$hash"), apiHeaders(s)) }.getOrNull()?.takeIf { it.code in 200..299 }?.body?.str("client_count")?.toIntOrNull() ?: 1
+            if (viewers <= 1) stopInDispatcharr(s, hash)
+        } }
+        showLoading(channel)
+        bestJob?.cancel()
+        bestJob = viewModelScope.launch {
+            val list = withTimeoutOrNull(3_000) { runCatching { cachedSources(s, channel) }.getOrNull() }.orEmpty()
+            if (!isActive || _channel.value?.id != channel.id || _catchup.value != null) return@launch
+            runCatching { chooseBest(s, channel, list) }
+            startLive(channel, s)
+        }
+    }
+
+    /** The channel shown as loading before its stream is asked for, with the last channel's counts cleared (as start does). */
+    private fun showLoading(channel: ChannelListItem) {
+        if (_channel.value?.id != channel.id) { failoverTried.clear(); retried = false; audioRetries = 0; reconnects = 0; playedAt = 0L; _streamSource.value = null; okJob?.cancel() }
+        retryJob?.cancel(); stallJob?.cancel(); rebufferJob?.cancel()
+        _channel.value = channel
+        _catchup.value = null
+        _state.value = PlaybackState.Buffering
+        player?.stop()
+    }
+
+    /**
+     * The best source for the channel (SourceRank: quality, then health, then Dispatcharr's order), set as [direct]:
+     * - the remembered source stays when it's healthy and as good as the best;
+     * - Dispatcharr's own first stream best: the channel plays as normal, so Dispatcharr's failover still watches it;
+     * - the best's provider with no line free (asked once per provider): the next best with one; none: as normal.
+     */
+    private suspend fun chooseBest(s: Session, ch: ChannelListItem, list: List<LiveSource>) {
+        val key = sourceKey(s, ch)
+        val ids = list.map { it.streamId }
+        val ranked = sourceRank.order(key, list.filter { it.hash != null && it.streamId !in failoverTried }, ids)
+        val best = ranked.firstOrNull() ?: return
+        val remembered = direct?.takeIf { it.first == ch.id }?.third?.let { id -> ranked.firstOrNull { it.streamId == id } }
+        if (remembered != null && !sourceRank.health(key, remembered.streamId).failedRecently() && SourceRank.tier(remembered) >= SourceRank.tier(best)) {
+            Log.i("Playback", "channel ${ch.id}: remembered source ${remembered.streamId} is as good as the best (${best.streamId}): keeping it")
+            return
+        }
+        val first = ids.firstOrNull()
+        val freeBy = HashMap<String, Boolean>()
+        val pick = if (best.streamId == first) best
+            else ranked.firstOrNull { src -> src.provider.isEmpty() || freeBy.getOrPut(src.provider) { (linesFree(s, src.provider) ?: 1) >= 1 } }
+        Log.i("Playback", "channel ${ch.id}: best source ${best.streamId} (${best.provider}, ${SourceRank.label(best)})" +
+            (if (pick == null) "; every provider busy" else if (pick.streamId != best.streamId) "; busy, so ${pick.streamId} (${pick.provider})" else "") +
+            "; dispatcharr first is $first")
+        remembered?.let { forgetRememberedSource(ch, it.streamId) }
+        if (pick == null || pick.streamId == first) { direct = null; directProvider = null; return }
+        direct = Triple(ch.id, "${s.serverUrl.trimEnd('/')}/proxy/ts/stream/${pick.hash}", pick.streamId)
+        directProvider = pick.provider.ifEmpty { null }
+    }
+
+    /** Playing for a minute without a break: the source noted as good (SourceRank), for the best order next time. */
+    private var okJob: Job? = null
+    private fun watchOk() {
+        okJob?.cancel()
+        val s = session ?: return
+        val ch = _channel.value ?: return
+        if (s.isDirect || _catchup.value != null) return
+        okJob = viewModelScope.launch {
+            delay(60_000)
+            if (_channel.value?.id != ch.id || _catchup.value != null || _state.value != PlaybackState.Playing) return@launch
+            // The source played directly, else the stream Dispatcharr is feeding the channel from (admin users see it).
+            val id = direct?.takeIf { it.first == ch.id }?.third
+                ?: runCatching { http.get(api(s, "proxy/ts/status/${ch.uuid}"), apiHeaders(s)) }.getOrNull()
+                    ?.takeIf { it.code in 200..299 }?.body?.int("stream_id") ?: return@launch
+            sourceRank.recordOk(sourceKey(s, ch), id)
         }
     }
 
@@ -1010,7 +1160,7 @@ class PlaybackViewModel @Inject constructor(
                         if (readySince == 0L) readySince = System.currentTimeMillis()
                         watchFrozen()
                         rebufferJob?.cancel()
-                        if (_state.value != PlaybackState.Playing) { playedAt = System.currentTimeMillis(); if (sourceJob?.isActive != true) refreshStreamSource() }
+                        if (_state.value != PlaybackState.Playing) { playedAt = System.currentTimeMillis(); if (sourceJob?.isActive != true) refreshStreamSource(); watchOk() }
                         _state.value = PlaybackState.Playing
                     }
                     Player.STATE_ENDED -> {
@@ -1111,7 +1261,12 @@ class PlaybackViewModel @Inject constructor(
             // At most 4 a minute, however they go (a stream that never answers isn't asked for every 8 s for ever).
             val t = System.currentTimeMillis()
             if (t - reconnectWindow > 60_000) { reconnectWindow = t; reconnects = 0 }
-            if (reconnects >= 4) { _state.value = PlaybackState.Error("The stream keeps stopping. Try another channel or source."); return@launch }
+            if (reconnects >= 4) {
+                val keepsStopping = { _state.value = PlaybackState.Error("The stream keeps stopping. Try another channel or source.") }
+                // Through Dispatcharr: the channel's next source instead (Peter, 2026-11-19); the error only with none left.
+                if (dispatcharrLive) autoFailover("kept stopping", orElse = keepsStopping) else keepsStopping()
+                return@launch
+            }
             reconnects++
             Log.i("Playback", "stuck loading ${REBUFFER_MS / 1000} s after playing: reconnecting ($reconnects)")
             restart()
@@ -1146,8 +1301,11 @@ class PlaybackViewModel @Inject constructor(
         // Settings → Remote buttons → Live TV → Channel change delay (0: straight away, as before).
         val wait = AppColors.palette.zapDelayMs
         val zapping = wait > 0 && now - lastPlayAt < wait + 700 && _channel.value?.id != channel.id
+        // A fresh channel (not a reconnect or retry of the one playing): the best source is chosen for it.
+        val fresh = _channel.value?.id != channel.id || zapFresh
+        zapFresh = false
         lastPlayAt = now
-        zapJob?.cancel()
+        zapJob?.cancel(); bestJob?.cancel()
         if (zapping) {
             // Show it now, start it when the presses stop.
             retryJob?.cancel(); stallJob?.cancel()
@@ -1155,10 +1313,22 @@ class PlaybackViewModel @Inject constructor(
             _catchup.value = null
             _state.value = PlaybackState.Buffering
             player?.stop()
-            zapJob = viewModelScope.launch { delay(wait); lastPlayAt = 0L; play(channel, s) }
+            zapJob = viewModelScope.launch { delay(wait); lastPlayAt = 0L; zapFresh = true; play(channel, s) }
             return
         }
+        val leaving = direct?.takeIf { it.first != channel.id }
         useRememberedSource(channel, s)
+        if (fresh && !s.isDirect && bestSourceOn) startOnBest(channel, s, leaving) else startLive(channel, s)
+        viewModelScope.launch { runCatching { remoteStore.setLastChannel(channel.id) } }
+        // Also per source, so switching back to a saved source carries on with its channel.
+        runCatching { guide.rememberChannel(channel.id) }
+        if (!s.isDirect) checkConnections(channel, s)
+    }
+    /** The zap wait over: the channel it settled on is still a fresh one. */
+    private var zapFresh = false
+
+    /** The stream asked for, with the start's own watch (nothing at all in 10 s: the next source, or mpv). */
+    private fun startLive(channel: ChannelListItem, s: Session) {
         start(channel, null, s, liveUrl(s, channel))
         stallJob?.cancel()
         stallJob = viewModelScope.launch {
@@ -1180,10 +1350,6 @@ class PlaybackViewModel @Inject constructor(
                 start(channel, null, s, liveUrl(s, channel))
             }
         }
-        viewModelScope.launch { runCatching { remoteStore.setLastChannel(channel.id) } }
-        // Also per source, so switching back to a saved source carries on with its channel.
-        runCatching { guide.rememberChannel(channel.id) }
-        if (!s.isDirect) checkConnections(channel, s)
     }
 
     // ---------------------------------------------------------------- Dispatcharr: provider connections in use
@@ -1254,7 +1420,7 @@ class PlaybackViewModel @Inject constructor(
         retryJob?.cancel(); rebufferJob?.cancel()
         if (_channel.value?.id != channel.id || program != null) switchJob?.cancel()
         if (direct?.first != channel.id) { direct = null; directProvider = null }
-        if (_channel.value?.id != channel.id || _catchup.value != program) { retried = false; audioRetries = 0; reconnects = 0; playedAt = 0L; _streamSource.value = null }
+        if (_channel.value?.id != channel.id || _catchup.value != program) { retried = false; audioRetries = 0; reconnects = 0; playedAt = 0L; _streamSource.value = null; okJob?.cancel() }
         _channel.value = channel
         _catchup.value = program
         if (program == null) catchupOffset = 0
@@ -1385,7 +1551,7 @@ class PlaybackViewModel @Inject constructor(
     /** Every waiting job and check stopped, mpv and a half-made switch let go (pause, stop). */
     private fun cancelAll() {
         retryJob?.cancel(); zapJob?.cancel(); seekJob?.cancel(); stallJob?.cancel(); rebufferJob?.cancel(); switchJob?.cancel(); sourceJob?.cancel()
-        healthJob?.cancel(); sourcesJob?.cancel(); frozenJob?.cancel(); readySince = 0; _mpvLive.value = null
+        healthJob?.cancel(); sourcesJob?.cancel(); frozenJob?.cancel(); bestJob?.cancel(); okJob?.cancel(); readySince = 0; _mpvLive.value = null
         pendingPlayer?.let { runCatching { it.release() } }; pendingPlayer = null
     }
 

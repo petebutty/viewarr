@@ -3,6 +3,7 @@ package io.github.petebutty.viewarr.ui.theme
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.ClickableSurfaceDefaults
 
@@ -35,9 +36,11 @@ object Tokens {
     val FocusBorder = 3.dp
 
     /** A selected (chosen, not highlighted) pill or tab: one tint everywhere. Highlighted is always the accent fill. */
-    val SelectedTint: Color get() = AppColors.Accent.copy(alpha = 0.35f)
+    // (On a dark backing of the theme colour, so the text reads over any wallpaper or artwork. Peter, 2026-11-18:
+    // the Sports pills were hard to read over the new background.)
+    val SelectedTint: Color get() = AppColors.Accent.copy(alpha = 0.45f).compositeOver(AppColors.palette.shade.copy(alpha = 0.7f))
     /** A pill that's neither selected nor highlighted. */
-    val PillIdle: Color get() = Color.White.copy(alpha = 0.10f)
+    val PillIdle: Color get() = Color.White.copy(alpha = 0.12f).compositeOver(AppColors.palette.shade.copy(alpha = 0.7f))
 
     /** Pop-ups ([io.github.petebutty.viewarr.ui.common.PopupPanel]): one glass radius and three widths. */
     val PopupRadius = 18.dp

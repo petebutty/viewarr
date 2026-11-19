@@ -45,14 +45,19 @@ fun FocusCard(
     ring: Boolean = true,
     /** How much it grows when highlighted (1 = not at all; the row posters: Settings → Appearance → Highlight zoom). */
     focusedScale: Float = 1f,
+    /** Grows and shrinks smoothly whatever List scrolling says (the poster rows: as the Android TV home screen does). */
+    smoothScale: Boolean = false,
     content: @Composable BoxScope.() -> Unit,
 ) {
     Surface(
-        onClick = onClick,
+        // (With a hold-OK menu: the hold's release isn't a click too.)
+        onClick = if (onLongClick != null) HeldOk.guard(onClick) else onClick,
         onLongClick = onLongClick,
         enabled = enabled,
-        modifier = (if (aspect != null) modifier.aspectRatio(aspect) else modifier).then(if (focusedScale != 1f) Modifier.instantFocusScale(focusedScale) else Modifier),
-        scale = if (focusedScale == 1f) NoScale else focusScale(focusedScale),
+        modifier = (if (aspect != null) modifier.aspectRatio(aspect) else modifier).then(if (focusedScale != 1f && !smoothScale) Modifier.instantFocusScale(focusedScale) else Modifier),
+        scale = if (focusedScale == 1f) NoScale
+            else if (smoothScale) androidx.tv.material3.ClickableSurfaceDefaults.scale(scale = 1f, focusedScale = focusedScale, pressedScale = focusedScale)
+            else focusScale(focusedScale),
         shape = ClickableSurfaceDefaults.shape(shape),
         border = if (ring) ClickableSurfaceDefaults.border(focusedBorder = focusRing(shape)) else ClickableSurfaceDefaults.border(),
         colors = ClickableSurfaceDefaults.colors(

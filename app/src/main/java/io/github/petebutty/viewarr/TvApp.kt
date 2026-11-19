@@ -8,10 +8,23 @@ import dagger.hilt.android.HiltAndroidApp
 
 @HiltAndroidApp
 class TvApp : Application(), ImageLoaderFactory {
+    override fun onCreate() {
+        super.onCreate()
+        // Shared Compose state that background work writes (the accounts' flow tells WatchSource what's signed in)
+        // is created here, before any screen: created during a composition and written from a sync that started at
+        // the same moment, Compose threw "reading a state that was created after the snapshot was taken" at start
+        // (2026-11-19, the first build with the house sync).
+        io.github.petebutty.viewarr.data.sync.WatchSource.known
+    }
+
     /** Posters and backdrops on a 2 GB box: 16-bit bitmaps where possible, a capped memory cache, no crossfade. */
     override fun newImageLoader(): ImageLoader {
         val am = getSystemService(ACTIVITY_SERVICE) as? android.app.ActivityManager
         io.github.petebutty.viewarr.data.net.SmallerImages.weak = am?.isLowRamDevice == true
+        am?.memoryClass?.let { MemoryBudget.normalBytes = it.toLong() shl 20 }
+        // A 4K screen: pictures decoded smaller (see SmallerImages.screenScale).
+        val dm = resources.displayMetrics
+        if (maxOf(dm.widthPixels, dm.heightPixels) >= 3000) io.github.petebutty.viewarr.data.net.SmallerImages.screenScale = 0.67f
         return buildLoader()
     }
 
@@ -32,11 +45,21 @@ class TvApp : Application(), ImageLoaderFactory {
     private fun buildLoader(): ImageLoader = ImageLoader.Builder(this)
         .allowRgb565(true)
         .crossfade(false)
-        .memoryCache { MemoryCache.Builder(this).maxSizePercent(0.18).build() }
+        // 18% of the box's normal allowance, not of the large one the app asks for (that's a safety margin only).
+        .memoryCache { MemoryCache.Builder(this).maxSizeBytes((MemoryBudget.normalBytes * 0.18).toInt()).build() }
         .respectCacheHeaders(false)
         // Pictures at the size they're shown (smaller still on weak boxes): smaller downloads and less memory.
         .components { add(io.github.petebutty.viewarr.data.net.SmallerImages) }
         // Posters and logos from a home server: its away address when away.
         .okHttpClient { okhttp3.OkHttpClient.Builder().addInterceptor(io.github.petebutty.viewarr.data.net.Reach.Interceptor).build() }
         .build()
+}
+
+/**
+ * The memory caches are sized from (Peter, 2026-11-18): Android's NORMAL allowance for an app on this box. Viewarr
+ * asks for the large one (largeHeap), but only as a margin against running out: the picture cache and the film buffer
+ * stay as big as they were, so a box uses no more memory day to day; the extra is only there before a crash would be.
+ */
+object MemoryBudget {
+    @Volatile var normalBytes: Long = Runtime.getRuntime().maxMemory().coerceAtMost(256L shl 20)
 }

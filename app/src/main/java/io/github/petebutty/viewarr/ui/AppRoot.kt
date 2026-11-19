@@ -2,6 +2,8 @@
 
 package io.github.petebutty.viewarr.ui
 
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import io.github.petebutty.viewarr.ui.common.followingSetting
 import kotlinx.coroutines.flow.first
 import io.github.petebutty.viewarr.ui.theme.appBackground
@@ -101,6 +103,7 @@ class AppViewModel @Inject constructor(
     private val sportsRepo: io.github.petebutty.viewarr.data.sports.SportsRepository,
     accessLoader: AccessLoader,
     house: House,
+    houseSync: io.github.petebutty.viewarr.data.report.HouseSync,
 ) : ViewModel() {
     /** Setup was shown in this run of the app (so the tour follows it). */
     var sawSetup by androidx.compose.runtime.mutableStateOf(false)
@@ -126,6 +129,9 @@ class AppViewModel @Inject constructor(
         accessLoader.start(viewModelScope)
         // The house's outside addresses from the Viewarr plugin on Dispatcharr (when it's installed).
         if (ProfileUi.ENABLED) house.start(viewModelScope)
+        // The plugin's house data from everyone's reports (guide offsets, changes with Undo, guides to pick), and this
+        // TV's own reports sent again if a push failed (data/report).
+        houseSync.start(viewModelScope)
         // Away addresses from the setup (empty: everything stays on its home address).
         viewModelScope.launch { accounts.accounts.collect { Reach.setPairs(it.away) } }
     }
@@ -211,9 +217,15 @@ fun AppRoot(vm: AppViewModel = hiltViewModel()) {
         androidx.tv.material3.LocalTextStyle provides androidx.tv.material3.LocalTextStyle.current.copy(fontFamily = appFont()),
         androidx.compose.material3.LocalTextStyle provides androidx.compose.material3.LocalTextStyle.current.copy(fontFamily = appFont()),
     ) {
+    // No screen reader running (the usual case): the whole app is one plain accessibility element. An accessibility
+    // service of another kind (Projectivy's, for its remote buttons and Home) makes Android re-describe every element
+    // on screen after each change, and that was the biggest single cost on the main thread while browsing (~1.3 s of
+    // 15 s; Peter, 2026-11-19). With TalkBack (touch exploration) on, everything is described as normal.
+    val screenReader = rememberScreenReader()
     Box(
         Modifier
             .fillMaxSize()
+            .then(if (screenReader) Modifier else Modifier.clearAndSetSemantics { contentDescription = "Viewarr" })
             .appBackground(titleArt = io.github.petebutty.viewarr.ui.theme.Wallpaper.titleBehind)
             // Presses during the splash are swallowed rather than lost on a half-loaded page.
             // (Every press also counts as being there: the music screensaver waits for a quiet spell.)
@@ -299,6 +311,10 @@ fun AppRoot(vm: AppViewModel = hiltViewModel()) {
         if (ReportUi.open) ReportScreen(onClose = { ReportUi.open = false })
         // Live score alerts (the plugin), over everything but the splash.
         io.github.petebutty.viewarr.ui.common.AlertBanner.Host()
+        // Report a problem (hold OK on a channel), the guide picker, Settings → Live TV → Reports and the house card.
+        io.github.petebutty.viewarr.ui.report.ReportHost()
+        // Settings → Live TV → Live now: its search screen and a pick's Remove pop-up.
+        io.github.petebutty.viewarr.ui.settings.LiveNowHost()
         if (splashAlpha > 0f) Box(Modifier.fillMaxSize().graphicsLayer { alpha = splashAlpha }) {
             ViewarrSplash()
         }
@@ -341,4 +357,19 @@ private fun appFont(): androidx.compose.ui.text.font.FontFamily? {
             else -> null
         }
     }
+}
+
+
+/** Whether a screen reader (touch exploration, e.g. TalkBack) is on now; follows it being switched on or off. */
+@androidx.compose.runtime.Composable
+private fun rememberScreenReader(): Boolean {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val am = androidx.compose.runtime.remember { context.getSystemService(android.content.Context.ACCESSIBILITY_SERVICE) as? android.view.accessibility.AccessibilityManager }
+    var on by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(am?.isTouchExplorationEnabled == true) }
+    androidx.compose.runtime.DisposableEffect(am) {
+        val l = android.view.accessibility.AccessibilityManager.TouchExplorationStateChangeListener { on = it }
+        am?.addTouchExplorationStateChangeListener(l)
+        onDispose { am?.removeTouchExplorationStateChangeListener(l) }
+    }
+    return on
 }

@@ -534,7 +534,8 @@ private fun NextUpColumn(channel: ChannelListItem, program: GuideProgram?, now: 
     val coming = remember(channelPrograms, from) { channelPrograms.filter { it.startTime >= from }.sortedBy { it.startTime }.take(2) }
     // (260 wide: the screen is laid out at 960 units, and the title column needs its share.)
     Column(Modifier.width(260.dp).padding(start = 24.dp, top = 4.dp).fillMaxHeight().clipToBounds()) {
-        listOf("Next", "Then").forEachIndexed { i, label ->
+        // Settings → Appearance → TV guide → Next and Then: off hides the two lines (the badges stay).
+        if (AppColors.palette.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.GUIDE_NEXT) == 0) listOf("Next", "Then").forEachIndexed { i, label ->
             val p = coming.getOrNull(i) ?: return@forEachIndexed
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(label, fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.width(40.dp))
@@ -545,7 +546,8 @@ private fun NextUpColumn(channel: ChannelListItem, program: GuideProgram?, now: 
         }
         if (program != null) {
             Spacer(Modifier.height(6.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) { InfoBadges(channel, program, now, recorded) }
+            // (At the column's right edge, under the programme times: Peter, 2026-11-19.)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) { InfoBadges(channel, program, now, recorded) }
         }
     }
 }
@@ -560,8 +562,10 @@ private fun InfoBadges(channel: ChannelListItem?, program: GuideProgram, now: Lo
         else -> null
     }
     val isRecorded = recorded.any { r -> minOf(r.last, program.endTime) - maxOf(r.first, program.startTime) > (program.endTime - program.startTime) / 2 }
-    if (replayable) Badge("↺ Catch-up", filled = false, modifier = Modifier.padding(end = 8.dp))
-    if (episode != null) Badge(episode, filled = false, modifier = Modifier.padding(end = 8.dp))
+    // Settings → Appearance → TV guide → Catch-up badge at the top.
+    if (replayable && AppColors.palette.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.GUIDE_CATCHUP_BADGE) == 0) Badge("↺ Catch-up", filled = false, modifier = Modifier.padding(end = 8.dp))
+    // Settings → Appearance → TV guide → Episode badge at the top.
+    if (episode != null && AppColors.palette.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.GUIDE_EPISODE_BADGE) == 0) Badge(episode, filled = false, modifier = Modifier.padding(end = 8.dp))
     if (isRecorded) Badge("● Recording", modifier = Modifier.padding(end = 8.dp))
 }
 

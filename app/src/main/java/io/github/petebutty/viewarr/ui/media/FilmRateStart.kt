@@ -47,6 +47,20 @@ class FilmRateStart(private val activity: Activity?, on: Boolean, stream: VodStr
                 while (!guard.backSince(since) && (System.currentTimeMillis() - since < 2_000 || guard.goneSince(since))) delay(100)
             }
             if (guard.backSince(since)) delay(800)
+            else {
+                // No HDMI drop seen (the AM9 over ARC, Peter 2026-11-18): the box gives no sign when the TV and sound
+                // system have re-locked, and Dolby started 2 s in came out silent. Wait until the screen really is at
+                // the new rate (at most 4 s more), then give the sound system 3 s before the sound starts.
+                @Suppress("DEPRECATION")
+                val display = if (android.os.Build.VERSION.SDK_INT >= 30) activity?.display else activity?.windowManager?.defaultDisplay
+                val want = fps ?: 0f
+                fun at() = display?.refreshRate?.let { hz -> want > 0f && kotlin.math.abs(hz / want - kotlin.math.round(hz / want)) < 0.01f } ?: true
+                kotlinx.coroutines.withTimeoutOrNull(4_000) { while (!at()) delay(100) }
+                // (Settings → Playback → Sound after a frame-rate switch, 1–5 s; 3 to start.)
+                val wait = (io.github.petebutty.viewarr.ui.theme.AppColors.palette.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.AFR_SOUND_DELAY).coerceIn(0, 4) + 1) * 1_000L
+                android.util.Log.i("FilmRate", "no HDMI drop: screen at ${display?.refreshRate} Hz, sound in ${wait / 1000} s")
+                delay(wait)
+            }
         } finally {
             holding = false
             runCatching {
@@ -54,5 +68,7 @@ class FilmRateStart(private val activity: Activity?, on: Boolean, stream: VodStr
                 player.playWhenReady = true
             }
         }
+        // (The automatic pause and play after a switch, to wake a silent Dolby track, was taken out again: Peter,
+        // 2026-11-19.)
     }
 }

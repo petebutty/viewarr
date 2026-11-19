@@ -5,6 +5,7 @@ import android.content.Context
 import android.util.JsonReader
 import android.util.JsonToken
 import android.util.Log
+import androidx.compose.runtime.snapshotFlow
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.room.withTransaction
 import io.github.petebutty.viewarr.data.local.ChannelEntity
@@ -20,18 +21,28 @@ import io.github.petebutty.viewarr.data.remote.DispatcharrApi
 import io.github.petebutty.viewarr.data.session.Session
 import io.github.petebutty.viewarr.data.settings.appearanceStore
 import io.github.petebutty.viewarr.data.xtream.XtreamClient
+import io.github.petebutty.viewarr.ui.theme.AppColors
 import io.github.petebutty.viewarr.ui.theme.UiOpts
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
@@ -107,16 +118,38 @@ class GuideRepository @Inject constructor(
         prefs.edit().putInt(k(KEY_SHIFT), now).apply(); shiftCache = null; shiftVersion.value++
         withContext(Dispatchers.IO) { runCatching { dao.shiftAllPrograms(by * 60_000L) } }
     }
-    /** A channel's own offset (its guide key: channels sharing a guide move together), set by hand. */
-    fun channelShiftMin(guideKey: String): Int = shiftMap(k(KEY_TVG_SHIFT))[guideKey] ?: 0
+    /**
+     * A channel's offset (its guide key: channels sharing a guide move together): the one set by hand on this box,
+     * else the house's from the Viewarr plugin ([setHouseShifts]; a "Guide times are out" report from any TV), else none.
+     */
+    fun channelShiftMin(guideKey: String): Int = shiftMap(k(KEY_TVG_SHIFT))[guideKey] ?: shiftMap(k(KEY_HOUSE_SHIFT))[guideKey] ?: 0
     suspend fun setChannelShiftMin(guideKey: String, min: Int) = shiftLock.withLock {
         val now = min.coerceIn(-12 * 60, 12 * 60)
-        val by = now - channelShiftMin(guideKey)
-        if (by == 0) return@withLock
         val m = shiftMap(k(KEY_TVG_SHIFT)).toMutableMap()
+        // Reset ("None") takes this box's own offset away: the house's, if there is one, applies again.
+        val after = if (now == 0) shiftMap(k(KEY_HOUSE_SHIFT))[guideKey] ?: 0 else now
+        val by = after - channelShiftMin(guideKey)
         if (now == 0) m.remove(guideKey) else m[guideKey] = now
         prefs.edit().putString(k(KEY_TVG_SHIFT), encodeShifts(m)).apply(); shiftCache = null; shiftVersion.value++
+        if (by == 0) return@withLock
         withContext(Dispatchers.IO) { runCatching { dao.shiftPrograms(guideKey, by * 60_000L) } }
+    }
+    /**
+     * The house's guide offsets from the Viewarr plugin (viewarr_house.offsets, by guide key, minutes; data/report/
+     * HouseSync): used for a channel with no offset of its own on this box. Kept, so a restart doesn't slide the saved
+     * listings again; a change slides them by the difference, as a hand-set one does. (Peter, 2026-11-19.)
+     */
+    suspend fun setHouseShifts(byKey: Map<String, Int>) = shiftLock.withLock {
+        val old = shiftMap(k(KEY_HOUSE_SHIFT))
+        if (old == byKey) return@withLock
+        val own = shiftMap(k(KEY_TVG_SHIFT))
+        prefs.edit().putString(k(KEY_HOUSE_SHIFT), encodeShifts(byKey)).apply(); shiftCache = null; shiftVersion.value++
+        for (key in old.keys + byKey.keys) {
+            if (own[key] != null) continue
+            val by = (byKey[key] ?: 0) - (old[key] ?: 0)
+            if (by != 0) withContext(Dispatchers.IO) { runCatching { dao.shiftPrograms(key, by * 60_000L) } }
+        }
+        Log.i("Guide", "house guide offsets: ${byKey.size} channel guide(s)")
     }
     private fun shiftMap(key: String): Map<String, Int> = prefs.getString(key, null).orEmpty().split('\u001E').mapNotNull {
         val k = it.substringBefore('\u001F', ""); val v = it.substringAfter('\u001F', "").toIntOrNull()
@@ -132,9 +165,9 @@ class GuideRepository @Inject constructor(
     /** Offset in ms for each guide key, for one source (its own keys, not the active source's). */
     private fun readShifter(sid: String): (String) -> Long {
         val base = prefs.getInt("$KEY_SHIFT|$sid", 0)
-        val own = shiftMap("$KEY_TVG_SHIFT|$sid"); val m3u = shiftMap("$KEY_M3U_SHIFT|$sid")
-        if (base == 0 && own.isEmpty() && m3u.isEmpty()) return { 0L }
-        return { key -> (base + (own[key] ?: 0) + (m3u[key] ?: 0)) * 60_000L }
+        val own = shiftMap("$KEY_TVG_SHIFT|$sid"); val m3u = shiftMap("$KEY_M3U_SHIFT|$sid"); val house = shiftMap("$KEY_HOUSE_SHIFT|$sid")
+        if (base == 0 && own.isEmpty() && m3u.isEmpty() && house.isEmpty()) return { 0L }
+        return { key -> (base + (own[key] ?: house[key] ?: 0) + (m3u[key] ?: 0)) * 60_000L }
     }
     private fun List<ProgramEntity>.shifted(sh: (String) -> Long): List<ProgramEntity> = map { p ->
         val o = sh(p.tvgId); if (o == 0L) p else p.copy(startTime = p.startTime + o, endTime = p.endTime + o)
@@ -207,13 +240,65 @@ class GuideRepository @Inject constructor(
     fun observeGroups() = _db.flatMapLatest { it.guideDao().observeGroups() }
     @OptIn(ExperimentalCoroutinesApi::class)
     fun observeChannels(groupId: Int?) = _db.flatMapLatest { it.guideDao().observeChannels(groupId) }
+    /** [everyChannel]: hidden event channels too (Live now: the plugin or the guide says something's on them). */
     @OptIn(ExperimentalCoroutinesApi::class)
-    fun observeChannelsIn(uuids: List<String>, ordered: Boolean = false) = _db.flatMapLatest { it.guideDao().observeChannelsIn(uuids, orderOf(uuids, ordered)) }
+    fun observeChannelsIn(uuids: List<String>, ordered: Boolean = false, everyChannel: Boolean = false) =
+        _db.flatMapLatest { it.guideDao().observeChannelsIn(uuids, orderOf(uuids, ordered), everyChannel) }
     /** [uuids] as an order for the list queries ("|a|b|…|"); empty: channel order. */
     private fun orderOf(uuids: List<String>, ordered: Boolean) = if (ordered) uuids.joinToString("|", "|", "|") else ""
     @OptIn(ExperimentalCoroutinesApi::class)
-    fun observeProgramBlockIn(uuids: List<String>, offset: Int, count: Int, start: Long, end: Long, ordered: Boolean = false) =
-        _db.flatMapLatest { it.guideDao().observeProgramBlockIn(uuids, orderOf(uuids, ordered), offset, count, start, end) }
+    fun observeProgramBlockIn(uuids: List<String>, offset: Int, count: Int, start: Long, end: Long, ordered: Boolean = false, everyChannel: Boolean = false) =
+        _db.flatMapLatest { it.guideDao().observeProgramBlockIn(uuids, orderOf(uuids, ordered), everyChannel, offset, count, start, end) }
+    /** Every channel, hidden event channels too (see [hiddenEventIds]): for finding one by id, never for a list. */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun observeAllChannels() = _db.flatMapLatest { it.guideDao().observeAllChannels() }
+
+    // ------------------------------------------------------------------ Event channels: only with a listing
+    // Settings → Live TV → Event channels: only with a listing (on out of the box). The Viewarr plugin's quiet channels
+    // (its event groups: TNT events, live football slots, PPV…; HouseSync passes them in) are listed only while the
+    // guide has something for them on now or starting within 24 hours; a "Club TV" group's channels are quiet too but
+    // always stay. The hidden ones go in the guide database's hidden_channels table, which the list, group and
+    // guide-row queries leave out, so the Live TV hub, the guide, the channel list, favourites and channel numbers all
+    // agree, and a group whose event channels are all hidden goes with them. Worked out again as the guide changes
+    // (the DAO flow), when the plugin's data changes, and every five minutes (a programme starting brings a channel in,
+    // one ending takes it out). Looking a channel up by id ([observeAllChannels]: links, reminders, recordings, the
+    // Sports page) still finds it, so a hidden channel still plays. Without the plugin nothing is hidden. (Peter, 2026-11-19.)
+
+    /** The plugin's quiet channel ids (null: not told yet; the last hidden set saved in the database stays till then). */
+    private val _quiet = MutableStateFlow<Set<Int>?>(null)
+    /** The event channels hidden right now (empty with the setting off, or no plugin). */
+    private val _hiddenEvents = MutableStateFlow<Set<Int>>(emptySet())
+    val hiddenEventIds = _hiddenEvents.asStateFlow()
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    /** From HouseSync: the plugin's quiet channels (empty: no plugin, or signed out of Dispatcharr). */
+    fun setQuietChannels(ids: Set<Int>) { _quiet.value = ids }
+
+    init { scope.launch { hideEventChannels() } }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private suspend fun hideEventChannels() {
+        val on = snapshotFlow { AppColors.palette.opt(UiOpts.EVENT_ONLY_LISTED) == 0 }
+        val tick = flow { while (true) { emit(Unit); delay(EVENT_TICK_MS) } }
+        combine(_db, _quiet, on, tick) { db, quiet, isOn, _ -> Triple(db, quiet, isOn) }
+            .flatMapLatest { (db, quiet, isOn) ->
+                when {
+                    quiet == null -> flowOf<Pair<io.github.petebutty.viewarr.data.local.AppDatabase, Set<Int>>?>(null)
+                    !isOn || quiet.isEmpty() -> flowOf(db to emptySet<Int>())
+                    else -> {
+                        val now = System.currentTimeMillis()
+                        db.guideDao().observeListedOrClub(now, now + EVENT_AHEAD_MS).map { keep -> db to (quiet - keep.toSet()) }
+                    }
+                }
+            }
+            .filterNotNull()
+            .distinctUntilChanged()
+            .collect { (db, hidden) ->
+                runCatching { db.guideDao().replaceHidden(hidden) }.onFailure { Log.w("Guide", "hidden event channels: ${it.message}") }
+                _hiddenEvents.value = hidden
+                Log.i("Guide", "event channels without a listing hidden: ${hidden.size}")
+            }
+    }
 
     /** Groups hidden from the channel groups list (hold OK → Hide), by name, per source. Their channels stay (All
      *  channels, numbers, links): only the list entry goes. Unlike "Choose groups", which leaves a group out entirely. */
@@ -476,9 +561,14 @@ class GuideRepository @Inject constructor(
             val g = async { api.groups() }
             c.await() to g.await()
         }
-        val referenced = channels.mapNotNull { it.epgDataId }.toSet()
+        // Dispatcharr's channel list gives an admin every channel, hidden or not: the channel profiles say which are
+        // switched on (Event Channel Managarr hides idle event slots that way). Only those are kept (Peter, 2026-11-19:
+        // the guide was full of blank "TNT EVENTS 01:" slots Dispatcharr itself had hidden).
+        val enabled = profileEnabledIds(api)
+        val shown = if (enabled == null) channels else channels.filter { it.id in enabled }
+        val referenced = shown.mapNotNull { it.epgDataId }.toSet()
         val epgTvgIds = withContext(Dispatchers.IO) { api.epgData().use { parseEpgData(it.byteStream(), referenced) } }
-        val allChannelRows = channels.map {
+        val allChannelRows = shown.map {
             ChannelEntity(
                 id = it.id, uuid = it.uuid, name = it.name, number = it.number, groupId = it.groupId, logoId = it.logoId,
                 guideKey = it.epgDataId?.let(epgTvgIds::get) ?: it.uuid,
@@ -486,6 +576,28 @@ class GuideRepository @Inject constructor(
             )
         }
         return onlyShown(groups.map { GroupEntity(it.id, it.name) }, allChannelRows)
+    }
+
+    /**
+     * The channel ids switched on in this account's channel profiles (the profiles it's limited to; all of them for an
+     * account limited to none, an admin say). Null when it can't be told (an older server, no profiles at all): then
+     * nothing is filtered, as before.
+     */
+    private suspend fun profileEnabledIds(api: DispatcharrApi): Set<Int>? = withContext(Dispatchers.IO) {
+        runCatching<Set<Int>?> {
+            val profiles = JSONArray(api.channelProfiles().use { it.string() })
+            if (profiles.length() == 0) return@runCatching null
+            // (The profiles this account is limited to; none listed, an admin say: every profile counts.)
+            val mine: Set<Int> = runCatching { api.me().channelProfiles.filter { it > 0 }.toSet() }.getOrDefault(emptySet())
+            val ids = HashSet<Int>()
+            for (i in 0 until profiles.length()) {
+                val p = profiles.getJSONObject(i)
+                if (mine.isNotEmpty() && p.optInt("id") !in mine) continue
+                val ch = p.optJSONArray("channels") ?: continue
+                for (j in 0 until ch.length()) ids += ch.optInt(j)
+            }
+            ids
+        }.getOrNull()
     }
 
     /** IPTV provider (Xtream Codes): channels and groups from player_api.php, the guide from xmltv.php. */
@@ -622,6 +734,47 @@ class GuideRepository @Inject constructor(
         dbs.deleteAll()
         _db.value = dbs.get("none")
         prefs.edit().clear().apply()
+    }
+
+    /** One of Dispatcharr's guides (an EPGData row): for the "Choose the right guide" picker. */
+    data class GuideRow(val id: Int, val name: String, val tvgId: String, val sourceId: Int?)
+    private var guideRows: Pair<Long, List<GuideRow>>? = null
+
+    /**
+     * Every guide Dispatcharr knows, streamed (the list endpoint has no search and no paging: ~28,000 rows here), kept
+     * ten minutes so the picker's typing filters on the box. Empty when there's no Dispatcharr session.
+     */
+    suspend fun allGuides(session: io.github.petebutty.viewarr.data.session.Session): List<GuideRow> {
+        guideRows?.takeIf { System.currentTimeMillis() - it.first < 10 * 60_000L }?.let { return it.second }
+        if (session.isDirect) return emptyList()
+        val api = apiFactory.create(session.serverUrl, session.apiKey)
+        val rows = withContext(Dispatchers.IO) {
+            runCatching {
+                api.epgData().use { body ->
+                    val out = ArrayList<GuideRow>(30_000)
+                    JsonReader(InputStreamReader(body.byteStream(), Charsets.UTF_8)).use { r ->
+                        r.beginArray()
+                        while (r.hasNext()) {
+                            var id: Int? = null; var name: String? = null; var tvg: String? = null; var src: Int? = null
+                            r.beginObject()
+                            while (r.hasNext()) when (r.nextName()) {
+                                "id" -> id = r.nextInt()
+                                "name" -> name = r.nullableString()
+                                "tvg_id" -> tvg = r.nullableString()
+                                "epg_source" -> src = r.nullableInt()
+                                else -> r.skipValue()
+                            }
+                            r.endObject()
+                            if (id != null) out += GuideRow(id, name ?: tvg ?: "Guide $id", tvg.orEmpty(), src)
+                        }
+                        r.endArray()
+                    }
+                    out
+                }
+            }.getOrElse { emptyList() }
+        }
+        if (rows.isNotEmpty()) guideRows = System.currentTimeMillis() to rows
+        return rows
     }
 
     private fun parseEpgData(stream: InputStream, wanted: Set<Int>): Map<Int, String> {
@@ -887,10 +1040,14 @@ class GuideRepository @Inject constructor(
         const val KEY_SHIFT = "time_shift"
         const val KEY_TVG_SHIFT = "tvg_shift"
         const val KEY_M3U_SHIFT = "m3u_shift"
+        const val KEY_HOUSE_SHIFT = "house_shift"
         const val KEY_SOURCE = "synced_source"
         const val STALE_MS = 4 * 3_600_000L
         const val LOOKBACK_MS = 3_600_000L
         const val XC_LOOKBACK_MS = 48 * 3_600_000L
         const val BATCH = 1000
+        /** Event channels: listed with a programme on now or starting within this; looked at again this often. */
+        const val EVENT_AHEAD_MS = 24 * 3_600_000L
+        const val EVENT_TICK_MS = 5 * 60_000L
     }
 }

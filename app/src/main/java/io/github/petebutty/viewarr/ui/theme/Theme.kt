@@ -44,7 +44,8 @@ data class Palette(val main: Color, val highlight: Color, val transparency: Floa
     /** The guide's top: the programme's title logo (TMDB) in place of its name, when it has one. */
     val guideTitleLogos get() = opt(UiOpts.GUIDE_TITLE_LOGO) == 0 && !lowMemory
     /** The wallpaper in use: none in low-memory mode (plain Viewarr colours), whatever's chosen. */
-    val wallpaperMode get() = if (lowMemory) 0 else wallpaper
+    /** (A stored 4, "Your films and shows", was taken out again on 2026-11-19: shown as none.) */
+    val wallpaperMode get() = if (lowMemory || wallpaper == 4) 0 else wallpaper
     /** Trailer previews, multi-view, title-page artwork: not in low-memory mode. */
     val heavyExtras get() = !lowMemory
     val channelLogos get() = opt(UiOpts.CHANNEL_LOGOS) == 0
@@ -58,7 +59,10 @@ data class Palette(val main: Color, val highlight: Color, val transparency: Floa
     val libraryPosterDp get() = floatArrayOf(100f, 116f, 88f, 136f)[opt(UiOpts.LIBRARY_POSTERS).coerceIn(0, 3)]
     val infoBarWidth get() = floatArrayOf(1f, 0.9f, 0.8f, 0.7f, 0.6f)[opt(UiOpts.INFOBAR_WIDTH).coerceIn(0, 4)]
     /** Row posters' width (Settings → Appearance → Browsing style). */
-    val rowPosterWidth get() = floatArrayOf(100f, 130f, 86f)[opt(UiOpts.ROW_POSTERS).coerceIn(0, 2)]
+    // Normal: two whole rows fit under the top panel (Peter, 2026-11-19; 118 left the second row cut off), about 8½ across;
+    // Large and Small in the same proportion as before. Sized from the screen's width (1280 units wide here), so a
+    // box laid out narrower still shows 8.
+    val rowPosterWidth get() = floatArrayOf(108f, 140f, 93f)[opt(UiOpts.ROW_POSTERS).coerceIn(0, 2)] * ScreenWidth.factor
     val heroStyle get() = opt(UiOpts.HERO_STYLE).coerceIn(0, 2)
     /** Rows: the opacity of posters that aren't highlighted (Settings → Appearance → Posters → Other posters faded). */
     val posterDimAlpha get() = 1f - 0.1f * opt(UiOpts.POSTER_DIM).coerceIn(0, 6)
@@ -86,6 +90,10 @@ data class Palette(val main: Color, val highlight: Color, val transparency: Floa
     val glassTint: Color? get() = GlassTints.getOrNull(opt(UiOpts.GLASS_TINT))?.second
     /** Hours of no button presses on Live TV before "Still watching?" (0 = never). */
     val stillWatchingHours get() = intArrayOf(0, 2, 3, 4, 6)[opt(UiOpts.STILL_WATCHING).coerceIn(0, 4)]
+    /** Settings → Live TV → Start with the best source (Dispatcharr channels start on their best-ranked stream). */
+    val bestSource get() = opt(UiOpts.BEST_SOURCE) == 0
+    /** Settings → Live TV → Event channels: only with a listing (the plugin's event channels wait for a programme). */
+    val eventOnlyListed get() = opt(UiOpts.EVENT_ONLY_LISTED) == 0
     // The sliders' percentages as they look over a TV picture: a straight 1 - t left a dark panel looking all but
     // clear from about 50% (and invisible at 100%, the text on the bare picture). A curve keeps the middle of the
     // slider useful and leaves a trace of the panel at 100% so text stays readable.
@@ -260,6 +268,10 @@ object UiOpts {
     const val MENU_HIDDEN = "menu_hidden"
     /** Live TV's channel groups: the "All channels" group shown, or hidden (the guide then opens on the first group). */
     const val GROUP_ALL = "group_all"
+    /** Live TV through Dispatcharr: a channel starts on its best-ranked stream (playback/SourceRank), or Dispatcharr's first. */
+    const val BEST_SOURCE = "best_source"
+    /** The Viewarr plugin's event channels (TNT events, PPV…): listed only with a programme on now or within 24 hours (GuideRepository). */
+    const val EVENT_ONLY_LISTED = "event_only_listed"
     /** Lists following the highlight: instant (no trail when going fast) or a smooth slide. */
     const val LIST_SCROLL = "list_scroll"
     /** Up / Down (and Channel + / −) while watching live TV: change channel, or browse in the info bar (OK changes, or on stopping). */
@@ -307,12 +319,15 @@ object UiOpts {
     const val GUIDE_ART = "guide_art"
     /** Wallpapers darkened with the background colour (0) or black (1): [Palette.shade]. */
     const val WALL_SHADE = "wall_shade"
+    /** Settings → Playback → Sound after a frame-rate switch: 1–5 s (index + 1). */
+    const val AFR_SOUND_DELAY = "afr_sound_delay"
     /** How early a reminder comes up: when it starts, or 2 / 5 / 10 / 15 minutes before. */
     const val REMIND_LEAD = "remind_lead"
     /** Where trailer previews play while browsing: the corner window, or in the poster, which widens to 16:9. */
     const val TRAILER_STYLE = "trailer_style"
     /** In the poster: how long the trailer plays in the card before it grows into the big panel with sound. */
-    const val TRAILER_GROW = "trailer_grow"
+    // (A new key: the choices became 1–5 seconds. Peter, 2026-11-18.)
+    const val TRAILER_GROW = "trailer_grow_s"
     /** Movies / Shows: the details panel at the top (hero): normal, big (Cinema), or off (Lite). */
     const val HERO_STYLE = "hero_style"
     /** The posters in rows: normal, large or small. */
@@ -320,6 +335,16 @@ object UiOpts {
     /** Where the guide's programme picture goes: the background ("What's selected" wallpaper), or a banner card in
      *  the info area with the background left alone (Peter, 2026-11-17). */
     const val GUIDE_ART_PLACE = "guide_art_place"
+    /** The guide's top panel: the "Next" and "Then" lines on the right (a tester, 2026-11-19: a way to hide them). */
+    const val GUIDE_NEXT = "guide_next"
+    /** Movies / Shows background: the highlighted title's artwork, or the wallpaper (a tester, 2026-11-19). */
+    const val TITLE_BG = "title_bg"
+    /** The wallpaper behind the TV guide too, or a plain background there (Peter, 2026-11-19: a clean guide). */
+    const val GUIDE_WALL = "guide_wall"
+    /** The guide's top panel: the "S2026 E1119" badge under Next / Then (a tester, 2026-11-19). */
+    const val GUIDE_EPISODE_BADGE = "guide_episode_badge"
+    /** The guide's top panel: the "Catch-up" badge (Peter, 2026-11-19). */
+    const val GUIDE_CATCHUP_BADGE = "guide_catchup_badge"
     const val GUIDE_TITLE_LOGO = "guide_title_logo"
     const val CHANNEL_LOGOS = "channel_logos"
     const val MINI_CORNER = "mini_corner"
@@ -379,15 +404,20 @@ object UiOpts {
     fun newsFeedKey(id: String) = "news_on_$id"
     fun newsStyleKey(id: String) = "news_style_$id"
     const val STILL_WATCHING = "still_watching"
+    /** Settings → Playback → Watch progress → Send plays to Trakt: On (0, the default) or Off (data/sync/WatchSource). */
+    const val SEND_TO_TRAKT = "send_to_trakt"
     const val LOW_MEMORY = "low_memory"
     const val DATE_ORDER = "date_order"
     const val TIME_FORMAT = "time_format"
     /** Defaults other than the first choice (anyone who never chose). Stored choices are kept as they are. */
     val defaults = mapOf(
+        EVENT_ONLY_LISTED to 1, // off until switched on (Peter, 2026-11-19: app-side hiding is opt-in)
         POSTER_DIM to 2, // (20% faded to start: Peter, 2026-11-18)
         // (The Viewarr look: light glass, as "Info bar: glass" Light was.)
         POPUP_GLASS to 2,
         UP_NEXT_S to 4,
+        TRAILER_GROW to 4, // (5 seconds)
+        AFR_SOUND_DELAY to 2, // (3 seconds)
         ZAP_DELAY to 5,
     )
     val choices = mapOf(
@@ -406,6 +436,8 @@ object UiOpts {
         MENU_LIVE_MARK to listOf("Off", "On"),
         MENU_HIDDEN to listOf("Off", "On"),
         GROUP_ALL to listOf("Shown", "Hidden"),
+        BEST_SOURCE to listOf("On", "Off"),
+        EVENT_ONLY_LISTED to listOf("On", "Off"),
         LIST_SCROLL to listOf("Instant", "Smooth"),
         INFOBAR_RECENT to listOf("On", "Off"),
         FILM_TIME_RIGHT to listOf("Time left (15:05 left)", "Ends at (ends at 21:43)", "Both (15:05 left · ends 21:43)"),
@@ -416,6 +448,7 @@ object UiOpts {
         MENU_GROUP_ICON to listOf("Off", "On"),
         MENU_HINTS to listOf("On", "Off"),
         MUSIC_LRCLIB to listOf("Off", "On"),
+        SEND_TO_TRAKT to listOf("On", "Off"),
         MUSIC_VIS to listOf("Bars", "Mirrored bars", "Wave", "Dots", "Off"),
         MUSIC_SAVER to listOf("After 2 minutes", "After 5 minutes", "After 10 minutes", "Off"),
         MUSIC_LYRICS to listOf("On", "Off"),
@@ -436,12 +469,18 @@ object UiOpts {
         BADGE_PROGRESS to listOf("On", "Off"),
         GUIDE_ART to listOf("On", "Off"),
         WALL_SHADE to listOf("Background colour", "Black"),
+        AFR_SOUND_DELAY to listOf("1 second", "2 seconds", "3 seconds", "4 seconds", "5 seconds"),
         TRAILER_STYLE to listOf("In a corner window", "In the poster"),
-        TRAILER_GROW to listOf("After 5 seconds", "After 10 seconds", "After 15 seconds", "Never"),
+        TRAILER_GROW to listOf("After 1 second", "After 2 seconds", "After 3 seconds", "After 4 seconds", "After 5 seconds", "Never"),
         HERO_STYLE to listOf("Normal", "Big", "Off"),
         ROW_POSTERS to listOf("Normal", "Large", "Small"),
         REMIND_LEAD to listOf("When it starts", "2 minutes before", "5 minutes before", "10 minutes before", "15 minutes before"),
         GUIDE_ART_PLACE to listOf("Background", "Banner"),
+        GUIDE_NEXT to listOf("On", "Off"),
+        TITLE_BG to listOf("What's selected", "Your wallpaper", "None"),
+        GUIDE_WALL to listOf("On", "Off"),
+        GUIDE_EPISODE_BADGE to listOf("On", "Off"),
+        GUIDE_CATCHUP_BADGE to listOf("On", "Off"),
         GUIDE_TITLE_LOGO to listOf("On", "Off"),
         CHANNEL_LOGOS to listOf("On", "Off"),
         MINI_CORNER to listOf("Bottom right", "Bottom left", "Top right", "Top left"),
@@ -478,4 +517,13 @@ object UiOpts {
         DATE_ORDER to listOf("Day first (Tue 10 Nov)", "Month first (Tue, Nov 10)", "Numbers, day first (Tue 10/11)", "Numbers, month first (Tue 11/10)"),
         TIME_FORMAT to listOf("24-hour (19:30)", "12-hour (7:30 pm)"),
     )
+}
+
+
+/** The screen's width against the 1280-unit layout the poster sizes were set on (the AM9 at 4K). */
+object ScreenWidth {
+    val factor: Float by lazy {
+        val dm = android.content.res.Resources.getSystem().displayMetrics
+        ((maxOf(dm.widthPixels, dm.heightPixels) / dm.density) / 1280f).coerceIn(0.6f, 1.5f)
+    }
 }

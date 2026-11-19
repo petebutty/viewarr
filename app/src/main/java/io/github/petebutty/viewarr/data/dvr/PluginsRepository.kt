@@ -141,9 +141,10 @@ class PluginsRepository @Inject constructor(private val http: HttpJson, private 
 
     suspend fun setEnabled(key: String, on: Boolean): PluginResult = post("plugins/$key/enabled/", buildJsonObject { put("enabled", on) })
 
-    suspend fun run(key: String, action: String): PluginResult {
+    /** Runs a plugin action; [params] go with it (e.g. the Viewarr plugin's undo_change takes {"id": …}). */
+    suspend fun run(key: String, action: String, params: JsonObject = JsonObject(emptyMap())): PluginResult {
         val s = session() ?: return PluginResult(false, "Not signed in to Dispatcharr.")
-        val r = runCatching { http.post(url(s, "plugins/$key/run/"), buildJsonObject { put("action", action); put("params", JsonObject(emptyMap())) }, h(s)) }.getOrNull()
+        val r = runCatching { http.post(url(s, "plugins/$key/run/"), buildJsonObject { put("action", action); put("params", params) }, h(s)) }.getOrNull()
             ?: return PluginResult(false, "No answer from Dispatcharr.")
         if (r.code !in 200..299 || !r.body.bool("success")) return PluginResult(false, r.body.str("error") ?: "Failed (${r.code}).")
         // Plugins usually answer {status, message}; show the message.

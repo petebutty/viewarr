@@ -13,6 +13,7 @@ object Notify {
     const val REMINDERS = "notify:reminders"
     const val UPDATES = "notify:updates"
     const val WHATS_NEW = "notify:whatsnew"
+    const val REPORTS = "notify:reports"
     // Off to start, every kind (Peter, 2026-11-18: "notifications stay off, users can decide to turn them on"): a
     // part that's PRESENT means on, the opposite way round from the other switches.
     private fun shows(k: String) = !AppColors.palette.shows(k)
@@ -24,6 +25,9 @@ object Notify {
     val updates get() = on && shows(UPDATES)
     /** The "what's new" card once after an update (Settings → About → Changelog still has it). */
     val whatsNew get() = on && shows(WHATS_NEW)
+    /** A quiet card when the Viewarr plugin changes a channel from someone's report (admins: with Undo), or a wrong-guide
+     *  report needs someone to pick the right guide (the reporter and admins). See data/report/HouseSync. */
+    val reports get() = on && shows(REPORTS)
     /** How long before the start a reminder comes up (Settings → Notifications → Remind me). */
     val reminderLeadMs: Long get() = listOf(0L, 2L, 5L, 10L, 15L)[AppColors.palette.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.REMIND_LEAD).coerceIn(0, 4)] * 60_000L
 }

@@ -23,6 +23,20 @@ object ListScroll {
     val instant: Boolean get() = AppColors.palette.opt(UiOpts.LIST_SCROLL) == 0
 }
 
+/**
+ * Poster rows and library grids, in every browsing style: always a short eased slide, whatever List scrolling says
+ * (Peter, 2026-11-19: "fast but no animation at all" moving through the films). Same resting place as [base].
+ */
+fun BringIntoViewSpec.cinemaGlide(): BringIntoViewSpec {
+    val base = this
+    return object : BringIntoViewSpec {
+        override val scrollAnimationSpec: AnimationSpec<Float> =
+            androidx.compose.animation.core.tween(durationMillis = 280, easing = androidx.compose.animation.core.FastOutSlowInEasing)
+        override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float =
+            base.calculateScrollDistance(offset, size, containerSize)
+    }
+}
+
 /** This spec (where the highlight rests) with the List scrolling setting's movement. */
 fun BringIntoViewSpec.followingSetting(): BringIntoViewSpec {
     val base = this

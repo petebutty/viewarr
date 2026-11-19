@@ -12,6 +12,12 @@ import coil.size.Size
  */
 object SmallerImages : Interceptor {
     @Volatile var weak = false
+    /**
+     * On a 4K screen pictures are decoded at two thirds of their shown size (1080p-like detail, which is all a TV
+     * across a room shows): about half the graphics memory and texture traffic per frame (Peter, 2026-11-19: the AM9
+     * at 4K spent ~45 ms a frame on the graphics chip scrolling Cinema's posters). Set at start from the screen width.
+     */
+    @Volatile var screenScale = 1f
 
     private val tmdb = Regex("""(image\.tmdb\.org/t/p/)(w\d+|original)(/)""")
     private val tmdbSteps = listOf(92, 154, 185, 342, 500, 780, 1280)
@@ -29,11 +35,11 @@ object SmallerImages : Interceptor {
         val url = req.data as? String ?: return chain.proceed(req)
         val w = (chain.size.width as? Dimension.Pixels)?.px ?: return chain.proceed(req)
         val h = (chain.size.height as? Dimension.Pixels)?.px
-        val f = if (weak) 0.75f else 1f
+        val f = (if (weak) 0.75f else 1f) * screenScale
         val tw = (w * f).toInt().coerceAtLeast(64)
         val th = h?.let { (it * f).toInt().coerceAtLeast(64) }
         val smaller = shrink(url, tw, th)
-        val sized = if (weak) chain.withSize(Size(tw, th ?: tw)) else chain
+        val sized = if (f < 1f) chain.withSize(Size(tw, th ?: tw)) else chain
         return if (smaller == null || smaller == url) sized.proceed(req) else sized.proceed(req.newBuilder().data(smaller).build())
     }
 

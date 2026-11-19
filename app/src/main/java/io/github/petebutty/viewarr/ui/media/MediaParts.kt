@@ -288,10 +288,11 @@ internal fun QuickOptions(item: MediaItem, vm: MediaViewModel, onTrailer: () -> 
     // Seerr set up: request the title to keep (or see that it's already requested / available).
     val seerrStatus by produceState<SeerrService.Status?>(null, item.key) { value = vm.seerrStatus(item) }
     val show = item.type == MediaType.Show
-    // IPTV keeps no history: watched / not watched kept on the box (films; episodes on the title page).
+    // IPTV keeps no history: Mark as watched saves everywhere the title is, and on the box (films; episodes on the title page).
     val iptv by produceState(false, item.key) { value = !show && vm.hasIptv(item) }
     val localEntries by vm.localWatch.entries.collectAsState()
-    val done = remember(localEntries, item.key) { vm.localWatch.isWatched(item) }
+    // (Watched anywhere: Trakt, your servers or this box's record.)
+    val done by produceState(false, localEntries, item.key) { value = vm.quickWatched(item) }
     val seerrAsk = seerrStatus == SeerrService.Status.None || seerrStatus == SeerrService.Status.Partial
     val options = buildList {
         add(PopupOption(if (show) "Episodes" else if (item.progress != null) "Resume" else "Play") { if (show) vm.quickEpisodes(item) else vm.quickPlay(item) })

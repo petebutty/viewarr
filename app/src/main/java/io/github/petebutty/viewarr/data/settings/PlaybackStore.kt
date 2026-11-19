@@ -189,12 +189,12 @@ enum class TrailerPreview(override val label: String) : RemoteChoice {
 }
 
 enum class TrailerDelay(override val label: String, val ms: Long) : RemoteChoice {
-    S3("3 seconds", 3_000),
+    // (1 to 5 seconds, in order; 3 to start. The old 8 and 12 read as 5. Peter, 2026-11-18.)
     S1("1 second", 1_000),
     S2("2 seconds", 2_000),
+    S3("3 seconds", 3_000),
+    S4("4 seconds", 4_000),
     S5("5 seconds", 5_000),
-    S8("8 seconds", 8_000),
-    S12("12 seconds", 12_000),
 }
 
 enum class TrailerSound(override val label: String) : RemoteChoice {
@@ -234,7 +234,7 @@ data class PlaybackSettings(
     val skipCredits: SkipMode = SkipMode.entries.first(),
     val stats: StatsOverlay = StatsOverlay.entries.first(),
     val trailerPreview: TrailerPreview = TrailerPreview.entries.first(),
-    val trailerDelay: TrailerDelay = TrailerDelay.entries.first(),
+    val trailerDelay: TrailerDelay = TrailerDelay.S3,
     val trailerSound: TrailerSound = TrailerSound.entries.first(),
 ) {
     /** ISO 639-1 code for the chosen audio language, or null for the original track. */
@@ -281,7 +281,11 @@ class PlaybackStore @Inject constructor(@ApplicationContext private val context:
             skipCredits = p.read(SKIP_CREDITS),
             stats = p.read(STATS),
             trailerPreview = p.read(TRAILER_PREVIEW),
-            trailerDelay = p.read(TRAILER_DELAY),
+            trailerDelay = when (val n = p[stringPreferencesKey(TRAILER_DELAY)]) {
+                null -> TrailerDelay.S3
+                "S8", "S12" -> TrailerDelay.S5
+                else -> TrailerDelay.entries.firstOrNull { it.name == n } ?: TrailerDelay.S3
+            },
             trailerSound = p.read(TRAILER_SOUND),
         )
     }

@@ -138,7 +138,7 @@ fun appearanceCategories(vm: AppearanceViewModel = hiltViewModel(), opts: UiOpts
                 },
                 optItem(opts, "Text size", "How big text and everything else on screen is. Larger is easier to read from the sofa.", UiOpts.TEXT_SIZE),
                 optItem(opts, "Font", "The lettering for all text, from the fonts built into your box (a box without one shows the standard font).", UiOpts.FONT),
-                optItem(opts, "List scrolling", "How lists follow the highlight. Instant: the list moves with it in one go (no trail when you go through quickly). Smooth: it slides there.", UiOpts.LIST_SCROLL),
+                optItem(opts, "List scrolling", "How lists follow the highlight. Instant: the list moves with it in one go (no trail when you go through quickly). Smooth: it slides there. (Poster rows and library grids always glide.)", UiOpts.LIST_SCROLL),
                 optItem(opts, "Clock", "The time in the top corner.", UiOpts.CLOCK),
                 optItem(opts, "Date format", "How dates show across Viewarr: the guide, recordings, episodes and reviews.", UiOpts.DATE_ORDER),
                 optItem(opts, "Time format", "24-hour or 12-hour times: the guide, the clock, programme times and recordings.", UiOpts.TIME_FORMAT),
@@ -148,8 +148,10 @@ fun appearanceCategories(vm: AppearanceViewModel = hiltViewModel(), opts: UiOpts
         SettingCategory(
             "Wallpaper", "A picture behind the guide, menus and settings, darkened so text stays easy to read.",
             buildList {
-                add(SettingItem("Wallpaper", "None, a built-in design, or the artwork of the programme you've highlighted. (Movies and Shows always show the highlighted title's artwork.)", wallModes,
+                add(SettingItem("Wallpaper", "None, a built-in design, or the artwork of the programme you've highlighted.", wallModes,
                     wallModes.firstOrNull { it.value == palette.wallpaper } ?: wallModes[0]) { c -> vm.setWallpaper(((c as Choice).value as Int), palette.wallpaperStyle, palette.wallpaperDim) })
+                add(optItem(opts, "Movies and Shows background", "What's selected: the highlighted title's artwork. Your wallpaper: the wallpaper stays behind (the title's picture then shows in the top panel). None: no picture at all, just the background colour.", UiOpts.TITLE_BG))
+                add(optItem(opts, "Wallpaper in the TV guide", "Off: a plain background behind the guide, the wallpaper everywhere else.", UiOpts.GUIDE_WALL))
                 add(optItem(opts, "Wallpaper shade", "What darkens the wallpaper and the Movies / Shows artwork. Background colour: your theme's colour washed over the picture. Black: darker without tinting, so pictures keep their own colours.", UiOpts.WALL_SHADE))
                 if (palette.wallpaper == 1) add(SettingItem("Design", "Which built-in wallpaper.", wallStyles,
                     wallStyles[palette.wallpaperStyle.coerceIn(0, wallStyles.lastIndex)]) { c -> vm.setWallpaper(1, (c as Choice).value as Int, palette.wallpaperDim) })
@@ -196,6 +198,9 @@ fun appearanceCategories(vm: AppearanceViewModel = hiltViewModel(), opts: UiOpts
                 // Low-memory mode: no programme pictures at all, so these are locked.
                 optItem(opts, "Programme pictures", "The highlighted programme's picture at the top of the guide. Off: no pictures are looked up (the channel's logo shows instead).", UiOpts.GUIDE_ART).locked(lowLock),
                 optItem(opts, "Programme picture shows as", "Background: it fills the screen behind the guide (with the \"What's selected\" wallpaper). Banner: a picture card at the right of the programme details, and the background stays as it is.", UiOpts.GUIDE_ART_PLACE).locked(lowLock),
+                optItem(opts, "Next and Then", "At the top of the guide, what's on the highlighted channel next and after that. Off: just the programme's details.", UiOpts.GUIDE_NEXT),
+                optItem(opts, "Episode badge at the top", "The series and episode badge (\"S12 E4\") at the top right of the guide, under Next and Then. Off hides it; Catch-up and Recording badges stay.", UiOpts.GUIDE_EPISODE_BADGE),
+                optItem(opts, "Catch-up badge at the top", "The \"Catch-up\" badge at the top right of the guide, on programmes that can be replayed. Off hides it (the channel column's catch-up marks stay).", UiOpts.GUIDE_CATCHUP_BADGE),
                 optItem(opts, "Programme title logos", "At the top of the guide, the highlighted programme's title logo (from TMDB) in place of its name, when there's a sure match (a UK, Irish or US show, or the only film with that name). Off: always the name.", UiOpts.GUIDE_TITLE_LOGO).locked(lowLock),
                 // The info bar over live TV.
                 // The glass: the info bar and controls, and every pop-up (next episode, skip intro, reminders, notes).
@@ -248,7 +253,7 @@ fun appearanceCategories(vm: AppearanceViewModel = hiltViewModel(), opts: UiOpts
                         // Cinema: the trailer starts after 5 seconds on a poster, full screen 5 seconds later (as Nuvio KE).
                         if (l.name == "Cinema") {
                             playbackVm.set(io.github.petebutty.viewarr.data.settings.PlaybackStore.TRAILER_DELAY, io.github.petebutty.viewarr.data.settings.TrailerDelay.S5)
-                            opts.set(UiOpts.TRAILER_GROW, 0)
+                            opts.set(UiOpts.TRAILER_GROW, 4)
                         } else playbackVm.set(io.github.petebutty.viewarr.data.settings.PlaybackStore.TRAILER_DELAY, io.github.petebutty.viewarr.data.settings.TrailerDelay.S3) // (back to the usual 3 s)
                     },
                     optItem(opts, "Top panel", "The highlighted title's details at the top of Movies and Shows: normal, big, or off (more rows on screen).", UiOpts.HERO_STYLE),
@@ -340,7 +345,7 @@ private val AppearanceOpts = UiOpts.run {
     listOf(
         TEXT_SIZE, FONT, CLOCK, DATE_ORDER, TIME_FORMAT, // Theme
         GLASS_TINT, POPUP_SEE, POPUP_GLASS, BANNER_BORDER, // Glass & transparency (Pop-up glass's older form too)
-        CHANNEL_LOGOS, GUIDE_EPISODE, CHLIST_WIDTH, CHLIST_PROGRESS, CHLIST_PROGRESS_COLOUR, GUIDE_SPAN, CATCHUP_ICONS, GUIDE_SHADE, GUIDE_ART, GUIDE_ART_PLACE, WALL_SHADE, GUIDE_TITLE_LOGO, // TV guide
+        CHANNEL_LOGOS, GUIDE_EPISODE, CHLIST_WIDTH, CHLIST_PROGRESS, CHLIST_PROGRESS_COLOUR, GUIDE_SPAN, CATCHUP_ICONS, GUIDE_SHADE, GUIDE_ART, GUIDE_ART_PLACE, WALL_SHADE, GUIDE_NEXT, GUIDE_EPISODE_BADGE, GUIDE_CATCHUP_BADGE, TITLE_BG, GUIDE_WALL, GUIDE_TITLE_LOGO, // TV guide
         INFOBAR_STYLE, INFOBAR_CORNERS, INFOBAR_SIZE, INFOBAR_CLOCK, INFOBAR_WIDTH, CARD_SIZE,
         BANNER_NUMBER, BANNER_EPISODE, BANNER_BADGES, BANNER_SOURCE, BANNER_FPS, CONTROLS_SIZE, // Info bar & controls
         MENU_HEADINGS, MENU_HEAD_SOURCE, MENU_EDGE, MENU_TINT, MENU_HINTS, MENU_GROUP_ICON, MENU_LIVE_MARK, MENU_HIDDEN, BUTTON_HINTS, // Menu

@@ -35,7 +35,7 @@ fun ViewarrPopup(onClose: () -> Unit, content: @Composable BoxScope.() -> Unit) 
         val window = (LocalView.current.parent as? DialogWindowProvider)?.window
         SideEffect { window?.setDimAmount(0f) }
         // (OK ignored until a fresh press: the hold that opened it, or its release, mustn't pick a choice.)
-        Box(Modifier.fillMaxSize().ignoreHeldOk().onPreviewKeyEvent { e ->
+        Box(Modifier.fillMaxSize().onPreviewKeyEvent { e -> KeyBounce.drop(e.nativeKeyEvent) }.ignoreHeldOk().onPreviewKeyEvent { e ->
             // Over a full-screen film: hold Back still stops it (the pop-up's own window had the press).
             val film = VodHost
             if (e.key == Key.Back && e.type == KeyEventType.KeyDown && e.nativeKeyEvent.repeatCount == 1 && film.active && !film.mini) {

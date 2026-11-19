@@ -25,6 +25,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.offset
 import androidx.compose.runtime.SideEffect
@@ -300,7 +301,7 @@ fun PosterTrailerHost() {
     // Stage 2 after it has played in the card a while (Settings → Playback → Trailers → Then the big panel).
     LaunchedEffect(item?.key, PosterTrailer.showing) {
         if (item == null) return@LaunchedEffect
-        val after = listOf(5_000L, 10_000L, 15_000L, 0L)[AppColors.palette.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.TRAILER_GROW).coerceIn(0, 3)]
+        val after = listOf(1_000L, 2_000L, 3_000L, 4_000L, 5_000L, 0L)[AppColors.palette.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.TRAILER_GROW).coerceIn(0, 5)]
         if (!PosterTrailer.showing || PosterTrailer.panel || after == 0L) return@LaunchedEffect
         delay(after)
         if (PosterTrailer.item?.key == item.key && PosterTrailer.showing && PosterTrailer.active) PosterTrailer.panel = true
@@ -332,7 +333,8 @@ fun PosterTrailerHost() {
         ) {
             TrailerPreview(
                 item = item, active = PosterTrailer.active || PosterTrailer.panel, trailers = repo, modifier = Modifier.fillMaxSize(),
-                onShowing = { PosterTrailer.showing = it }, audio = PosterTrailer.panel,
+                // Sound from the start when Preview sound is on (Peter, 2026-11-18: it used to stay muted in the poster).
+                onShowing = { PosterTrailer.showing = it }, audio = PosterTrailer.panel || LocalPlayback.current.trailerSound == TrailerSound.On,
             )
             // The highlight ring, on the trailer as it grows (the poster's own goes while the panel is open).
             if (PosterTrailer.showing) Box(Modifier.fillMaxSize().border(3.dp, AppColors.Accent, androidx.compose.foundation.shape.RoundedCornerShape(radius)))
@@ -342,7 +344,8 @@ fun PosterTrailerHost() {
                     .background(androidx.compose.ui.graphics.Brush.verticalGradient(0f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.7f))))
                 androidx.tv.material3.Text(item.title, fontSize = 12.sp, color = Color.White, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                     modifier = Modifier.align(Alignment.BottomStart).padding(start = 10.dp, end = 34.dp, bottom = 8.dp).graphicsLayer { alpha = 1f - grow })
-                androidx.tv.material3.Text("🔇", fontSize = 12.sp, modifier = Modifier.align(Alignment.BottomEnd).padding(end = 10.dp, bottom = 7.dp).graphicsLayer { alpha = 1f - grow })
+                if (LocalPlayback.current.trailerSound != TrailerSound.On)
+                    androidx.tv.material3.Text("🔇", fontSize = 12.sp, modifier = Modifier.align(Alignment.BottomEnd).padding(end = 10.dp, bottom = 7.dp).graphicsLayer { alpha = 1f - grow })
             }
         }
         // Stage 2: the title, a line about it and what the buttons do, under the panel.
@@ -355,7 +358,13 @@ fun PosterTrailerHost() {
             listOfNotNull(item.year?.toString(), item.origin.takeIf { it.isNotBlank() }).joinToString("  ·  ").takeIf { it.isNotEmpty() }?.let {
                 androidx.tv.material3.Text(it, fontSize = 14.sp, color = Color.White.copy(alpha = 0.75f), modifier = Modifier.padding(top = 2.dp))
             }
-            androidx.tv.material3.Text("OK: open  ·  Back: close", fontSize = 13.sp, color = Color.White.copy(alpha = 0.6f), modifier = Modifier.padding(top = 10.dp))
+            // What the buttons do, as key prompts (Peter, 2026-11-18: the faint line went unseen). OK opens the title page,
+            // films and shows alike: that's where Play, Up next and the episodes are.
+            androidx.compose.foundation.layout.Row(Modifier.padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                KeyPrompt("OK", "Details and play")
+                Spacer(Modifier.width(18.dp))
+                KeyPrompt("BACK", "Close")
+            }
         }
     }
 }
@@ -371,4 +380,15 @@ fun PublishPosterTrailerActive(active: Boolean) {
     SideEffect { if (active || wrote) { PosterTrailer.active = active; wrote = active } }
     // The page went while it said yes: off, or the next page's posters played on as if it were still there.
     DisposableEffect(Unit) { onDispose { if (wrote) PosterTrailer.active = false } }
+}
+
+/** A remote button and what it does: "[OK] Details and play". */
+@Composable
+private fun KeyPrompt(key: String, does: String) {
+    androidx.compose.foundation.layout.Row(verticalAlignment = Alignment.CenterVertically) {
+        androidx.tv.material3.Text(key, fontSize = 13.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = Color.Black,
+            modifier = Modifier.background(Color.White, androidx.compose.foundation.shape.RoundedCornerShape(5.dp)).padding(horizontal = 8.dp, vertical = 2.dp))
+        Spacer(Modifier.width(8.dp))
+        androidx.tv.material3.Text(does, fontSize = 15.sp, color = Color.White)
+    }
 }

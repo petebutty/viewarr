@@ -153,10 +153,14 @@ fun VodPlayer(
                     .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON),
             )
             .setMediaSourceFactory(DefaultMediaSourceFactory(io.github.petebutty.viewarr.data.net.reachOf(http)))
-            // Settings → Playback → Buffer.
+            // Settings → Playback → Buffer. Capped in bytes too, by the app's memory: with no cap ExoPlayer saves up
+            // to ~140 MB of a film in the app's own memory, and a high-bitrate Plex file filled the AM9's 256 MB in
+            // three seconds and crashed it (out of memory, 2026-11-18).
             .setLoadControl(
                 androidx.media3.exoplayer.DefaultLoadControl.Builder()
                     .setBufferDurationsMs(minOf(15_000, pb.buffer.exoMs), pb.buffer.exoMs, 2_500, 5_000)
+                    .setTargetBufferBytes(filmBufferBytes(pb.buffer))
+                    .setPrioritizeTimeOverSizeThresholds(false)
                     .build(),
             )
             .build().apply {
@@ -229,6 +233,24 @@ fun VodPlayer(
         }
         if (chain.ready || !chain.nextIsSource || error != null) return@LaunchedEffect
         playNext(player, chain, startAt, context, "didn't start")
+    }
+    // Any stream that hasn't shown a picture after 25 seconds of trying (and has no next stream to fall back to):
+    // give up and say so, letting the connection go. (Peter, 2026-11-19: a 4K file on a slow line sat on the loading
+    // screen for good, holding the provider's only connection.) Not while paused, and not a stream that has started.
+    // (Only when nothing at all has come: a slow provider that takes a minute to start sending is left to it, since
+    // some IPTV files only start once the player has read their index from the end of the file.)
+    LaunchedEffect(chain, chain.switches) {
+        var waited = 0L
+        while (waited < 30_000) {
+            kotlinx.coroutines.delay(500)
+            if (player.playbackState == Player.STATE_READY && player.duration > 0) return@LaunchedEffect
+            if (player.totalBufferedDuration > 0 || player.bufferedPosition > startAt) return@LaunchedEffect
+            if (player.playWhenReady) waited += 500
+        }
+        if (chain.ready || chain.nextIsSource || error != null || player.playbackState == Player.STATE_READY) return@LaunchedEffect
+        android.util.Log.w("VodPlayer", "nothing after 30 s: giving up on ${stream.title}")
+        runCatching { player.stop() }
+        error = "Nothing has arrived after 30 seconds. The provider's line may already be in use (most allow one stream at a time), or the server isn't answering. Press Back to close, then try again in a minute."
     }
     DisposableEffect(player) {
         var retriedAsHls = stream.url.contains(".m3u8")
@@ -546,4 +568,14 @@ private fun TrackPicker(player: ExoPlayer, subtitlesFirst: Boolean = false, onSw
             }
         }
     }
+}
+
+/** The film buffer's byte cap: a share of the box's normal app allowance (Small 12%, Normal 20%, Large 30%), 16–160 MB. */
+private fun filmBufferBytes(size: io.github.petebutty.viewarr.data.settings.BufferSize): Int {
+    val share = when (size) {
+        io.github.petebutty.viewarr.data.settings.BufferSize.Small -> 0.12
+        io.github.petebutty.viewarr.data.settings.BufferSize.Normal -> 0.20
+        io.github.petebutty.viewarr.data.settings.BufferSize.Large -> 0.30
+    }
+    return (io.github.petebutty.viewarr.MemoryBudget.normalBytes * share).toLong().coerceIn(16L shl 20, 160L shl 20).toInt()
 }

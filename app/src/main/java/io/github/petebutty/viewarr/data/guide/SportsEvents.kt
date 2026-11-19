@@ -3,7 +3,6 @@ package io.github.petebutty.viewarr.data.guide
 import io.github.petebutty.viewarr.data.remote.services.HttpJson
 import io.github.petebutty.viewarr.data.remote.services.array
 import io.github.petebutty.viewarr.data.remote.services.str
-import io.github.petebutty.viewarr.ui.theme.AppColors
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -183,22 +182,51 @@ class SportsEvents @Inject constructor(private val http: HttpJson) {
 }
 
 /**
- * The sports Live now sorts events into ([SportsEvents.sport]'s names), and whether each is wanted: Settings → Playback
- * → Live now sports switches off the ones you're not interested in (kept with the appearance settings, so it syncs).
+ * The sports Live now sorts events into ([SportsEvents.sport]'s names): what a sport in Settings → Live TV → Live now
+ * is matched by (data/sports/LiveNowPicks). The old per-sport / per-league switches and "Only what I follow" (kept as
+ * appearance title parts) are only read once, to carry them over into that list (Peter, 2026-11-19).
  */
 object LiveSports {
     val names = listOf(
         "Football", "American football", "Basketball", "Hockey", "Baseball", "Tennis", "Golf", "Motor racing", "Motorbikes",
         "Fight", "Rugby", "Cricket", "Darts", "Snooker", "Horse racing", "Cycling",
     )
+    /** The old Live now sports switch (title part; present = switched off). Only read by the carry-over. */
     fun key(name: String) = "live:sport:" + name.lowercase()
-    /** An event of [sport] goes in Live now (unknown sport: yes). */
-    fun wanted(sport: String?) = sport == null || AppColors.palette.shows(key(sport))
 
-    // Peter, 2026-11-17 ("I don't care about college basketball"): Live now by league, or only what you follow.
-    /** Off: Live now's games are only your teams' and leagues' (Settings → Sports). Kept as "live:everything" hidden. */
-    val followedOnly get() = !AppColors.palette.shows("live:everything")
-    fun leagueKey(path: String) = "live:league:" + path.lowercase()
-    /** A league's games go in Live now (Settings → Live TV → Live now leagues; all on to start). */
-    fun leagueOn(path: String?) = path == null || AppColors.palette.shows(leagueKey(path))
+    /** A sport's name for people ("Fight" is boxing, UFC and wrestling). */
+    fun label(name: String) = when (name) { "Fight" -> "Boxing, UFC and wrestling"; "Hockey" -> "Ice hockey"; else -> name }
+    fun emoji(name: String) = when (name) {
+        "Football" -> "⚽"; "American football" -> "🏈"; "Basketball" -> "🏀"; "Hockey" -> "🏒"; "Baseball" -> "⚾"; "Tennis" -> "🎾"
+        "Golf" -> "⛳"; "Motor racing" -> "🏎️"; "Motorbikes" -> "🏍️"; "Fight" -> "🥊"; "Rugby" -> "🏉"; "Cricket" -> "🏏"
+        "Darts" -> "🎯"; "Snooker" -> "🎱"; "Horse racing" -> "🏇"; "Cycling" -> "🚴"; else -> "🏆"
+    }
+
+    /** The sport of a league by its ESPN path ("soccer/eng.1" → "Football"), as [names] has it; null: none of them. */
+    fun ofLeague(path: String): String? = espn(io.github.petebutty.viewarr.data.sports.Sport.of(path))
+    /** Settings → Sports' sport as one of [names] (null: Other). */
+    fun espn(s: io.github.petebutty.viewarr.data.sports.Sport): String? = when (s) {
+        io.github.petebutty.viewarr.data.sports.Sport.Football -> "Football"
+        io.github.petebutty.viewarr.data.sports.Sport.Rugby -> "Rugby"
+        io.github.petebutty.viewarr.data.sports.Sport.Golf -> "Golf"
+        io.github.petebutty.viewarr.data.sports.Sport.Tennis -> "Tennis"
+        io.github.petebutty.viewarr.data.sports.Sport.Motor -> "Motor racing"
+        io.github.petebutty.viewarr.data.sports.Sport.Fighting -> "Fight"
+        io.github.petebutty.viewarr.data.sports.Sport.Basketball -> "Basketball"
+        io.github.petebutty.viewarr.data.sports.Sport.AmericanFootball -> "American football"
+        io.github.petebutty.viewarr.data.sports.Sport.Hockey -> "Hockey"
+        io.github.petebutty.viewarr.data.sports.Sport.Baseball -> "Baseball"
+        io.github.petebutty.viewarr.data.sports.Sport.Cricket -> "Cricket"
+        io.github.petebutty.viewarr.data.sports.Sport.Other -> null
+    }
+    /** The other way: one of [names] as Settings → Sports' sport (for its leagues), null: ESPN has none (darts…). */
+    fun toEspn(name: String) = io.github.petebutty.viewarr.data.sports.Sport.entries.firstOrNull { espn(it) == name }
+
+    /** The sports [q] names ("darts", "snoo…", "ufc"): one of [names] or a word Settings → Sports knows it by. */
+    fun named(q: String): List<String> {
+        val t = q.trim().lowercase()
+        if (t.length < 3) return emptyList()
+        val byWord = io.github.petebutty.viewarr.data.sports.Sport.named(t)?.let { espn(it) }
+        return (names.filter { n -> n.lowercase().startsWith(t) || label(n).lowercase().split(", ", " and ").any { it.startsWith(t) } } + listOfNotNull(byWord)).distinct()
+    }
 }

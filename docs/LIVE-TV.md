@@ -59,6 +59,8 @@ Press **Left** on what's on now to see your channel groups. Moving through them 
 
 Don't need **All channels**? Hide it in **Settings → Live TV → "All channels" group**. The groups then start with your own, and the guide opens on the first of them.
 
+**Event channels** (TNT events, live football slots, pay-per-view and the like) are mostly empty slots. With the [Viewarr plugin](#viewarr-plugin-optional) and **Settings → Live TV → Event channels: only with a listing** on (as it is to start with), an event channel is listed only while the guide has something on it now or starting within the next 24 hours, and a group of nothing but empty event channels disappears until one of them has a listing. This is the same everywhere a channel is listed: the Live TV hub, the guide and its channel groups, the full-screen channel list, favourites and typed channel numbers. Reminders, recordings, links and the Sports page still reach a hidden channel, so a game the plugin puts on one still plays. Club TV channels always show. Off: every event channel, all the time. *(0.29.1 and later.)*
+
 ### Favourites
 
 Hold OK on a channel in the guide (or the full-screen channel list) and choose **★ Add to favourites**. A **★ Favourites** group then heads the channel groups, with just those channels in channel order. **★ Remove from favourites** in the same place takes one out. A channel with nothing listed is added or removed by holding OK straight away.
@@ -77,8 +79,24 @@ Hold OK on a programme for:
 - **Request on Seerr…**: a film, or a show's missing episodes. Seasons already on your servers aren't asked for again.
 - **★ Add to favourites** / **Remove from favourites** for the channel.
 - **✎ Edit this menu**: choose which of these options the pop-up shows (OK switches each one on or off). Cancelling a recording or a reminder is always there.
+- **⚑ Report a problem…**: see [Report a problem](#report-a-problem).
 
 A programme already recorded plays with OK.
+
+### Report a problem
+
+Viewarr also reports by itself: when none of a channel's sources will play, a "No picture / dead stream" report goes in automatically (once an hour per channel), and a source that didn't start is shared with the plugin within half a minute so the house's stream order learns from it.
+
+Hold OK on a channel (in the guide, the channel list, the player's menu or a channel card in the Live TV hub) → **Report a problem…**. The same menu, wherever you are:
+
+- **Wrong programme guide**: the channel shows another channel's listings. A search opens with the channel's name filled in, listing your Dispatcharr's guides (each with its source): pick the right one, or **Skip, just report it**. Admins' picks are applied straight away; everyone else's go to the [Viewarr plugin](#viewarr-plugin-optional), which changes the channel's guide for the whole house. If the plugin can't tell which guide is right, the reporter (and admins) get a card to choose one, and the channel is listed under **Needs your pick** in Settings → Live TV → Reports.
+- **Guide times are out**: the usual EPG offset slider; the offset you set goes with the report, and the plugin can make it the house's offset for that channel (every TV without an offset of its own for it then uses it).
+- **No picture / dead stream**: the stream playing (when Viewarr knows which) is reported, and this TV moves it down its own order at once.
+- **Wrong logo**, **Wrong name** (type or say the right one) and **Something else** (an optional note).
+
+Each report is confirmed with "Reported · channel" (and "applied" when it took effect at once). The plugin acts on reports automatically and logs every change; **Settings → Live TV → Reports** lists them newest first, and an admin can **Undo** any of them there (or from the quiet card that comes up when a change is made, with **Notifications → Reports from the house** on). Your own reports are listed too.
+
+Without the plugin, reports stay on the TV (the last 50, for two weeks) and the Reports page says so; nothing is lost, and they're sent as soon as the plugin is there.
 
 ### Guide refresh
 
@@ -207,6 +225,7 @@ Each window counts as a stream on your provider. Dispatcharr's failover to a bac
   - While you watch, Viewarr keeps an eye on the stream through Dispatcharr: if no new picture comes in for about 20 seconds, a note says the source is struggling and how to try another.
 
   While on a stream you picked, Dispatcharr's own automatic failover doesn't watch it; changing channel goes back to normal. *(0.28.9 and later.)*
+- **Start with the best source** (Settings → Live TV, on to start with): a channel with several streams behind it starts on the best one, not always Dispatcharr's first. Best means the highest quality (Dispatcharr's own check of each stream, or the FHD / HD / SD in its name; 4K last, as most lines can't carry it), with streams that failed lately after the rest and Dispatcharr's own order to break ties. A stream that doesn't start, can't be read, or keeps stopping is remembered as failed on the TV for a day (three fails in a week: all week), and the next best plays instead; one that plays for a minute is remembered as good. When the best is Dispatcharr's own first stream the channel plays as normal, so Dispatcharr's failover still watches it. The Sources list shows the same order, with **★ best** on the top one. *(0.29.1 and later.)*
 - **The provider on the info bar**: where the channel's stream is coming from (your provider, or a backup), always shown; Settings → Appearance → **Info bar: source** turns it off.
 - **Stalled streams**: live TV stuck loading for 8 seconds after it had been playing (Dispatcharr moving to a backup, a provider hiccup) reconnects by itself.
 - **Stream info**: Dispatcharr's live view of the channel: source, provider, resolution, codecs, bitrate and viewers.
@@ -220,8 +239,7 @@ Both are in the live TV controls (**OK** while watching).
 Choose what it shows in **Settings → Live TV**:
 
 - **Live now groups**: which channel groups it looks through.
-- **Live now sports**: which sports it shows.
-- **Live now leagues** *(0.29.0 and later)*: **Only what I follow** shows just your teams' and leagues' games (darts, snooker, racing and other events still go by Live now sports). **Follow a team or league** takes you to Settings → Sports. With the [Viewarr plugin](#viewarr-plugin-optional), the leagues with games listed are shown too, each On or Off.
+- **Live now** *(0.29.1 and later)*: your list of teams, leagues and sports. Empty (as it starts): Live now shows everything live. **Add a team, league or sport** opens a search: type a name, or press Down for the sport buttons (a sport's button offers the whole sport, darts, snooker and racing included, and its leagues; a league can show its teams). OK adds it, and Live now then shows only what's in your list: a team's games, a league's games, or every event of a sport. OK on one in the list removes it. Saved for this profile. (This replaces the old Live now sports and Live now leagues switches; what you had set there is carried over once.)
 
 ## Sports
 
@@ -244,7 +262,7 @@ ESPN's data covers almost every competition.
 
 Viewarr finds where each game is on by itself: first your own TV guide (a programme naming both teams around kick-off), then Sky's public TV guide (Sky Sports, TNT Sports, Premier Sports, BBC, ITV, Channel 4 and 5, S4C, BBC Alba; about a week ahead; only channel numbers and dates are sent), then an event channel named after the match, then the home or away club's own channel. Teams are matched by every name ESPN gives them plus the names UK TV uses ("Man Utd", "Spurs", "Hibs"), both teams needed. A channel matched on one team only shows grey, as "Possibly …". The game page says where its channel came from.
 
-With the **UK Sport on TV** Dispatcharr plugin installed (optional), games also show their UK channel weeks ahead, including Amazon Prime and club TV.
+With the **Viewarr plugin** installed on Dispatcharr (optional), games also show their UK channel weeks ahead, including Amazon Prime and club TV, and the whole house shares one set of listings.
 
 **Score alerts** *(0.29.0 and later)*: goals, kick-offs, half-time and results as a banner, in the news ticker, or both. No team has alerts to start with: choose them in **Settings → Sports → Score alerts** (followed or not), and switch on **Notifications** in Settings → Menu & navigation. See [Settings](SETTINGS.md#sports).
 
