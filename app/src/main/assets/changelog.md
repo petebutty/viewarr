@@ -1,5 +1,19 @@
 # Viewarr changelog (built by tools/changelog.py from the GitHub releases; don't edit by hand)
 
+## 0.29.2 · 19 Nov 2026
+
+A small update that makes Viewarr much lighter on memory and quicker to keep its guide up to date.
+
+### Uses far less memory
+- **Graphics memory down from over 200 MB to under 40 MB** on a 4K box. Some soft fades and edges made Android keep hundreds of hidden drawing buffers; they're drawn a lighter way now. Boxes with 2 GB, like the Shield, have much more room to spare, so Viewarr is less likely to be closed in the background.
+- The main menu's soft fade at its top and bottom edges is gone (entries now end cleanly at the edge).
+
+### Faster guide updates
+- **Only what's new is fetched.** When nothing has changed on the server since the last update, Viewarr fetches just the new hours at the end of the guide (about a second) instead of the whole guide again (about 50 seconds). A full update still happens when the server's guide or your channels change, and at least once a day.
+
+### TV guide
+- Rows are a little thinner, so ten whole channels fit on screen.
+
 ## 0.29.1 · 19 Nov 2026
 
 A smaller update: smoother browsing, live TV that picks the best stream, and reports from the TV.

@@ -575,15 +575,15 @@ fun PlayerLoading(title: String, art: PlayerArt?, visible: Boolean = true, modif
                     contentDescription = title, contentScale = ContentScale.Fit,
                     onError = { logoFailed = true },
                     modifier = Modifier.width(320.dp).height(140.dp)
-                        .graphicsLayer { scaleX = scale; scaleY = scale; alpha = fadeIn },
+                        .graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha; scaleX = scale; scaleY = scale; alpha = fadeIn },
                 )
                 else Text(
                     title.substringBefore(" · "), fontSize = 40.sp, fontWeight = FontWeight.SemiBold, color = Color.White,
                     textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(horizontal = 120.dp).graphicsLayer { scaleX = scale; scaleY = scale; alpha = fadeIn },
+                    modifier = Modifier.padding(horizontal = 120.dp).graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha; scaleX = scale; scaleY = scale; alpha = fadeIn },
                 )
                 title.substringAfter(" · ", "").takeIf { it.isNotBlank() }?.let {
-                    Text(it, fontSize = 17.sp, color = Color.White.copy(alpha = 0.75f), modifier = Modifier.padding(top = 20.dp).graphicsLayer { alpha = fadeIn })
+                    Text(it, fontSize = 17.sp, color = Color.White.copy(alpha = 0.75f), modifier = Modifier.padding(top = 20.dp).graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha; alpha = fadeIn })
                 }
             }
         }

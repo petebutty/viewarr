@@ -22,7 +22,12 @@ import kotlin.math.abs
  * than having its edges cut off.
  */
 @Composable
-fun PosterImage(url: String, contentDescription: String?, modifier: Modifier = Modifier) {
+fun PosterImage(
+    url: String, contentDescription: String?, modifier: Modifier = Modifier,
+    /** A colour washed over the picture as it's drawn (the "Other posters faded" shade): no extra drawing pass. */
+    tint: Color? = null,
+) {
+    val filter = tint?.let { androidx.compose.ui.graphics.ColorFilter.tint(it, androidx.compose.ui.graphics.BlendMode.SrcOver) }
     // The picture's own shape, once it's loaded.
     var ratio by remember(url) { mutableStateOf<Float?>(null) }
     val odd = ratio?.let { abs(it - 2f / 3f) > 0.07f } == true
@@ -39,6 +44,7 @@ fun PosterImage(url: String, contentDescription: String?, modifier: Modifier = M
         AsyncImage(
             model = url, contentDescription = contentDescription,
             contentScale = if (odd) ContentScale.Fit else ContentScale.Crop,
+            colorFilter = filter,
             onSuccess = { s ->
                 val size = s.painter.intrinsicSize
                 if (size.width > 0f && size.height > 0f) ratio = size.width / size.height

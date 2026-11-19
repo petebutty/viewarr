@@ -481,8 +481,39 @@ class GuideRepository @Inject constructor(
 
             _sync.value = SyncState.Running("Loading TV guide…")
             val now = System.currentTimeMillis()
+            // A top-up when nothing has changed on the server (Peter, 2026-11-19: the whole guide, ~220,000
+            // programmes, was downloaded and stored again every few hours): the guide sources' refresh stamps and
+            // the channel list are as at the last full update, and the saved guide still reaches past now. Then
+            // only the new hours at the far end are fetched (and what's over is dropped); otherwise everything.
+            val stamp = guideStamp(api)
+            val shape = channelRows.fold(17L) { h, c -> h * 31 + c.id * 131L + c.guideKey.hashCode() } * 31 + (keep?.size ?: -1)
+            val savedTo = prefs.getLong(k(KEY_SYNCED_TO), 0)
+            val wantTo = now + forwardMs()
+            val fullAge = now - prefs.getLong(k(KEY_FULL_SYNC), 0)
+            if (stamp != null && stamp == prefs.getString(k(KEY_GUIDE_STAMP), null) && shape == prefs.getLong(k(KEY_GUIDE_SHAPE), 0) &&
+                savedTo > now + 3_600_000L && fullAge < 24 * 3_600_000L && dao.programCount() > 0) {
+                val t0 = System.currentTimeMillis()
+                var added = 0
+                if (wantTo > savedTo + 10 * 60_000L) api.grid(Instant.ofEpochMilli(savedTo).toString(), Instant.ofEpochMilli(wantTo).toString()).use { body ->
+                    db.withTransaction {
+                        dao.deleteProgramsAfter(savedTo)
+                        val sh = shifter(sourceId(session))
+                        parseGrid(body.byteStream()) { all ->
+                            val batch = (if (keep == null) all else all.filter { it.tvgId in keep }).shifted(sh)
+                            dao.insertPrograms(batch); added += batch.size
+                        }
+                    }
+                    prefs.edit().putLong(k(KEY_SYNCED_TO), wantTo).apply()
+                }
+                Log.i("Guide", "top-up: $added programmes for ${(wantTo - savedTo) / 60_000} min more, in ${System.currentTimeMillis() - t0} ms (nothing changed on the server)")
+                prefs.edit().putLong(k(KEY_LAST_SYNC), now).apply()
+                _generation.value++
+                _sync.value = SyncState.Idle
+                return@withLock
+            }
+            val fullT0 = System.currentTimeMillis()
             val start = Instant.ofEpochMilli(now - LOOKBACK_MS).toString()
-            val end = Instant.ofEpochMilli(now + forwardMs()).toString()
+            val end = Instant.ofEpochMilli(wantTo).toString()
             api.grid(start, end).use { body ->
                 db.withTransaction {
                     dao.clearPrograms()
@@ -501,7 +532,10 @@ class GuideRepository @Inject constructor(
                     dao.useUuidWhereGuideMissing()
                 }
             }
-            prefs.edit().putLong(k(KEY_LAST_SYNC), now).putLong(k(KEY_SYNCED_FROM), now - LOOKBACK_MS).apply()
+            prefs.edit().putLong(k(KEY_LAST_SYNC), now).putLong(k(KEY_SYNCED_FROM), now - LOOKBACK_MS)
+                .putLong(k(KEY_SYNCED_TO), wantTo).putLong(k(KEY_FULL_SYNC), now).putLong(k(KEY_GUIDE_SHAPE), shape)
+                .putString(k(KEY_GUIDE_STAMP), stamp).apply()
+            Log.i("Guide", "full update: ${dao.programCount()} programmes in ${System.currentTimeMillis() - fullT0} ms")
             _generation.value++
             _sync.value = SyncState.Idle
         } catch (e: CancellationException) {
@@ -576,6 +610,18 @@ class GuideRepository @Inject constructor(
             )
         }
         return onlyShown(groups.map { GroupEntity(it.id, it.name) }, allChannelRows)
+    }
+
+    /**
+     * When Dispatcharr last refreshed its guide sources, as one text (each source's id and "updated_at"); null when it
+     * can't be told (not an admin: then every update is a full one, as before).
+     */
+    private suspend fun guideStamp(api: DispatcharrApi): String? = withContext(Dispatchers.IO) {
+        runCatching {
+            val arr = JSONArray(api.epgSources().use { it.string() })
+            (0 until arr.length()).map { arr.getJSONObject(it) }.filter { it.optBoolean("is_active", true) }
+                .joinToString("|") { it.optInt("id").toString() + "@" + it.optString("updated_at") + "@" + it.optString("last_message").hashCode() }.ifEmpty { null }
+        }.getOrNull()
     }
 
     /**
@@ -1036,6 +1082,11 @@ class GuideRepository @Inject constructor(
 
     private companion object {
         const val KEY_LAST_SYNC = "last_sync"
+        /** Guide top-ups: how far the saved guide reaches, the last full update, and what the server looked like then. */
+        const val KEY_SYNCED_TO = "synced_to"
+        const val KEY_FULL_SYNC = "full_sync"
+        const val KEY_GUIDE_STAMP = "guide_stamp"
+        const val KEY_GUIDE_SHAPE = "guide_shape"
         const val KEY_SYNCED_FROM = "synced_from"
         const val KEY_SHIFT = "time_shift"
         const val KEY_TVG_SHIFT = "tvg_shift"

@@ -36,6 +36,10 @@ interface DispatcharrApi {
     @GET("api/channels/channels/")
     suspend fun channels(): List<ChannelDto>
 
+    /** The guide sources (each with "updated_at": when Dispatcharr last refreshed it). Admins only. */
+    @GET("api/epg/sources/")
+    suspend fun epgSources(): ResponseBody
+
     /** Channel profiles with the ids of their enabled channels ({"id", "name", "channels": [...]}). */
     @GET("api/channels/profiles/")
     suspend fun channelProfiles(): ResponseBody

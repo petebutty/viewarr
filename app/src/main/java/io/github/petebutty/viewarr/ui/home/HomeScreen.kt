@@ -1301,7 +1301,7 @@ private fun BoxScope.PagesLayer(
     val catchup by playback.catchup.collectAsStateWithLifecycle()
     val dvrRecordings by dvr.recordings.collectAsStateWithLifecycle()
     val sportFollows by hs.sportsVm.follows.collectAsStateWithLifecycle()
-    Box(Modifier.fillMaxSize().offset { IntOffset(guidePush.value, 0) }.graphicsLayer { alpha = if (VodHost.behind) 0f else 1f }) {
+    Box(Modifier.fillMaxSize().offset { IntOffset(guidePush.value, 0) }.graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha; alpha = if (VodHost.behind) 0f else 1f }) {
         SideEffect { CornerPicture.pushPx = { guidePush.value } }
         // (Search isn't a page any more: openPage(Search) opens quick search over the page instead.)
         if (hs.page == Page.Music) {

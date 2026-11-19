@@ -315,7 +315,7 @@ fun AppRoot(vm: AppViewModel = hiltViewModel()) {
         io.github.petebutty.viewarr.ui.report.ReportHost()
         // Settings → Live TV → Live now: its search screen and a pick's Remove pop-up.
         io.github.petebutty.viewarr.ui.settings.LiveNowHost()
-        if (splashAlpha > 0f) Box(Modifier.fillMaxSize().graphicsLayer { alpha = splashAlpha }) {
+        if (splashAlpha > 0f) Box(Modifier.fillMaxSize().graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha; alpha = splashAlpha }) {
             ViewarrSplash()
         }
     }

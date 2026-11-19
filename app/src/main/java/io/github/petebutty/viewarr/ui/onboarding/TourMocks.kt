@@ -81,7 +81,7 @@ internal fun BoxScope.Mock(spots: List<Spot>, pulse: () -> Float, draw: @Composa
         spots.forEach { sp ->
             val cx = maxWidth * sp.x; val cy = maxHeight * sp.y
             val r = 16.dp
-            Box(Modifier.offset(cx - r, cy - r).size(r * 2).graphicsLayer { val p = pulse(); scaleX = 1f + p * 0.35f; scaleY = 1f + p * 0.35f; alpha = 1f - p * 0.4f }
+            Box(Modifier.offset(cx - r, cy - r).size(r * 2).graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha; val p = pulse(); scaleX = 1f + p * 0.35f; scaleY = 1f + p * 0.35f; alpha = 1f - p * 0.4f }
                 .border(3.dp, AppColors.Accent, CircleShape))
             Box(Modifier.offset(if (sp.labelLeft) cx - r - 8.dp - 230.dp else cx + r + 8.dp, cy - 12.dp).width(230.dp),
                 contentAlignment = if (sp.labelLeft) Alignment.CenterEnd else Alignment.CenterStart) {

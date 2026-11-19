@@ -373,6 +373,14 @@ interface GuideDao {
 
     @Query("DELETE FROM programs")
     suspend fun clearPrograms()
+
+    /** Everything still running at [from] or starting after it (a guide top-up brings these again). */
+    @Query("DELETE FROM programs WHERE endTime > :from")
+    suspend fun deleteProgramsAfter(from: Long)
+
+    /** Programmes over before [before] (the guide's lookback; catch-up loads its own past when asked). */
+    @Query("DELETE FROM programs WHERE endTime < :before")
+    suspend fun deleteProgramsBefore(before: Long)
 }
 
 @Database(

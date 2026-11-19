@@ -91,7 +91,7 @@ fun ViewarrSplash() {
                 "viewarr", fontFamily = ViewarrBrand.Font, fontWeight = FontWeight.ExtraBold, fontSize = 80.sp,
                 letterSpacing = (-0.03).em, color = Color.White, maxLines = 1, softWrap = false,
                 // (Slides in from the mark's side.)
-                modifier = Modifier.graphicsLayer { alpha = word; translationX = -(1f - word) * 18.dp.toPx() },
+                modifier = Modifier.graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha; alpha = word; translationX = -(1f - word) * 18.dp.toPx() },
             )
         }
     }

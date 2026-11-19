@@ -97,7 +97,8 @@ import java.time.Instant
 import java.time.ZoneId
 
 private val ChannelColumn = 230.dp
-private val RowHeight = 38.dp
+// (36: ten whole rows on a 1080p-shaped screen at the usual text size; at 38 the tenth was cut in half. Peter, 2026-11-19.)
+private val RowHeight = 36.dp
 private const val PAGE = 7
 
 /**
@@ -329,21 +330,26 @@ fun GuideScreen(
                 LazyColumn(
                     state = listState, userScrollEnabled = false,
                     modifier = Modifier.fillMaxSize()
-                        .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
-                        .drawWithContent {
-                            drawContent()
-                            val fade = 24.dp.toPx()
-                            drawRect(
-                                Brush.verticalGradient(0f to Color.Black, 1f to Color.Transparent, startY = size.height - fade, endY = size.height),
-                                topLeft = Offset(0f, size.height - fade), size = Size(size.width, fade), blendMode = BlendMode.DstIn,
-                            )
-                        },
+                        // (No off-screen buffer: inside one, every cell got a buffer of its own from the renderer,
+                        // ~150 MB at 4K once the guide had been open. The soft bottom edge is the cut-off last row
+                        // drawn fainter instead: see the row's wrapper below. Peter, 2026-11-19.)
+                        .clipToBounds(),
                 ) {
                     // One copy of the channels for the count, the keys and the rows (the list changing size between
                     // them, e.g. another group, asked for a channel past its end and crashed).
                     val list = channels
                     items(list.size, key = { v -> list.getOrNull(v)?.id ?: "x$v" }) { v ->
                         val channel = list.getOrNull(v) ?: return@items
+                        // The row running off the bottom of the guide: fainter, the more of it is cut off.
+                        Box(Modifier.graphicsLayer {
+                            compositingStrategy = CompositingStrategy.ModulateAlpha
+                            val info = listState.layoutInfo
+                            val me = info.visibleItemsInfo.firstOrNull { it.index == v }
+                            alpha = if (me == null) 1f else {
+                                val over = (me.offset + me.size - info.viewportEndOffset).toFloat()
+                                if (over <= 0f) 1f else (1f - over / me.size * 1.1f).coerceIn(0.15f, 1f)
+                            }
+                        }) {
                         GuideRow(
                             channel = channel,
                             recorded = recordedByChannel[channel.id].orEmpty(),
@@ -358,6 +364,7 @@ fun GuideScreen(
                             textMeasurer = textMeasurer,
                             gridWidth = gridWidth,
                         )
+                        }
                     }
                 }
             }

@@ -441,14 +441,14 @@ private fun SettingRow(
     ) {
         Row(Modifier.padding(horizontal = 18.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             if (moving) Text("↕ ", fontSize = 18.sp)
-            Column(Modifier.weight(1f).graphicsLayer { alpha = if (item.locked != null) 0.75f else 1f }) {
+            Column(Modifier.weight(1f).graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha; alpha = if (item.locked != null) 0.75f else 1f }) {
                 Text((if (item.locked != null) "🔒 " else "") + item.title, fontSize = 16.sp, fontWeight = FontWeight.Medium)
                 // (The whole description once the row is highlighted: three lines cut most of them off. UI review, 2026-11-18.)
                 if (item.description.isNotEmpty()) Text(item.description, fontSize = 12.sp, maxLines = if (rowFocused) Int.MAX_VALUE else 3, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp))
                 item.locked?.let { Text(it, fontSize = 12.sp, fontWeight = FontWeight.Medium, maxLines = 3, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp)) }
             }
             Spacer(Modifier.width(20.dp))
-            if (item.locked != null) Text("Locked", fontSize = 14.sp, modifier = Modifier.graphicsLayer { alpha = 0.75f })
+            if (item.locked != null) Text("Locked", fontSize = 14.sp, modifier = Modifier.graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha; alpha = 0.75f })
             else if (item.slider) {
                 val i = item.choices.indexOf(item.current).coerceAtLeast(0)
                 val fraction = if (item.choices.size > 1) i / item.choices.lastIndex.toFloat() else 0f

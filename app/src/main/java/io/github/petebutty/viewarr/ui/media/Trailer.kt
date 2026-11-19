@@ -142,7 +142,7 @@ fun TrailerPreview(item: MediaItem?, active: Boolean, trailers: TrailerRepositor
     // Gone (the page left while it showed): not showing any more, or the card stayed wide.
     DisposableEffect(Unit) { onDispose { onShowing(false) } }
     val alpha by animateFloatAsState(if (showing && active) 1f else 0f, tween(350), label = "trailer")
-    Box(modifier.graphicsLayer { this.alpha = alpha }.background(Color.Black)) {
+    Box(modifier.graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha; this.alpha = alpha }.background(Color.Black)) {
         player?.let { p ->
             AndroidView(
                 factory = { ctx -> TextureView(ctx).also { p.setVideoTextureView(it) } },
@@ -340,18 +340,18 @@ fun PosterTrailerHost() {
             if (PosterTrailer.showing) Box(Modifier.fillMaxSize().border(3.dp, AppColors.Accent, androidx.compose.foundation.shape.RoundedCornerShape(radius)))
             if (item != null && PosterTrailer.showing && grow < 1f) {
                 // Stage 1: its title bottom-left, muted bottom-right, over a soft shade (fading as it grows).
-                Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(44.dp).graphicsLayer { alpha = 1f - grow }
+                Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(44.dp).graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha; alpha = 1f - grow }
                     .background(androidx.compose.ui.graphics.Brush.verticalGradient(0f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.7f))))
                 androidx.tv.material3.Text(item.title, fontSize = 12.sp, color = Color.White, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                    modifier = Modifier.align(Alignment.BottomStart).padding(start = 10.dp, end = 34.dp, bottom = 8.dp).graphicsLayer { alpha = 1f - grow })
+                    modifier = Modifier.align(Alignment.BottomStart).padding(start = 10.dp, end = 34.dp, bottom = 8.dp).graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha; alpha = 1f - grow })
                 if (LocalPlayback.current.trailerSound != TrailerSound.On)
-                    androidx.tv.material3.Text("🔇", fontSize = 12.sp, modifier = Modifier.align(Alignment.BottomEnd).padding(end = 10.dp, bottom = 7.dp).graphicsLayer { alpha = 1f - grow })
+                    androidx.tv.material3.Text("🔇", fontSize = 12.sp, modifier = Modifier.align(Alignment.BottomEnd).padding(end = 10.dp, bottom = 7.dp).graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha; alpha = 1f - grow })
             }
         }
         // Stage 2: the title, a line about it and what the buttons do, under the panel.
         if (item != null && grow > 0.5f) androidx.compose.foundation.layout.Column(
             Modifier.offset { androidx.compose.ui.unit.IntOffset(panelRect.left.toInt(), (panelRect.bottom + with(density) { 14.dp.toPx() }).toInt()) }
-                .width(with(density) { panelRect.width.toDp() }).graphicsLayer { alpha = (grow - 0.5f) * 2f },
+                .width(with(density) { panelRect.width.toDp() }).graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha; alpha = (grow - 0.5f) * 2f },
         ) {
             androidx.tv.material3.Text(item.title, fontSize = 24.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, color = Color.White, maxLines = 1,
                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)

@@ -149,7 +149,7 @@ private fun MusicHero(card: MusicCard?, artUrl: String?, vm: MusicViewModel, mem
     LaunchedEffect(card?.key) { anim.animateTo(1f, tween(500)) }
     val round = card?.kind == MusicKind.Artist
     Row(
-        Modifier.fillMaxWidth().height(200.dp).padding(start = Tokens.Gutter, end = Tokens.Gutter, top = 22.dp, bottom = 10.dp).graphicsLayer { alpha = anim.value },
+        Modifier.fillMaxWidth().height(200.dp).padding(start = Tokens.Gutter, end = Tokens.Gutter, top = 22.dp, bottom = 10.dp).graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha; alpha = anim.value },
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(Modifier.size(150.dp).clip(if (round) Tokens.RoundShape else Tokens.CardShape).background(AppColors.Panel), contentAlignment = Alignment.Center) {

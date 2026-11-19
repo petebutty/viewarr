@@ -505,7 +505,7 @@ internal fun MenuOverlay(
     // Opened by holding OK (a button set to the menu): the rest of that press, its repeats and release, mustn't press
     // the entry the highlight lands on.
     Box(Modifier.fillMaxSize().ignoreHeldOk()) {
-    Row(Modifier.fillMaxSize().graphicsLayer { alpha = if (besidePreview) 0f else 1f }) {
+    Row(Modifier.fillMaxSize().graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha; alpha = if (besidePreview) 0f else 1f }) {
     // Settings → Appearance → Main menu → Colour tint: the whole menu's glass (both panels, so they always match) in the
     // colour of the section you're on.
     val tintOn = AppColors.palette.opt(UiOpts.MENU_TINT) == 1 && !fullPage
@@ -1574,21 +1574,9 @@ internal fun sectionIcon(s: Section): String = when (s) {
  */
 /** A soft fade at the top / bottom edge of a scrolling list, only on the side where more of it is hidden. */
 internal fun Modifier.scrollEdgeFade(state: androidx.compose.foundation.ScrollState, edge: androidx.compose.ui.unit.Dp = 28.dp): Modifier =
-    this.graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen }
-        .then(androidx.compose.ui.Modifier.drawWithContent {
-            drawContent()
-            val sz = this.size
-            val e = edge.toPx().coerceAtMost(sz.height / 3f)
-            if (state.value > 0) drawRect(
-                androidx.compose.ui.graphics.Brush.verticalGradient(0f to Color.Transparent, 1f to Color.Black, startY = 0f, endY = e),
-                size = androidx.compose.ui.geometry.Size(sz.width, e), blendMode = androidx.compose.ui.graphics.BlendMode.DstIn,
-            )
-            if (state.value < state.maxValue) drawRect(
-                androidx.compose.ui.graphics.Brush.verticalGradient(0f to Color.Black, 1f to Color.Transparent, startY = sz.height - e, endY = sz.height),
-                topLeft = androidx.compose.ui.geometry.Offset(0f, sz.height - e), size = androidx.compose.ui.geometry.Size(sz.width, e),
-                blendMode = androidx.compose.ui.graphics.BlendMode.DstIn,
-            )
-        })
+    // (No fade any more, just the clip: the off-screen buffer it needed made the renderer give every menu entry a
+    // buffer of its own, kept afterwards; ~15 MB at 4K each time the menu had been open. Peter, 2026-11-19.)
+    this
 
 internal object MenuScrolls {
     val main = androidx.compose.foundation.ScrollState(0)

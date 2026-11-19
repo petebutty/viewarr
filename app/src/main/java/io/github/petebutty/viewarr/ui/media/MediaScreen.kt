@@ -517,7 +517,7 @@ fun MediaScreen(
         var titleDrawn by remember { mutableStateOf(true) }
         LaunchedEffect(playing != null) { if (playing != null) { delay(600); titleDrawn = false } else titleDrawn = true }
         detail?.let { d -> Box(Modifier.fillMaxSize()
-            .graphicsLayer { alpha = if (playing != null && !titleDrawn) 0f else 1f }
+            .graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha; alpha = if (playing != null && !titleDrawn) 0f else 1f }
             .then(if (playing != null) Modifier.noFocusInside() else Modifier)) {
             TitlePageLayer(
                 ui = d, vm = vm,
@@ -808,7 +808,7 @@ private fun Hero(
             val ex = extras
             // (Cinema: the details rise a little as they fade in, eased, for a cleaner change between titles.)
             val rise = if (cinema) 1f - androidx.compose.animation.core.FastOutSlowInEasing.transform(detailsAlpha) else 0f
-            if (item != null) Column(Modifier.graphicsLayer { alpha = detailsAlpha; translationY = rise * 18.dp.toPx() }, horizontalAlignment = colAlign) {
+            if (item != null) Column(Modifier.graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha; alpha = detailsAlpha; translationY = rise * 18.dp.toPx() }, horizontalAlignment = colAlign) {
                 // (The logo already fetched and its picture loaded: shown straight from there.)
                 val exLogo = ex?.takeIf { it.key == item.key }?.logo
                 val logoFn: (suspend (MediaItem) -> String?)? = if (ex?.key == item.key) ({ _: MediaItem -> exLogo }) else null
@@ -1355,10 +1355,9 @@ private fun PosterCard(item: MediaItem, modifier: Modifier, onClick: () -> Unit,
             .clearAndSetSemantics { contentDescription = item.title }
             // Posters that aren't highlighted fade a little (Settings → Appearance → Posters → Other posters faded;
             // Peter, 2026-11-18), the highlighted one is solid.
-            // (A see-through shade drawn over the poster, not the poster made see-through: a faded layer is drawn
-            // off-screen and blended back, once per poster per frame, which at 4K cost the graphics chip several ms
-            // a frame while a row slid. Peter, 2026-11-19: frames lost.)
-            .drawWithContent { drawContent(); if (dimAlpha < 0.999f) drawRect(AppColors.palette.main.copy(alpha = 1f - dimAlpha)) }
+            // (The fade is a colour wash in the picture's own drawing (PosterImage tint), not a see-through layer or
+            // a shade drawn over the card: each of those made Android's renderer keep an off-screen buffer, a
+            // full-screen one at start and one per poster as you moved; ~75 MB at 4K. Peter, 2026-11-19.)
             .then(if (mine) Modifier.onGloballyPositioned { PosterTrailer.cardRect = it.boundsInRoot() } else Modifier),
         aspect = if (inPoster) null else CardAspect.Poster,
         ring = ring && !(mine && PosterTrailer.panel),
@@ -1372,7 +1371,7 @@ private fun PosterCard(item: MediaItem, modifier: Modifier, onClick: () -> Unit,
                 item.title, fontSize = 13.sp, color = AppColors.TextSecondary, textAlign = TextAlign.Center,
                 modifier = Modifier.align(Alignment.Center).padding(8.dp), maxLines = 4, overflow = TextOverflow.Ellipsis,
             )
-            if (!playing) (item.poster ?: item.backdrop)?.let { PosterImage(it, item.title, Modifier.fillMaxSize()) }
+            if (!playing) (item.poster ?: item.backdrop)?.let { PosterImage(it, item.title, Modifier.fillMaxSize(), tint = if (dimAlpha < 0.999f) AppColors.palette.main.copy(alpha = 1f - dimAlpha) else null) }
             // (No poster, only a wide picture: the name over its foot. UI review, 2026-11-18.)
             if (!playing && item.poster == null && item.backdrop != null) Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth()
                 .background(Brush.verticalGradient(0f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.8f))).padding(horizontal = 8.dp, vertical = 8.dp)) {
@@ -1740,7 +1739,7 @@ private fun EpisodesPanel(ui: DetailUi, vm: MediaViewModel) {
                 when {
                     eps == null -> Text("Loading episodes…", color = AppColors.TextSecondary)
                     eps.isEmpty() -> Text("No episodes listed for this season.", color = AppColors.TextSecondary)
-                    else -> LazyColumn(state = listState, verticalArrangement = Arrangement.spacedBy(4.dp), contentPadding = PaddingValues(bottom = 40.dp), modifier = Modifier.graphicsLayer { alpha = if (loading) 0.4f else 1f }) {
+                    else -> LazyColumn(state = listState, verticalArrangement = Arrangement.spacedBy(4.dp), contentPadding = PaddingValues(bottom = 40.dp), modifier = Modifier.graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha; alpha = if (loading) 0.4f else 1f }) {
                         itemsIndexed(eps, key = { _, e -> "${e.season}-${e.number}" }) { i, ep ->
                             val plex = ui.plexEpisodes[ep.season to ep.number]
                             Surface(
@@ -1780,7 +1779,7 @@ private fun EpisodesPanel(ui: DetailUi, vm: MediaViewModel) {
                                         if (tags.isNotEmpty()) Text(tags, fontSize = 12.sp, maxLines = 1)
                                         // A taste of the story, right in the list (the full synopsis is on the left).
                                         ep.overview?.takeIf { it.isNotBlank() }?.let {
-                                            Text(it, fontSize = 12.sp, lineHeight = 16.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp).graphicsLayer { alpha = 0.85f })
+                                            Text(it, fontSize = 12.sp, lineHeight = 16.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp).graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha; alpha = 0.85f })
                                         }
                                     }
                                     if (watched(ep.season, ep.number)) Text("✓", fontSize = 16.sp, modifier = Modifier.padding(horizontal = 10.dp))
@@ -1945,7 +1944,7 @@ private fun InlineEpisodes(ui: DetailUi, vm: MediaViewModel, free: Boolean, entr
             else -> LazyRow(
                 state = episodeRow, horizontalArrangement = Arrangement.spacedBy(12.dp),
                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
-                modifier = Modifier.offset(x = (-8).dp).graphicsLayer { alpha = if (loading) 0.4f else 1f },
+                modifier = Modifier.offset(x = (-8).dp).graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha; alpha = if (loading) 0.4f else 1f },
             ) {
                 itemsIndexed(eps, key = { _, e -> "${e.season}-${e.number}" }) { i, ep ->
                     var focused by remember { mutableStateOf(false) }
