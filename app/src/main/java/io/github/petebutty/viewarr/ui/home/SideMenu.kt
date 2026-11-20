@@ -55,6 +55,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.compose.foundation.layout.size
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.tv.material3.Text
 import io.github.petebutty.viewarr.data.local.GroupWithCount
 import io.github.petebutty.viewarr.data.repository.SyncState
@@ -579,7 +580,7 @@ internal fun MenuOverlay(
                 // which takes the rest of the row.
                 // (A round button like the mic beside it: it was a small dim "⚙". Peter, 2026-11-17.)
                 if (!editingMain) io.github.petebutty.viewarr.ui.common.RoundBarButton(
-                    icon = io.github.petebutty.viewarr.ui.common.AppIcons.Settings, label = "Settings", size = 34.dp,
+                    icon = io.github.petebutty.viewarr.ui.common.AppIcons.Settings, label = "Settings", size = 30.dp,
                     onClick = {
                         // (A page switch still waiting from the entry the highlight left mustn't land under Settings.)
                         hoverJob?.cancel()
@@ -607,7 +608,7 @@ internal fun MenuOverlay(
                             if (e.type == KeyEventType.KeyDown) runCatching { gearFocus.requestFocus() }
                             true
                         },
-                        listening = menuVoice.listening, size = 34.dp, pulse = false,
+                        listening = menuVoice.listening, size = 30.dp, pulse = false,
                     )
                     // The search box itself: OK starts typing here (the keyboard only then: passing through doesn't
                     // bring it up); the keyboard's search key opens the search page with what was typed.
@@ -630,7 +631,7 @@ internal fun MenuOverlay(
                         listening = menuVoice.listening,
                         litWhenFocused = true,
                         keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = { startSearch() }, onDone = { startSearch() }),
-                        modifier = Modifier.weight(1f).height(34.dp)
+                        modifier = Modifier.weight(1f).height(30.dp)
                             .onFocusChanged { if (!it.isFocused) { menuTyping = false; keyboard?.hide() } }
                             .onPreviewKeyEvent { e ->
                                 if (e.key == Key.DirectionUp) return@onPreviewKeyEvent true
@@ -662,9 +663,9 @@ internal fun MenuOverlay(
                 )
             }
         }
-        GrowFromLeftToggle(mainShown, 230.dp) { Box(Modifier.width(230.dp).fillMaxHeight()) { Column(
+        GrowFromLeftToggle(mainShown, MenuW) { Box(Modifier.width(MenuW).fillMaxHeight()) { Column(
             Modifier
-                .width(230.dp)
+                .width(MenuW)
                 .fillMaxHeight()
                 .padding(horizontal = 10.dp, vertical = 24.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp),
@@ -902,7 +903,7 @@ internal fun MenuOverlay(
             // Folded (an entry's own list on its own): the menu's top stays where it was (logo, hint, ⚙ / 🎤 / Search), the
             // list starting under it as the main list did.
             if (aligned) Column(
-                Modifier.align(Alignment.TopStart).offset(x = (-8).dp, y = -subTop).width(230.dp)
+                Modifier.align(Alignment.TopStart).offset(x = (-8).dp, y = -subTop).width(MenuW)
                     .onFocusChanged { foldedHeaderFocused = it.hasFocus }.padding(horizontal = 10.dp, vertical = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) { menuHeader(true, heading) }
@@ -914,7 +915,7 @@ internal fun MenuOverlay(
             )
             // Editing the menu: what the buttons do.
             if (editingMain && svc == null && !menuEditing) Column(Modifier.padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("EDITING THE MENU", fontSize = 12.sp, color = AppColors.Accent)
+                Text("EDITING THE MENU", fontSize = 12.sp, color = AppColors.Accent, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text("OK: show or hide", fontSize = 15.sp, color = AppColors.TextSecondary)
                 Text(if (mainCarry.active) movingHint() else "Hold OK: options (move, hide)", fontSize = 15.sp, color = AppColors.TextSecondary)
                 Text("Right on a service, Movies or Shows: edit its own list", fontSize = 15.sp, color = AppColors.TextSecondary)
@@ -935,7 +936,7 @@ internal fun MenuOverlay(
                 val all = (sRows.map { Triple(it, showsMedia, sHidden) } + mRows.map { Triple(it, moviesMedia, mHidden) })
                     .sortedWith(compareBy({ RowSets.kindRank(it.first) }, { it.second === moviesMedia }))
                 Column(Modifier.verticalScroll(androidx.compose.foundation.rememberScrollState()), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(svc.first.uppercase() + "  ·  ROWS", fontSize = 12.sp, color = AppColors.Accent, modifier = Modifier.padding(start = 12.dp, bottom = 8.dp))
+                    Text(svc.first.uppercase() + "  ·  ROWS", fontSize = 12.sp, color = AppColors.Accent, modifier = Modifier.padding(start = 12.dp, bottom = 8.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
                     all.forEachIndexed { i, (row, media, hidden) ->
                         val off = row.id in hidden
                         val films = media === moviesMedia
@@ -1122,7 +1123,7 @@ internal fun MenuOverlay(
             Modifier
                 // (With the live channel list beside it: folded away while that list's programme panel is open, which had
                 // no room otherwise. UI review, Tier 1, 2026-11-17.)
-                .width(if (subHidden || (channelsPanel != null && section == Section.Tv && ChannelPanelState.programmesOpen)) 0.dp else 230.dp)
+                .width(if (subHidden || (channelsPanel != null && section == Section.Tv && ChannelPanelState.programmesOpen)) 0.dp else MenuW)
                 .fillMaxHeight()
                 .onFocusChanged { subListFocused = it.hasFocus }
                 // Any other list (Music, Search): a Left nothing in it used brings the main list back.
@@ -1182,7 +1183,8 @@ internal fun MenuOverlay(
     if (showPlayback) mapped(SettingsMap.PLAYBACK, playbackItem) { showPlayback = false }
     if (showAppearance) mapped(SettingsMap.APPEARANCE, appearanceItem) { showAppearance = false }
     if (showLive) mapped(SettingsMap.LIVE, liveItem) { showLive = false }
-    if (showTrouble) mapped(SettingsMap.SYSTEM, troubleItem) { showTrouble = false }
+    val advanced = io.github.petebutty.viewarr.ui.settings.AdvancedPage
+    if (showTrouble) mapped(if (advanced.open) SettingsMap.ADVANCED else SettingsMap.SYSTEM, if (advanced.open) advanced.item else troubleItem) { showTrouble = false; advanced.open = false }
     if (showNavigation) mapped(SettingsMap.NAVIGATION, navigationItem) { showNavigation = false }
     if (showSearchSettings) {
         fun other(title: String, words: String, open: () -> Unit) = OtherSettingsPage(title, words) { showSearchSettings = false; open() }
@@ -1196,6 +1198,7 @@ internal fun MenuOverlay(
                     SettingsMap.LIVE -> showLive = true
                     SettingsMap.PLAYBACK -> showPlayback = true
                     SettingsMap.NAVIGATION -> showNavigation = true
+                    SettingsMap.ADVANCED -> { io.github.petebutty.viewarr.ui.settings.AdvancedPage.open = true; showTrouble = true }
                     else -> showTrouble = true
                 }
             },
@@ -1472,8 +1475,8 @@ internal fun SettingsPanel(playbackItem: FocusRequester, onPlayback: () -> Unit,
     liveItem: FocusRequester, onLive: () -> Unit, troubleItem: FocusRequester, onTrouble: () -> Unit, searchItem: FocusRequester, onSearchSettings: () -> Unit) {
     // Scrolls: the list is taller than the screen with the Dispatcharr sync items.
     Column(Modifier.verticalScroll(MenuScrolls.settings), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text(session?.let { "Signed in as ${it.username}" } ?: "Live TV not set up", fontSize = 15.sp, color = AppColors.TextPrimary, modifier = Modifier.padding(horizontal = 12.dp))
-        session?.let { Text(it.serverUrl, fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(horizontal = 12.dp)) }
+        Text(session?.let { "Signed in as ${it.username}" } ?: "Live TV not set up", fontSize = 15.sp, color = AppColors.TextPrimary, modifier = Modifier.padding(horizontal = 12.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
+        session?.let { Text(it.serverUrl, fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(horizontal = 12.dp), maxLines = 1, overflow = TextOverflow.Ellipsis) }
         when (sync) {
             is SyncState.Running -> sync.message
             is SyncState.Failed -> sync.message
@@ -1519,6 +1522,11 @@ internal fun SettingsPanel(playbackItem: FocusRequester, onPlayback: () -> Unit,
         val canSignOut = Access.can(Lock.SIGNOUT)
         if (canSignOut && session != null && !session.isDirect) BackupSyncItem()
         if (canSettings) MenuItem(text = "Troubleshooting", selected = false, onClick = onTrouble, modifier = Modifier.hint("Playback info on screen, and Low-memory mode for boxes that struggle.").focusRequester(troubleItem).rightDoes(onTrouble))
+        // Settings most people never need, behind a warning (the page itself says so at the top of each section).
+        if (canSettings) {
+            val openAdvanced = { io.github.petebutty.viewarr.ui.settings.AdvancedPage.open = true; onTrouble() }
+            MenuItem(text = "Advanced", selected = false, onClick = openAdvanced, modifier = Modifier.hint("For when you've been asked to change something: player internals, screen and sizes, guide data. Best left alone.").focusRequester(io.github.petebutty.viewarr.ui.settings.AdvancedPage.item).rightDoes(openAdvanced))
+        }
         // Accounts and settings both locked: Updates is the first row.
         MenuItem(text = "Updates", selected = false, onClick = onUpdates, modifier = Modifier.hint("Check for a new version of Viewarr and install it.").focusRequester(updatesItem).then(if (!canAccounts && !canSettings) Modifier.focusRequester(firstItem) else Modifier).rightDoes(onUpdates))
         // Version, this TV, what Viewarr stores (with clearing), Live TV sources.
@@ -1545,6 +1553,7 @@ internal fun MenuGroupLabel(title: String, first: Boolean = false) {
         Text(
             title.uppercase(), fontSize = 10.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, letterSpacing = 1.4.sp,
             color = AppColors.Accent.copy(alpha = 0.85f), modifier = Modifier.padding(top = if (first) 0.dp else 10.dp),
+            maxLines = 1, overflow = TextOverflow.Ellipsis,
         )
     }
 }
@@ -1577,6 +1586,9 @@ internal fun Modifier.scrollEdgeFade(state: androidx.compose.foundation.ScrollSt
     // (No fade any more, just the clip: the off-screen buffer it needed made the renderer give every menu entry a
     // buffer of its own, kept afterwards; ~15 MB at 4K each time the menu had been open. Peter, 2026-11-19.)
     this
+
+/** The menu columns' width: 200 (was 230; Peter, 2026-11-19: "the menus can be shortened a bit"), its top icons smaller to fit. */
+internal val MenuW = 200.dp
 
 internal object MenuScrolls {
     val main = androidx.compose.foundation.ScrollState(0)

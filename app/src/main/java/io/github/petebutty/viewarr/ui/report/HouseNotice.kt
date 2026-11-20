@@ -62,9 +62,9 @@ object HouseNotice {
             Column(
                 Modifier.align(Alignment.TopEnd).padding(28.dp).width(400.dp).glass(12.dp).padding(horizontal = 18.dp, vertical = 14.dp),
             ) {
-                Text("⚑  From a report", fontSize = 13.sp, color = AppColors.Accent)
+                Text("⚑  From a report", fontSize = 13.sp, color = AppColors.Accent, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(n.text, fontSize = 16.sp, color = AppColors.TextPrimary, maxLines = 3, overflow = TextOverflow.Ellipsis)
-                Text(n.hint, fontSize = 12.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(top = 6.dp))
+                Text(n.hint, fontSize = 12.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(top = 6.dp), maxLines = 3, overflow = TextOverflow.Ellipsis)
             }
         }
     }

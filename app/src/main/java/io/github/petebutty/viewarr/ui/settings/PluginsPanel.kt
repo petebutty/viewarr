@@ -134,12 +134,12 @@ fun PluginsSettingsScreen(onBack: () -> Unit, vm: PluginsViewModel = hiltViewMod
         Row(Modifier.fillMaxSize().padding(horizontal = io.github.petebutty.viewarr.ui.theme.Tokens.Gutter, vertical = 40.dp)) {
             // (Below the live TV window when one is up, as SettingsPage.)
             Column(Modifier.width(300.dp).fillMaxHeight().padding(top = if (SettingsLayout.belowPreview) 170.dp else 0.dp)) {
-                Text("Settings", fontSize = 14.sp, color = AppColors.Accent)
-                Text("Dispatcharr plugins", fontSize = 30.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, modifier = Modifier.padding(bottom = 20.dp))
+                Text("Settings", fontSize = 14.sp, color = AppColors.Accent, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text("Dispatcharr plugins", fontSize = 30.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, modifier = Modifier.padding(bottom = 20.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 if (ui.loading) Text("Loading…", fontSize = 14.sp, color = AppColors.TextSecondary)
                 ui.problem?.let { Text(it, fontSize = 14.sp, color = AppColors.TextSecondary, modifier = Modifier.focusRequester(firstFocus).focusable()) }
                 if (!ui.loading && ui.problem == null) {
-                    Text("Installed", fontSize = 13.sp, color = AppColors.Accent, modifier = Modifier.padding(start = 12.dp, bottom = 4.dp))
+                    Text("Installed", fontSize = 13.sp, color = AppColors.Accent, modifier = Modifier.padding(start = 12.dp, bottom = 4.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
                     LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
                         items(ui.installed, key = { it.key }) { p ->
                             MenuItem(
@@ -154,7 +154,7 @@ fun PluginsSettingsScreen(onBack: () -> Unit, vm: PluginsViewModel = hiltViewMod
                             )
                         }
                         item(key = "store") {
-                            Text("More", fontSize = 13.sp, color = AppColors.Accent, modifier = Modifier.padding(start = 12.dp, top = 12.dp, bottom = 4.dp))
+                            Text("More", fontSize = 13.sp, color = AppColors.Accent, modifier = Modifier.padding(start = 12.dp, top = 12.dp, bottom = 4.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
                             MenuItem(
                                 text = "Get plugins",
                                 selected = selected == STORE,
@@ -201,8 +201,8 @@ private fun PluginDetail(p: InstalledPlugin, storeEntry: StorePlugin?, vm: Plugi
     LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp), contentPadding = PaddingValues(bottom = 40.dp)) {
         item(key = "head") {
             Column(Modifier.padding(start = 4.dp, bottom = 8.dp)) {
-                Text(p.name, fontSize = 22.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary)
-                Text(listOf("v${p.version}", p.author.takeIf { it.isNotEmpty() }?.let { "by $it" }).filterNotNull().joinToString("  ·  "), fontSize = 13.sp, color = AppColors.TextSecondary)
+                Text(p.name, fontSize = 22.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(listOf("v${p.version}", p.author.takeIf { it.isNotEmpty() }?.let { "by $it" }).filterNotNull().joinToString("  ·  "), fontSize = 13.sp, color = AppColors.TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 if (p.description.isNotEmpty()) Text(p.description, fontSize = 14.sp, color = AppColors.TextSecondary, maxLines = 4, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
             }
         }
@@ -226,7 +226,7 @@ private fun FieldRow(p: InstalledPlugin, f: PluginField, vm: PluginsViewModel) {
     val current = p.settings[f.id] ?: f.default
     when (f.type) {
         "info" -> Column(Modifier.padding(start = 4.dp, top = 6.dp, bottom = 2.dp)) {
-            Text(f.label, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = AppColors.TextPrimary)
+            Text(f.label, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = AppColors.TextPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis)
             if (f.description.isNotEmpty()) Text(f.description, fontSize = 12.sp, color = AppColors.TextSecondary, maxLines = 3, overflow = TextOverflow.Ellipsis)
         }
         "boolean" -> {
@@ -274,7 +274,7 @@ private fun StoreList(store: List<StorePlugin>, vm: PluginsViewModel) {
 
 @Composable
 private fun Header(text: String) =
-    Text(text, fontSize = 13.sp, color = AppColors.Accent, modifier = Modifier.padding(start = 4.dp, top = 10.dp))
+    Text(text, fontSize = 13.sp, color = AppColors.Accent, modifier = Modifier.padding(start = 4.dp, top = 10.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
 
 /** OK once arms it (the label asks again), OK again does it. */
 @Composable
@@ -313,7 +313,7 @@ private fun Row2(
     ) {
         Row(Modifier.padding(horizontal = 18.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text(title, fontSize = 16.sp, fontWeight = FontWeight.Medium)
+                Text(title, fontSize = 16.sp, fontWeight = FontWeight.Medium, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 if (description.isNotEmpty()) Text(description, fontSize = 12.sp, maxLines = 3, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp))
             }
             Spacer(Modifier.width(20.dp))

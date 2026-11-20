@@ -45,7 +45,7 @@ fun UpdatesSettingsScreen(onBack: () -> Unit, vm: UpdateViewModel = hiltViewMode
     )
     SettingsPage(
         title = "Updates",
-        categories = listOf(SettingCategory("Updates", "You have Viewarr ${vm.currentVersion}.", items)),
+        allCategories = listOf(SettingCategory("Updates", "You have Viewarr ${vm.currentVersion}.", items)),
         onBack = onBack,
     )
 }

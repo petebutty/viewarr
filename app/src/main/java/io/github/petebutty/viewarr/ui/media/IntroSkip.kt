@@ -194,9 +194,9 @@ fun IntroSkipPill(skip: IntroSkip, modifier: Modifier = Modifier) {
                 .glass(16.dp)
                 .padding(horizontal = 22.dp, vertical = 14.dp),
         ) {
-            Text("Next episode in $secs", fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
+            Text("Next episode in $secs", fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 1, softWrap = false)
             next?.let { Text("S${it.season} · E${it.number}  ${it.name}", fontSize = 14.sp, color = Color.White.copy(alpha = 0.85f), maxLines = 1) }
-            Text("OK: play now   ·   Back: hide", fontSize = 13.sp, color = Color.White.copy(alpha = 0.65f), modifier = Modifier.padding(top = 4.dp))
+            Text("OK: play now   ·   Back: hide", fontSize = 13.sp, color = Color.White.copy(alpha = 0.65f), modifier = Modifier.padding(top = 4.dp), maxLines = 1, softWrap = false)
         }
         return
     }
@@ -210,7 +210,7 @@ fun IntroSkipPill(skip: IntroSkip, modifier: Modifier = Modifier) {
             .padding(horizontal = 22.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(text, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
-        Text("   ·   $hint", fontSize = 15.sp, color = Color.White.copy(alpha = 0.75f))
+        Text(text, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 1, softWrap = false)
+        Text("   ·   $hint", fontSize = 15.sp, color = Color.White.copy(alpha = 0.75f), maxLines = 1, softWrap = false)
     }
 }

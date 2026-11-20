@@ -271,7 +271,7 @@ Sign in to Trakt in **Settings → Accounts & sources → Trakt** (a code to app
 - Everything you watch in Viewarr is scrobbled to Trakt (Settings → Playback → Watch progress → **Send plays to Trakt**, on to start), and Trakt's history adds to the ticks, Continue watching and Up next.
 - **Continue watching (Trakt)**, a row for under the info bar: the shows you've watched lately (in any app that tells Trakt), each at its next episode.
 - Your **Trakt watched history** comes back: episodes and films you've watched in any app that tells Trakt get their tick, and Play / Resume carries on from where Trakt says you're up to.
-- **Sync with Trakt now** is in **Settings → Playback → Watch progress**, with an optional **Copy watched to Plex** (it marks on your Plex servers what Trakt says you've watched, and never un-marks anything).
+- **Sync with Trakt now** is in **Settings → Playback → Watch progress**, with an optional **Copy watched to Plex** (it marks on your own Plex server what you've watched on Trakt in the last 30 days, and never un-marks anything).
 
 ## Watch Next
 

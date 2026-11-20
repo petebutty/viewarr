@@ -40,6 +40,7 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.tv.material3.Border
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.Surface
@@ -142,6 +143,7 @@ internal fun AlphabetRail(
                 Text(
                     ch.toString(), fontSize = 10.sp, fontWeight = if (on) FontWeight.Bold else FontWeight.Medium,
                     color = when { on && focusedRail -> AppColors.OnAccent; has -> AppColors.TextPrimary; else -> AppColors.TextSecondary.copy(alpha = 0.3f) },
+                    maxLines = 1, softWrap = false,
                 )
             }
         }
@@ -164,7 +166,7 @@ internal fun SidePanel(title: String, onClose: () -> Unit, onBack: () -> Unit = 
                     .padding(start = 20.dp, end = 20.dp, top = 28.dp, bottom = 12.dp)
                     .focusProperties { exit = { FocusRequester.Cancel } }.focusGroup(),
             ) {
-                Text(title, fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, modifier = Modifier.padding(start = 12.dp, bottom = 12.dp))
+                Text(title, fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, modifier = Modifier.padding(start = 12.dp, bottom = 12.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 androidx.compose.foundation.lazy.LazyColumn(verticalArrangement = Arrangement.spacedBy(1.dp), contentPadding = PaddingValues(bottom = 24.dp)) { content(first) }
             }
         }

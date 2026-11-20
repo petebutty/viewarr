@@ -87,7 +87,7 @@ private fun traktWatchItems(): List<SettingItem> {
         ),
         if (a.plex == null) null else onOffItem(
             "Copy watched to Plex",
-            plexStatus ?: "On: marks on your Plex servers what Trakt says you've watched (never un-marks anything), so Plex's own apps agree.",
+            plexStatus ?: "On: marks on your own Plex server what you've watched on Trakt in the last 30 days (never un-marks anything), so Plex's own apps agree.",
             a.traktToPlex,
         ) { on -> if (on != a.traktToPlex) vm.toggleCopy() },
     )

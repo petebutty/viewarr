@@ -437,14 +437,14 @@ fun RecordingsScreen(
                 // (Text starts at 356 as on every page beside the window.)
                 Spacer(Modifier.width(Tokens.BesideWindowStart - Tokens.Gutter))
                 Column {
-                    Text("Recordings", fontSize = 14.sp, color = AppColors.Accent)
+                    Text("Recordings", fontSize = 14.sp, color = AppColors.Accent, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Spacer(Modifier.height(6.dp))
                     Text(hover?.first ?: "Recorded and scheduled", fontSize = 24.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, maxLines = 2)
                     Spacer(Modifier.height(4.dp))
                     Text(hover?.second ?: "OK: play  ·  Hold OK: options", fontSize = 14.sp, color = AppColors.TextSecondary, maxLines = 2)
                 }
             } else {
-                Text("Recordings", fontSize = 28.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary)
+                Text("Recordings", fontSize = 28.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text("Recorded and scheduled on your Dispatcharr server  ·  OK: play  ·  Hold OK: options", fontSize = 13.sp, color = AppColors.TextSecondary)
             }
             Spacer(Modifier.height(16.dp))

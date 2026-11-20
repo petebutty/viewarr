@@ -1,5 +1,6 @@
 package io.github.petebutty.viewarr.ui.media
 
+import io.github.petebutty.viewarr.ui.common.videoBleed
 import io.github.petebutty.viewarr.ui.common.ignoreHeldOk
 import android.graphics.SurfaceTexture
 import android.os.Handler
@@ -38,6 +39,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.tv.material3.Text
 import dev.jdtech.mpv.MPVLib
 import io.github.petebutty.viewarr.data.media.VodStream
@@ -393,7 +395,7 @@ fun MpvPlayer(
                     })
                 }
             },
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().videoBleed(),
         ) else AndroidView(
             factory = { ctx ->
                 TextureView(ctx).apply {
@@ -420,7 +422,7 @@ fun MpvPlayer(
                     }
                 }
             },
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().videoBleed(),
         )
 
         if (direct && subText.isNotBlank()) Text(
@@ -623,7 +625,7 @@ private fun MpvTrackPicker(mpv: MpvHandle, subtitlesFirst: Boolean = false, onSw
         modifier.fillMaxHeight().padding(vertical = 28.dp).padding(end = 28.dp).width(420.dp).glass().padding(20.dp).trapFocus().then(Modifier.ignoreHeldOk()),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        item { Text("Audio", fontSize = 13.sp, color = AppColors.Accent, modifier = Modifier.padding(start = 12.dp, bottom = 4.dp)) }
+        item { Text("Audio", fontSize = 13.sp, color = AppColors.Accent, modifier = Modifier.padding(start = 12.dp, bottom = 4.dp), maxLines = 1, overflow = TextOverflow.Ellipsis) }
         tracks.filter { it.type == "audio" }.forEachIndexed { i, t ->
             item {
                 MenuItem(
@@ -633,13 +635,13 @@ private fun MpvTrackPicker(mpv: MpvHandle, subtitlesFirst: Boolean = false, onSw
                 )
             }
         }
-        item { Text("Subtitles", fontSize = 13.sp, color = AppColors.Accent, modifier = Modifier.padding(start = 12.dp, top = 12.dp, bottom = 4.dp)) }
+        item { Text("Subtitles", fontSize = 13.sp, color = AppColors.Accent, modifier = Modifier.padding(start = 12.dp, top = 12.dp, bottom = 4.dp), maxLines = 1, overflow = TextOverflow.Ellipsis) }
         item { MenuItem(text = (if (subsOff) "✓ " else "   ") + "Off", selected = false, modifier = if (subtitlesFirst || tracks.none { it.type == "audio" }) Modifier.focusRequester(first) else Modifier, onClick = { mpv.setPropertyString("sid", "no"); onClose() }) }
         tracks.filter { it.type == "sub" }.forEach { t ->
             item { MenuItem(text = (if (t.selected) "✓ " else "   ") + t.label, selected = false, onClick = { mpv.setPropertyInt("sid", t.id); onClose() }) }
         }
         if (onSwitchPlayer != null) {
-            item { Text("Player", fontSize = 13.sp, color = AppColors.Accent, modifier = Modifier.padding(start = 12.dp, top = 12.dp, bottom = 4.dp)) }
+            item { Text("Player", fontSize = 13.sp, color = AppColors.Accent, modifier = Modifier.padding(start = 12.dp, top = 12.dp, bottom = 4.dp), maxLines = 1, overflow = TextOverflow.Ellipsis) }
             item { MenuItem(text = "   Switch to the built-in player (carries on from here)", selected = false, onClick = { onSwitchPlayer() }) }
         }
     }

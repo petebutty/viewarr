@@ -430,6 +430,45 @@ class MediaViewModel @Inject constructor(
     /** Where a row comes from, for the settings lists: Plex, Jellyfin, an add-on's name, Trakt… */
     fun rowOrigin(row: MediaRow): String = repo.rowOrigin(row.id)
 
+    /**
+     * The page's "<service> · New" rows swapped for its "<service> · Just added" rows (Peter, 2026-11-20): each Just
+     * added row takes its New row's place, and the New row is hidden (Settings → Home rows can bring it back). False:
+     * the rows haven't loaded yet, nothing changed.
+     */
+    fun useJustAddedForNew(): Boolean {
+        val t = layoutType.value ?: return false
+        val rows = orderedRows.value.first
+        val just = rows.filter { it.id.startsWith("justadded-") }.associateBy { it.title.substringBefore(" · ") }
+        if (just.isEmpty()) return false
+        val news = rows.filter { it.id.startsWith("stremio-") && it.title.endsWith(" · New") && just.containsKey(it.title.substringBefore(" · ")) }
+        // Each Just added row moved to where its New row is, just before it.
+        val final = ArrayList<String>()
+        val firstJustAt = news.associate { n -> just.getValue(n.title.substringBefore(" · ")).id to n.id }
+        rows.forEach { r ->
+            if (r.id.startsWith("justadded-") && firstJustAt.containsKey(r.id)) return@forEach
+            if (r in news) { final += just.getValue(r.title.substringBefore(" · ")).id }
+            final += r.id
+        }
+        viewModelScope.launch {
+            rowLayouts.setOrder(t, final.distinct())
+            news.forEach { rowLayouts.setHidden(t, it.id, true) }
+            just.values.forEach { rowLayouts.setHidden(t, it.id, false) }
+        }
+        return true
+    }
+
+    /** [useJustAddedForNew] once this page's rows are in (loaded first if need be; gives up after a minute). */
+    fun useJustAddedForNewWhenReady(type: MediaType) {
+        load(type)
+        viewModelScope.launch {
+            kotlinx.coroutines.withTimeoutOrNull(60_000) {
+                orderedRows.first { (rows, _) -> rows.any { it.id.startsWith("justadded-") } && rows.any { it.title.endsWith(" · New") } }
+            }
+            kotlinx.coroutines.delay(500)
+            useJustAddedForNew()
+        }
+    }
+
     fun setRowHidden(id: String, hidden: Boolean) {
         val t = layoutType.value ?: return
         viewModelScope.launch { rowLayouts.setHidden(t, id, hidden) }

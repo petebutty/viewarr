@@ -377,13 +377,13 @@ fun PlayerOsd(
                                         if (b != null) Image(b.asImageBitmap(), null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxWidth().fillMaxHeight())
                                         else Text("…", fontSize = 22.sp, color = Color.White.copy(alpha = 0.6f))
                                     }
-                                    Text(clockMs(scrubMs ?: 0), fontSize = 16.sp, fontWeight = FontWeight.Medium, color = Color.White, modifier = Modifier.padding(top = 4.dp, bottom = 6.dp))
+                                    Text(clockMs(scrubMs ?: 0), fontSize = 16.sp, fontWeight = FontWeight.Medium, color = Color.White, modifier = Modifier.padding(top = 4.dp, bottom = 6.dp), maxLines = 1, softWrap = false)
                                 }
                             } else if (scrubbing) {
                                 val w = 120.dp
                                 val x = (barWidth * marker - w / 2).coerceIn(0.dp, (barWidth - w).coerceAtLeast(0.dp))
                                 Text(clockMs(scrubMs ?: 0), fontSize = 18.sp, fontWeight = FontWeight.Medium, color = Color.White,
-                                    modifier = Modifier.offset(x = x).width(w).padding(bottom = 8.dp), textAlign = TextAlign.Center)
+                                    modifier = Modifier.offset(x = x).width(w).padding(bottom = 8.dp), textAlign = TextAlign.Center, maxLines = 1, softWrap = false)
                             }
                             val barHeight = if (scrubbing) 10.dp else 6.dp
                             Box(Modifier.fillMaxWidth().height(18.dp), contentAlignment = Alignment.CenterStart) {
@@ -403,7 +403,7 @@ fun PlayerOsd(
                     Spacer(Modifier.height(4.dp))
                     // Across the whole bar, so the time on the right sits at its end (it stopped part-way along).
                     Row(Modifier.fillMaxWidth()) {
-                        Text(clockMs(positionMs), fontSize = t(14), color = Color.White)
+                        Text(clockMs(positionMs), fontSize = t(14), color = Color.White, maxLines = 1, softWrap = false)
                         Text(
                             when {
                                 editingButtons -> "Editing the info bar buttons"
@@ -476,21 +476,27 @@ fun PlayerOsd(
             val r = curIndex
             OsdRowHeading(curRow.title, null, position = if (downRows.size > 1) "${r + 1} of ${downRows.size}" else null)
             val epState = rememberLazyListState()
+            // The highlighted card stays in the middle of the row (earlier ones to the left, later to the right), on
+            // purpose: the episode that's playing is the middle one, so going back or forward an episode is one press
+            // either way (Peter, 2026-11-20). The cards slide under it, as the poster rows move.
+            // (A row just opened isn't measured yet: a frame or two first, then straight there with no slide.)
+            val epSlide = rememberRowSlide(epState) { curRow.items.size }
+            val placed = remember(r) { booleanArrayOf(false) }
             LaunchedEffect(r, episodeFocus) {
-                // The highlighted card in the middle of the row (earlier ones to the left, later to the right).
-                // (A row just opened isn't measured yet: a frame or two first.)
                 runCatching {
                     repeat(3) { if (epState.layoutInfo.visibleItemsInfo.isEmpty()) withFrameNanos { } }
                     val info = epState.layoutInfo
                     val card = info.visibleItemsInfo.firstOrNull()?.size ?: 0
                     val width = info.viewportSize.width
-                    if (card > 0 && width > 0) epState.scrollToItem(episodeFocus, -((width - card) / 2)) else epState.scrollToItem((episodeFocus - 1).coerceAtLeast(0))
+                    val middle = if (card > 0 && width > 0) (width - card) / 2 else 0
+                    if (!placed[0] || !epSlide.moveTo(episodeFocus, middle)) epState.scrollToItem(episodeFocus, -middle)
+                    placed[0] = true
                 }
             }
             androidx.compose.runtime.key(r) {
                 LazyRow(
                     state = epState,
-                    modifier = Modifier.padding(top = 2.dp).offset(x = (-12).dp),
+                    modifier = Modifier.padding(top = 2.dp).offset(x = (-12).dp).then(epSlide.modifier),
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp), userScrollEnabled = false,
                 ) {
@@ -583,7 +589,7 @@ fun PlayerLoading(title: String, art: PlayerArt?, visible: Boolean = true, modif
                     modifier = Modifier.padding(horizontal = 120.dp).graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha; scaleX = scale; scaleY = scale; alpha = fadeIn },
                 )
                 title.substringAfter(" · ", "").takeIf { it.isNotBlank() }?.let {
-                    Text(it, fontSize = 17.sp, color = Color.White.copy(alpha = 0.75f), modifier = Modifier.padding(top = 20.dp).graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha; alpha = fadeIn })
+                    Text(it, fontSize = 17.sp, color = Color.White.copy(alpha = 0.75f), modifier = Modifier.padding(top = 20.dp).graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha; alpha = fadeIn }, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
         }
@@ -618,9 +624,9 @@ fun PlayerDetails(title: String, art: PlayerArt?, modifier: Modifier = Modifier)
                 )
                 if (!logoShown) Text(title.substringBefore(" · "), fontSize = 30.sp, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 art?.episodeLine?.let { Text(it, fontSize = 20.sp, fontWeight = FontWeight.Medium, color = AppColors.Accent, modifier = Modifier.padding(top = 10.dp), maxLines = 1, overflow = TextOverflow.Ellipsis) }
-                art?.facts?.let { Text(it, fontSize = 15.sp, color = Color.White.copy(alpha = 0.8f), modifier = Modifier.padding(top = 6.dp)) }
+                art?.facts?.let { Text(it, fontSize = 15.sp, color = Color.White.copy(alpha = 0.8f), modifier = Modifier.padding(top = 6.dp), maxLines = 1, overflow = TextOverflow.Ellipsis) }
                 art?.overview?.let { Text(it, fontSize = 17.sp, lineHeight = 25.sp, color = Color.White, maxLines = 7, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 14.dp)) }
-                Text("Info or Back to close", fontSize = 12.sp, color = Color.White.copy(alpha = 0.55f), modifier = Modifier.padding(top = 12.dp))
+                Text("Info or Back to close", fontSize = 12.sp, color = Color.White.copy(alpha = 0.55f), modifier = Modifier.padding(top = 12.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
     }

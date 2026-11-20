@@ -109,39 +109,6 @@ class ProgramArt @Inject constructor(
         return match(rawTitle)?.backdrop?.let { "https://image.tmdb.org/t/p/w780$it" }.also { keptPut(k, it) }
     }
 
-    /**
-     * The programme's title logo (its show's or film's logo artwork on TMDB: English first, PNGs, best voted), or
-     * null when it has none or the title didn't match closely.
-     */
-    suspend fun logoFor(rawTitle: String): String? {
-        // Found on the server for the whole house (the Viewarr plugin's title logos): no lookup here.
-        io.github.petebutty.viewarr.data.sync.ServerSports.logos.takeIf { it.isNotEmpty() }?.let { known ->
-            known[norm(clean(rawTitle))]?.let { return it }
-        }
-        val lk = "l|" + norm(clean(rawTitle))
-        keptGet(lk)?.let { return it.ifEmpty { null } }
-        val m = match(rawTitle)?.logoMatch ?: run { keptPut(lk, null); return null }
-        val cacheKey = "${m.type}:${m.id}"
-        logos.get(cacheKey)?.let { return it as? String }
-        val key = store.current().tmdbKey ?: return null
-        val url = withTimeoutOrNull(6_000) {
-            runCatching {
-                val r = http.get(tmdb.url("/${m.type}/${m.id}/images", key, mapOf("include_image_language" to "en,null")), tmdb.headers(key))
-                if (!r.ok) return@runCatching null
-                r.body.array("logos").sortedWith(
-                    compareBy<JsonElement>(
-                        { when (it.str("iso_639_1")) { "en" -> 0; null -> 1; else -> 2 } },
-                        { if (it.str("file_path")?.endsWith(".png") == true) 0 else 1 },
-                        { -(((it.child("vote_average") as? JsonPrimitive)?.content?.toDoubleOrNull()) ?: 0.0) },
-                    ),
-                ).firstOrNull()?.str("file_path")?.let { "https://image.tmdb.org/t/p/w500$it" }
-            }.getOrNull()
-        }
-        logos.put(cacheKey, url ?: None)
-        keptPut(lk, url)
-        return url
-    }
-
     /** "New: Bridge of Lies", "Film: Heat (1995)", "Arsenal v Chelsea ᴸᶦᵛᵉ" → the name to look up. */
     private fun clean(t: String) = t
         .replace(Regex("^(New|Live|Film|Premiere|Movie)\\s*:\\s*", RegexOption.IGNORE_CASE), "")

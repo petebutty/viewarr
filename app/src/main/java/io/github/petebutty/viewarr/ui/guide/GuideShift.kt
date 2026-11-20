@@ -35,6 +35,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.text.style.TextOverflow
 import io.github.petebutty.viewarr.data.local.ChannelListItem
 import io.github.petebutty.viewarr.data.settings.RemoteChoice
 import io.github.petebutty.viewarr.ui.common.MenuItem
@@ -117,8 +118,8 @@ private fun ShiftSlider(min: Int, onChange: (Int) -> Unit, modifier: Modifier, o
     ) {
         Column(Modifier.padding(horizontal = 18.dp, vertical = 14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("EPG offset", fontSize = 16.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
-                Text(if (min == 0) "None" else shiftLabel(min), fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                Text("EPG offset", fontSize = 16.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(if (min == 0) "None" else shiftLabel(min), fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false)
             }
             Spacer(Modifier.height(10.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -141,8 +142,8 @@ private fun ShiftSlider(min: Int, onChange: (Int) -> Unit, modifier: Modifier, o
             }
             Spacer(Modifier.height(6.dp))
             Row {
-                Text("−10 h  earlier", fontSize = 11.sp, modifier = Modifier.weight(1f))
-                Text("later  +10 h", fontSize = 11.sp)
+                Text("−10 h  earlier", fontSize = 11.sp, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text("later  +10 h", fontSize = 11.sp, maxLines = 1, softWrap = false)
             }
         }
     }

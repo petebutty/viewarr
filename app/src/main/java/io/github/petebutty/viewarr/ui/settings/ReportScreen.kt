@@ -33,6 +33,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.Text
@@ -79,13 +80,13 @@ fun ReportScreen(onClose: () -> Unit) {
     io.github.petebutty.viewarr.ui.common.ViewarrPopup(onClose = onClose) {
     Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.5f)), contentAlignment = androidx.compose.ui.Alignment.Center) {
         Column(Modifier.width(820.dp).background(AppColors.MenuPanel, RoundedCornerShape(io.github.petebutty.viewarr.ui.theme.Tokens.PopupRadius)).padding(28.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(if (noteMode) "Send a note" else "Send a report", fontSize = 26.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary)
+            Text(if (noteMode) "Send a note" else "Send a report", fontSize = 26.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
             val c = code
             if (c != null) {
                 // (VR- codes are on the 3-day host; VC- is the backup host, which keeps files: still locked, only the developer can open it.)
                 Text(if (c.startsWith("VC-")) "Sent (to the backup host, which keeps it; it's locked so only the developer can read it). Share this code in Discord:"
                     else "Sent. Share this code in Discord so the developer can read it (it's deleted after 3 days):", fontSize = 15.sp, color = AppColors.TextSecondary)
-                Text(c, fontSize = 44.sp, fontWeight = FontWeight.Bold, color = AppColors.Accent, modifier = Modifier.padding(vertical = 8.dp))
+                Text(c, fontSize = 44.sp, fontWeight = FontWeight.Bold, color = AppColors.Accent, modifier = Modifier.padding(vertical = 8.dp), maxLines = 1, softWrap = false)
                 MenuItem(text = "Done", selected = false, onClick = onClose, modifier = Modifier.focusRequester(first))
                 return@Column
             }
@@ -140,7 +141,7 @@ fun ReportScreen(onClose: () -> Unit) {
                         scope.launch {
                             // Built again now with the note in it (a note: no log at all).
                             val r = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { ReportSender.build(context, kinds, note.ifBlank { null }, names, withLog = !noteMode) }
-                            ReportSender.send(r).onSuccess { code = it }.onFailure { error = it.message ?: "Couldn't send it" }
+                            ReportSender.send(r, context).onSuccess { code = it }.onFailure { error = it.message ?: "Couldn't send it" }
                             sending = false
                         }
                     })

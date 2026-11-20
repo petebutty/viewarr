@@ -1,5 +1,42 @@
 # Viewarr changelog (built by tools/changelog.py from the GitHub releases; don't edit by hand)
 
+## 0.29.3 · 20 Nov 2026
+
+A big tidy-up of settings and scaling, Viewarr's rows on your TV's home screen, and "Just added" rows showing what really arrived on each streaming service.
+
+### Pages that always fit
+- **Every page is laid out the same on every TV**, whatever its resolution, so a page that fits on one box fits on all of them. Posters are eight across on every TV (1080p boxes used to get smaller ones).
+- **App scaling** (Settings → Advanced): shrinks the whole picture a little for a TV that cuts off the edges of the screen. Pages keep exactly the same layout, and video still fills the screen.
+- **Text size** (Normal, Small, Large) now changes only the words, not the whole app. Long names are cut with "…" instead of pushing things off the page.
+
+### Simpler settings
+- **Appearance, Playback and Live TV open on the main choices**; everything finer is under **Customise**, which shows how many settings there you've changed.
+- **Changed** marks any setting that isn't at its default.
+- **Settings → Advanced** gathers the settings most people never need (player internals, sizes, guide data), behind a warning, with its own Reset.
+
+### On your TV's home screen
+- **Settings → Live TV → Customise → Home screen rows**: put Viewarr's rows on your launcher's home screen (Projectivy, Android TV and others). Channel groups, with each card showing what's on now and playing a preview where the launcher supports it, and any row from Movies and Shows.
+- Rows have their service's logo, film and show cards are wide with the title's artwork and logo, and everything stays fresh while Viewarr is closed.
+
+### Just added
+- **"Netflix · Just added"** and the same for 15 UK services: what actually arrived on each service in the last fortnight, older films newly added and new seasons included. Needs the Viewarr plugin 0.6.2.
+- **Settings → Home page & menu → Use Just added instead of New** swaps each service's New row for its Just added row.
+
+### Also new
+- **Backups:** saving to Dispatcharr keeps earlier versions, and Restore lets you pick one (each restore can be undone). Plugin backups are in Backup & sync too.
+- **Remote mic button:** with Viewarr chosen for voice search, the mic opens Viewarr's search, listening.
+- **Settings codes** copy look and playback settings between TVs (Settings → Troubleshooting), and reports include all settings.
+- Narrower menus, guide channel column and live TV programme list; Channel rows option (10, 12, 9 or 8); poster fade up to 100%.
+- Episode cards and the rows under the player's controls slide like the poster rows; the film player keeps the playing episode in the middle.
+
+### Fixes
+- Wide films (like 1920 × 800) were labelled 720p; Plex, Jellyfin and Emby's own resolution is used now.
+- Copy watched to Plex only copies the last 30 days to your own server (it marked old films on every server at once, so Plex asked for reviews of them).
+- A trailer kept playing while you scrolled past its poster.
+- Fast scrolling could leave a row's left side empty.
+- "What's selected" wallpaper in the TV guide with Programme pictures off.
+- Programme title logos in the guide are gone (they cost thousands of lookups a day).
+
 ## 0.29.2 · 19 Nov 2026
 
 A small update that makes Viewarr much lighter on memory and quicker to keep its guide up to date.

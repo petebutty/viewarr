@@ -50,6 +50,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.tv.material3.Text
 import io.github.petebutty.viewarr.BuildConfig
 import io.github.petebutty.viewarr.ui.common.MenuItem
@@ -130,8 +131,8 @@ fun ChangelogHost() {
             ) {
                 // The versions.
                 Column(Modifier.width(230.dp).fillMaxHeight()) {
-                    Text("Changelog", fontSize = 22.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary)
-                    Text("You have ${BuildConfig.VERSION_NAME}", fontSize = 12.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(top = 2.dp, bottom = 12.dp))
+                    Text("Changelog", fontSize = 22.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text("You have ${BuildConfig.VERSION_NAME}", fontSize = 12.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(top = 2.dp, bottom = 12.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
                     if (versions.isEmpty()) {
                         Text("The changelog isn't in this build.", fontSize = 14.sp, color = AppColors.TextSecondary)
                         MenuItem(text = "Close", selected = false, onClick = { Changelog.open = false }, modifier = Modifier.focusRequester(firstFocus))
@@ -185,7 +186,7 @@ fun ChangelogHost() {
                         .padding(horizontal = 18.dp, vertical = 12.dp),
                 ) {
                     if (v != null) {
-                        Text("Viewarr ${v.version}", fontSize = 24.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary)
+                        Text("Viewarr ${v.version}", fontSize = 24.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text(
                             listOfNotNull(v.date.takeIf { it.isNotEmpty() }, if (notesFocused) "▲ ▼ scroll  ·  ◀ versions  ·  Back: close" else "▶ read  ·  Back: close").joinToString("   ·   "),
                             fontSize = 12.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(top = 2.dp, bottom = 10.dp),

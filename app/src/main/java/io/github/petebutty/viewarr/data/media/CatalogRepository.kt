@@ -244,6 +244,8 @@ class CatalogRepository @Inject constructor(
                 else add { listOfNotNull(tmdbList(k, type, "/tv/on_the_air", "airing", "On TV this week")) }
             }
             a.activeAddons.forEach { addon -> add { part -> stremioRows(addon, type, part) } }
+            // What's just arrived on each streaming service ("Netflix · Just added"), from the Viewarr plugin.
+            add { justAddedRows(a, type) }
             // IPTV provider films / series, when live TV is signed in to a provider (Xtream Codes).
             add { providerRows(a, type) }
         }
@@ -557,6 +559,36 @@ class CatalogRepository @Inject constructor(
         val items = r.body.array("results").mapNotNull { tmdbItem(it, type) }
         items.forEach { tmdbCache[it.key] = it }
         return MediaRow("tmdb-$id-${type.name}", title, items)
+    }
+
+    /**
+     * "<service> · Just added": what arrived on each streaming service in the UK over the last fortnight, newest first,
+     * new seasons of shows included (the Viewarr plugin reads it from JustWatch once a day: viewarr_just_added).
+     * TMDB's "New" can't show these: it knows which service has a title, not when it arrived (Peter, 2026-11-20).
+     */
+    private suspend fun justAddedRows(a: Accounts, type: MediaType): List<MediaRow> {
+        val s = sessions.session.first()?.takeIf { !it.isDirect } ?: return emptyList()
+        val r = runCatching { http.get(s.serverUrl.trimEnd('/') + "/api/accounts/users/me/app-data/viewarr_just_added/", mapOf("X-API-Key" to s.apiKey)) }.getOrNull()
+        val o = (r?.body as? JsonObject)?.takeIf { r.ok } ?: return emptyList()
+        if (o.int("v") != 1) return emptyList()
+        val field = if (type == MediaType.Movie) "movies" else "shows"
+        val day = java.time.format.DateTimeFormatter.ofPattern("d MMM", java.util.Locale.UK)
+        return o.array("services").mapNotNull { svc ->
+            val name = svc.str("name") ?: return@mapNotNull null
+            val items = svc.array(field).mapNotNull { j ->
+                val id = j.int("tmdb") ?: return@mapNotNull null
+                val season = j.int("season")
+                val added = j.str("added")?.let { runCatching { java.time.LocalDate.parse(it).format(day) }.getOrNull() }
+                MediaItem(
+                    key = "tmdb:${type.name}:$id", type = type, title = j.str("title") ?: return@mapNotNull null,
+                    year = j.int("year"), poster = j.str("poster"), tmdbId = id, imdbId = j.str("imdb"), origin = name,
+                    // A new season of a show says so; else the day it arrived.
+                    subtitle = listOfNotNull(season?.let { "Season $it new" }, added?.let { "Added $it" }).joinToString("  ·  ").ifEmpty { null },
+                )
+            }
+            if (items.isEmpty()) null
+            else MediaRow("justadded-" + name.lowercase().filter { it.isLetterOrDigit() } + "-" + type.name, "$name · Just added", enrich(a, items))
+        }
     }
 
     /** Fills poster, backdrop and overview from TMDB for items that only have ids (Trakt, Stremio without art). */
@@ -1813,7 +1845,10 @@ class CatalogRepository @Inject constructor(
                 video.str("colorTrc") == "arib-std-b67" || vTitle.contains("HLG") -> "HLG"
                 else -> null
             }
-            val height = video.int("height") ?: m.int("height") ?: m.str("videoResolution")?.lowercase()?.let { r -> when (r) { "4k" -> 2160; "sd" -> 480; else -> r.toIntOrNull() } }
+            // The picture's class (1080, 720…): Plex's own word for it, else worked out from the width as well as the
+            // height. A wide film is 1920 x 800: by its height alone it was labelled 720p (Peter, 2026-11-20: Inception).
+            val height = m.str("videoResolution")?.lowercase()?.let { r -> when (r) { "4k" -> 2160; "8k" -> 4320; "sd" -> 480; else -> r.toIntOrNull() } }
+                ?: pictureClass(video.int("width") ?: m.int("width"), video.int("height") ?: m.int("height"))
             val atmos = aTitle.contains("Atmos", true)
             val channels = audio.int("channels") ?: m.int("audioChannels")
             val v = CopyVersion(
@@ -1921,7 +1956,10 @@ class CatalogRepository @Inject constructor(
             val atmos = aText.contains("Atmos", true)
             val channels = audio.int("Channels")
             val v = CopyVersion(
-                height = video.int("Height"), hdr = hdr, dvOnly = range == "DOVI",
+                // (The server's own word for the picture first, as with Plex: Jellyfin and Emby put it at the start of
+                // the video stream's display title, "1080p HEVC SDR", "4K HEVC HDR". Else from its width and height.)
+                height = serverResolution(video.str("DisplayTitle")) ?: pictureClass(video.int("Width"), video.int("Height")),
+                hdr = hdr, dvOnly = range == "DOVI",
                 videoCodec = video.str("Codec"), container = ms.str("Container"),
                 audio = VersionPick.audioLabel(audio.str("Codec"), audio.str("Profile"), channels, atmos),
                 audioChannels = channels, atmos = atmos,
@@ -2083,6 +2121,27 @@ class CatalogRepository @Inject constructor(
             return TitleTracks(c.source, c.ref!!, pick("Audio"), pick("Subtitle"), resolutionLabel(null, video?.int("Height")), hdr)
         }
         return null
+    }
+
+    /** Jellyfin's / Emby's own resolution from a video stream's display title ("1080p HEVC SDR", "4K …", "SD …"). */
+    private fun serverResolution(displayTitle: String?): Int? {
+        val t = displayTitle ?: return null
+        Regex("""\b(\d{3,4})[pi]\b""").find(t)?.let { return it.groupValues[1].toIntOrNull() }
+        return when {
+            Regex("""\b8K\b""", RegexOption.IGNORE_CASE).containsMatchIn(t) -> 4320
+            Regex("""\b4K\b""", RegexOption.IGNORE_CASE).containsMatchIn(t) -> 2160
+            Regex("""\bSD\b""").containsMatchIn(t) -> 480
+            else -> null
+        }
+    }
+
+    /**
+     * A picture's height for naming its quality: the taller of its real height and what a 16:9 picture of its width
+     * would be, so a wide film (1920 x 800) counts as 1080, not 720.
+     */
+    private fun pictureClass(width: Int?, height: Int?): Int? {
+        val byWidth = width?.takeIf { it > 0 }?.let { (it * 9 + 8) / 16 }
+        return listOfNotNull(height?.takeIf { it > 0 }, byWidth).maxOrNull()
     }
 
     /** "4K", "1080p", "720p" or "SD", from Plex's videoResolution ("4k", "1080", "sd"…) or the picture's height. */
@@ -2747,13 +2806,20 @@ class CatalogRepository @Inject constructor(
     private val plexCopyLock = Mutex()
 
     /**
-     * Marks on your Plex servers what Trakt says you've watched (never the other way, never un-marks). Only titles
-     * Plex has as unwatched are touched. Returns how many were marked.
+     * Marks on your own Plex server what you've watched on Trakt in the last [COPY_DAYS] days (never the other way,
+     * never un-marks). Only titles Plex has as unwatched are touched. Returns how many were marked.
+     *
+     * (Peter, 2026-11-20: it used to copy the whole Trakt history to every Plex server the account can open. One run
+     * marked 128 films at once, and Plex asked "how did you enjoy it?" for each, films watched years ago, some on
+     * other people's servers. Recent watches on your own server keep Plex in step without that.)
      */
-    suspend fun copyTraktToPlex(w: TraktWatched): Int = plexCopyLock.withLock {
+    @Suppress("UNUSED_PARAMETER")
+    suspend fun copyTraktToPlex(all: TraktWatched): Int = plexCopyLock.withLock {
         val a = store.current()
-        val servers = plexServers(a)
+        val servers = plexServers(a).filter { isMainPlex(it) }
         if (servers.isEmpty()) return@withLock 0
+        val w = recentTraktWatches(a) ?: run { _plexCopyStatus.value = "Couldn't reach Trakt."; return@withLock 0 }
+        if (w.movies.isEmpty() && w.episodes.isEmpty()) { _plexCopyStatus.value = "Nothing watched on Trakt in the last $COPY_DAYS days."; return@withLock 0 }
         _plexCopyStatus.value = "Copying to Plex…"
         fun guidKeys(j: JsonElement?) = j.array("Guid").mapNotNull { it.str("id") }.mapNotNull { g ->
             when {
@@ -2794,6 +2860,32 @@ class CatalogRepository @Inject constructor(
         plexEpisodeCache.clear()
         _plexCopyStatus.value = if (marked == 0) "Plex already matches Trakt." else "Marked $marked on Plex as watched."
         marked
+    }
+
+    /** What you've watched on Trakt in the last [COPY_DAYS] days (null: Trakt couldn't be read). */
+    private suspend fun recentTraktWatches(a: Accounts): TraktWatched? {
+        val t = a.trakt?.let { freshTrakt(it) } ?: return null
+        val h = trakt.headers(t.accessToken)
+        val from = java.time.Instant.now().minus(java.time.Duration.ofDays(COPY_DAYS.toLong())).toString()
+        val movies = HashSet<String>()
+        val episodes = HashMap<String, MutableSet<Pair<Int, Int>>>()
+        for (page in 1..40) {
+            val r = runCatching { http.get("https://api.trakt.tv/sync/history?start_at=$from&page=$page&limit=250", h) }.getOrNull()
+                ?.takeIf { it.ok } ?: return if (page > 1) TraktWatched(movies, episodes, System.currentTimeMillis(), "") else null
+            val items = r.body.asArray()
+            items.forEach { e ->
+                when (e.str("type")) {
+                    "movie" -> e.child("movie").child("ids").let { ids -> movies += idKeys(ids.int("tmdb"), ids.str("imdb")) }
+                    "episode" -> {
+                        val ids = e.child("show").child("ids"); val ep = e.child("episode")
+                        val se = ep.int("season"); val n = ep.int("number")
+                        if (se != null && n != null) idKeys(ids.int("tmdb"), ids.str("imdb")).forEach { episodes.getOrPut(it) { HashSet() } += se to n }
+                    }
+                }
+            }
+            if (items.size < 250) break
+        }
+        return TraktWatched(movies, episodes, System.currentTimeMillis(), "")
     }
 
     // ------------------------------------------------------------------ episodes
@@ -3541,6 +3633,37 @@ class CatalogRepository @Inject constructor(
     }
     private val publicArtCache = java.util.concurrent.ConcurrentHashMap<String, Pair<String, Boolean>>()
 
+    /**
+     * A streaming service's or TV network's logo from TMDB (the same ids Viewarr's AIOMetadata catalogues use), by the
+     * name its rows start with ("Netflix · New" → Netflix). Second: whether it's an app icon (square, full colour)
+     * rather than a network's transparent logo. Null: not a known service, or no TMDB key.
+     */
+    suspend fun serviceLogo(rowTitle: String): Pair<String, Boolean>? {
+        val name = rowTitle.substringBefore(" · ").trim().lowercase()
+        serviceLogoCache[name]?.let { return it.takeIf { a -> a.first.isNotEmpty() } }
+        val key = store.current().tmdbKey ?: return null
+        val net = SERVICE_NETWORKS[name]
+        val prov = SERVICE_PROVIDERS[name]
+        val out = when {
+            // Streaming services: their app icon (what people recognise them by).
+            prov != null -> {
+                val list = providerLogos ?: runCatching {
+                    http.get(tmdb.url("/watch/providers/tv", key, mapOf("watch_region" to "GB")), tmdb.headers(key)).takeIf { it.ok }?.body
+                        .array("results").mapNotNull { p -> p.int("provider_id")?.let { id -> p.str("logo_path")?.let { id to it } } }.toMap()
+                }.getOrNull()?.also { providerLogos = it }
+                list?.get(prov)?.let { "${TMDB_IMG}w300$it" to true }
+            }
+            net != null -> runCatching {
+                http.get(tmdb.url("/network/$net", key), tmdb.headers(key)).takeIf { it.ok }?.body?.str("logo_path")?.let { "${TMDB_IMG}w300$it" to false }
+            }.getOrNull()
+            else -> null
+        }
+        serviceLogoCache[name] = out ?: ("" to false)
+        return out
+    }
+    private val serviceLogoCache = java.util.concurrent.ConcurrentHashMap<String, Pair<String, Boolean>>()
+    @Volatile private var providerLogos: Map<Int, String>? = null
+
     /** A title's name and poster from TMDB by its id ([type] "Movie" / "Show"), kept per title; null: no TMDB key. */
     suspend fun tmdbName(type: String, id: Int): Pair<String, String?>? {
         val cacheKey = "$type:$id"
@@ -3565,3 +3688,18 @@ class CatalogRepository @Inject constructor(
         r.body.array(if (type == MediaType.Movie) "movie_results" else "tv_results").firstOrNull().int("id")
     }.getOrNull()
 }
+
+/** Copy watched to Plex: how far back Trakt watches are copied. */
+private const val COPY_DAYS = 30
+
+/** TMDB watch-provider ids of the streaming services in Viewarr's catalogues (as AIOMetadata has them). */
+private val SERVICE_PROVIDERS = mapOf(
+    "netflix" to 8, "prime video" to 9, "disney+" to 337, "apple tv+" to 350, "hbo max" to 1899, "now" to 39,
+    "bbc iplayer" to 38, "itvx" to 41, "paramount+" to 531, "sky go" to 29, "uktv play" to 137, "my5" to 333,
+    "discovery+" to 524, "crunchyroll" to 283, "shudder" to 99, "hulu" to 15, "peacock" to 386,
+)
+/** TMDB network ids of the TV channels in Viewarr's catalogues (as AIOMetadata has them). */
+private val SERVICE_NETWORKS = mapOf(
+    "bbc one" to 4, "bbc two" to 332, "itv1" to 9, "channel 4" to 26, "channel 5" to 99, "sky atlantic" to 1063,
+    "hbo" to 49, "fx" to 88, "amc" to 174, "fox" to 19, "nbc" to 6, "cbs" to 16, "abc" to 2,
+)

@@ -162,7 +162,7 @@ fun InfoRowsScreen(start: String, onClose: () -> Unit) {
                     .background(AppColors.MenuPanel.copy(alpha = 1f), RoundedCornerShape(Tokens.PopupRadius)).padding(24.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                Text("Rows under the info bar", fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary)
+                Text("Rows under the info bar", fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(
                     "Down from the info bar's buttons: these rows, in this order. They scroll: the row you're on, the next peeking in below.",
                     fontSize = 13.sp, color = AppColors.TextSecondary, maxLines = 2, overflow = TextOverflow.Ellipsis,
@@ -234,7 +234,7 @@ private fun RowsList(
                     .padding(horizontal = 14.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(if (here && moving) "↕" else if (on) "✓" else "", fontSize = 16.sp, color = if (here) AppColors.OnAccent else AppColors.Accent, modifier = Modifier.width(26.dp))
+                Text(if (here && moving) "↕" else if (on) "✓" else "", fontSize = 16.sp, color = if (here) AppColors.OnAccent else AppColors.Accent, modifier = Modifier.width(26.dp), maxLines = 1, softWrap = false)
                 Column(Modifier.weight(1f)) {
                     Text(
                         k.label, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
@@ -251,19 +251,19 @@ private fun RowsList(
 @Composable
 private fun RowsPreview(player: String, active: List<InfoRows.Kind>, modifier: Modifier) {
     Column(modifier) {
-        Text("Preview", fontSize = 14.sp, color = AppColors.Accent)
+        Text("Preview", fontSize = 14.sp, color = AppColors.Accent, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Spacer(Modifier.height(8.dp))
         Box(Modifier.fillMaxWidth().height(220.dp).background(Color.Black, RoundedCornerShape(12.dp)).clipToBounds().padding(12.dp)) {
             Column(Modifier.align(Alignment.BottomStart).fillMaxWidth()) {
                 // The info bar.
                 Box(Modifier.fillMaxWidth().height(44.dp).background(AppColors.Panel.copy(alpha = 0.85f), RoundedCornerShape(10.dp)).padding(10.dp)) {
-                    Text(if (player == InfoRows.LIVE) "Info bar  ·  live TV" else "Info bar  ·  film / episode", fontSize = 13.sp, color = AppColors.TextPrimary)
+                    Text(if (player == InfoRows.LIVE) "Info bar  ·  live TV" else "Info bar  ·  film / episode", fontSize = 13.sp, color = AppColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 if (active.isEmpty()) Text("No rows: Down does nothing.", fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(top = 10.dp))
                 active.getOrNull(0)?.let { first ->
                     Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text(first.label, fontSize = 13.sp, color = AppColors.TextPrimary, fontWeight = FontWeight.Medium)
-                        if (active.size > 1) Text("   1 of ${active.size}", fontSize = 11.sp, color = AppColors.TextSecondary)
+                        Text(first.label, fontSize = 13.sp, color = AppColors.TextPrimary, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        if (active.size > 1) Text("   1 of ${active.size}", fontSize = 11.sp, color = AppColors.TextSecondary, maxLines = 1, softWrap = false)
                     }
                     Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         repeat(5) { c ->
@@ -275,7 +275,7 @@ private fun RowsPreview(player: String, active: List<InfoRows.Kind>, modifier: M
                 active.getOrNull(1)?.let { next ->
                     Box(Modifier.fillMaxWidth().height(28.dp).clipToBounds()) {
                         Column(Modifier.padding(top = 8.dp)) {
-                            Text(next.label, fontSize = 12.sp, color = AppColors.TextSecondary)
+                            Text(next.label, fontSize = 12.sp, color = AppColors.TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             Row(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 repeat(5) { Box(Modifier.size(72.dp, 40.dp).background(AppColors.PanelAlt.copy(alpha = 0.6f), RoundedCornerShape(6.dp))) }
                             }

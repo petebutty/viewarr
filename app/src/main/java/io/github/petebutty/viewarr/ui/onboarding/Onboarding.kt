@@ -59,6 +59,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.Text
@@ -107,10 +108,10 @@ fun RoleScreen(onAdmin: () -> Unit, onInvited: () -> Unit) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 io.github.petebutty.viewarr.ui.common.ViewarrMark(48.dp)
                 Spacer(Modifier.width(10.dp))
-                Text("viewarr", fontSize = 36.sp, fontWeight = FontWeight.Bold, color = AppColors.TextPrimary)
+                Text("viewarr", fontSize = 36.sp, fontWeight = FontWeight.Bold, color = AppColors.TextPrimary, maxLines = 1, softWrap = false)
             }
             Spacer(Modifier.height(10.dp))
-            Text("Welcome to Viewarr", fontSize = 22.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary)
+            Text("Welcome to Viewarr", fontSize = 22.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text("How are you setting it up?", fontSize = 14.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(top = 4.dp, bottom = 18.dp))
             RoleCard("I run my own server", "Set up Viewarr with your Dispatcharr (found on your network), and your other services.", onAdmin, Modifier.focusRequester(first))
             Spacer(Modifier.height(10.dp))
@@ -132,7 +133,7 @@ private fun RoleCard(title: String, text: String, onClick: () -> Unit, modifier:
         ),
     ) {
         Column(Modifier.padding(horizontal = 18.dp, vertical = 12.dp)) {
-            Text(title, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+            Text(title, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(text, fontSize = 12.sp, modifier = Modifier.padding(top = 2.dp))
         }
     }
@@ -154,7 +155,7 @@ fun InvitedSetup(onBack: () -> Unit, vm: SetupViewModel = hiltViewModel(key = "s
     // The three things their admin sent (Profiles → Add someone shows them): no keys, no codes.
     Row(Modifier.fillMaxSize().appBackground().onFocusChanged { inside = it.hasFocus }.padding(horizontal = 64.dp, vertical = 48.dp), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(0.42f).padding(end = 40.dp)) {
-            Text("Viewarr", fontSize = 14.sp, color = AppColors.Accent)
+            Text("Viewarr", fontSize = 14.sp, color = AppColors.Accent, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text("Sign in with the details you were sent", fontSize = 22.sp, lineHeight = 28.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, modifier = Modifier.padding(top = 18.dp))
             Text("The address, your username and your password. Everything else is set up for you.", fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(top = 14.dp))
         }
@@ -226,7 +227,7 @@ fun TourScreen(onDone: () -> Unit, prep: Boolean = false, finishLabel: String = 
                 val p = pages[i]
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.width(340.dp).padding(end = 28.dp)) {
-                        Text("${i + 1} of ${pages.size}", fontSize = 12.sp, color = AppColors.Accent)
+                        Text("${i + 1} of ${pages.size}", fontSize = 12.sp, color = AppColors.Accent, maxLines = 1, softWrap = false)
                         Text(p.title, fontSize = 24.sp, lineHeight = 30.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, modifier = Modifier.padding(top = 8.dp))
                         Text(p.text, fontSize = 14.sp, lineHeight = 21.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(top = 14.dp))
                     }
@@ -255,7 +256,7 @@ private fun RemoteKey(label: String, pulse: () -> Float, modifier: Modifier = Mo
     Box(
         modifier.graphicsLayer { val p = pulse(); scaleX = 1f + p * 0.08f; scaleY = 1f + p * 0.08f }
             .background(AppColors.Accent, RoundedCornerShape(10.dp)).padding(horizontal = 12.dp, vertical = 6.dp),
-    ) { Text(label, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = AppColors.OnAccent) }
+    ) { Text(label, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = AppColors.OnAccent, maxLines = 1, softWrap = false) }
 }
 
 /** A spot on a tour screenshot (x, y as 0…1 of its width / height) with what it does. */
@@ -280,12 +281,12 @@ private fun tourPages(): List<TourPage> = listOf(
                         contentAlignment = Alignment.Center,
                     ) {
                         androidx.compose.foundation.Canvas(Modifier.size(54.dp).offset(y = (-12).dp)) { c.draw(this) }
-                        Text(c.label, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Color.White, modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 10.dp))
+                        Text(c.label, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Color.White, modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 10.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
             }
             Spacer(Modifier.height(26.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) { Text("Next page: ", fontSize = 15.sp, color = AppColors.TextSecondary); RemoteKey("Right ›", pulse) }
+            Row(verticalAlignment = Alignment.CenterVertically) { Text("Next page: ", fontSize = 15.sp, color = AppColors.TextSecondary, maxLines = 1, softWrap = false); RemoteKey("Right ›", pulse) }
         }
     },
     TourPage(

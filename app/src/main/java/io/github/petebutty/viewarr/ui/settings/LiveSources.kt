@@ -18,6 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -90,7 +91,7 @@ fun LiveSourcesItems(
     var choosingGroups by remember { mutableStateOf(false) }
     var confirmRemove by remember { mutableStateOf(false) }
     if (saved.isEmpty()) return
-    Text("Your Live TV sources", fontSize = 13.sp, color = AppColors.Accent, modifier = Modifier.padding(start = 12.dp, top = 6.dp))
+    Text("Your Live TV sources", fontSize = 13.sp, color = AppColors.Accent, modifier = Modifier.padding(start = 12.dp, top = 6.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
     saved.forEach { s ->
         val on = s.id == active?.id
         MenuItem(

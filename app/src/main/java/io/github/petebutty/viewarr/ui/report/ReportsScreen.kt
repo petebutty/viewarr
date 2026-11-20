@@ -27,6 +27,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.Text
 import io.github.petebutty.viewarr.data.profiles.Access
@@ -55,7 +56,7 @@ fun ReportsScreen(vm: ReportsViewModel, onClose: () -> Unit) {
     ViewarrPopup(onClose = onClose) {
         Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f)), contentAlignment = Alignment.Center) {
             Column(
-                Modifier.width(820.dp).heightIn(max = (LocalConfiguration.current.screenHeightDp * 0.9f).dp)
+                Modifier.width(820.dp).heightIn(max = (io.github.petebutty.viewarr.ui.common.LocalCanvas.current.height * 0.9f))
                     .background(AppColors.MenuPanel, RoundedCornerShape(Tokens.PopupRadius)).padding(28.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
@@ -124,7 +125,7 @@ fun ReportsScreen(vm: ReportsViewModel, onClose: () -> Unit) {
 @Composable
 private fun Heading(title: String, note: String) {
     Column(Modifier.padding(top = 10.dp, bottom = 4.dp)) {
-        Text(title, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary)
+        Text(title, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Text(note, fontSize = 12.sp, color = AppColors.TextSecondary)
     }
 }

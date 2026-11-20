@@ -202,7 +202,7 @@ fun RemoteSettingsScreen(onBack: () -> Unit, vm: RemoteViewModel = hiltViewModel
         ),
     )
     // Reset: the buttons only (not where the app opens, the menu or the poster rows).
-    SettingsPage(title = "Remote buttons", categories = buttonCategories, onBack = onBack, onReset = { vm.resetButtons() }, resetLabel = "Reset buttons")
+    SettingsPage(title = "Remote buttons", allCategories = buttonCategories, onBack = onBack, onReset = { vm.resetButtons() }, resetLabel = "Reset buttons")
     if (learning) LearnButtonDialog(onKey = { code -> freeForSearch(code); vm.setSearchKey(code); learning = false }, onCancel = { learning = false })
     teaching?.let { (a, name) ->
         TeachButtonDialog(

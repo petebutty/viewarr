@@ -93,9 +93,11 @@ class SettingItem(
     val onSelect: (RemoteChoice) -> Unit,
 ) {
     val isToggle get() = action == null && choices.size == 2 && choices.map { it.label }.toSet() == setOf("On", "Off")
+    /** Not at its default: the row says "Changed" (set where the row is built, when its default is known). */
+    var changed: Boolean = false
     /** This row locked with [note] (null: as it is). */
     fun locked(note: String?): SettingItem =
-        if (note == null) this else SettingItem(title, description, choices, current, action, slider, null, note, onSelect)
+        if (note == null) this else SettingItem(title, description, choices, current, action, slider, null, note, onSelect).also { it.changed = changed }
 }
 
 /** A choice that is only a label: an action row's status ("OK: check"), or a named mode. */
@@ -119,7 +121,20 @@ object SettingsLayout {
 }
 
 /** One section of a settings page: its name, a line about it, and its settings. */
-class SettingCategory(val name: String, val blurb: String, val items: List<SettingItem>)
+class SettingCategory(
+    val name: String, val blurb: String, val items: List<SettingItem>,
+    /** The finer settings: listed under "Customise" on the page, closed until opened (SettingsFold). */
+    val more: Boolean = false,
+)
+
+/**
+ * Settings pages start with a few big choices; the rest sits under "Customise", closed until opened (Peter, 2026-11-20:
+ * "the settings pages are very big lists of things that can drastically change the app's look and use"). Which pages
+ * have it open, for this run of the app (by page title).
+ */
+object SettingsFold {
+    val open = androidx.compose.runtime.mutableStateMapOf<String, Boolean>()
+}
 
 /**
  * Settings pages: Left from the right-hand side goes back to the entry selected on the left (it went to whichever was
@@ -161,7 +176,7 @@ internal fun uniqueRowKeys(titles: List<String>): List<String> {
 @Composable
 fun SettingsPage(
     title: String,
-    categories: List<SettingCategory>,
+    allCategories: List<SettingCategory>,
     onBack: () -> Unit,
     onReset: (() -> Unit)? = null,
     resetLabel: String = "Reset to defaults",
@@ -170,6 +185,13 @@ fun SettingsPage(
     /** … with this setting highlighted. */
     startItem: String? = null,
 ) {
+    // "Customise": the finer sections, closed until opened (opened straight away when Search settings lands in one).
+    val foldable = allCategories.any { it.more } && allCategories.any { !it.more }
+    LaunchedEffect(Unit) { if (startSection != null && allCategories.any { it.more && it.name == startSection }) SettingsFold.open[title] = true }
+    val unfolded = !foldable || SettingsFold.open[title] == true || (startSection != null && allCategories.any { it.more && it.name == startSection })
+    val categories = if (unfolded) allCategories else allCategories.filter { !it.more }
+    val changedBelow = if (foldable) allCategories.filter { it.more }.sumOf { c -> c.items.count { it.changed } } else 0
+    val foldFocus = remember { FocusRequester() }
     // The open category, kept by name: a setting can add or hide categories (low-memory mode hides some), and an
     // index alone then pointed past the end (crash) or at the wrong one.
     var categoryName by remember { mutableStateOf<String?>(startSection?.takeIf { s -> categories.any { it.name == s } }) }
@@ -278,11 +300,22 @@ fun SettingsPage(
         Row(Modifier.fillMaxSize().padding(horizontal = Tokens.Gutter, vertical = 40.dp)) {
             // (Below the live TV window when one is up: it sits where this column starts.)
             Column(Modifier.width(300.dp).fillMaxHeight().padding(top = if (SettingsLayout.belowPreview) 170.dp else 0.dp)) {
-                Text("Settings", fontSize = 14.sp, color = AppColors.Accent)
-                Text(title, fontSize = 30.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, modifier = Modifier.padding(bottom = 20.dp))
+                Text("Settings", fontSize = 14.sp, color = AppColors.Accent, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(title, fontSize = 30.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, modifier = Modifier.padding(bottom = 20.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 // Scrolls: Remote buttons has more sections (every button) than fit, and Ch − was cut off the bottom.
                 Column(Modifier.weight(1f).verticalScroll(androidx.compose.foundation.rememberScrollState()), verticalArrangement = Arrangement.spacedBy(0.dp)) {
+                // The "Customise" heading: before the first of the finer sections (or last, while they're closed).
+                val fold: @Composable () -> Unit = {
+                    MenuItem(
+                        text = if (unfolded) "▾  Customise" else "▸  Customise",
+                        trailing = if (changedBelow > 0) "$changedBelow changed" else null,
+                        selected = false,
+                        modifier = Modifier.padding(top = 8.dp).focusRequester(foldFocus).focusProperties { canFocus = choosing == null }.leftGoesBack(onBack),
+                        onClick = { SettingsFold.open[title] = !unfolded },
+                    )
+                }
                 categories.forEachIndexed { i, c ->
+                    if (foldable && c.more && (i == 0 || !categories[i - 1].more)) fold()
                     MenuItem(
                         text = c.name,
                         selected = i == category,
@@ -312,6 +345,7 @@ fun SettingsPage(
                             },
                     )
                 }
+                if (foldable && !unfolded) fold()
                 }
                 onReset?.let {
                     var confirm by remember { mutableStateOf(false) }
@@ -442,13 +476,19 @@ private fun SettingRow(
         Row(Modifier.padding(horizontal = 18.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             if (moving) Text("↕ ", fontSize = 18.sp)
             Column(Modifier.weight(1f).graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha; alpha = if (item.locked != null) 0.75f else 1f }) {
-                Text((if (item.locked != null) "🔒 " else "") + item.title, fontSize = 16.sp, fontWeight = FontWeight.Medium)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text((if (item.locked != null) "🔒 " else "") + item.title, fontSize = 16.sp, fontWeight = FontWeight.Medium, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                    // Not at its default (so it's clear what's been altered, here and when reading a report).
+                    if (item.changed && item.locked == null) Text("Changed", fontSize = 10.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false,
+                        color = if (rowFocused) AppColors.OnAccent else AppColors.Accent,
+                        modifier = Modifier.padding(start = 8.dp).border(1.dp, (if (rowFocused) AppColors.OnAccent else AppColors.Accent).copy(alpha = 0.6f), RoundedCornerShape(4.dp)).padding(horizontal = 5.dp, vertical = 1.dp))
+                }
                 // (The whole description once the row is highlighted: three lines cut most of them off. UI review, 2026-11-18.)
                 if (item.description.isNotEmpty()) Text(item.description, fontSize = 12.sp, maxLines = if (rowFocused) Int.MAX_VALUE else 3, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp))
                 item.locked?.let { Text(it, fontSize = 12.sp, fontWeight = FontWeight.Medium, maxLines = 3, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp)) }
             }
             Spacer(Modifier.width(20.dp))
-            if (item.locked != null) Text("Locked", fontSize = 14.sp, modifier = Modifier.graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha; alpha = 0.75f })
+            if (item.locked != null) Text("Locked", fontSize = 14.sp, modifier = Modifier.graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha; alpha = 0.75f }, maxLines = 1, softWrap = false)
             else if (item.slider) {
                 val i = item.choices.indexOf(item.current).coerceAtLeast(0)
                 val fraction = if (item.choices.size > 1) i / item.choices.lastIndex.toFloat() else 0f

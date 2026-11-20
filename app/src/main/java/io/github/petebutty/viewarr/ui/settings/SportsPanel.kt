@@ -31,6 +31,7 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -253,8 +254,8 @@ fun SportsSettingsScreen(onBack: () -> Unit, vm: SportsViewModel = hiltViewModel
             // (Below the live TV window when one is up, as SettingsPage.)
             Column(Modifier.width(300.dp).fillMaxHeight().padding(top = if (SettingsLayout.belowPreview) 170.dp else 0.dp)
                 .verticalScroll(androidx.compose.foundation.rememberScrollState())) {
-                Text("Settings", fontSize = 14.sp, color = AppColors.Accent)
-                Text("Sports", fontSize = 30.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, modifier = Modifier.padding(bottom = 16.dp))
+                Text("Settings", fontSize = 14.sp, color = AppColors.Accent, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text("Sports", fontSize = 30.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, modifier = Modifier.padding(bottom = 16.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(
                     "Follow your teams and leagues: type a name or a sport, or press Down for the sport buttons and browse a sport's leagues, then a league's teams. Sports in the menu shows them as panels: what's on now across them all, then a row for each with its next games and recent results; OK on a game goes to the channel showing it (from your TV guide, the Viewarr plugin or the event channels). " +
                         "\n\nFixtures come from ESPN's public sports data (only the team or league is asked about). Saved for this profile.",

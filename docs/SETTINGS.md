@@ -41,14 +41,16 @@ How the pages are split: **Appearance** is how things look, **Live TV** and **Pl
 
 ### Appearance
 
+The page opens on **Look**: the few big choices (Browsing style, Background colour, Highlight colour, Wallpaper, Text size, Clock). Everything finer is under **Customise** on the left, closed until you open it; it shows how many settings there you've changed. Any setting that isn't at its default is marked **Changed**.
+
 Everything to do with how Viewarr looks, in sections:
 
 | Section | What it covers |
 |---|---|
-| **Theme** | **Background colour** (Viewarr's charcoal, or Classic blue, Ocean blue, Sky blue and others), **Highlight colour** (orange by default, including Bright cyan), **Text size**, **Font**, **Clock**, **Date format** (Tue 10 Nov, Tue, Nov 10, Tue 10/11 or Tue 11/10) and **Time format**. |
+| **Theme** | **Background colour** (Viewarr's charcoal, or Classic blue, Ocean blue, Sky blue and others), **Highlight colour** (orange by default, including Bright cyan), **App scaling** (100%, 97.5%, 95%, 92.5% or 90%: shrinks the whole picture a little, for a TV that cuts off the edges of the screen; pages keep exactly the same layout at every setting, and video still fills the screen), **Text size** (Normal, Small or Large: the words only; pages, posters and the guide keep their layout), **Font**, **Clock**, **Date format** (Tue 10 Nov, Tue, Nov 10, Tue 10/11 or Tue 11/10) and **Time format**. |
 | **Wallpaper** | None, one of sixteen built-in designs, or the artwork of the programme you've highlighted. **Movies and Shows background**: What's selected (the highlighted title's artwork, default), your wallpaper, or None (no picture at all). **Wallpaper in the TV guide**: off gives the guide a plain background. |
 | **Glass & transparency** | **Glass**, **Glass colour**, **Guide**, **Wallpaper dimming**, **Pop-up glass** and the info bar's **border**. |
-| **TV guide** | Channel numbers, logos, **Programme corners**, **Next and Then** (the two lines at the top right of the guide; off hides them), **Episode badge at the top** (the "S12 E4" badge under them), **Catch-up badge at the top**, progress bars, **Channel list width** (Medium, Narrow or Wide), **Channel list progress** (a bar under the programme in the channel list: every channel, the highlighted one only, or off) and its **Highlighted progress colour**, episode numbers, **Timeline**, **Catch-up icons** (programmes and channels, channel names only, the highlighted channel only, or off), **Elapsed shading** (the part of a programme on now that's already gone), **Programme pictures**, **Programme picture shows as** (Background or Banner) and **Programme title logos**. |
+| **TV guide** | Channel numbers, logos, **Programme corners**, **Next and Then** (the two lines at the top right of the guide; off hides them), **Episode badge at the top** (the "S12 E4" badge under them), **Catch-up badge at the top**, progress bars, **Channel list width** (Medium, Narrow or Wide), **Channel list progress** (a bar under the programme in the channel list: every channel, the highlighted one only, or off) and its **Highlighted progress colour**, episode numbers, **Timeline**, **Catch-up icons** (programmes and channels, channel names only, the highlighted channel only, or off), **Elapsed shading** (the part of a programme on now that's already gone), **Programme pictures** and **Programme picture shows as** (Background or Banner). |
 | **Info bar & controls** | **Info bar style** (Glass, Square glass, Pill, Fade, Full-width bar, Minimal, Faded glass, Feathered glass, Side fade, Outline, Corner card, Floating card, Slim strip or Frosted) and **corners**, **Info bar size** and **width**, **Clock on the info bar**, **Preview cards**, **Rows under the info bar** (which rows each player shows when you press Down, and their order, with a preview), the channel number, episode numbers, picture-quality, source (where the live stream comes from) and frame-rate badges, and **Player controls size**. |
 | **Menu** | Headings, colour edge and tint, hints, the TV and LIVE marks, and **Hidden groups row** (a "Hidden groups" row at the end of the channel groups; off, hold OK on any group → **Show hidden groups**). |
 | **Browsing style** | **Viewarr**, **Cinema** or **Lite**: the look of Movies, Shows and the streaming services' pages in one go. Under it, **Top panel** (Normal, Big or Off) and **Row posters**. See [Films & shows](FILMS-AND-SHOWS.md#browsing-styles). |
@@ -59,7 +61,6 @@ Everything to do with how Viewarr looks, in sections:
 | **Music** | Now Playing's **Artwork**, **Visualiser**, **Screensaver** and **Lyrics**. |
 | **Motion** | **List scrolling** (Instant, the default, or Smooth). |
 | **News ticker** | A scrolling headline strip (Sky Sports, BBC News, ESPN-style looks): **With the info bar**, **In the TV guide**, **On Movies, Shows and Sports**, **Speed**, and each feed (built in, or **Add a feed** with any RSS / Atom address) Off or On in its own look. *(0.28.7 and later.)* |
-| **Title logos by group** | With **Programme title logos** on (TV guide): each channel group On / Off. *(0.28.7 and later.)* |
 
 ### Home page & menu
 
@@ -92,6 +93,8 @@ Every kind of pop-up is **off** until you turn it on. First switch on **Notifica
 
 ### Live TV
 
+The page opens on **Live TV**: Up / Down while watching, Start with the best source, the "All channels" group and Reports. Everything finer is under **Customise** on the left.
+
 | Section | Settings |
 |---|---|
 | **Watching** | **Up / Down while watching** (change channel, or browse in the info bar), **Browsing channels**, **Highlight the corner picture**, **Still watching?** |
@@ -105,6 +108,8 @@ Every kind of pop-up is **off** until you turn it on. First switch on **Notifica
 How the guide and info bar look is in **Appearance**. See [Live TV](LIVE-TV.md).
 
 ### Playback
+
+The page opens on **Watching**: Match frame rate, audio Language, Show subtitles, Addon streams, Play next episode automatically, Skip intros and Trailer previews. Everything finer is under **Customise** on the left.
 
 | Section | What it covers |
 |---|---|
@@ -143,17 +148,44 @@ Loads the channel list and TV guide again now.
 
 ### Backup & sync
 
-Viewarr's setup saved on your Dispatcharr server (Dispatcharr sign-ins only):
+Two ways to keep a copy of Viewarr's setup on your Dispatcharr server (Dispatcharr sign-ins only):
 
-- **Save settings to Dispatcharr**: on or off.
+- **Saved on Dispatcharr**: automatic, keeps recent versions.
+- **Plugin backups**: copies you make yourself, kept until you delete them.
+
+The options:
+
+- **Save settings to Dispatcharr**: on or off. Saves your setup a few seconds after each change, and keeps the last few versions so you can go back: the 5 newest, plus the newest from each of the last 7 days (12 at most). Small changes add a version at most every 30 minutes.
 - **Include sign-ins**: whether your other sign-ins are saved too (encrypted).
-- **Restore from Dispatcharr**: check for a saved setup now.
+- **Save a copy now**: saves this TV's setup straight away and keeps it as a version.
+- **Restore from Dispatcharr**: pick **Latest** or an earlier version. Before it's restored, your setup now is kept as a version (**Before restore on** this TV), so you can undo it the same way. Saving carries on afterwards.
+- **Backups on the Viewarr plugin** *(admins, with the [Viewarr plugin](https://github.com/petebutty/viewarr-plugin) installed)*: save a backup with a name, restore one (your setup now is saved as **Before restore** first), or hold OK on one to delete it. The plugin keeps the newest 30.
 
 See [Profiles](PROFILES.md#your-setup-saved-on-dispatcharr) and [Privacy](PRIVACY.md).
 
 ### Troubleshooting
 
 **Show playback info** (format, decoder and dropped frames while playing) and **Low-memory mode** for boxes with 1–2 GB. See [Troubleshooting](TROUBLESHOOTING.md).
+
+**Settings codes** copy your settings from one TV to another:
+
+- **Share my settings**: gives you a code like `VS-ab12cd`, valid for 3 days. It holds your look (Appearance), Playback and remote settings. Sign-ins, Live TV sources, home rows, libraries, favourites, channel numbers and followed teams aren't in it, nor this box's own settings (surround sound, decoding, frame rate, picture size, buffer, the remote's buttons).
+- **Use someone's settings**: type a code, then **Replace**. Your sign-ins, sources, home rows and libraries stay as they are, and so do this box's own settings.
+- **Undo the last settings code**: shows after you've used a code, and puts back the settings you had before.
+
+A report sent with **Send a report** includes a settings code too, so the developer can try your exact settings.
+
+### Advanced
+
+Settings most people never need. Each section starts with a warning: leave them alone unless you've been asked to change one or know why. **Reset to defaults** at the bottom puts everything on this page back. Search settings still finds them and opens them here.
+
+| Section | What's there |
+|---|---|
+| **Player** | Player (built-in or mpv), Video view, mpv decoding. |
+| **Video & sound** | Sound after a frame-rate switch, Picture size (how a film's shape fills the screen), Deinterlace, Surround passthrough, Sound channels, Audio sync. |
+| **Streams** | Best quality allowed, Plex quality, Buffer. |
+| **Screen & sizes** | App scaling (shrinks the whole picture for a TV that cuts off the edges), List scrolling, Channel rows (10, 12, 9 or 8 in the guide), Info bar size, width and corners, Preview cards, Player controls size, Top panel, Row posters, Library posters. |
+| **TV guide data** | TV guide days ahead, TV guide refresh, Event channels: only with a listing. |
 
 ### Updates
 

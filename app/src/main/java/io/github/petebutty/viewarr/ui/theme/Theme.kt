@@ -42,7 +42,6 @@ data class Palette(val main: Color, val highlight: Color, val transparency: Floa
     val lowMemory get() = opt(UiOpts.LOW_MEMORY) == 1
     val guideArt get() = opt(UiOpts.GUIDE_ART) == 0 && !lowMemory
     /** The guide's top: the programme's title logo (TMDB) in place of its name, when it has one. */
-    val guideTitleLogos get() = opt(UiOpts.GUIDE_TITLE_LOGO) == 0 && !lowMemory
     /** The wallpaper in use: none in low-memory mode (plain Viewarr colours), whatever's chosen. */
     /** (A stored 4, "Your films and shows", was taken out again on 2026-11-19: shown as none.) */
     val wallpaperMode get() = if (lowMemory || wallpaper == 4) 0 else wallpaper
@@ -65,7 +64,7 @@ data class Palette(val main: Color, val highlight: Color, val transparency: Floa
     val rowPosterWidth get() = floatArrayOf(108f, 140f, 93f)[opt(UiOpts.ROW_POSTERS).coerceIn(0, 2)] * ScreenWidth.factor
     val heroStyle get() = opt(UiOpts.HERO_STYLE).coerceIn(0, 2)
     /** Rows: the opacity of posters that aren't highlighted (Settings → Appearance → Posters → Other posters faded). */
-    val posterDimAlpha get() = 1f - 0.1f * opt(UiOpts.POSTER_DIM).coerceIn(0, 6)
+    val posterDimAlpha get() = 1f - 0.1f * opt(UiOpts.POSTER_DIM).coerceIn(0, 10)
     /** Rows: how much the highlighted poster grows (1 = not at all). */
     val posterZoom get() = floatArrayOf(1.06f, 1f, 1.12f)[opt(UiOpts.POSTER_ZOOM).coerceIn(0, 2)]
     val cardScale get() = floatArrayOf(1f, 0.8f, 0.65f, 1.15f)[opt(UiOpts.CARD_SIZE).coerceIn(0, 3)]
@@ -76,7 +75,14 @@ data class Palette(val main: Color, val highlight: Color, val transparency: Floa
     val zapDelayMs get() = opt(UiOpts.ZAP_DELAY).coerceIn(0, 20) * 100L
     /** Settings → Playback → Next episode countdown: 0–180 s in 5 s steps (the older four-choice setting carries over). */
     val upNextSeconds get() = (opts[UiOpts.UP_NEXT_S] ?: opts[UiOpts.UP_NEXT]?.let { intArrayOf(20, 10, 30, 60)[it.coerceIn(0, 3)] / 5 } ?: 4).coerceIn(0, 36) * 5
-    val textScale get() = floatArrayOf(1f, 0.9f, 1.12f, 1.25f)[opt(UiOpts.TEXT_SIZE).coerceIn(0, 3)]
+    // Text size (Settings → Appearance), text only: the layout, posters and spacing stay as designed (see AppRoot).
+    // "Normal" is 90% of the old size, for everyone to start with (Peter, 2026-11-19: at full size a tester's guide panel
+    // lost its synopsis; "make current small, normal"). Small and Large step about 10% either side (no Extra large: Peter, 2026-11-19).
+    // A new key, so the old whole-app setting's choices don't carry over.
+    // Picture size (Settings → Appearance): the finished picture shrunk, centred, for a TV that cuts off the edges. The
+    // layout itself never changes (see ui/common/PictureScale.kt).
+    val pictureSize get() = floatArrayOf(1f, 0.975f, 0.95f, 0.925f, 0.9f)[opt(UiOpts.PICTURE_SIZE).coerceIn(0, 4)]
+    val textScale get() = floatArrayOf(0.9f, 0.82f, 1f)[opt(UiOpts.TEXT_SIZE_V2).coerceIn(0, 2)]
     /** How long to rest on a channel browsed in the info bar before it changes (null: only on OK). */
     val browseDelayMs: Long? get() = when (opt(UiOpts.BROWSE_DELAY)) { 1 -> 300L; 2 -> 800L; 3 -> 1_000L; 4 -> 1_500L; 5 -> 2_000L; 6 -> null; else -> 500L }
     val hideAllChannels: Boolean get() = opt(UiOpts.GROUP_ALL) == 1
@@ -241,6 +247,8 @@ object TitleParts {
 /** Small display / behaviour settings (Appearance and Playback), each a list of choices; the first is the default. */
 object UiOpts {
     const val TEXT_SIZE = "text_size"
+    const val TEXT_SIZE_V2 = "text_size_v2"
+    const val PICTURE_SIZE = "picture_size"
     /** Settings → Appearance → Font: one of the box's own fonts for all text. */
     const val FONT = "font"
     /** The info bar's glass (and every pop-up's): how dark, and its thin border. */
@@ -337,6 +345,7 @@ object UiOpts {
     const val GUIDE_ART_PLACE = "guide_art_place"
     /** The guide's top panel: the "Next" and "Then" lines on the right (a tester, 2026-11-19: a way to hide them). */
     const val GUIDE_NEXT = "guide_next"
+    const val GUIDE_ROWS = "guide_rows"
     /** Movies / Shows background: the highlighted title's artwork, or the wallpaper (a tester, 2026-11-19). */
     const val TITLE_BG = "title_bg"
     /** The wallpaper behind the TV guide too, or a plain background there (Peter, 2026-11-19: a clean guide). */
@@ -345,7 +354,6 @@ object UiOpts {
     const val GUIDE_EPISODE_BADGE = "guide_episode_badge"
     /** The guide's top panel: the "Catch-up" badge (Peter, 2026-11-19). */
     const val GUIDE_CATCHUP_BADGE = "guide_catchup_badge"
-    const val GUIDE_TITLE_LOGO = "guide_title_logo"
     const val CHANNEL_LOGOS = "channel_logos"
     const val MINI_CORNER = "mini_corner"
     /** Pressing towards the corner picture from the page's edge highlights it (Full screen / Close). */
@@ -422,6 +430,8 @@ object UiOpts {
     )
     val choices = mapOf(
         TEXT_SIZE to listOf("Normal", "Small", "Large", "Extra large"),
+        TEXT_SIZE_V2 to listOf("Normal", "Small", "Large"),
+        PICTURE_SIZE to listOf("100%", "97.5%", "95%", "92.5%", "90%"),
         FONT to listOf("Standard", "Condensed", "Light", "Medium", "Serif", "Thin", "Bold", "Condensed light", "Casual", "Typewriter", "Small caps", "Handwritten"),
         GLASS_TINT to GlassTints.map { it.first },
         GUIDE_EPISODE to listOf("On", "Off"),
@@ -477,11 +487,11 @@ object UiOpts {
         REMIND_LEAD to listOf("When it starts", "2 minutes before", "5 minutes before", "10 minutes before", "15 minutes before"),
         GUIDE_ART_PLACE to listOf("Background", "Banner"),
         GUIDE_NEXT to listOf("On", "Off"),
+        GUIDE_ROWS to listOf("10 rows", "12 rows", "9 rows", "8 rows"),
         TITLE_BG to listOf("What's selected", "Your wallpaper", "None"),
         GUIDE_WALL to listOf("On", "Off"),
         GUIDE_EPISODE_BADGE to listOf("On", "Off"),
         GUIDE_CATCHUP_BADGE to listOf("On", "Off"),
-        GUIDE_TITLE_LOGO to listOf("On", "Off"),
         CHANNEL_LOGOS to listOf("On", "Off"),
         MINI_CORNER to listOf("Bottom right", "Bottom left", "Top right", "Top left"),
         CORNER_FOCUS to listOf("On", "Off"),
@@ -494,7 +504,7 @@ object UiOpts {
         SET_ROWS_HOME to listOf("Only through their shortcuts", "On the home page too"),
         CATCHUP_ICONS to listOf("Programmes and channels", "Channel names only", "Off", "Highlighted channel only"),
         GUIDE_SHADE to listOf("On", "Off"),
-        POSTER_DIM to listOf("Off", "10%", "20%", "30%", "40%", "50%", "60%"),
+        POSTER_DIM to listOf("Off", "10%", "20%", "30%", "40%", "50%", "60%", "70%", "80%", "90%", "100%"),
         POSTER_ZOOM to listOf("Slight", "Off", "More"),
         BANNER_NUMBER to listOf("On", "Off"),
         BANNER_EPISODE to listOf("On", "Off"),
@@ -524,6 +534,10 @@ object UiOpts {
 object ScreenWidth {
     val factor: Float by lazy {
         val dm = android.content.res.Resources.getSystem().displayMetrics
-        ((maxOf(dm.widthPixels, dm.heightPixels) / dm.density) / 1280f).coerceIn(0.6f, 1.5f)
+        // A TV (1200 pixels wide or more) always has the same canvas (see ui/common/PictureScale.kt), so the same poster
+        // sizes: eight across on every box. (It used to follow the box's own density: a 1080p box at 960 dp wide got
+        // posters three-quarters the size of a 4K box at 1280 dp.) Smaller screens keep following their width.
+        if (maxOf(dm.widthPixels, dm.heightPixels) >= 1200) 1f
+        else ((maxOf(dm.widthPixels, dm.heightPixels) / dm.density) / 1280f).coerceIn(0.6f, 1.5f)
     }
 }

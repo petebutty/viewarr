@@ -21,7 +21,8 @@ class TvApp : Application(), ImageLoaderFactory {
     override fun newImageLoader(): ImageLoader {
         val am = getSystemService(ACTIVITY_SERVICE) as? android.app.ActivityManager
         io.github.petebutty.viewarr.data.net.SmallerImages.weak = am?.isLowRamDevice == true
-        am?.memoryClass?.let { MemoryBudget.normalBytes = it.toLong() shl 20 }
+        // Sized from the real limit (largeHeap, or a raised one), never less than the normal app slice.
+        am?.memoryClass?.let { MemoryBudget.normalBytes = maxOf(it.toLong() shl 20, MemoryBudget.budgetFrom(Runtime.getRuntime().maxMemory())) }
         // A 4K screen: pictures decoded smaller (see SmallerImages.screenScale).
         val dm = resources.displayMetrics
         if (maxOf(dm.widthPixels, dm.heightPixels) >= 3000) io.github.petebutty.viewarr.data.net.SmallerImages.screenScale = 0.67f
@@ -61,5 +62,12 @@ class TvApp : Application(), ImageLoaderFactory {
  * stay as big as they were, so a box uses no more memory day to day; the extra is only there before a crash would be.
  */
 object MemoryBudget {
-    @Volatile var normalBytes: Long = Runtime.getRuntime().maxMemory().coerceAtMost(256L shl 20)
+    /**
+     * What the film buffer and picture cache are sized from: the memory this app is really given, less 128 MB kept free
+     * for everything else. On a normal box (384 MB) that's 256 MB, as before; on a box whose limit has been raised (the
+     * AM9's Magisk module gives 768 MB) it grows with it, so a bigger box buffers more and keeps more pictures.
+     */
+    @Volatile var normalBytes: Long = budgetFrom(Runtime.getRuntime().maxMemory())
+
+    fun budgetFrom(max: Long): Long = (max - (128L shl 20)).coerceIn(96L shl 20, 1024L shl 20)
 }

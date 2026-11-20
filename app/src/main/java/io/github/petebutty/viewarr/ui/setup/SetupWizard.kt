@@ -49,6 +49,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.petebutty.viewarr.ui.common.Button
@@ -101,7 +102,7 @@ fun SetupWizard(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(0.36f).padding(end = 40.dp)) {
-            Text("Viewarr", style = MaterialTheme.typography.titleLarge, color = AppColors.Accent)
+            Text("Viewarr", style = MaterialTheme.typography.titleLarge, color = AppColors.Accent, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.height(24.dp))
             Text(if (state.step == SetupStep.SignIn && state.xc) "Sign in to your IPTV provider" else titleFor(state.step, mode), style = MaterialTheme.typography.displaySmall, color = AppColors.TextPrimary)
             Spacer(Modifier.height(14.dp))
@@ -489,7 +490,7 @@ private fun CodeStep(state: SetupUiState, firstFocus: FocusRequester, vm: SetupV
             val url = state.codeUrl?.removePrefix("https://")
             if (state.code != null && url != null) {
                 Text("On your phone or computer, go to", color = AppColors.TextSecondary)
-                Text(url, fontSize = 22.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary)
+                Text(url, fontSize = 22.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text("and enter", color = AppColors.TextSecondary)
                 BigCode(state.code)
                 Text("Waiting for you to approve…", fontSize = 13.sp, color = AppColors.TextSecondary)
@@ -515,6 +516,7 @@ private fun BigCode(code: String) {
         fontFamily = FontFamily.Monospace,
         color = AppColors.Accent,
         modifier = Modifier.background(AppColors.Background, RoundedCornerShape(8.dp)).padding(horizontal = 18.dp, vertical = 6.dp),
+        maxLines = 1, softWrap = false,
     )
 }
 

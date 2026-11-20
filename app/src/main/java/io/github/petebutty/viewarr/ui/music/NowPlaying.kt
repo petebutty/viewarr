@@ -144,7 +144,7 @@ private fun MiniBar(position: Long) {
         Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
             Text(s.title, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(s.artist, fontSize = 12.sp, color = AppColors.TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(if (MusicPlayer.isPlaying) "Hold Back: Now playing" else "Paused · ⏯ to play", fontSize = 10.sp, color = AppColors.TextSecondary.copy(alpha = 0.8f), modifier = Modifier.padding(top = 2.dp))
+            Text(if (MusicPlayer.isPlaying) "Hold Back: Now playing" else "Paused · ⏯ to play", fontSize = 10.sp, color = AppColors.TextSecondary.copy(alpha = 0.8f), modifier = Modifier.padding(top = 2.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
             Progress(position, MusicPlayer.durationMs, Modifier.padding(top = 5.dp).height(3.dp))
         }
         Visualiser(Modifier.width(70.dp).height(44.dp).padding(end = 12.dp), bands = 12, reflection = false)
@@ -209,7 +209,7 @@ private fun NowPlaying(position: Long) {
                 Text(s.artist, fontSize = 22.sp, color = Color.White.copy(alpha = 0.85f), maxLines = 1, modifier = Modifier.padding(top = 4.dp, bottom = 26.dp))
                 lyrics?.takeIf { lyricsOn }?.let { LyricsPanel(it, position, MusicPlayer.durationMs, Modifier.fillMaxWidth(), big = true) }
                     ?: MusicPlayer.upNext(3).takeIf { it.isNotEmpty() }?.let { next ->
-                        Text("Up next", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = AppColors.Accent, modifier = Modifier.padding(bottom = 8.dp))
+                        Text("Up next", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = AppColors.Accent, modifier = Modifier.padding(bottom = 8.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) { next.forEach { MiniSong(it) } }
                     }
             }
@@ -222,16 +222,16 @@ private fun NowPlaying(position: Long) {
             NowPlayingArt(MusicPlayer.cover(s, 600), coverSize)
             Spacer(Modifier.width(36.dp))
             Column(Modifier.weight(1f)) {
-                if (!immersive) Text("NOW PLAYING", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = AppColors.Accent, letterSpacing = 2.sp)
+                if (!immersive) Text("NOW PLAYING", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = AppColors.Accent, letterSpacing = 2.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(s.title, fontSize = if (immersive) 24.sp else 32.sp, lineHeight = if (immersive) 30.sp else 40.sp, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
                 Text(s.artist, fontSize = if (immersive) 16.sp else 20.sp, color = Color.White.copy(alpha = 0.9f), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp))
                 if (!immersive) Text(listOfNotNull(s.album.takeIf { it.isNotBlank() }, s.year?.toString()).joinToString(" · "), fontSize = 15.sp, color = Color.White.copy(alpha = 0.65f), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp))
                 Spacer(Modifier.height(if (immersive) 14.dp else 16.dp))
                 Progress(position, MusicPlayer.durationMs, Modifier.fillMaxWidth().height(5.dp))
                 Row(Modifier.fillMaxWidth().padding(top = 6.dp)) {
-                    Text(io.github.petebutty.viewarr.ui.media.clockMs(position), fontSize = 13.sp, color = Color.White.copy(alpha = 0.8f))
+                    Text(io.github.petebutty.viewarr.ui.media.clockMs(position), fontSize = 13.sp, color = Color.White.copy(alpha = 0.8f), maxLines = 1, softWrap = false)
                     Spacer(Modifier.weight(1f))
-                    Text(io.github.petebutty.viewarr.ui.media.clockMs(MusicPlayer.durationMs), fontSize = 13.sp, color = Color.White.copy(alpha = 0.8f))
+                    Text(io.github.petebutty.viewarr.ui.media.clockMs(MusicPlayer.durationMs), fontSize = 13.sp, color = Color.White.copy(alpha = 0.8f), maxLines = 1, softWrap = false)
                 }
                 // Two rows (one was too long for a TV and ran off the right): playing, then the extras, a little smaller.
                 Row(Modifier.padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -258,7 +258,7 @@ private fun NowPlaying(position: Long) {
                 else if (!immersive) {
                     val next = remember(MusicPlayer.index, MusicPlayer.shuffle, MusicPlayer.repeat, MusicPlayer.queue) { MusicPlayer.upNext(3) }
                     if (next.isNotEmpty()) {
-                        Text("Up next", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = AppColors.Accent, modifier = Modifier.padding(top = 14.dp, bottom = 6.dp))
+                        Text("Up next", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = AppColors.Accent, modifier = Modifier.padding(top = 14.dp, bottom = 6.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
                             next.forEach { n ->
                                 Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {

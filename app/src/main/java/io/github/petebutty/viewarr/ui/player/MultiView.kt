@@ -320,7 +320,7 @@ private fun TileView(
                         (program?.let { "  ·  " + displayTitle(it) } ?: ""),
                     fontSize = 14.sp, fontWeight = FontWeight.Medium, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
-                if (selected) Text("OK: full screen  ·  Hold OK: options", fontSize = 11.sp, color = Color(0xCCFFFFFF))
+                if (selected) Text("OK: full screen  ·  Hold OK: options", fontSize = 11.sp, color = Color(0xCCFFFFFF), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 program?.takeIf { it.endTime > it.startTime }?.let { p ->
                     val f = ((now - p.startTime).toFloat() / (p.endTime - p.startTime)).coerceIn(0f, 1f)
                     Box(Modifier.padding(top = 4.dp).fillMaxWidth().background(Color(0x44FFFFFF))) {
@@ -346,7 +346,7 @@ private fun AddWindow(modifier: Modifier, onClick: () -> Unit) {
     ) {
         Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
             Text("+", fontSize = 48.sp)
-            Text("Add a channel", fontSize = 16.sp)
+            Text("Add a channel", fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }

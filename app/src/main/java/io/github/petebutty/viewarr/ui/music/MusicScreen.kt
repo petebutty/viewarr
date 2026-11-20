@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
@@ -691,11 +692,11 @@ fun MusicScreen(
             // they aren't shown twice); otherwise the highlighted card's. (Peter, 2026-11-17.)
             val d = detail
             val c = MusicHover.card
-            Text("Music", fontSize = 14.sp, color = AppColors.Accent)
+            Text("Music", fontSize = 14.sp, color = AppColors.Accent, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.height(8.dp))
             Text(d?.title ?: c?.title ?: "Your music", fontSize = 26.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis)
             (if (d != null) d.sub else c?.sub)?.takeIf { it.isNotBlank() }?.let { Spacer(Modifier.height(6.dp)); Text(it, fontSize = 15.sp, color = AppColors.TextSecondary, maxLines = 2, overflow = TextOverflow.Ellipsis) }
-            if (d == null) c?.let { Spacer(Modifier.height(4.dp)); Text(it.kind.name, fontSize = 13.sp, color = AppColors.TextSecondary) }
+            if (d == null) c?.let { Spacer(Modifier.height(4.dp)); Text(it.kind.name, fontSize = 13.sp, color = AppColors.TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis) }
         }
     }
     Box(Modifier.fillMaxWidth().weight(1f)) {
@@ -718,7 +719,7 @@ internal object MusicHover {
 @Composable
 private fun NotConnected(focusRequester: FocusRequester, onSetUp: () -> Unit, onOpenMenu: () -> Unit) {
     Column(Modifier.fillMaxSize().padding(64.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-        Text("Music", fontSize = 30.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary)
+        Text("Music", fontSize = 30.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Text(
             "Connect Navidrome, or a Plex, Jellyfin or Emby server with a music library, to play your music here.",
             fontSize = 16.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(top = 10.dp, bottom = 24.dp),
@@ -773,12 +774,14 @@ private fun MusicBrowsePage(b: MusicBrowse, vm: MusicViewModel, page: String, me
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().padding(top = 28.dp)) {
             Row(Modifier.padding(horizontal = 48.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(b.title, fontSize = 26.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary)
+                // (Never so wide that the search box and the buttons after it are pushed off the row.)
+                Text(b.title, fontSize = 26.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 420.dp))
                 Spacer(Modifier.width(14.dp))
                 val sortLabel = b.query?.let { q -> b.options?.sorts?.firstOrNull { it.id == q.sort }?.let { "${it.label} ${if (q.desc) "↓" else "↑"}" } }
                 Text(
                     listOfNotNull(if (b.found != null) "${b.found.size} found" else if (b.loading) "Loading…" else "${b.cards.size}${if (b.more) "+" else ""}", sortLabel.takeIf { b.found == null }).joinToString("  ·  "),
                     fontSize = 14.sp, color = AppColors.TextSecondary,
+                    maxLines = 1, softWrap = false,
                 )
                 Spacer(Modifier.weight(1f))
                 // As on the Movies and Shows libraries: the mic, then a box to search this page.
@@ -857,7 +860,7 @@ private fun MusicBrowsePage(b: MusicBrowse, vm: MusicViewModel, page: String, me
         if (railOn) Box(
             Modifier.align(Alignment.Center).size(140.dp).background(AppColors.Panel.copy(alpha = 0.92f), RoundedCornerShape(24.dp)),
             contentAlignment = Alignment.Center,
-        ) { Text(railLetter.toString(), fontSize = 72.sp, fontWeight = FontWeight.Bold, color = AppColors.Accent) }
+        ) { Text(railLetter.toString(), fontSize = 72.sp, fontWeight = FontWeight.Bold, color = AppColors.Accent, maxLines = 1, softWrap = false) }
         val o = b.options
         val q = b.query
         if (panel == "sort" && o != null && q != null) SortPanel(
@@ -878,7 +881,7 @@ private fun GenreTile(c: MusicCard, modifier: Modifier, onClick: () -> Unit) {
     FocusCard(onClick = onClick, modifier = modifier.fillMaxWidth().height(76.dp), containerColor = tint) {
         Column(Modifier.fillMaxSize().padding(horizontal = 14.dp), verticalArrangement = Arrangement.Center) {
             Text(c.title, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            if (c.sub.isNotBlank()) Text(c.sub, fontSize = 12.sp, color = Color.White.copy(alpha = 0.8f))
+            if (c.sub.isNotBlank()) Text(c.sub, fontSize = 12.sp, color = Color.White.copy(alpha = 0.8f), maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
@@ -992,6 +995,7 @@ private fun MusicDetailPage(d: MusicDetail, vm: MusicViewModel, page: String, me
                         Column {
                             if (multiDisc && (i == 0 || d.songs[i - 1].disc != s.disc)) Text(
                                 "Disc ${s.disc}", fontSize = 13.sp, color = AppColors.Accent, modifier = Modifier.padding(start = 12.dp, top = if (i == 0) 0.dp else 10.dp, bottom = 4.dp),
+                                maxLines = 1, overflow = TextOverflow.Ellipsis,
                             )
                             TrackRow(
                                 number = if (d.card.kind == MusicKind.Album) (s.track ?: (i + 1)).toString() else (i + 1).toString(),
@@ -1017,7 +1021,7 @@ private fun MusicDetailPage(d: MusicDetail, vm: MusicViewModel, page: String, me
 /** What the remote does on the songs: over an album's, a playlist's or an artist's list. */
 @Composable
 private fun HoldHint(modifier: Modifier = Modifier) {
-    Text("OK: play  ·  Hold OK: options", fontSize = 12.sp, color = AppColors.TextSecondary, modifier = modifier)
+    Text("OK: play  ·  Hold OK: options", fontSize = 12.sp, color = AppColors.TextSecondary, modifier = modifier, maxLines = 1, overflow = TextOverflow.Ellipsis)
 }
 
 @Composable
@@ -1036,13 +1040,13 @@ private fun TrackRow(number: String, song: Song, showArtist: Boolean, nowPlaying
     ) {
         val c = androidx.tv.material3.LocalContentColor.current
         Row(Modifier.fillMaxSize().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(if (nowPlaying) "♪" else number, fontSize = 14.sp, color = c.copy(alpha = if (nowPlaying) 1f else 0.7f), modifier = Modifier.width(36.dp))
+            Text(if (nowPlaying) "♪" else number, fontSize = 14.sp, color = c.copy(alpha = if (nowPlaying) 1f else 0.7f), modifier = Modifier.width(36.dp), maxLines = 1, softWrap = false)
             Column(Modifier.weight(1f)) {
                 Text(song.title, fontSize = 15.sp, color = c, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = if (nowPlaying) FontWeight.SemiBold else FontWeight.Normal)
                 if (showArtist) Text(song.artist, fontSize = 12.sp, color = c.copy(alpha = 0.7f), maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            if (starred) Text("★  ", fontSize = 13.sp, color = c.copy(alpha = 0.85f))
-            Text(clock(song.durationSec), fontSize = 13.sp, color = c.copy(alpha = 0.7f))
+            if (starred) Text("★  ", fontSize = 13.sp, color = c.copy(alpha = 0.85f), maxLines = 1, softWrap = false)
+            Text(clock(song.durationSec), fontSize = 13.sp, color = c.copy(alpha = 0.7f), maxLines = 1, softWrap = false)
         }
     }
 }

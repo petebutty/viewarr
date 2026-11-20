@@ -182,5 +182,5 @@ fun AboutSettingsScreen(onBack: () -> Unit, vm: AboutViewModel = hiltViewModel()
         ),
         SettingCategory("Live TV sources", "Your saved sources and their guides (the three most recent are kept on the TV).", rows(i.sources)),
     )
-    SettingsPage(title = "About", categories = categories, onBack = onBack)
+    SettingsPage(title = "About", allCategories = categories, onBack = onBack)
 }

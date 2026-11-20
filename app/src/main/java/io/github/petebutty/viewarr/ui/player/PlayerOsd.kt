@@ -279,16 +279,16 @@ fun PlayerOsd(
                         ) {
                             val marker = rewindTo?.let { ((it - current.startTime).toFloat() / (current.endTime - current.startTime)).coerceIn(0f, 1f) }
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text("${current.startTime.clockTime()} – ${current.endTime.clockTime()}", fontSize = 14.sp, color = Color.White)
+                                Text("${current.startTime.clockTime()} – ${current.endTime.clockTime()}", fontSize = 14.sp, color = Color.White, maxLines = 1, softWrap = false)
                                 Spacer(Modifier.width(12.dp))
                                 Box(Modifier.weight(1f)) { LiveProgress(current, now, highlighted = barOn, marker = marker) }
                             }
                             val hint = rewindTo?.let { t -> "Back to ${t.clockTime()}  ·  ${((now - t) / 60_000).coerceAtLeast(1)} min ago  ·  OK: jump now" }
                                 ?: "◀ rewind  ·  OK: pause"
-                            if (barOn) Text(hint, fontSize = 11.sp, color = if (rewindTo != null) Color.White else AppColors.TextSecondary, modifier = Modifier.padding(top = 4.dp))
+                            if (barOn) Text(hint, fontSize = 11.sp, color = if (rewindTo != null) Color.White else AppColors.TextSecondary, modifier = Modifier.padding(top = 4.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                     } else Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("${current.startTime.clockTime()} – ${current.endTime.clockTime()}", fontSize = 14.sp, color = Color.White)
+                        Text("${current.startTime.clockTime()} – ${current.endTime.clockTime()}", fontSize = 14.sp, color = Color.White, maxLines = 1, softWrap = false)
                         Spacer(Modifier.width(12.dp))
                         Box(Modifier.weight(1f)) { LiveProgress(current, now) }
                     }
@@ -379,7 +379,7 @@ fun PlayerOsd(
                     }
                 }
             }
-            sourceNote?.takeIf { popup == null }?.let { Text(it, fontSize = 12.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(start = 8.dp, top = 14.dp)) }
+            sourceNote?.takeIf { popup == null }?.let { Text(it, fontSize = 12.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(start = 8.dp, top = 14.dp), maxLines = 1, overflow = TextOverflow.Ellipsis) }
         }
         // Hold OK on a Continue watching card: Go to show / Go to season / Play from the start. Closing it (Cancel,
         // Back) leaves the highlight where it was.
@@ -439,6 +439,7 @@ private fun Badge(text: String) {
  * One poster row at a time, floating under the buttons (no panel: the controls' own fade is behind it). Up / Down
  * change row (Up from the first goes back to the buttons); the next row's name shows beside this one's.
  */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun PosterRows(rows: List<OsdRow>, current: Int, onRow: (Int) -> Unit) {
     val r = current.coerceIn(0, rows.lastIndex)
@@ -465,13 +466,23 @@ private fun PosterRows(rows: List<OsdRow>, current: Int, onRow: (Int) -> Unit) {
         androidx.compose.runtime.key(r) {
             // Room round the cards (the highlight grew and was cut off at the row's left edge; kept since cards stopped growing),
             // pulled back by the same amount so the first card still lines up with the row's name.
-            LazyRow(
-                Modifier.padding(top = 2.dp).offset(x = (-12).dp),
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            // The cards move as the poster rows do: the highlight stays in the first place, the cards slide under it
+            // (Peter, 2026-11-20: "the same animation for all preview panels under the play controls").
+            val rowState = androidx.compose.foundation.lazy.rememberLazyListState()
+            val slide = io.github.petebutty.viewarr.ui.media.rememberRowSlide(rowState) { row.items.size }
+            androidx.compose.runtime.CompositionLocalProvider(
+                androidx.compose.foundation.gestures.LocalBringIntoViewSpec provides io.github.petebutty.viewarr.ui.media.NoRowScroll,
             ) {
-                items(row.items.size, key = { row.items[it].key }) { i ->
-                    PosterCard(row.items[i], enabled = inside, modifier = if (i == 0) Modifier.focusRequester(firstCard) else Modifier)
+                LazyRow(
+                    Modifier.padding(top = 2.dp).offset(x = (-12).dp).onFocusChanged { if (!it.hasFocus) slide.focused = -1 }.then(slide.modifier),
+                    state = rowState,
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    items(row.items.size, key = { row.items[it].key }) { i ->
+                        PosterCard(row.items[i], enabled = inside,
+                            modifier = (if (i == 0) Modifier.focusRequester(firstCard) else Modifier).onFocusChanged { if (it.hasFocus) slide.focused = i })
+                    }
                 }
             }
         }
@@ -516,7 +527,7 @@ fun OsdCardContent(p: OsdPoster) {
         if (p.unreleased) {
             Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.6f)))
             Text("Not out yet", fontSize = 12.sp, color = Color.White, modifier = Modifier.align(Alignment.Center)
-                .background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(6.dp)).padding(horizontal = 8.dp, vertical = 3.dp))
+                .background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(6.dp)).padding(horizontal = 8.dp, vertical = 3.dp), maxLines = 1, softWrap = false)
         }
         // Inset from the edges: on the edge, the highlight's border and the rounded corners hid it.
         p.progress?.takeIf { it > 0f }?.let { f ->
@@ -548,10 +559,10 @@ fun OsdCardCaption(p: OsdPoster, highlighted: Boolean) {
 @Composable
 fun OsdRowHeading(title: String, next: String?, position: String? = null) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(title, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
+        Text(title, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
         // Several rows under the info bar: where you are among them ("2 of 4").
-        if (position != null) Text("   $position", fontSize = 12.sp, color = AppColors.TextSecondary)
-        if (next != null && position == null) Text("   ·   Down: $next", fontSize = 12.sp, color = AppColors.TextSecondary)
+        if (position != null) Text("   $position", fontSize = 12.sp, color = AppColors.TextSecondary, maxLines = 1, softWrap = false)
+        if (next != null && position == null) Text("   ·   Down: $next", fontSize = 12.sp, color = AppColors.TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -628,7 +639,7 @@ private fun LiveProgress(program: GuideProgram, now: Long, highlighted: Boolean 
             if (highlighted || marker != null) SeekKnob(maxWidth * (marker ?: fraction), big = highlighted)
         }
         Spacer(Modifier.width(12.dp))
-        Text("${((program.endTime - now) / 60_000).coerceAtLeast(0)} min left", fontSize = 13.sp, color = AppColors.TextSecondary)
+        Text("${((program.endTime - now) / 60_000).coerceAtLeast(0)} min left", fontSize = 13.sp, color = AppColors.TextSecondary, maxLines = 1, softWrap = false)
     }
 }
 
@@ -695,10 +706,11 @@ private fun SeekBar(
                     if (paused) "Paused  ·  OK: play  ·  ◀ ▶ skip" else "OK: pause  ·  ◀ ▶ skip, hold to go faster",
                     fontSize = 12.sp,
                     color = AppColors.TextSecondary,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
             }
             Spacer(Modifier.weight(1f))
-            Text("${clock(position)} / ${clock(duration)}" + (live?.let { l -> if (l > position + 60_000) "  ·  ${(l - position) / 60_000} min behind live" else "" } ?: ""), fontSize = 13.sp, color = Color.White)
+            Text("${clock(position)} / ${clock(duration)}" + (live?.let { l -> if (l > position + 60_000) "  ·  ${(l - position) / 60_000} min behind live" else "" } ?: ""), fontSize = 13.sp, color = Color.White, maxLines = 1, softWrap = false)
         }
     }
 }
@@ -725,7 +737,7 @@ private fun OptionPopup(
             .padding(8.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        Text(title, fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(start = 12.dp, top = 4.dp, bottom = 4.dp))
+        Text(title, fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(start = 12.dp, top = 4.dp, bottom = 4.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
         if (options.isEmpty()) {
             Text(emptyText, fontSize = 13.sp, color = Color.White, modifier = Modifier.padding(12.dp).focusRequester(focus).focusable())
         }
@@ -761,19 +773,19 @@ private fun StreamInfoPopup(vm: PlaybackViewModel) {
         Modifier.width(460.dp).glass(10.dp).padding(horizontal = 16.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(3.dp),
     ) {
-        Text("On this box (the player)", fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(bottom = 4.dp))
+        Text("On this box (the player)", fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(bottom = 4.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
         box.forEach { (k, v) ->
             Row {
-                Text(k, fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.width(110.dp))
+                Text(k, fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.width(110.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(v, fontSize = 13.sp, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
         val l = lines
-        if (l == null || l.isNotEmpty()) Text("From Dispatcharr", fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(top = 8.dp, bottom = 4.dp))
+        if (l == null || l.isNotEmpty()) Text("From Dispatcharr", fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(top = 8.dp, bottom = 4.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
         if (l == null) Text("Loading…", fontSize = 13.sp, color = Color.White)
         else l.forEach { (k, v) ->
             Row {
-                Text(k, fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.width(110.dp))
+                Text(k, fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.width(110.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(v, fontSize = 13.sp, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }

@@ -31,6 +31,7 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.tv.material3.Text
 import io.github.petebutty.viewarr.ui.common.MenuItem
 import io.github.petebutty.viewarr.ui.theme.AppColors
@@ -82,8 +83,8 @@ private fun SettingsSearchResults(
         // (Below the live TV window when one is up, as SettingsPage: the title and box sat under it.)
         Column(Modifier.fillMaxSize().padding(horizontal = io.github.petebutty.viewarr.ui.theme.Tokens.Gutter, vertical = 40.dp)
             .padding(top = if (SettingsLayout.belowPreview) 170.dp else 0.dp)) {
-            Text("Settings", fontSize = 14.sp, color = AppColors.Accent)
-            Text("Search settings", fontSize = 30.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, color = AppColors.TextPrimary, modifier = Modifier.padding(bottom = 16.dp))
+            Text("Settings", fontSize = 14.sp, color = AppColors.Accent, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text("Search settings", fontSize = 30.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, color = AppColors.TextPrimary, modifier = Modifier.padding(bottom = 16.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
             Box(
                 Modifier.fillMaxWidth(0.6f).height(48.dp)
                     .background(AppColors.Panel, RoundedCornerShape(10.dp))

@@ -38,6 +38,7 @@ Viewarr doesn't provide any content. It plays only what your own servers and acc
 - **Report a problem** on any channel (wrong guide, times out, dead stream, logo, name) by holding OK: with the [Viewarr plugin](docs/LIVE-TV.md#report-a-problem) the fix reaches the whole house, with Undo for admins.
 - **Every remote button your way**, with Classic and Viewarr presets.
 - **Your setup saved on Dispatcharr**, so a new TV picks it up. *(Profiles for everyone in the house, and sharing with friends in another house, are coming soon.)*
+- **Settings codes**: share your look, playback and remote settings with another TV (a friend's, or a tester's) as a short code, without their sign-ins or sources. Undo puts theirs back.
 - **Easy setup** from your phone with a QR code, and **Search settings** to find any option by name.
 - **No pop-ups you didn't ask for**: score alerts, reminders, update cards and What's new are all off until you turn them on.
 

@@ -41,6 +41,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -357,37 +358,7 @@ class ProfilesViewModel @Inject constructor(
         return (1..20).map { chars[r.nextInt(chars.length)] }.joinToString("")
     }
 
-    // ---- Backups of this TV's whole setup, in the Viewarr plugin (admins)
-
-    private val _backups = MutableStateFlow<List<House.Backup>?>(null)
-    /** null: loading, or no plugin. */
-    val backups: StateFlow<List<House.Backup>?> = _backups
-    private val _hasPlugin = MutableStateFlow<Boolean?>(null)
-    val hasPlugin: StateFlow<Boolean?> = _hasPlugin
-
-    fun loadBackups() = viewModelScope.launch {
-        val s = me() ?: return@launch
-        val list = house.backups(s)
-        _hasPlugin.value = list != null
-        _backups.value = list
-    }
-
-    fun saveBackup() = work { s ->
-        val name = "${s.username} · " + java.text.SimpleDateFormat("d MMM yyyy HH:mm", java.util.Locale.UK).format(java.util.Date())
-        val ok = house.saveBackup(s, name, sync.backupBody(s))
-        loadBackups()
-        if (ok) "Backup saved in the Viewarr plugin." else "The Viewarr plugin didn't save it (is it installed and on?)."
-    }
-
-    fun restoreBackup(b: House.Backup) = work { s ->
-        val data = house.backup(s, b.id) ?: return@work "That backup couldn't be read."
-        if (sync.restoreBackup(data, s)) "Restored ${b.name}." else "Settings restored; its sign-ins couldn't be read (your Dispatcharr API key has changed since)."
-    }
-
-    fun deleteBackup(b: House.Backup) = work { s ->
-        val ok = house.deleteBackup(s, b.id); loadBackups()
-        if (ok) "Deleted ${b.name}." else "It couldn't be deleted."
-    }
+    // (Backups in the Viewarr plugin: ui/sync/PluginBackupsUi.kt, shared with Settings → Backup & sync.)
 
     // ---- Resetting someone (admins)
 
@@ -656,7 +627,7 @@ fun WhoIsWatching(onDone: () -> Unit, vm: ProfilesViewModel = hiltViewModel()) {
         contentAlignment = Alignment.Center,
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(if (busy) "Switching…" else "Who's watching?", fontSize = 34.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary)
+            Text(if (busy) "Switching…" else "Who's watching?", fontSize = 34.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.height(36.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(28.dp)) {
                 profiles.forEachIndexed { i, p ->
@@ -671,11 +642,11 @@ fun WhoIsWatching(onDone: () -> Unit, vm: ProfilesViewModel = hiltViewModel()) {
                             containerColor = COLOURS[p.color % COLOURS.size],
                         ) {
                             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                Text(p.initial.toString(), fontSize = 52.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                                Text(p.initial.toString(), fontSize = 52.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1, softWrap = false)
                             }
                         }
-                        Text(p.username, fontSize = 18.sp, color = AppColors.TextPrimary, modifier = Modifier.padding(top = 12.dp))
-                        if (on) Text("Current", fontSize = 12.sp, color = AppColors.Accent)
+                        Text(p.username, fontSize = 18.sp, color = AppColors.TextPrimary, modifier = Modifier.padding(top = 12.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        if (on) Text("Current", fontSize = 12.sp, color = AppColors.Accent, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
                 // Admins: a new person for this TV in one step (just a name).
@@ -695,7 +666,7 @@ fun WhoIsWatching(onDone: () -> Unit, vm: ProfilesViewModel = hiltViewModel()) {
                             Text("+", fontSize = 56.sp, color = Color.White)
                         }
                     }
-                    Text("Add profile", fontSize = 18.sp, color = AppColors.TextPrimary, modifier = Modifier.padding(top = 12.dp))
+                    Text("Add profile", fontSize = 18.sp, color = AppColors.TextPrimary, modifier = Modifier.padding(top = 12.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
             Spacer(Modifier.height(40.dp))
@@ -795,7 +766,7 @@ fun UsersPage(onClose: () -> Unit, vm: ProfilesViewModel = hiltViewModel()) {
         Row(Modifier.fillMaxSize().padding(start = io.github.petebutty.viewarr.ui.theme.Tokens.Gutter, top = 40.dp, end = io.github.petebutty.viewarr.ui.theme.Tokens.Gutter)) {
             // Down past the last profile stays put (it used to jump across to Add someone).
             Column(Modifier.width(380.dp).stopAt(androidx.compose.ui.focus.FocusDirection.Down)) {
-                Text("Profiles on this TV", fontSize = 22.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary)
+                Text("Profiles on this TV", fontSize = 22.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text("Each person's settings and sign-ins are their own.", fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(top = 4.dp, bottom = 14.dp))
                 profiles.forEachIndexed { i, p ->
                     MenuItem(
@@ -813,7 +784,7 @@ fun UsersPage(onClose: () -> Unit, vm: ProfilesViewModel = hiltViewModel()) {
             if (admin) {
                 Spacer(Modifier.width(48.dp))
                 Column(Modifier.weight(1f)) {
-                    Text("Users (Dispatcharr)", fontSize = 22.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary)
+                    Text("Users (Dispatcharr)", fontSize = 22.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text("Everyone with a user can sign in to Viewarr with your server's address, their username and password.", fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(top = 4.dp, bottom = 14.dp))
                     MenuItem(text = "Add someone…", trailing = "+", selected = false, onClick = { dialog = "add" })
                     MenuItem(text = "Send my setup to everyone…", selected = false, onClick = { dialog = "sendall" })
@@ -888,11 +859,11 @@ private fun DialogBox(title: String, onBack: () -> Unit, content: @Composable (F
     Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.6f)), contentAlignment = Alignment.Center) {
         Column(
             Modifier.width(560.dp)
-                .heightIn(max = (androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp * 0.92f).dp)
+                .heightIn(max = (io.github.petebutty.viewarr.ui.common.LocalCanvas.current.height * 0.92f))
                 .background(AppColors.Panel, RoundedCornerShape(14.dp)).verticalScroll(androidx.compose.foundation.rememberScrollState()).padding(24.dp)
                 .onFocusChanged { inside = it.hasFocus }.focusProperties { exit = { FocusRequester.Cancel } }.focusGroup(),
         ) {
-            Text(title, fontSize = 22.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, modifier = Modifier.padding(bottom = 14.dp))
+            Text(title, fontSize = 22.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, modifier = Modifier.padding(bottom = 14.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
             content(first)
         }
     }
@@ -1217,36 +1188,10 @@ private fun PlexDialog(u: DUser, vm: ProfilesViewModel, onCancel: () -> Unit, on
     }
 }
 
-/** Backups of this TV's whole setup in the Viewarr plugin: save one now, restore one, hold OK to delete. */
+/** Backups of this TV's whole setup in the Viewarr plugin (the same view as Settings → Backup & sync has). */
 @Composable
-private fun BackupsDialog(vm: ProfilesViewModel, onClose: () -> Unit) = DialogBox("Backups", onClose) { first ->
-    val list by vm.backups.collectAsStateWithLifecycle()
-    val hasPlugin by vm.hasPlugin.collectAsStateWithLifecycle()
-    val busy by vm.busy.collectAsStateWithLifecycle()
-    val message by vm.message.collectAsStateWithLifecycle()
-    var restore by remember { mutableStateOf<House.Backup?>(null) }
-    LaunchedEffect(Unit) { vm.loadBackups() }
-    // Restore question ↔ the list: focus onto the new view's first item (the one focused has gone).
-    LaunchedEffect(restore) { kotlinx.coroutines.delay(60); runCatching { first.requestFocus() } }
-    val r = restore
-    if (r != null) {
-        Text("Restore ${r.name}? This TV's settings and sign-ins are replaced by the backup's (picture, sound and frame-rate settings stay).", fontSize = 14.sp, color = AppColors.TextPrimary, modifier = Modifier.padding(bottom = 10.dp))
-        MenuItem(text = if (busy) "Restoring…" else "Restore", selected = false, onClick = { if (!busy) { vm.restoreBackup(r); restore = null } }, modifier = Modifier.focusRequester(first))
-        MenuItem(text = "Cancel", selected = false, onClick = { restore = null })
-        return@DialogBox
-    }
-    Text("Your whole setup (settings and sign-ins, encrypted with your key) kept in the Viewarr plugin on Dispatcharr. The newest 30 are kept.", fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(bottom = 10.dp))
-    MenuItem(text = if (busy) "Saving…" else "Save a backup now", selected = false, onClick = { if (!busy && hasPlugin == true) vm.saveBackup() }, modifier = Modifier.focusRequester(first))
-    when {
-        hasPlugin == false -> Text("Install the Viewarr plugin in Dispatcharr (Plugins) to keep backups there.", fontSize = 13.sp, color = AppColors.Accent, modifier = Modifier.padding(top = 8.dp, start = 12.dp))
-        list == null -> Text("Loading…", fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(top = 8.dp, start = 12.dp))
-        list.orEmpty().isEmpty() -> Text("No backups yet.", fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(top = 8.dp, start = 12.dp))
-        else -> list.orEmpty().forEach { b ->
-            MenuItem(text = b.name, trailing = b.device, selected = false, onClick = { restore = b }, onLongClick = { vm.deleteBackup(b) })
-        }
-    }
-    if (!list.isNullOrEmpty()) Text("OK: restore  ·  Hold OK: delete", fontSize = 12.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(top = 6.dp, start = 12.dp))
-    message?.let { Text(it, fontSize = 13.sp, color = AppColors.Accent, modifier = Modifier.padding(top = 8.dp, start = 12.dp)) }
+private fun BackupsDialog(@Suppress("UNUSED_PARAMETER") vm: ProfilesViewModel, onClose: () -> Unit) = DialogBox("Backups", onClose) { first ->
+    io.github.petebutty.viewarr.ui.sync.PluginBackupsContent(first)
 }
 
 /** What to send someone in another house, big and plain: the address, their username and password, and the steps. */
@@ -1263,12 +1208,12 @@ private fun DetailsShown(d: ProfilesViewModel.Details, onClose: () -> Unit) {
         contentAlignment = Alignment.Center,
     ) {
         Column(Modifier.width(620.dp)) {
-            Text("${d.who} is ready", fontSize = 26.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary)
+            Text("${d.who} is ready", fontSize = 26.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text("Send ${d.who} these three:", fontSize = 16.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(top = 10.dp, bottom = 12.dp))
             listOf("Address" to d.address, "Username" to d.who, "Password" to d.password).forEach { (k, v) ->
                 Row(Modifier.padding(vertical = 4.dp)) {
-                    Text(k, fontSize = 20.sp, color = AppColors.TextSecondary, modifier = Modifier.width(150.dp))
-                    Text(v, fontSize = 22.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary)
+                    Text(k, fontSize = 20.sp, color = AppColors.TextSecondary, modifier = Modifier.width(150.dp), maxLines = 1, softWrap = false)
+                    Text(v, fontSize = 22.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
             Text("On their TV: install Viewarr, choose Someone gave me sign-in details, and type these three. Everything else is set up for them.", fontSize = 15.sp, color = AppColors.TextPrimary, modifier = Modifier.padding(top = 16.dp))
@@ -1300,13 +1245,13 @@ private fun InviteShown(who: String, c: String, onClose: () -> Unit) {
         contentAlignment = Alignment.Center,
     ) {
         Row(Modifier.padding(32.dp), verticalAlignment = Alignment.CenterVertically) {
-            val side = (androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp * 0.82f).dp
+            val side = (io.github.petebutty.viewarr.ui.common.LocalCanvas.current.height * 0.82f)
             Box(Modifier.size(side).background(Color.White, RoundedCornerShape(10.dp)).padding(12.dp)) {
                 QrImage(shareUrl ?: c, Modifier.fillMaxSize(), dense = shareUrl == null)
             }
             Spacer(Modifier.width(36.dp))
             Column(Modifier.width(380.dp)) {
-                Text("Invite for $who", fontSize = 24.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary)
+                Text("Invite for $who", fontSize = 24.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(if (shareUrl != null) "1. Scan this with your phone's camera (phone on this Wi-Fi): a page opens with the invite. Tap Copy invite and send it to $who." else "1. Scan this with your phone's camera and send the text to $who.", fontSize = 15.sp, color = AppColors.TextPrimary, modifier = Modifier.padding(top = 14.dp))
                 Text("2. On their TV they install Viewarr, scan its setup code with their phone and choose I have an invite.", fontSize = 15.sp, color = AppColors.TextPrimary, modifier = Modifier.padding(top = 8.dp))
                 Text("3. They paste it and type their password. That's it.", fontSize = 15.sp, color = AppColors.TextPrimary, modifier = Modifier.padding(top = 8.dp))

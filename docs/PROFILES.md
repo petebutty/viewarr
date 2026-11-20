@@ -81,6 +81,6 @@ Viewarr keeps a copy of its setup on your Dispatcharr server, for your user: you
 - Sign-ins are encrypted on the TV before they're saved, so the server never sees them in plain form.
 - Settings that depend on the box (surround sound, frame rate, decoding, picture size, buffer) stay on each TV.
 
-Turn it off, or leave sign-ins out, in **Settings → Backup & sync** (**Save settings to Dispatcharr**, **Include sign-ins**). **Restore from Dispatcharr** checks for a saved setup now.
+Turn it off, or leave sign-ins out, in **Settings → Backup & sync** (**Save settings to Dispatcharr**, **Include sign-ins**). **Restore from Dispatcharr** lists the saved setup and its earlier versions to pick from.
 
 This needs Dispatcharr 0.33 or newer.

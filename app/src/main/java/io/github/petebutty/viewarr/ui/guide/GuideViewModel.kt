@@ -75,7 +75,33 @@ class GuideViewModel @Inject constructor(
     private val sportsRepo: io.github.petebutty.viewarr.data.sports.SportsRepository,
     /** Settings → Live TV → Live now: the teams, leagues and sports it's limited to (empty: everything). */
     private val liveNowPicks: io.github.petebutty.viewarr.data.sports.LiveNowPicks,
+    /** Settings → Live TV → Home screen rows: channel groups as rows on the TV's home screen. */
+    private val homeRows: io.github.petebutty.viewarr.data.media.HomeRows,
+    private val theme: io.github.petebutty.viewarr.data.settings.ThemeStore,
 ) : ViewModel() {
+    /** Every service's "Just added" rows on the home screen at once, in service order (viewarr://homerows?add=justadded). */
+    fun addJustAddedRows() {
+        viewModelScope.launch {
+            io.github.petebutty.viewarr.data.media.HomeRows.justAddedParts().forEach { theme.saveTitlePart(it, false) }
+            kotlinx.coroutines.delay(1_500)
+            homeRows.refresh()
+        }
+    }
+
+    /** A Home screen rows switch was changed: the rows follow (once the setting has been saved). */
+    fun refreshHomeRows() { viewModelScope.launch { kotlinx.coroutines.delay(1_500); homeRows.refresh() } }
+
+    init {
+        // The home screen's channel cards: what's on now, kept fresh while Viewarr runs (nothing to do with no row on).
+        viewModelScope.launch {
+            kotlinx.coroutines.delay(30_000)
+            while (true) {
+                if (io.github.petebutty.viewarr.data.media.HomeRows.anyOn()) homeRows.refresh()
+                kotlinx.coroutines.delay(15 * 60_000L)
+            }
+        }
+    }
+
     /** One event for Live now: its channel and guide entry, its tidied name, sport and picture (if found). */
     data class LiveEvent(
         val channel: ChannelListItem,
@@ -301,7 +327,6 @@ class GuideViewModel @Inject constructor(
     suspend fun artFor(title: String): String? = programArt.imageFor(title)
 
     /** The programme's title logo from TMDB (same close-name match as its picture), or null. */
-    suspend fun logoFor(title: String): String? = programArt.logoFor(title)
 
     /** The programme's own picture from Dispatcharr (its guide grid sends none), or null. */
     suspend fun pictureFor(p: GuideProgram): String? = sessions.session.first()?.let { repo.lookupImage(it, p) }

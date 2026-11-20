@@ -45,6 +45,8 @@ If you sign in with Dispatcharr, Viewarr can keep a copy of its setup on your Di
 
 - **Sign-ins are encrypted on the TV** before they're saved, with a key made from your Dispatcharr API key. Your Dispatcharr server only ever stores them encrypted.
 - Settings that depend on the box (surround sound, frame rate, decoding) stay on each TV.
+- A few earlier versions are kept too (up to 12, in the same place on your Dispatcharr user), so you can go back. They hold the same things as the main copy, with sign-ins still encrypted.
+- Backups you make on the Viewarr plugin (admins) are kept by the plugin on your Dispatcharr server until you delete them, with sign-ins encrypted the same way.
 - Turn it off, or leave sign-ins out, in **Settings → Backup & sync**.
 
 Profiles' settings, locks and limits that an admin sets are kept on that person's Dispatcharr user.
@@ -70,3 +72,8 @@ The microphone is only used while voice search is listening (after you press the
 - What's in it: Viewarr's version, the box's model, Android version, memory and screen, which *kinds* of sources you use (Dispatcharr, IPTV login, M3U playlist), and the last part of Viewarr's own log. You see it before sending.
 - What's taken out first: passwords, API keys, tokens, server addresses (also server names inside error messages), IP addresses, email addresses, usernames, and the login that IPTV stream addresses carry. The log does include the names of films and episodes you've played recently.
 - It's locked on the box with the developer's public key, so only the developer can open it, then uploaded to a free file host ([litterbox.catbox.moe](https://litterbox.catbox.moe)) that deletes it after 72 hours. You get a short code (such as `VR-abc123`) to share. The developer also gets a notification ([ntfy.sh](https://ntfy.sh)) with just that code, the Viewarr version and the box's model, nothing else.
+- It also uploads a settings code (`VS-…`, see below) and adds it to the report, so the developer can try your settings.
+
+## Settings codes
+
+**Share my settings** (and every report) uploads your look, playback and remote settings to the same file host, deleted after 72 hours. It isn't locked: it holds only settings, no sign-ins, sources, addresses, home rows, libraries, favourites or channel numbers, and anything that looks like an address or a key is left out. Anyone with the code could see those settings.

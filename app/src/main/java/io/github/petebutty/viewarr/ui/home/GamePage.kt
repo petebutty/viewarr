@@ -111,10 +111,11 @@ internal fun GamePageHost(hub: SportsHub, besidePreview: Boolean) {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                 Team(g.home, g.homeLogo, Modifier.weight(1f), alignEnd = true)
                 Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(horizontal = 28.dp)) {
-                    Text(g.score ?: Dates.time(g.start), fontSize = 34.sp, fontWeight = FontWeight.Bold, color = AppColors.TextPrimary)
+                    Text(g.score ?: Dates.time(g.start), fontSize = 34.sp, fontWeight = FontWeight.Bold, color = AppColors.TextPrimary, maxLines = 1, softWrap = false)
                     Text(
                         when (g.state) { "in" -> "Live" + (g.detail?.let { " · $it" } ?: ""); "post" -> "Full time"; else -> Dates.dayTime(g.start) },
                         fontSize = 14.sp, color = if (g.state == "in") AppColors.Accent else AppColors.TextSecondary,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis,
                     )
                 }
                 Team(g.away, g.awayLogo, Modifier.weight(1f), alignEnd = false)
@@ -246,7 +247,7 @@ internal fun GamePageHost(hub: SportsHub, besidePreview: Boolean) {
                             H("Commentary")
                             d.commentary.forEach { (t, text) ->
                                 Row(Modifier.padding(vertical = 2.dp)) {
-                                    Text(t, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = AppColors.Accent, modifier = Modifier.width(40.dp))
+                                    Text(t, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = AppColors.Accent, modifier = Modifier.width(40.dp), maxLines = 1, softWrap = false)
                                     Text(text, fontSize = 13.sp, color = AppColors.TextPrimary)
                                 }
                             }
@@ -277,7 +278,7 @@ private fun Team(name: String, logo: String?, modifier: Modifier, alignEnd: Bool
 @Composable
 private fun Heading(text: String, first: Boolean = false) =
     Text(text.uppercase(), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp, color = AppColors.Accent,
-        modifier = Modifier.padding(top = if (first) 0.dp else 16.dp, bottom = 6.dp))
+        modifier = Modifier.padding(top = if (first) 0.dp else 16.dp, bottom = 6.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
 
 @Composable
 private fun Line(label: String, value: String) = Row(Modifier.fillMaxWidth().padding(vertical = 1.dp)) {
@@ -294,7 +295,7 @@ private fun FormLine(s: GameSide) = Column(Modifier.padding(bottom = 6.dp)) {
         s.lastFive.reversed().forEach { r ->
             val c = when (r.result) { "W" -> Color(0xFF2E7D32); "L" -> Color(0xFFC62828); else -> Color(0xFF616161) }
             Text(r.result, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White,
-                modifier = Modifier.padding(start = 3.dp).background(c, RoundedCornerShape(3.dp)).padding(horizontal = 5.dp, vertical = 1.dp))
+                modifier = Modifier.padding(start = 3.dp).background(c, RoundedCornerShape(3.dp)).padding(horizontal = 5.dp, vertical = 1.dp), maxLines = 1, softWrap = false)
         }
     }
     s.lastFive.firstOrNull()?.let { r -> Text("Last: ${r.result} ${r.score} ${if (r.home) "v" else "@"} ${r.opponent}", fontSize = 11.sp, color = AppColors.TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis) }
@@ -308,7 +309,7 @@ private fun TableWindow(rows: List<TableRow>) {
     Row(Modifier.fillMaxWidth().padding(bottom = 2.dp)) {
         Text("", modifier = Modifier.width(28.dp))
         Text("", modifier = Modifier.weight(1f))
-        listOf("P", "GD", "Pts").forEach { Text(it, fontSize = 11.sp, color = AppColors.TextSecondary, modifier = Modifier.width(36.dp)) }
+        listOf("P", "GD", "Pts").forEach { Text(it, fontSize = 11.sp, color = AppColors.TextSecondary, modifier = Modifier.width(36.dp), maxLines = 1, softWrap = false) }
     }
     var last = -1
     show.forEach { i ->
@@ -317,11 +318,11 @@ private fun TableWindow(rows: List<TableRow>) {
         val r = rows[i]
         Row(Modifier.fillMaxWidth().then(if (r.mine) Modifier.background(AppColors.Accent.copy(alpha = 0.18f), RoundedCornerShape(4.dp)) else Modifier).padding(vertical = 2.dp)) {
             val w = if (r.mine) FontWeight.SemiBold else FontWeight.Normal
-            Text("${r.rank}", fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.width(28.dp).padding(start = 4.dp))
+            Text("${r.rank}", fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.width(28.dp).padding(start = 4.dp), maxLines = 1, softWrap = false)
             Text(r.team, fontSize = 13.sp, fontWeight = w, color = AppColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-            Text(r.played, fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.width(36.dp))
-            Text(r.gd, fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.width(36.dp))
-            Text(r.points, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, modifier = Modifier.width(36.dp))
+            Text(r.played, fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.width(36.dp), maxLines = 1, softWrap = false)
+            Text(r.gd, fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.width(36.dp), maxLines = 1, softWrap = false)
+            Text(r.points, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, modifier = Modifier.width(36.dp), maxLines = 1, softWrap = false)
         }
     }
 }
@@ -330,9 +331,9 @@ private fun TableWindow(rows: List<TableRow>) {
 @Composable
 private fun StatBar(label: String, h: String, a: String) = Column(Modifier.padding(vertical = 3.dp)) {
     Row(Modifier.fillMaxWidth()) {
-        Text(h, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, modifier = Modifier.width(48.dp))
-        Text(label, fontSize = 12.sp, color = AppColors.TextSecondary, textAlign = TextAlign.Center, modifier = Modifier.weight(1f))
-        Text(a, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, textAlign = TextAlign.End, modifier = Modifier.width(48.dp))
+        Text(h, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, modifier = Modifier.width(48.dp), maxLines = 1, softWrap = false)
+        Text(label, fontSize = 12.sp, color = AppColors.TextSecondary, textAlign = TextAlign.Center, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(a, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, textAlign = TextAlign.End, modifier = Modifier.width(48.dp), maxLines = 1, softWrap = false)
     }
     val x = h.trimEnd('%').toFloatOrNull() ?: 0f
     val y = a.trimEnd('%').toFloatOrNull() ?: 0f

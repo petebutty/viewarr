@@ -52,9 +52,14 @@ class SyncViewModel @Inject constructor(private val sync: SettingsSync) : ViewMo
     fun setEnabled(on: Boolean) = viewModelScope.launch { sync.setEnabled(on) }
     fun setSignIns(on: Boolean) = viewModelScope.launch { sync.setSignIns(on) }
     suspend fun checkNow(): String = sync.checkNow()
+    suspend fun choices() = sync.restoreChoices()
+    fun copyOf(v: io.github.petebutty.viewarr.data.sync.SyncVersion) = sync.copyOf(v)
+    suspend fun offerFor(copy: kotlinx.serialization.json.JsonObject) = sync.offerFor(copy)
+    suspend fun restoreFrom(copy: kotlinx.serialization.json.JsonObject, version: Boolean): String = sync.restoreFrom(copy, version)
+    suspend fun saveCopyNow(): String = sync.saveCopyNow()
 }
 
-private fun ago(ms: Long): String {
+internal fun ago(ms: Long): String {
     if (ms <= 0) return ""
     val zone = java.time.ZoneId.systemDefault()
     val d = java.time.Instant.ofEpochMilli(ms).atZone(zone)
@@ -110,9 +115,9 @@ fun SyncOfferHost(vm: SyncViewModel = hiltViewModel()) {
     }
 }
 
-/** Settings: save to Dispatcharr on / off, include sign-ins, restore now. */
+/** Settings: save to Dispatcharr on / off, include sign-ins, save a copy now, restore (opens the versions: [onRestore]). */
 @Composable
-fun SyncSettingsItems() {
+fun SyncSettingsItems(onRestore: () -> Unit) {
     val vm: SyncViewModel = hiltViewModel()
     val st by vm.status.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
@@ -130,11 +135,15 @@ fun SyncSettingsItems() {
         selected = false,
         onClick = { vm.setSignIns(!st.signIns) },
     )
-    MenuItem(
-        text = "Restore from Dispatcharr",
+    var saving by remember { mutableStateOf(false) }
+    if (on) MenuItem(
+        text = if (saving) "Saving…" else "Save a copy now",
         selected = false,
-        onClick = { scope.launch { note = vm.checkNow().ifEmpty { null } } },
+        onClick = {
+            if (!saving) { saving = true; scope.launch { note = vm.saveCopyNow(); saving = false } }
+        },
     )
+    MenuItem(text = "Restore from Dispatcharr", trailing = "choose a version", selected = false, onClick = onRestore)
     (note ?: st.message ?: if (on && st.lastSaved > 0) "Saved ${ago(st.lastSaved)}" else null)?.let {
         Text(it, fontSize = 12.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(horizontal = 12.dp))
     }
@@ -148,14 +157,54 @@ fun BackupSyncItem() {
     val st by vm.status.collectAsStateWithLifecycle()
     var open by remember { mutableStateOf(false) }
     MenuItem(text = "Backup & sync", trailing = if (st.mode == SyncMode.On) "On" else "Off", selected = false, onClick = { open = true })
-    // (The shared pop-up: was a raw Dialog. Peter, 2026-11-17.)
-    if (open) io.github.petebutty.viewarr.ui.common.PopupPanel(onClose = { open = false }, width = io.github.petebutty.viewarr.ui.theme.Tokens.PopupWide) {
-        val first = remember { FocusRequester() }
-        LaunchedEffect(Unit) { awaitFrame(); runCatching { first.requestFocus() } }
-        io.github.petebutty.viewarr.ui.common.PopupTitle("Backup & sync", "Keeps this TV's setup on your Dispatcharr server, so another TV (or this one after a reinstall) can restore it.")
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Box(Modifier.focusRequester(first)) { Column { SyncSettingsItems() } }
-            MenuItem(text = "Close", selected = false, onClick = { open = false })
+    // (The shared pop-up: was a raw Dialog. Peter, 2026-11-17.) Its pages: the options, the saved versions, the
+    // plugin's backups; Back on a page goes back to the options.
+    if (open) {
+        var page by remember { mutableStateOf("main") }
+        val close: () -> Unit = { if (page == "main") { open = false } else { page = "main" } }
+        io.github.petebutty.viewarr.ui.common.PopupPanel(onClose = close, width = io.github.petebutty.viewarr.ui.theme.Tokens.PopupWide) {
+            val first = remember { FocusRequester() }
+            LaunchedEffect(page) { awaitFrame(); runCatching { first.requestFocus() } }
+            when (page) {
+                "versions" -> {
+                    io.github.petebutty.viewarr.ui.common.PopupTitle("Restore from Dispatcharr", "Pick a version. Your setup now is kept as a version first, so you can go back.")
+                    SyncVersionsContent(vm, first, onDone = { page = "main" })
+                }
+                "plugin" -> {
+                    io.github.petebutty.viewarr.ui.common.PopupTitle("Backups on the Viewarr plugin")
+                    PluginBackupsContent(first)
+                    MenuItem(text = "Back", selected = false, onClick = { page = "main" })
+                }
+                else -> {
+                    io.github.petebutty.viewarr.ui.common.PopupTitle("Backup & sync", "Keeps this TV's setup on your Dispatcharr server, so another TV (or this one after a reinstall) can restore it. It keeps the last few versions so you can go back.")
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Box(Modifier.focusRequester(first)) { Column { SyncSettingsItems(onRestore = { page = "versions" }) } }
+                        PluginBackupsItem(onOpen = { page = "plugin" })
+                        Text("Saved on Dispatcharr: automatic, keeps recent versions.", fontSize = 12.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(start = 12.dp, top = 6.dp))
+                        Text("Plugin backups: copies you make yourself, kept until you delete them.", fontSize = 12.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(start = 12.dp))
+                        MenuItem(text = "Close", selected = false, onClick = { open = false })
+                    }
+                }
+            }
         }
     }
+}
+
+/** "Backups on the Viewarr plugin": greyed (with why) unless the plugin is on and this is an admin login. */
+@Composable
+private fun PluginBackupsItem(onOpen: () -> Unit, vm: PluginBackupsViewModel = hiltViewModel()) {
+    val access by vm.access.collectAsStateWithLifecycle()
+    LaunchedEffect(Unit) { vm.check() }
+    val ready = access == PluginAccess.Ready
+    MenuItem(
+        text = "Backups on the Viewarr plugin",
+        trailing = when (access) {
+            PluginAccess.Checking -> "…"
+            PluginAccess.Ready -> null
+            else -> "Needs the Viewarr plugin and an admin login"
+        },
+        dim = !ready,
+        selected = false,
+        onClick = { if (ready) onOpen() },
+    )
 }

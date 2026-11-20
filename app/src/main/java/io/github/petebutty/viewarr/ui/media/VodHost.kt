@@ -248,8 +248,12 @@ fun VodHostLayer() {
               else Modifier.fillMaxSize().then(searchKeys)) {
             // A new film or episode gets a fresh player and picture surface. Without this the old screen's
             // surface stayed attached to the old player: the picture froze and only the new one's sound played.
-            androidx.compose.runtime.key(s) {
-                PlayerHost(stream = s, onClose = { src.onClose(); VodHost.afterStop() }, art = art, onProgress = { st, p, d -> src.onProgress(s, st, p, d) })
+            // (Scaled into the corner rather than resized: the picture's spread over Picture size's border goes with it.)
+            val bleed: () -> Float = androidx.compose.runtime.remember(surfaceView) { { if (surfaceView) 1f else 1f - shrinkAnim.value } }
+            androidx.compose.runtime.CompositionLocalProvider(io.github.petebutty.viewarr.ui.common.LocalBleedAmount provides bleed) {
+                androidx.compose.runtime.key(s) {
+                    PlayerHost(stream = s, onClose = { src.onClose(); VodHost.afterStop() }, art = art, onProgress = { st, p, d -> src.onProgress(s, st, p, d) })
+                }
             }
           }
         }

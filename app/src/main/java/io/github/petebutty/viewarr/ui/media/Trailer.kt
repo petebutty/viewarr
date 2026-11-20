@@ -1,5 +1,6 @@
 package io.github.petebutty.viewarr.ui.media
 
+import io.github.petebutty.viewarr.ui.common.videoBleed
 import android.view.TextureView
 import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
@@ -43,6 +44,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.PlaybackException
@@ -146,7 +148,7 @@ fun TrailerPreview(item: MediaItem?, active: Boolean, trailers: TrailerRepositor
         player?.let { p ->
             AndroidView(
                 factory = { ctx -> TextureView(ctx).also { p.setVideoTextureView(it) } },
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier.fillMaxSize().videoBleed(),
             )
         }
     }
@@ -227,6 +229,7 @@ fun TrailerPlayer(item: MediaItem, trailers: TrailerRepository, onClose: () -> U
                 fontSize = 16.sp,
                 color = AppColors.TextPrimary,
                 modifier = Modifier.align(Alignment.BottomStart).padding(48.dp).background(Color.Black.copy(alpha = 0.6f)).padding(horizontal = 14.dp, vertical = 8.dp),
+                maxLines = 1, overflow = TextOverflow.Ellipsis,
             )
         }
     }
@@ -356,7 +359,7 @@ fun PosterTrailerHost() {
             androidx.tv.material3.Text(item.title, fontSize = 24.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, color = Color.White, maxLines = 1,
                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
             listOfNotNull(item.year?.toString(), item.origin.takeIf { it.isNotBlank() }).joinToString("  ·  ").takeIf { it.isNotEmpty() }?.let {
-                androidx.tv.material3.Text(it, fontSize = 14.sp, color = Color.White.copy(alpha = 0.75f), modifier = Modifier.padding(top = 2.dp))
+                androidx.tv.material3.Text(it, fontSize = 14.sp, color = Color.White.copy(alpha = 0.75f), modifier = Modifier.padding(top = 2.dp), maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
             }
             // What the buttons do, as key prompts (Peter, 2026-11-18: the faint line went unseen). OK opens the title page,
             // films and shows alike: that's where Play, Up next and the episodes are.
@@ -386,9 +389,9 @@ fun PublishPosterTrailerActive(active: Boolean) {
 @Composable
 private fun KeyPrompt(key: String, does: String) {
     androidx.compose.foundation.layout.Row(verticalAlignment = Alignment.CenterVertically) {
-        androidx.tv.material3.Text(key, fontSize = 13.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = Color.Black,
+        androidx.tv.material3.Text(key, fontSize = 13.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = Color.Black, maxLines = 1, softWrap = false,
             modifier = Modifier.background(Color.White, androidx.compose.foundation.shape.RoundedCornerShape(5.dp)).padding(horizontal = 8.dp, vertical = 2.dp))
         Spacer(Modifier.width(8.dp))
-        androidx.tv.material3.Text(does, fontSize = 15.sp, color = Color.White)
+        androidx.tv.material3.Text(does, fontSize = 15.sp, color = Color.White, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
     }
 }

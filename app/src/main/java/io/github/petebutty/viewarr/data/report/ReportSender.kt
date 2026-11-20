@@ -7,6 +7,7 @@ import android.util.Base64
 import io.github.petebutty.viewarr.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.first
 import java.net.HttpURLConnection
 import java.net.URL
 import java.security.KeyFactory
@@ -34,6 +35,27 @@ object ReportSender {
     // The developer's public key (RSA 3072). Reports can only be read with its private key.
     private const val PUBLIC_KEY = "MIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEA0yjalM9OUZ5KlrIICKKncgq7GlTYdOKcxyWPiAhhQzmjssF0dPqhxt5fyqmnTTPeRd96JIdRb4+H+4R6nqzEWeXYIk0oFB5VZ3KDUiLMIqjgzPhnFNZj2MiwplluA8cmNisNTgju2hW32NjhJvtNb8Z6vtQ1mUqHsqrmmhtc63iY58e++8AixNd0nd5i5KlI0GNlQ7yNYDW2kYRL0gNU0DoEiRcb7S5ANSujYXQGHVOgsKvgpR8J2DoN/36jlNULMXotx228sR8Zpbq9PPjirpYGVVPlaKBU4Ju0aGicrWrtvttMxeWfWC8nEttK0Wln21X67LmD2JTBn88rrDpJywSrDPVm+WXm23u1hmesUJCoXwtsjI/SMXpoubb3SR7XFphHb9LEb/LRXgBPTrHTOplRpQDoXZeQkrW1CA3sUrAQqAGTtAi1JXMWbt6xlfyZpw4JLubUn0r3b/IKGr7EmB3m1SzrNZmSq8O23Eu4uwYQNXLA0yognXGw4RutD5SJAgMBAAE="
 
+    /** The settings section of a report: each changed option with its chosen wording, then switched-off parts. */
+    private fun settingsBlock(context: Context): String = buildString {
+        val p = io.github.petebutty.viewarr.ui.theme.AppColors.palette
+        val U = io.github.petebutty.viewarr.ui.theme.UiOpts
+        appendLine(SETTINGS_HEADING)
+        appendLine("Theme: main ${p.main.value.toString(16).take(8)}, highlight ${p.highlight.value.toString(16).take(8)}, wallpaper ${p.wallpaper}")
+        val changed = p.opts.filter { (k, v) -> v != (U.defaults[k] ?: 0) }.toSortedMap()
+        if (changed.isEmpty()) appendLine("(none)")
+        changed.forEach { (k, v) -> appendLine("$k = ${U.choices[k]?.getOrNull(v) ?: v}") }
+        // Settings' defaults that weren't touched but matter for layout, always listed.
+        listOf(U.PICTURE_SIZE, U.TEXT_SIZE_V2, U.FONT, U.TIME_FORMAT, U.GUIDE_ART_PLACE, U.GUIDE_NEXT, U.GUIDE_ROWS, U.HERO_STYLE).filter { it !in changed }
+            .forEach { k -> appendLine("$k = ${U.choices[k]?.getOrNull(p.opt(k)) ?: p.opt(k)} (default)") }
+        if (p.titleHidden.isNotEmpty()) appendLine("Switched off / hidden parts: ${p.titleHidden.sorted().joinToString(", ")}")
+        // Settings → Playback (its own store; read here, off the main thread: build runs on the IO dispatcher).
+        runCatching {
+            val store = io.github.petebutty.viewarr.data.settings.playbackStoreOf(context)
+            val prefs: Map<androidx.datastore.preferences.core.Preferences.Key<*>, Any> = kotlinx.coroutines.runBlocking { store.data.first() }.asMap()
+            if (prefs.isNotEmpty()) appendLine("Playback: " + prefs.entries.sortedBy { it.key.name }.joinToString(", ") { "${it.key.name}=${it.value}" })
+        }
+    }
+
     /** What the tester sees before sending: the report as it will be sent (already cleaned). */
     fun build(context: Context, sources: List<String>, note: String?, names: List<String> = emptyList(), withLog: Boolean = true): String {
         val am = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
@@ -43,7 +65,11 @@ object ReportSender {
             appendLine("Viewarr ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
             appendLine("Box: ${Build.MANUFACTURER} ${Build.MODEL} (${Build.DEVICE}), Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})")
             appendLine("Memory: ${mem.totalMem / 1_048_576} MB total, ${mem.availMem / 1_048_576} MB free${if (am?.isLowRamDevice == true) ", low-RAM device" else ""}")
-            appendLine("Screen: ${dm.widthPixels}x${dm.heightPixels} at ${dm.densityDpi} dpi")
+            appendLine("Screen: ${dm.widthPixels}x${dm.heightPixels} at ${dm.densityDpi} dpi, TV font size ${(context.resources.configuration.fontScale * 100).toInt()}%")
+            // Every Viewarr setting changed from its default, by name (Peter, 2026-11-19: "the log should have all his
+            // settings"; a tester's guide panel lost its synopsis to a 12-hour clock). Only display and behaviour
+            // choices: sign-ins, addresses and keys aren't settings here and never go in.
+            runCatching { append(settingsBlock(context)) }
             appendLine("Sources: ${sources.ifEmpty { listOf("none") }.joinToString(", ")}")
             note?.takeIf { it.isNotBlank() }?.let { appendLine("Tester's note: $it") }
             appendLine(if (withLog) "----- log -----" else "----- a note: no log -----")
@@ -54,10 +80,16 @@ object ReportSender {
         return text
     }
 
-    /** Locks [report] and uploads it; the code to share, or an error message. */
-    suspend fun send(report: String): Result<String> = withContext(Dispatchers.IO) {
+    /**
+     * Locks [report] and uploads it; the code to share, or an error message. With [context], a settings code for this
+     * TV's settings goes up first and its line is added under the settings heading, so the developer can load the
+     * tester's exact settings (SettingsShare). Left out if that upload fails. ([build] stays as it was: no uploads.)
+     */
+    suspend fun send(report: String, context: Context? = null): Result<String> = withContext(Dispatchers.IO) {
         runCatching {
-            val blob = lock(report).toByteArray()
+            val withCode = context?.let { io.github.petebutty.viewarr.data.sync.SettingsShare.share(it).getOrNull() }
+                ?.let { code -> withSettingsCode(report, code) } ?: report
+            val blob = lock(withCode).toByteArray()
             upload("https://litterbox.catbox.moe/resources/internals/api.php", mapOf("reqtype" to "fileupload", "time" to "72h"), blob)
                 ?.let { "VR-" + it.substringAfterLast('/').substringBefore('.') }
                 ?: upload("https://catbox.moe/user/api.php", mapOf("reqtype" to "fileupload"), blob)
@@ -65,6 +97,17 @@ object ReportSender {
                 ?: error("Couldn't upload the report (no internet, or the file host is down)")
         }.onSuccess { code -> notify(code) }
     }
+
+    /** [report] with "Settings code: …" under its settings heading (at the top if it has none). */
+    private fun withSettingsCode(report: String, code: String): String {
+        val line = "Settings code: $code"
+        val i = report.indexOf(SETTINGS_HEADING)
+        if (i < 0) return "$line\n$report"
+        val end = report.indexOf('\n', i).let { if (it < 0) report.length else it + 1 }
+        return report.substring(0, end) + line + "\n" + report.substring(end)
+    }
+
+    private const val SETTINGS_HEADING = "----- settings (changed from the defaults) -----"
 
     /** Tells the developer (push notification) that [code] was sent. Best effort: the code still works without it. */
     private fun notify(code: String) = runCatching {
@@ -177,8 +220,8 @@ object ReportSender {
         return b64(json.toByteArray())
     }
 
-    /** A multipart form upload; the file's address, or null. */
-    private fun upload(url: String, fields: Map<String, String>, file: ByteArray): String? = runCatching {
+    /** A multipart form upload; the file's address, or null. (Settings codes upload their copy through this too.) */
+    internal fun upload(url: String, fields: Map<String, String>, file: ByteArray, name: String = "report.txt"): String? = runCatching {
         val boundary = "viewarr" + System.nanoTime()
         val c = (URL(url).openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"; doOutput = true; connectTimeout = 15_000; readTimeout = 30_000
@@ -188,7 +231,7 @@ object ReportSender {
         c.outputStream.use { o ->
             fun w(s: String) = o.write(s.toByteArray())
             fields.forEach { (k, v) -> w("--$boundary\r\nContent-Disposition: form-data; name=\"$k\"\r\n\r\n$v\r\n") }
-            w("--$boundary\r\nContent-Disposition: form-data; name=\"fileToUpload\"; filename=\"report.txt\"\r\nContent-Type: text/plain\r\n\r\n")
+            w("--$boundary\r\nContent-Disposition: form-data; name=\"fileToUpload\"; filename=\"$name\"\r\nContent-Type: text/plain\r\n\r\n")
             o.write(file)
             w("\r\n--$boundary--\r\n")
         }

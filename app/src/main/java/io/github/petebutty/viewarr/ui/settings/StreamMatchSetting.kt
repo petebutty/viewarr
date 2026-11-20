@@ -20,6 +20,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.style.TextOverflow
 import io.github.petebutty.viewarr.data.settings.RemoteChoice
 import io.github.petebutty.viewarr.ui.common.MenuItem
 import io.github.petebutty.viewarr.ui.common.ViewarrPopup
@@ -87,7 +88,7 @@ private fun StreamMatchDialog(start: String, onSave: (String) -> Unit, onClose: 
             Modifier.align(Alignment.Center).width(720.dp).glass(16.dp).padding(24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text("Add your own rule", fontSize = 22.sp, color = AppColors.TextPrimary)
+            Text("Add your own rule", fontSize = 22.sp, color = AppColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text("A word, or a search pattern for the more technical, looked for in each stream's addon, name and description. Examples: remux  ·  (atmos|truehd)  ·  ^(?!.*\\bcam\\b) (anything without CAM).", fontSize = 13.sp, color = AppColors.TextSecondary)
             androidx.compose.material3.OutlinedTextField(
                 value = text, onValueChange = { text = it }, singleLine = true,

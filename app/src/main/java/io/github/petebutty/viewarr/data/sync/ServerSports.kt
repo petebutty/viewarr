@@ -123,29 +123,8 @@ class ServerSports @Inject constructor(
         }
     }
 
-    /**
-     * Title logos found on the server (the plugin's viewarr_logos index + parts): read every 30 minutes. ProgramArt
-     * uses them before asking TMDB itself. (Stage 4, 2026-11-17.)
-     */
-    private var logosAt = 0L
-    private suspend fun refreshLogos(base: String, headers: Map<String, String>) {
-        if (System.currentTimeMillis() - logosAt < 30 * 60_000L) return
-        logosAt = System.currentTimeMillis()
-        val idx = http.get("$base/api/accounts/users/me/app-data/viewarr_logos/", headers)
-        val o = (idx.body as? JsonObject)?.takeIf { idx.code in 200..299 } ?: return
-        val parts = o.int("parts") ?: return
-        val img = o.text("base") ?: "https://image.tmdb.org/t/p/w500"
-        val map = HashMap<String, String>()
-        for (i in 0 until parts.coerceAtMost(20)) {
-            val r = http.get("$base/api/accounts/users/me/app-data/viewarr_logos_$i/", headers)
-            (r.body as? JsonObject)?.takeIf { r.code in 200..299 }?.forEach { (k, v) -> (v as? JsonPrimitive)?.contentOrNull?.let { map[k] = img + it } }
-        }
-        if (map.isNotEmpty()) { logos = map; Log.i(TAG, "title logos from the server: ${map.size}") }
-    }
-
     suspend fun refresh() {
         val s = sessions.session.first()?.takeIf { !it.isDirect } ?: return
-        runCatching { refreshLogos(s.serverUrl.trimEnd('/'), mapOf("X-API-Key" to s.apiKey)) }
         val r = http.get(s.serverUrl.trimEnd('/') + "/api/accounts/users/me/app-data/$KEY/", mapOf("X-API-Key" to s.apiKey))
         if (r.code == 404) { latest = null; return }
         val o = (r.body as? JsonObject)?.takeIf { r.code in 200..299 } ?: return
@@ -186,8 +165,6 @@ class ServerSports @Inject constructor(
             private set
         /** Your teams' live scores as they stand ("Celtic 1–0 Rangers  ·  34'"), for the ticker. Empty: none live. */
         @Volatile var scoreLines: List<String> = emptyList()
-        /** Title logos from the server: cleaned, normalised title (ProgramArt's) → logo picture. Empty: none. */
-        @Volatile var logos: Map<String, String> = emptyMap()
             private set
         /** [latest] while it's recent enough to trust (the service writes every 5 minutes): 15 minutes. */
         val fresh: Data? get() = latest?.takeIf { System.currentTimeMillis() / 1000 - it.at < 15 * 60 }

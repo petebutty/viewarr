@@ -10,7 +10,6 @@ Button names below are the **Viewarr** preset. If you chose the **Classic** pres
 
 A classic IPTV-style guide with channel logos, categories, and programmes going back and forward in time.
 
-- **Programme title logos**: the highlighted programme's own title logo (from TMDB) at the top of the guide, instead of plain text. Settings → Appearance → **Programme title logos**; **Title logos by group** switches them off for chosen channel groups (sports and event groups, say). *(0.28.7 and later.)*
 - **Long programme names scroll** on the highlighted programme, so they can be read in full. *(0.28.7 and later.)*
 - **The info panel** at the top shows the channel, the times, what's on next and the programme's badges. *(0.29.0 and later.)*
 - **Cleaner cells**: very short programmes are merged into their neighbours, with small gaps between programmes and rounded rows. *(0.29.0 and later.)*
@@ -315,3 +314,12 @@ You can save more than one Live TV source: several Dispatcharr servers, IPTV log
 ## Controlling live TV from outside
 
 Home automation, a web page on your server or ADB can change channel, stop, record and more with `viewarr://` links. See [Controlling Viewarr from outside](AUTOMATION.md).
+
+## Viewarr's rows on your TV's home screen
+
+**Settings → Live TV → Customise → Home screen rows** puts Viewarr's rows on the TV's home screen (Projectivy, Google's launcher and others that show apps' rows). Switch on what you want:
+
+- **Live TV · a channel group**: a card per channel, with its logo and what's on now; it opens that channel. The first 15 channels, refreshed every 15 minutes.
+- **IPTV, Library or Catalogue rows**: any row from the Movies and Shows pages (an IPTV provider's rows, a library's Recently added or Continue watching, an addon's catalogue). A card per title; it opens that title's page. The first 15 titles, refreshed once a day.
+
+Your launcher may ask to show a new row, or list it in its own settings (Projectivy: Settings → Channels). The rows are kept fresh whether Viewarr is open or not: a small background job does it and stops. Switching a row off removes it from the home screen.

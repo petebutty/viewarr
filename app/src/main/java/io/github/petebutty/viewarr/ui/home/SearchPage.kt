@@ -179,7 +179,7 @@ internal fun SearchPage(
                 // Catch-up: shown and gone, still in its channel's catch-up window. OK plays it from the start.
                 if (catchupHits.isNotEmpty()) {
                     Spacer(Modifier.height(12.dp))
-                    Text("Catch-up", fontSize = 16.sp, color = AppColors.TextPrimary, modifier = Modifier.padding(bottom = 6.dp))
+                    Text("Catch-up", fontSize = 16.sp, color = AppColors.TextPrimary, modifier = Modifier.padding(bottom = 6.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
                     androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp), modifier = Modifier.offset(x = (-10).dp)) {
                         items(catchupHits, key = { (c, p) -> "cu:${c.id}:${p.startTime}" }) { (ch, p) ->
                             androidx.tv.material3.Surface(
@@ -223,7 +223,7 @@ internal fun SearchPage(
                 // On TV: guide programmes that match. On now → watch; later → details and Record.
                 if (onTv.isNotEmpty() && !catchupOnly) {
                     Spacer(Modifier.height(12.dp))
-                    Text("On TV", fontSize = 16.sp, color = AppColors.TextPrimary, modifier = Modifier.padding(bottom = 6.dp))
+                    Text("On TV", fontSize = 16.sp, color = AppColors.TextPrimary, modifier = Modifier.padding(bottom = 6.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
                     val nowMs = System.currentTimeMillis()
                     androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp), modifier = Modifier.offset(x = (-10).dp)) {
                         items(onTv, key = { (c, p) -> "${c.id}:${p.rowId}" }) { (ch, p) ->
@@ -261,7 +261,7 @@ internal fun SearchPage(
                 if (!catchupFirst) catchupRow()
                 Spacer(Modifier.height(12.dp))
                 if (channels.isNotEmpty() && !catchupOnly) {
-                    Text("Channels", fontSize = 16.sp, color = AppColors.TextPrimary, modifier = Modifier.padding(bottom = 6.dp))
+                    Text("Channels", fontSize = 16.sp, color = AppColors.TextPrimary, modifier = Modifier.padding(bottom = 6.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
                     androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp), modifier = Modifier.offset(x = (-10).dp)) {
                         items(channels, key = { it.id }) { ch ->
                             // The channel's logo, name and number, like the guide.
@@ -285,7 +285,7 @@ internal fun SearchPage(
                                     }
                                     Spacer(Modifier.width(10.dp))
                                     Text(ch.name, fontSize = 14.sp, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                                    ch.number?.let { n -> Text(if (n % 1.0 == 0.0) n.toInt().toString() else n.toString(), fontSize = 12.sp, modifier = Modifier.padding(start = 6.dp)) }
+                                    ch.number?.let { n -> Text(if (n % 1.0 == 0.0) n.toInt().toString() else n.toString(), fontSize = 12.sp, modifier = Modifier.padding(start = 6.dp), maxLines = 1, softWrap = false) }
                                 }
                             }
                         }

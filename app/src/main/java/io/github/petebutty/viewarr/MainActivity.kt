@@ -78,7 +78,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         // (Only a fresh start: Android hands a restored app its original link again, which replayed it on every restart.)
-        if (savedInstanceState == null) DeepLink.handle(intent?.data)
+        if (savedInstanceState == null) { DeepLink.handle(intent?.data); voiceRequest(intent) }
         lifecycleScope.launch { themeStore.palette.collect { AppColors.palette = it } }
         setContent {
             ViewarrTheme { AppRoot() }
@@ -98,5 +98,18 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: android.content.Intent) {
         super.onNewIntent(intent)
         DeepLink.handle(intent.data)
+        voiceRequest(intent)
+    }
+
+    /**
+     * The remote's mic / search button, when Viewarr is the app chosen for voice search (see the manifest): Viewarr's
+     * search opens listening, or searching for the words when the request already carries them.
+     */
+    private fun voiceRequest(intent: android.content.Intent?) {
+        val action = intent?.action ?: return
+        if (action != "android.speech.action.WEB_SEARCH" && action != android.content.Intent.ACTION_ASSIST &&
+            action != android.content.Intent.ACTION_VOICE_COMMAND && action != android.content.Intent.ACTION_SEARCH_LONG_PRESS) return
+        val words = intent.getStringExtra(android.app.SearchManager.QUERY)?.trim()?.takeIf { it.isNotEmpty() }?.take(200)
+        DeepLink.pendingCommand.value = if (words != null) DeepLink.Command("search", words) else DeepLink.Command("voice")
     }
 }

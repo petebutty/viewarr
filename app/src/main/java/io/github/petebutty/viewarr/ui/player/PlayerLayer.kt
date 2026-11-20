@@ -1,5 +1,6 @@
 package io.github.petebutty.viewarr.ui.player
 
+import io.github.petebutty.viewarr.ui.common.videoBleed
 import android.graphics.Color as AndroidColor
 import android.view.ViewGroup
 import androidx.annotation.OptIn
@@ -160,7 +161,7 @@ fun PlayerLayer(
                     AspectMode.Stretch -> AspectRatioFrameLayout.RESIZE_MODE_FILL
                 }
             },
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().videoBleed(),
         )
         // A channel the built-in player couldn't start, played by mpv instead (over the built-in player's view).
         val mpvUrl by vm.mpvLive.collectAsStateWithLifecycle()
@@ -174,6 +175,7 @@ fun PlayerLayer(
                     color = Color.White,
                     modifier = Modifier.align(Alignment.TopEnd).padding(32.dp)
                         .background(Color(0x99000000), RoundedCornerShape(6.dp)).padding(horizontal = 12.dp, vertical = 6.dp),
+                        maxLines = 1, softWrap = false,
                 )
             }
             is PlaybackState.Error -> Column(
@@ -183,7 +185,7 @@ fun PlayerLayer(
                 Text(s.message, fontSize = if (fullscreen) 18.sp else 12.sp, color = Color.White)
                 if (fullscreen) {
                     Spacer(Modifier.height(8.dp))
-                    Text("OK: try again", fontSize = 14.sp, color = AppColors.TextSecondary)
+                    Text("OK: try again", fontSize = 14.sp, color = AppColors.TextSecondary, maxLines = 1, softWrap = false)
                 }
             }
             else -> Unit
@@ -382,6 +384,7 @@ internal fun InfoBarTop(
             fontWeight = FontWeight.SemiBold,
             color = Color.White,
             modifier = Modifier.width(90.dp),
+            maxLines = 1, softWrap = false,
         )
         Box(Modifier.size(width = 110.dp, height = 62.dp), contentAlignment = Alignment.Center, content = logo)
         Column(Modifier.weight(1f).padding(start = 24.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -489,9 +492,9 @@ internal fun InfoBanner(
             progress = {
                 // No programme: the row's space is kept (an empty line the same height), so the bar doesn't grow and
                 // shrink between channels with and without one.
-                if (current == null) Text(" ", fontSize = 14.sp)
+                if (current == null) Text(" ", fontSize = 14.sp, maxLines = 1, softWrap = false)
                 if (current != null) Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("${current.startTime.hhmm()} – ${current.endTime.hhmm()}", fontSize = 14.sp, color = Color.White)
+                    Text("${current.startTime.hhmm()} – ${current.endTime.hhmm()}", fontSize = 14.sp, color = Color.White, maxLines = 1, softWrap = false)
                     Spacer(Modifier.width(12.dp))
                     val total = catchupPosition?.second?.takeIf { it > 0 } ?: (current.endTime - current.startTime)
                     val elapsed = catchupPosition?.first ?: (now - current.startTime)
@@ -506,6 +509,7 @@ internal fun InfoBanner(
                         else "${((current.endTime - now) / 60_000).coerceAtLeast(0)} min left",
                         fontSize = 14.sp,
                         color = AppColors.TextSecondary,
+                        maxLines = 1, softWrap = false,
                     )
                 }
             },

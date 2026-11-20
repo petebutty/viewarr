@@ -35,6 +35,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -172,8 +173,8 @@ private fun LiveNowAddScreen(live: LiveNowViewModel, onAdd: (LiveNowPick) -> Uni
     Box(Modifier.fillMaxSize().appBackground(readable = true).trapFocus()) {
         Row(Modifier.fillMaxSize().padding(horizontal = Tokens.Gutter, vertical = 40.dp)) {
             Column(Modifier.width(300.dp).fillMaxHeight().padding(top = if (SettingsLayout.belowPreview) 170.dp else 0.dp)) {
-                Text("Settings → Live now", fontSize = 14.sp, color = AppColors.Accent)
-                Text("Add to Live now", fontSize = 30.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, modifier = Modifier.padding(bottom = 16.dp))
+                Text("Settings → Live now", fontSize = 14.sp, color = AppColors.Accent, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text("Add to Live now", fontSize = 30.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, modifier = Modifier.padding(bottom = 16.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text("Type a team, league or sport, or press Down for the sport buttons: a sport's button shows the whole sport and its leagues, and a league can show its teams. OK adds it. Live now then shows only what's in your list.",
                     fontSize = 13.sp, color = AppColors.TextSecondary)
             }
@@ -224,7 +225,7 @@ private fun LiveNowAddScreen(live: LiveNowViewModel, onAdd: (LiveNowPick) -> Uni
                             onClick = { if (!added) onAdd(LiveNowPicks.sport(name)) })
                     }
                     if (teamsView) item(key = "h-teams") {
-                        Text(heading, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = AppColors.Accent, modifier = Modifier.padding(start = 4.dp, top = 8.dp, bottom = 4.dp))
+                        Text(heading, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = AppColors.Accent, modifier = Modifier.padding(start = 4.dp, top = 8.dp, bottom = 4.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                     if (results.isEmpty() && !searching && teamsView) item(key = "none") {
                         Text("No teams found for this one. Back to try another.", fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(4.dp))

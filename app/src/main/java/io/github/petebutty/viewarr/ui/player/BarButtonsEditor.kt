@@ -19,6 +19,7 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.tv.material3.Icon
 import androidx.tv.material3.Text
 import io.github.petebutty.viewarr.ui.common.BarLayout
@@ -139,8 +140,8 @@ internal fun BarButtonsEditor(
 @Composable
 private fun Section(title: String, empty: Boolean) {
     Text(title, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp, color = AppColors.Accent,
-        modifier = Modifier.padding(top = 14.dp, bottom = 4.dp))
-    if (empty) Text("None", fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(start = 8.dp, bottom = 4.dp))
+        modifier = Modifier.padding(top = 14.dp, bottom = 4.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
+    if (empty) Text("None", fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(start = 8.dp, bottom = 4.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
 }
 
 /** One button's row: OK on / off, hold OK its options, and moved with ▲ ▼ while picked up ([carry]). */

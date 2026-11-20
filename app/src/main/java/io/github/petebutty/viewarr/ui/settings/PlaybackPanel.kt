@@ -82,8 +82,12 @@ fun playbackCategories(vm: PlaybackSettingsViewModel = hiltViewModel(), opts: Ui
     val appearance: AppearanceViewModel = hiltViewModel()
     // Settings → Live TV → Live now's list (ui/settings/LiveNowSettings.kt).
     val liveNowList = liveNowPicksState()
+    // (Its default: the first choice, but for the three that start elsewhere.)
+    val startsAt = mapOf<String, Any>(PlaybackStore.CACHED_ONLY to io.github.petebutty.viewarr.data.settings.CachedOnly.Off,
+        PlaybackStore.STREAM_FALLBACK to io.github.petebutty.viewarr.data.settings.StreamFallback.On,
+        PlaybackStore.TRAILER_DELAY to io.github.petebutty.viewarr.data.settings.TrailerDelay.S3)
     fun item(title: String, description: String, key: String, all: List<RemoteChoice>, current: RemoteChoice) =
-        SettingItem(title, description, all, current) { vm.set(key, it) }
+        SettingItem(title, description, all, current) { vm.set(key, it) }.also { it.changed = current != (startsAt[key] ?: all.firstOrNull()) }
     val k = PlaybackStore.Companion
     // Low-memory mode: what it switches off stays listed, locked, with how to get it back.
     val lowLock = if (AppColors.palette.lowMemory) Locks.LOW_MEMORY else null
@@ -195,6 +199,21 @@ fun playbackCategories(vm: PlaybackSettingsViewModel = hiltViewModel(), opts: Ui
             "Group name clean-up", "With Tidy group names on (Live TV → Channel groups): the marks left out of channel group names. Switch one off to keep it.",
             GroupNames.words.map { w -> onOffItem(w, "On: \"$w\" is left out of group names", GroupNames.removes(w)) { on -> appearance.setTitlePart(GroupNames.wordKey(w), on) } },
         ),
+        // Viewarr's rows on the TV's home screen (Projectivy, Google's launcher): each switched on becomes a row there
+        // (HomeRows). Channel groups first, then the Movies and Shows pages' own rows by where they come from.
+        SettingCategory(
+            "Home screen rows", "Put Viewarr's rows on your TV's home screen: a channel group (each card opens that channel), or any row from Movies and Shows (each card opens that title). After switching one on, your launcher may ask to show the row, or list it in its own settings (Projectivy: Settings → Channels).",
+            guideVm.realGroups.map { g ->
+                onOffItem("Live TV · " + io.github.petebutty.viewarr.ui.common.GroupNames.display(g.name), "A row of this group's channels, with what's on now  ·  ${g.channelCount} channels (the first 15)",
+                    io.github.petebutty.viewarr.data.media.HomeRows.isOn(g.name)) { on ->
+                    // (Kept as a part that's present when on; the row itself is made or removed within a few seconds.)
+                    appearance.setTitlePart(io.github.petebutty.viewarr.data.media.HomeRows.PART + g.name.trim().lowercase(), !on)
+                    guideVm.refreshHomeRows()
+                }
+            } + listOf(SettingItem("Add every Just added row", "Every streaming service's Just added rows (films and shows) onto the home screen at once, in order: Netflix, Prime Video, Disney+ and so on.",
+                listOf(PlainChoice("OK: add")), PlainChoice("OK: add"), action = { guideVm.addJustAddedRows() }, onSelect = {})) +
+                homeScreenMediaRows(appearance) { guideVm.refreshHomeRows() },
+        ),
         // Live now: which channel groups it searches (Peter, 2026-11-17: the user picks them). Starting ticks: the event
         // feeds' groups and sporty-named ones.
         SettingCategory(
@@ -263,7 +282,8 @@ fun playbackCategories(vm: PlaybackSettingsViewModel = hiltViewModel(), opts: Ui
                     listOf(PlainChoice("")), PlainChoice(""), action = { ReportUi.noteMode = true; ReportUi.open = true }, onSelect = {}),
                 item("Show playback info", "Shows the video and audio format, decoder and dropped frames while playing.", k.STATS, choices<StatsOverlay>(), s.stats),
                 optItem(opts, "Low-memory mode", "For boxes with 1–2 GB. Turns off the heavy extras across the app (box-made seek previews, guide pictures, logos, wallpaper, artwork, trailers, multi-view, extra ratings); their settings show as locked until it's off. Try it if Viewarr is slow or closes.", UiOpts.LOW_MEMORY),
-            ),
+                // Settings codes: this TV's settings to another, or a tester's onto yours (SettingsCodeUi.kt).
+            ) + settingsCodeItems(),
         ),
     )
     return categories
@@ -291,4 +311,35 @@ private val PlaybackOpts = UiOpts.run {
 fun playbackReset(vm: PlaybackSettingsViewModel, opts: UiOptsViewModel) {
     vm.resetKeys(PlaybackKeys)
     opts.reset(PlaybackOpts)
+}
+
+/**
+ * Settings → Live TV → Home screen rows: the Movies and Shows pages' rows (as those pages have them loaded), each a
+ * switch, sorted IPTV, Library, Catalogue. A name used twice gets the page's name of its source, then a number.
+ */
+@Composable
+private fun homeScreenMediaRows(appearance: AppearanceViewModel, changed: () -> Unit): List<SettingItem> {
+    val out = ArrayList<Triple<String, String, SettingItem>>()
+    val order = listOf("IPTV", "Library", "Catalogue")
+    for (type in io.github.petebutty.viewarr.data.media.MediaType.entries) {
+        val vm: io.github.petebutty.viewarr.ui.media.MediaViewModel = hiltViewModel(key = "media-${type.name}")
+        // (Loaded here too: the Shows page's rows were only listed once that page had been opened, so its "Just added"
+        // and other rows were missing. 2026-11-20.)
+        androidx.compose.runtime.LaunchedEffect(type) { vm.load(type) }
+        val rows = vm.editableRows.collectAsStateWithLifecycle().value.first.map { it.first }
+        val page = if (type == io.github.petebutty.viewarr.data.media.MediaType.Movie) "Movies" else "Shows"
+        for (row in rows) {
+            val kind = io.github.petebutty.viewarr.data.media.HomeRows.kindOf(row.id)
+            val name = "$kind · $page · " + listOfNotNull(row.groupName?.takeIf { it.isNotBlank() && !row.title.contains(it, ignoreCase = true) }, row.title).joinToString(" · ")
+            val part = io.github.petebutty.viewarr.data.media.HomeRows.mediaPart(type, row.id)
+            out += Triple(kind, name, onOffItem(name, "A row of these titles on the home screen (the first 15), refreshed once a day.",
+                io.github.petebutty.viewarr.data.media.HomeRows.isOn(type, row.id)) { on -> appearance.setTitlePart(part, !on); changed() })
+        }
+    }
+    // (Same name twice: numbered, so each stays its own row in the list.)
+    val seen = HashMap<String, Int>()
+    return out.sortedBy { order.indexOf(it.first) }.map { (_, name, item) ->
+        val n = (seen[name] ?: 0) + 1; seen[name] = n
+        if (n == 1) item else SettingItem("$name ($n)", item.description, item.choices, item.current, onSelect = item.onSelect)
+    }
 }

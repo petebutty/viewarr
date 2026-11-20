@@ -32,6 +32,7 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.tv.material3.Text
 import io.github.petebutty.viewarr.ui.settings.AppearanceViewModel
@@ -109,8 +110,8 @@ fun TransparencyPanel(onClose: () -> Unit, onRow: (Int) -> Unit = {},
                 .padding(start = 32.dp, end = 32.dp, top = 48.dp),
             verticalArrangement = Arrangement.spacedBy(18.dp),
         ) {
-            Text("Transparency & glass", fontSize = 22.sp, color = AppColors.TextPrimary)
-            Text("▲ ▼ choose  ·  ◀ ▶ change  ·  Back: done", fontSize = 13.sp, color = AppColors.TextSecondary)
+            Text("Transparency & glass", fontSize = 22.sp, color = AppColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text("▲ ▼ choose  ·  ◀ ▶ change  ·  Back: done", fontSize = 13.sp, color = AppColors.TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
             rows.forEachIndexed { i, (name, v, range) ->
                 val on = i == row
                 Column(
@@ -120,9 +121,9 @@ fun TransparencyPanel(onClose: () -> Unit, onRow: (Int) -> Unit = {},
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     Row(Modifier.fillMaxWidth()) {
-                        Text(name, fontSize = 16.sp, color = AppColors.TextPrimary, modifier = Modifier.weight(1f))
+                        Text(name, fontSize = 16.sp, color = AppColors.TextPrimary, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                         val pct = (v * 100).roundToInt()
-                        Text("$pct%", fontSize = 16.sp, color = if (on) AppColors.Accent else AppColors.TextSecondary)
+                        Text("$pct%", fontSize = 16.sp, color = if (on) AppColors.Accent else AppColors.TextSecondary, maxLines = 1, softWrap = false)
                     }
                     val frac = ((v - range.start) / (range.endInclusive - range.start)).coerceIn(0f, 1f)
                     Box(Modifier.fillMaxWidth().height(6.dp).background(AppColors.TextSecondary.copy(alpha = 0.3f), RoundedCornerShape(3.dp))) {
@@ -138,8 +139,8 @@ fun TransparencyPanel(onClose: () -> Unit, onRow: (Int) -> Unit = {},
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 Row(Modifier.fillMaxWidth()) {
-                    Text("Glass colour", fontSize = 16.sp, color = AppColors.TextPrimary, modifier = Modifier.weight(1f))
-                    Text("◀  ${tints[tint].first}  ▶", fontSize = 16.sp, color = if (row == colourRow) AppColors.Accent else AppColors.TextSecondary)
+                    Text("Glass colour", fontSize = 16.sp, color = AppColors.TextPrimary, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text("◀  ${tints[tint].first}  ▶", fontSize = 16.sp, color = if (row == colourRow) AppColors.Accent else AppColors.TextSecondary, maxLines = 1, softWrap = false)
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                     tints.forEachIndexed { i, (_, c) ->
@@ -160,9 +161,9 @@ fun TransparencyPanel(onClose: () -> Unit, onRow: (Int) -> Unit = {},
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Row(Modifier.fillMaxWidth()) {
-                    Text("Info bar & pop-ups", fontSize = 16.sp, color = AppColors.TextPrimary, modifier = Modifier.weight(1f))
+                    Text("Info bar & pop-ups", fontSize = 16.sp, color = AppColors.TextPrimary, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(io.github.petebutty.viewarr.ui.theme.UiOpts.choices.getValue(io.github.petebutty.viewarr.ui.theme.UiOpts.POPUP_SEE)[popup], fontSize = 16.sp,
-                        color = if (row == popupRow) AppColors.Accent else AppColors.TextSecondary)
+                        color = if (row == popupRow) AppColors.Accent else AppColors.TextSecondary, maxLines = 1, softWrap = false)
                 }
                 Box(Modifier.fillMaxWidth().height(6.dp).background(AppColors.TextSecondary.copy(alpha = 0.3f), RoundedCornerShape(3.dp))) {
                     Box(Modifier.fillMaxWidth(popup / 10f).height(6.dp).background(if (row == popupRow) AppColors.Accent else AppColors.TextSecondary, RoundedCornerShape(3.dp)))

@@ -39,7 +39,6 @@ import io.github.petebutty.viewarr.data.news.TickerStyle
 import io.github.petebutty.viewarr.data.settings.RemoteChoice
 import io.github.petebutty.viewarr.ui.common.NewsViewModel
 import io.github.petebutty.viewarr.ui.common.Ticker
-import io.github.petebutty.viewarr.ui.guide.GuideViewModel
 import io.github.petebutty.viewarr.ui.media.MediaViewModel
 import io.github.petebutty.viewarr.ui.player.RowSets
 import io.github.petebutty.viewarr.ui.setup.WizardField
@@ -136,7 +135,8 @@ fun appearanceCategories(vm: AppearanceViewModel = hiltViewModel(), opts: UiOpts
                     highs.firstOrNull { it.value == palette.highlight } ?: Choice("Custom", palette.highlight)) { c ->
                     vm.apply(palette.main, (c as Choice).value as Color)
                 },
-                optItem(opts, "Text size", "How big text and everything else on screen is. Larger is easier to read from the sofa.", UiOpts.TEXT_SIZE),
+                optItem(opts, "App scaling", "Shrinks the whole picture a little, for a TV that cuts off the edges of the screen. Pages keep exactly the same layout; video still fills the screen.", UiOpts.PICTURE_SIZE),
+                optItem(opts, "Text size", "How big the words are. Only the text changes; pages, posters and the guide keep their layout. Larger text can crowd the guide's top panel.", UiOpts.TEXT_SIZE_V2),
                 optItem(opts, "Font", "The lettering for all text, from the fonts built into your box (a box without one shows the standard font).", UiOpts.FONT),
                 optItem(opts, "List scrolling", "How lists follow the highlight. Instant: the list moves with it in one go (no trail when you go through quickly). Smooth: it slides there. (Poster rows and library grids always glide.)", UiOpts.LIST_SCROLL),
                 optItem(opts, "Clock", "The time in the top corner.", UiOpts.CLOCK),
@@ -198,10 +198,10 @@ fun appearanceCategories(vm: AppearanceViewModel = hiltViewModel(), opts: UiOpts
                 // Low-memory mode: no programme pictures at all, so these are locked.
                 optItem(opts, "Programme pictures", "The highlighted programme's picture at the top of the guide. Off: no pictures are looked up (the channel's logo shows instead).", UiOpts.GUIDE_ART).locked(lowLock),
                 optItem(opts, "Programme picture shows as", "Background: it fills the screen behind the guide (with the \"What's selected\" wallpaper). Banner: a picture card at the right of the programme details, and the background stays as it is.", UiOpts.GUIDE_ART_PLACE).locked(lowLock),
+                optItem(opts, "Channel rows", "How many channels the guide shows at once. More rows are thinner.", UiOpts.GUIDE_ROWS),
                 optItem(opts, "Next and Then", "At the top of the guide, what's on the highlighted channel next and after that. Off: just the programme's details.", UiOpts.GUIDE_NEXT),
                 optItem(opts, "Episode badge at the top", "The series and episode badge (\"S12 E4\") at the top right of the guide, under Next and Then. Off hides it; Catch-up and Recording badges stay.", UiOpts.GUIDE_EPISODE_BADGE),
                 optItem(opts, "Catch-up badge at the top", "The \"Catch-up\" badge at the top right of the guide, on programmes that can be replayed. Off hides it (the channel column's catch-up marks stay).", UiOpts.GUIDE_CATCHUP_BADGE),
-                optItem(opts, "Programme title logos", "At the top of the guide, the highlighted programme's title logo (from TMDB) in place of its name, when there's a sure match (a UK, Irish or US show, or the only film with that name). Off: always the name.", UiOpts.GUIDE_TITLE_LOGO).locked(lowLock),
                 // The info bar over live TV.
                 // The glass: the info bar and controls, and every pop-up (next episode, skip intro, reminders, notes).
                 optSlider(opts, "Pop-up glass", "Left / Right: how see-through the info bar, the player's controls and every pop-up and notice are (record options, next episode, skip intro, reminders, notes), from solid (0%) to clear (100%).", UiOpts.POPUP_SEE, AppColors.palette.popupSee),
@@ -215,9 +215,6 @@ fun appearanceCategories(vm: AppearanceViewModel = hiltViewModel(), opts: UiOpts
             ),
         ),
         newsTickerCategory(opts),
-    ) + listOfNotNull(
-        // Programme title logos: off for chosen channel groups (only while title logos are on).
-        if (palette.guideTitleLogos) titleLogoGroupsCategory(vm) else null,
     ) + listOf(
         // Browsing style (Peter, 2026-11-18): one choice setting the Movies / Shows look, each part still its own
         // setting below it. Viewarr: as before. Cinema (Nuvio style): a big top panel, trailers in the poster, larger
@@ -343,9 +340,9 @@ fun appearanceCategories(vm: AppearanceViewModel = hiltViewModel(), opts: UiOpts
  */
 private val AppearanceOpts = UiOpts.run {
     listOf(
-        TEXT_SIZE, FONT, CLOCK, DATE_ORDER, TIME_FORMAT, // Theme
+        PICTURE_SIZE, TEXT_SIZE_V2, FONT, CLOCK, DATE_ORDER, TIME_FORMAT, // Theme
         GLASS_TINT, POPUP_SEE, POPUP_GLASS, BANNER_BORDER, // Glass & transparency (Pop-up glass's older form too)
-        CHANNEL_LOGOS, GUIDE_EPISODE, CHLIST_WIDTH, CHLIST_PROGRESS, CHLIST_PROGRESS_COLOUR, GUIDE_SPAN, CATCHUP_ICONS, GUIDE_SHADE, GUIDE_ART, GUIDE_ART_PLACE, WALL_SHADE, GUIDE_NEXT, GUIDE_EPISODE_BADGE, GUIDE_CATCHUP_BADGE, TITLE_BG, GUIDE_WALL, GUIDE_TITLE_LOGO, // TV guide
+        CHANNEL_LOGOS, GUIDE_ROWS, GUIDE_EPISODE, CHLIST_WIDTH, CHLIST_PROGRESS, CHLIST_PROGRESS_COLOUR, GUIDE_SPAN, CATCHUP_ICONS, GUIDE_SHADE, GUIDE_ART, GUIDE_ART_PLACE, WALL_SHADE, GUIDE_NEXT, GUIDE_EPISODE_BADGE, GUIDE_CATCHUP_BADGE, TITLE_BG, GUIDE_WALL, // TV guide
         INFOBAR_STYLE, INFOBAR_CORNERS, INFOBAR_SIZE, INFOBAR_CLOCK, INFOBAR_WIDTH, CARD_SIZE,
         BANNER_NUMBER, BANNER_EPISODE, BANNER_BADGES, BANNER_SOURCE, BANNER_FPS, CONTROLS_SIZE, // Info bar & controls
         MENU_HEADINGS, MENU_HEAD_SOURCE, MENU_EDGE, MENU_TINT, MENU_HINTS, MENU_GROUP_ICON, MENU_LIVE_MARK, MENU_HIDDEN, BUTTON_HINTS, // Menu
@@ -433,18 +430,3 @@ private fun newsTickerCategory(opts: UiOptsViewModel): SettingCategory {
         )
 }
 
-/** Settings → Appearance → Title logos by group: the guide's channel groups, each On / Off. */
-@Composable
-private fun titleLogoGroupsCategory(vm: AppearanceViewModel): SettingCategory {
-    val palette = AppColors.palette
-    val guideVm: GuideViewModel = hiltViewModel()
-    // (Real groups only: 📡 Live now's channels belong to their own groups.)
-    val groups = guideVm.groups.collectAsStateWithLifecycle().value.filter { it.id >= 0 }.map { it.name }.distinct()
-    return SettingCategory(
-        "Title logos by group", "Programme title logos in the guide, group by group: switch a group off to always show its programmes' names (sports and event groups, say).",
-        groups.map { g ->
-            val id = "logo:$g"
-            onOffItem(g, "Title logos for this group's programmes.", palette.shows(id)) { on -> vm.setTitlePart(id, on) }
-        },
-    )
-}

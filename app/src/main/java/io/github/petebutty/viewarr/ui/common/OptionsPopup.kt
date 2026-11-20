@@ -56,7 +56,7 @@ fun PopupPanel(
         Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.3f)), contentAlignment = Alignment.Center) {
             Column(
                 modifier.width(width)
-                    .heightIn(max = (LocalConfiguration.current.screenHeightDp * 0.92f).dp)
+                    .heightIn(max = (io.github.petebutty.viewarr.ui.common.LocalCanvas.current.height * 0.92f))
                     .glass(Tokens.PopupRadius)
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = 22.dp, vertical = 20.dp)

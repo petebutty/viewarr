@@ -96,6 +96,7 @@ class SettingsSync @Inject constructor(
     private val accounts: AccountStore,
     private val http: HttpJson,
     private val json: Json,
+    private val history: SyncHistory,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val lock = Mutex()
@@ -158,13 +159,7 @@ class SettingsSync @Inject constructor(
     suspend fun acceptOffer(): Boolean = lock.withLock {
         val copy = pending ?: return@withLock false
         val s = sessions.session.first() ?: return@withLock false
-        // This TV's sign-ins can't be read just now: restoring over them (or marking it done) waits; the offer stays.
-        if (accounts.currentReadable() == null) {
-            _message.value = "This TV's sign-ins can't be read just now. Try again in a moment."
-            return@withLock false
-        }
-        val restored = apply(copy, s)
-        setMode(SyncMode.On)
+        val restored = restoreLocked(copy, s) ?: return@withLock false
         _offer.value = null
         pending = null
         if (restored) accounts.setSetupComplete(true)
@@ -203,6 +198,101 @@ class SettingsSync @Inject constructor(
         context.syncStore.edit { it.clear() }
         _offer.value = null
         pending = null
+    }
+
+    /**
+     * Restoring [copy] (lock held): this TV's setup and the copy on the server go into the history first, so the
+     * restore can be undone; then the copy is applied and saving is on. Null when nothing was done (this TV's
+     * sign-ins can't be read just now: restoring over them waits); else whether its sign-ins came back too.
+     */
+    private suspend fun restoreLocked(copy: JsonObject, s: Session): Boolean? {
+        val mine = accounts.currentReadable() ?: run {
+            _message.value = "This TV's sign-ins can't be read just now. Try again in a moment."
+            return null
+        }
+        keepBeforeRestore(s, mine)
+        val restored = apply(copy, s)
+        setMode(SyncMode.On)
+        if (restored) accounts.setSetupComplete(true)
+        return restored
+    }
+
+    /** The server's copy and (for a TV that's set up) this TV's own setup, as "Before restore on <TV>", into the history. */
+    private suspend fun keepBeforeRestore(s: Session, mine: Accounts) {
+        if (s.isDirect) return
+        val copies = mutableListOf<Pair<JsonObject, String?>>()
+        copyResult(s).getOrNull()?.let { copies += it to null }
+        if (accounts.setupComplete.first() != false) runCatching {
+            val signIns = context.syncStore.data.first()[SIGN_INS] ?: true
+            copies += buildJsonObject {
+                put("v", 1)
+                put("savedAt", System.currentTimeMillis())
+                put("device", deviceName())
+                put("deviceId", mine.deviceId)
+                put("prefs", exportPrefs())
+                if (signIns) put("signIns", encrypt(accountsJson(mine), s))
+            } to "Before restore on ${deviceName()}"
+        }.onFailure { Log.w(TAG, "this TV's setup not kept before restoring", it) }
+        archive(s, copies, routine = false, mineId = mine.deviceId)
+    }
+
+    /** What "Restore from Dispatcharr" lists: the main copy (null: nothing saved) and the earlier versions. */
+    data class RestoreChoices(val latest: JsonObject?, val versions: List<SyncVersion>, val historyUnread: Boolean)
+
+    suspend fun restoreChoices(): Result<RestoreChoices> {
+        val s = sessions.session.first()?.takeIf { !it.isDirect } ?: return Result.failure(IllegalStateException("Sign in to Dispatcharr first."))
+        val latest = copyResult(s).getOrElse { return Result.failure(IllegalStateException("Couldn't read the saved copy from Dispatcharr. Try again in a moment.")) }
+        val hist = history.list(s).onFailure { Log.w(TAG, "history not read: ${it.message}") }
+        // A version that's the same as the main copy (just saved by hand) is shown once, as Latest.
+        val versions = hist.getOrDefault(emptyList()).filterNot { v ->
+            latest != null && v.savedAt == latest.long("savedAt") && v.deviceId == latest.str("deviceId").orEmpty()
+        }
+        return Result.success(RestoreChoices(latest, versions, hist.isFailure))
+    }
+
+    /** The saved copy inside an earlier version (null: it can't be unpacked). */
+    fun copyOf(v: SyncVersion): JsonObject? = history.copyOf(v)
+
+    /** How [copy] is described before restoring it (sign-ins only if they can be read with this login's key). */
+    suspend fun offerFor(copy: JsonObject): SyncOffer {
+        val s = sessions.session.first()
+        return offerOf(copy).copy(hasSignIns = s != null && !s.isDirect && signInsOf(copy, s).getOrNull() != null)
+    }
+
+    /**
+     * Settings → Restore from Dispatcharr: puts [copy] on this TV (see [restoreLocked]). An earlier [version] is
+     * then saved as the main copy, so other TVs and the next start get it too. A message for the screen.
+     */
+    suspend fun restoreFrom(copy: JsonObject, version: Boolean): String {
+        val s = sessions.session.first()?.takeIf { !it.isDirect } ?: return "Sign in to Dispatcharr first."
+        val restored = lock.withLock {
+            restoreLocked(copy, s)?.also {
+                // Newer than the main copy from now on: a failed save below can't let the next start undo the restore.
+                if (version) context.syncStore.edit { it.remove(LAST_HASH); it[APPLIED_AT] = System.currentTimeMillis() }
+            }
+        } ?: return _message.value ?: "That couldn't be restored just now. Try again in a moment."
+        if (version) scope.launch { runCatching { pushIfChanged(force = true) }.onFailure { Log.w(TAG, "save after restore failed", it) } }
+        val from = copy.str("device") ?: "another TV"
+        return when {
+            restored -> "Restored from $from."
+            copy.str("signIns") != null -> "Settings restored; its sign-ins couldn't be read."
+            else -> "Settings restored."
+        }
+    }
+
+    /** "Save a copy now": the server's copy into the history, and this TV's setup saved straight away (kept as a version too). */
+    suspend fun saveCopyNow(): String {
+        if (currentMode() != SyncMode.On) return "Switch on Save settings to Dispatcharr first."
+        val s = sessions.session.first()?.takeIf { !it.isDirect } ?: return "Sign in to Dispatcharr first."
+        forgetLastPush()
+        val body = runCatching { pushIfChanged(force = true) }.onFailure { Log.w(TAG, "save a copy failed", it) }.getOrNull()
+            ?: return _message.value ?: "Not saved. Try again in a moment."
+        // In the history straight away, so the next routine saves can't replace it.
+        lock.withLock {
+            val ok = runCatching { history.add(s, listOf(body to "Copy saved on ${deviceName()}")) }.onFailure { Log.w(TAG, "history not updated", it) }.getOrDefault(false)
+            if (ok) context.syncStore.edit { it[LAST_ARCHIVE] = System.currentTimeMillis() }
+        }
+        return "Saved. Restore from Dispatcharr lists it."
     }
 
     // ---------------------------------------------------------------- profiles
@@ -265,6 +355,9 @@ class SettingsSync @Inject constructor(
 
     /** Saves this TV's setup to the signed-in user's copy now (before switching profile). */
     suspend fun saveNow() { runCatching { pushIfChanged(force = true) } }
+
+    /** This TV's name, as saved copies show it. */
+    fun thisDevice(): String = deviceName()
 
     /**
      * An admin preparing another user's Viewarr: [prefs] and [signIns] (Accounts JSON) written into [user]'s copy
@@ -354,29 +447,32 @@ class SettingsSync @Inject constructor(
 
     // ---------------------------------------------------------------- saving
 
-    private suspend fun pushIfChanged(force: Boolean = false) = lock.withLock {
-        if (currentMode() != SyncMode.On || _offer.value != null) return@withLock
+    /** Saves this TV's setup as the main copy if it changed ([force]: whatever). The copy saved, or null if none was. */
+    private suspend fun pushIfChanged(force: Boolean = false): JsonObject? = lock.withLock {
+        if (currentMode() != SyncMode.On || _offer.value != null) return@withLock null
         // Never save a half-set-up TV over a good copy (e.g. right after signing out and back in).
-        if (accounts.setupComplete.first() == false) return@withLock
-        val s = sessions.session.first()?.takeIf { !it.isDirect } ?: return@withLock
+        if (accounts.setupComplete.first() == false) return@withLock null
+        val s = sessions.session.first()?.takeIf { !it.isDirect } ?: return@withLock null
         // Sign-ins saved but unreadable for a moment: what we'd see is a blank copy, and sending it would sign every
         // other TV out. Nothing is saved until they read again (the hash isn't updated, so the next change sends it).
-        val mine = accounts.currentReadable() ?: run { Log.w(TAG, "sign-ins unreadable; save skipped"); return@withLock }
+        val mine = accounts.currentReadable() ?: run { Log.w(TAG, "sign-ins unreadable; save skipped"); return@withLock null }
         val signIns = context.syncStore.data.first()[SIGN_INS] ?: true
         val prefs = exportPrefs()
         val acct = if (signIns) accountsJson(mine) else null
         val hash = sha256(prefs.toString() + "|" + (acct ?: "-"))
-        if (!force && hash == context.syncStore.data.first()[LAST_HASH]) return@withLock
+        if (!force && hash == context.syncStore.data.first()[LAST_HASH]) return@withLock null
         // Never a blind overwrite: if another TV (or an admin) saved after this one last picked the copy up, theirs
         // would be lost. That's left alone and picked up at the next start instead. Asked for outright (switching
         // saving on, restoring a backup: [force]), this TV's copy wins. Can't read the copy at all: try next change.
-        val server = copyResult(s).getOrElse { Log.w(TAG, "save put off: ${it.message}"); return@withLock }
+        val server = copyResult(s).getOrElse { Log.w(TAG, "save put off: ${it.message}"); return@withLock null }
         if (!force && server != null && server.str("deviceId") != mine.deviceId &&
             (server.long("savedAt") ?: 0) > (context.syncStore.data.first()[APPLIED_AT] ?: 0)) {
             Log.w(TAG, "save skipped: ${server.str("device") ?: "another TV"} saved since this TV last picked up the copy")
             _message.value = "Not saved: ${server.str("device") ?: "another TV"} changed the settings since. They'll be picked up when Viewarr next starts."
-            return@withLock
+            return@withLock null
         }
+        // The copy about to be replaced goes into the history first (see [archive]); never in the way of the save.
+        if (server != null) archive(s, listOf(server to null), routine = !force, mineId = mine.deviceId)
         val now = System.currentTimeMillis()
         val body = buildJsonObject {
             put("v", 1)
@@ -391,11 +487,26 @@ class SettingsSync @Inject constructor(
             r.code in 200..299 -> {
                 context.syncStore.edit { it[LAST_HASH] = hash; it[APPLIED_AT] = now }
                 _message.value = null
+                return@withLock body
             }
             r.code == 413 -> _message.value = "Too much to save on Dispatcharr (over 128 KB)."
             r.code == 404 -> _message.value = "This Dispatcharr version can't store app settings (needs 0.33 or newer)."
             else -> Log.w(TAG, "save answered ${r.code}: ${r.body.str("code") ?: ""}")
         }
+        null
+    }
+
+    /**
+     * Puts [copies] into the version history. A [routine] save (this TV's own small changes) only archives once
+     * every 30 minutes, so a run of small saves can't push older versions out; another TV's copy, and anything
+     * asked for outright, always goes in. Failing here is logged and never stops the save that follows.
+     */
+    private suspend fun archive(s: Session, copies: List<Pair<JsonObject, String?>>, routine: Boolean, mineId: String) {
+        val now = System.currentTimeMillis()
+        val last = context.syncStore.data.first()[LAST_ARCHIVE] ?: 0
+        if (routine && copies.all { it.first.str("deviceId") == mineId } && now - last in 0 until ARCHIVE_EVERY) return
+        val ok = runCatching { history.add(s, copies) }.onFailure { Log.w(TAG, "history not updated", it) }.getOrDefault(false)
+        if (ok) context.syncStore.edit { it[LAST_ARCHIVE] = now }
     }
 
     private suspend fun forgetLastPush() = context.syncStore.edit { it.remove(LAST_HASH) }
@@ -465,32 +576,6 @@ class SettingsSync @Inject constructor(
         }
     }
 
-    /** {"t": type, "v": value}: Preferences keep their type, which plain JSON would lose. */
-    private fun encodeValue(v: Any): JsonObject? = when (v) {
-        is String -> buildJsonObject { put("t", "s"); put("v", v) }
-        is Boolean -> buildJsonObject { put("t", "b"); put("v", v) }
-        is Int -> buildJsonObject { put("t", "i"); put("v", v) }
-        is Long -> buildJsonObject { put("t", "l"); put("v", v) }
-        is Float -> buildJsonObject { put("t", "f"); put("v", v) }
-        is Double -> buildJsonObject { put("t", "d"); put("v", v) }
-        is Set<*> -> buildJsonObject { put("t", "ss"); put("v", JsonArray(v.filterIsInstance<String>().sorted().map(::JsonPrimitive))) }
-        else -> null
-    }
-
-    private fun setValue(p: MutablePreferences, key: String, e: JsonElement) {
-        val o = e as? JsonObject ?: return
-        val v = o["v"] ?: return
-        when (o.str("t")) {
-            "s" -> (v as? JsonPrimitive)?.contentOrNull?.let { p[stringPreferencesKey(key)] = it }
-            "b" -> (v as? JsonPrimitive)?.booleanOrNull?.let { p[booleanPreferencesKey(key)] = it }
-            "i" -> (v as? JsonPrimitive)?.intOrNull?.let { p[intPreferencesKey(key)] = it }
-            "l" -> (v as? JsonPrimitive)?.longOrNull?.let { p[longPreferencesKey(key)] = it }
-            "f" -> (v as? JsonPrimitive)?.doubleOrNull?.let { p[floatPreferencesKey(key)] = it.toFloat() }
-            "d" -> (v as? JsonPrimitive)?.doubleOrNull?.let { p[doublePreferencesKey(key)] = it }
-            "ss" -> (v as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }?.toSet()?.let { p[stringSetPreferencesKey(key)] = it }
-        }
-    }
-
     // ---------------------------------------------------------------- encryption
 
     private fun keyFor(s: Session): SecretKeySpec {
@@ -532,12 +617,15 @@ class SettingsSync @Inject constructor(
 
     private fun sha256(s: String) = MessageDigest.getInstance("SHA-256").digest(s.toByteArray()).joinToString("") { "%02x".format(it) }
 
-    private companion object {
-        const val TAG = "ViewarrSync"
-        const val APP_KEY = "io.github.petebutty.viewarr"
+    internal companion object {
+        private const val TAG = "ViewarrSync"
+        private const val APP_KEY = "io.github.petebutty.viewarr"
         val MODE = stringPreferencesKey("mode")
         val SIGN_INS = booleanPreferencesKey("sign_ins")
         val LAST_HASH = stringPreferencesKey("last_hash")
+        val LAST_ARCHIVE = longPreferencesKey("last_archive")
+        /** Routine saves archive the copy they replace at most this often. */
+        const val ARCHIVE_EVERY = 30 * 60_000L
         val APPLIED_AT = longPreferencesKey("applied_at")
         /** The sign-in check: at once, then again after 30 s, 2 min, 10 min and 30 min; after that, next start. */
         val CHECK_RETRY_WAITS = listOf(0L, 30_000L, 120_000L, 600_000L, 1_800_000L)
@@ -555,5 +643,31 @@ class SettingsSync @Inject constructor(
             ),
             "appearance" to setOf("opt_zap_delay"),
         )
+
+        /** {"t": type, "v": value}: Preferences keep their type, which plain JSON would lose. */
+        internal fun encodeValue(v: Any): JsonObject? = when (v) {
+            is String -> buildJsonObject { put("t", "s"); put("v", v) }
+            is Boolean -> buildJsonObject { put("t", "b"); put("v", v) }
+            is Int -> buildJsonObject { put("t", "i"); put("v", v) }
+            is Long -> buildJsonObject { put("t", "l"); put("v", v) }
+            is Float -> buildJsonObject { put("t", "f"); put("v", v) }
+            is Double -> buildJsonObject { put("t", "d"); put("v", v) }
+            is Set<*> -> buildJsonObject { put("t", "ss"); put("v", JsonArray(v.filterIsInstance<String>().sorted().map(::JsonPrimitive))) }
+            else -> null
+        }
+
+        internal fun setValue(p: MutablePreferences, key: String, e: JsonElement) {
+            val o = e as? JsonObject ?: return
+            val v = o["v"] ?: return
+            when (o.str("t")) {
+                "s" -> (v as? JsonPrimitive)?.contentOrNull?.let { p[stringPreferencesKey(key)] = it }
+                "b" -> (v as? JsonPrimitive)?.booleanOrNull?.let { p[booleanPreferencesKey(key)] = it }
+                "i" -> (v as? JsonPrimitive)?.intOrNull?.let { p[intPreferencesKey(key)] = it }
+                "l" -> (v as? JsonPrimitive)?.longOrNull?.let { p[longPreferencesKey(key)] = it }
+                "f" -> (v as? JsonPrimitive)?.doubleOrNull?.let { p[floatPreferencesKey(key)] = it.toFloat() }
+                "d" -> (v as? JsonPrimitive)?.doubleOrNull?.let { p[doublePreferencesKey(key)] = it }
+                "ss" -> (v as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }?.toSet()?.let { p[stringSetPreferencesKey(key)] = it }
+            }
+        }
     }
 }

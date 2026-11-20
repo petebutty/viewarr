@@ -96,9 +96,13 @@ import coil.compose.AsyncImage
 import java.time.Instant
 import java.time.ZoneId
 
-private val ChannelColumn = 230.dp
+// (200, was 230: Peter, 2026-11-20, "narrow the channel row a little"; the space goes to the programmes.)
+private val ChannelColumn = 200.dp
 // (36: ten whole rows on a 1080p-shaped screen at the usual text size; at 38 the tenth was cut in half. Peter, 2026-11-19.)
-private val RowHeight = 36.dp
+// Settings → Appearance → TV guide → Channel rows: how many fit under the top panel (Peter, 2026-11-20). 10 is 36 high.
+private val RowHeight get() = when (AppColors.palette.opt(UiOpts.GUIDE_ROWS)) { 1 -> 30.dp; 2 -> 40.dp; 3 -> 45.dp; else -> 36.dp }
+/** The least room the guide panel's middle (title, times, synopsis) is given before the side column gives way. */
+private val MIDDLE_MIN = 340.dp
 private const val PAGE = 7
 
 /**
@@ -263,31 +267,25 @@ fun GuideScreen(
             },
     ) {
         // The highlighted programme's picture (looked up once you rest on it a moment), else the channel logo.
-        val art by produceState<String?>(null, focused?.rowId, AppColors.palette.guideArt) {
+        // (Looked up for the "What's selected" wallpaper too, even with Programme pictures off: that wallpaper is
+        // nothing but this picture. Peter, 2026-11-19: it showed nothing with Programme pictures switched off.)
+        val wallSelected = AppColors.palette.wallpaperMode == 3
+        val art by produceState<String?>(null, focused?.rowId, AppColors.palette.guideArt, wallSelected) {
             // The guide's own picture first (from Dispatcharr / the guide source), else a lookup by title.
-            // Settings → Appearance → Programme pictures off (or low-memory mode): none at all.
-            if (!AppColors.palette.guideArt) { value = null; return@produceState }
+            // Settings → Appearance → Programme pictures off (or low-memory mode) and no picture wallpaper: none.
+            if (!AppColors.palette.guideArt && !wallSelected) { value = null; return@produceState }
             focused?.image?.let { value = it; return@produceState }
             val t = focused?.title ?: run { value = null; return@produceState }
             delay(350)
             // Dispatcharr's own picture for it (the grid the guide syncs from leaves pictures out), else TMDB by title.
             value = focused?.let { vm.pictureFor(it) } ?: vm.artFor(t)
         }
-        // Its title logo (TMDB), shown instead of the title text when there is one.
-        val titleLogo by produceState<String?>(null, focused?.rowId, AppColors.palette.guideTitleLogos) {
-            // Settings → Appearance → Programme title logos (off, or low-memory mode: the name only).
-            if (!AppColors.palette.guideTitleLogos) { value = null; return@produceState }
-            value = null // (the last programme's logo mustn't sit over this one while it's looked up)
-            // Switched off for this channel's group (Settings → Appearance → Title logos by group).
-            if (selectedChannel?.groupName?.let { !AppColors.palette.shows("logo:$it") } == true) { value = null; return@produceState }
-            val t = focused?.title ?: run { value = null; return@produceState }
-            delay(350)
-            value = vm.logoFor(t)
-        }
         // "What's selected" wallpaper: the highlighted programme's picture.
         // Banner (Settings → Appearance → Programme picture shows as): a card in the info area, not the background.
         val banner = AppColors.palette.opt(UiOpts.GUIDE_ART_PLACE) == 1
-        LaunchedEffect(art, banner) { if (banner) Wallpaper.selected = null else art?.let { Wallpaper.selected = it } }
+        LaunchedEffect(art, banner) { if (banner && AppColors.palette.guideArt) Wallpaper.selected = null else art?.let { Wallpaper.selected = it } }
+        // (Programme pictures off: the top panel shows the channel logo as before; the picture only feeds the wallpaper.)
+        val panelArt = art.takeIf { AppColors.palette.guideArt }
         // Scheduled / in-progress Dispatcharr recordings, per channel: a red dot on the programme, a badge in the panel.
         val recordedByChannel = remember(recordings) {
             recordings.filter { it.state == DvrState.Scheduled || it.state == DvrState.Recording }
@@ -297,7 +295,7 @@ fun GuideScreen(
             channel = selectedChannel, program = focused, now = now, serverUrl = serverUrl,
             channelPrograms = selectedChannel?.let { programs[it.id] }.orEmpty(),
             recorded = selectedChannel?.let { recordedByChannel[it.id] }.orEmpty(),
-            art = art, titleLogo = titleLogo, banner = banner,
+            art = panelArt, banner = banner,
         )
         Spacer(Modifier.height(10.dp))
 
@@ -394,10 +392,20 @@ private fun InfoPanel(
     channelPrograms: List<GuideProgram> = emptyList(),
     recorded: List<LongRange> = emptyList(),
     art: String? = null,
-    titleLogo: String? = null,
     banner: Boolean = false,
 ) {
     val boxArt = art.takeUnless { banner }
+    // The panel fits itself to the width it gets (Peter, 2026-11-19: on a narrower screen, with a big picture and a
+    // 12-hour clock, the details ran out of room and the synopsis vanished). The middle (title, times, synopsis)
+    // keeps at least MIDDLE_MIN: first the Next / Then column narrows, then it goes; the banner likewise.
+    androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth()) {
+    val spare = maxWidth - 320.dp - 24.dp - MIDDLE_MIN
+    val sideWidth = when {
+        spare >= 260.dp -> 260.dp
+        spare >= 190.dp -> spare
+        else -> 0.dp
+    }
+    val bannerFits = spare >= 180.dp * 16 / 9 + 16.dp
     Row(Modifier.fillMaxWidth().height(180.dp)) {
         Box(
             Modifier
@@ -432,7 +440,7 @@ private fun InfoPanel(
         // The panel is a fixed 180 units tall: the column is clipped so a long synopsis can't run under the grid.
         // The banner (the picture as a card on the right) takes the room the Next / Then column would have; its badges
         // then sit in the time row instead.
-        val sideColumn = !banner
+        val sideColumn = !banner && sideWidth > 0.dp
         Column(Modifier.weight(1f).padding(start = 24.dp, top = 4.dp).fillMaxHeight().clipToBounds()) {
             // Channel number · name · group, small, above the programme (the group used to sit alone at the row's end).
             if (channel != null) Text(
@@ -442,10 +450,13 @@ private fun InfoPanel(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            InfoTitle(channel, program, titleLogo)
+            InfoTitle(channel, program)
             if (program != null) {
                 Spacer(Modifier.height(6.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                // (One line whatever the width: on a narrow screen with a 12-hour clock, "min left" was squeezed to
+                // nothing and wrapped a letter to a line, a column so tall it pushed the synopsis out of the panel.
+                // A tester's TCL TV, 2026-11-19: the synopsis showed only with the banner.)
+                Row(Modifier.clipToBounds(), verticalAlignment = Alignment.CenterVertically) {
                     InfoTimes(program, channel, now)
                     Badges(program)
                     if (!sideColumn) InfoBadges(channel, program, now, recorded)
@@ -461,35 +472,25 @@ private fun InfoPanel(
                 )
             } else if (channel != null) {
                 Spacer(Modifier.height(6.dp))
-                Text("No guide information", fontSize = 14.sp, color = AppColors.TextSecondary)
+                Text("No guide information", fontSize = 14.sp, color = AppColors.TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
-        if (sideColumn && channel != null) NextUpColumn(channel, program, now, channelPrograms, recorded)
-        // Banner: the programme's picture as a card on the right (16:9, the panel's height).
-        if (banner && art != null) AsyncImage(
+        if (sideColumn && channel != null) NextUpColumn(channel, program, now, channelPrograms, recorded, sideWidth)
+        // Banner: the programme's picture as a card on the right (16:9, the panel's height), when there's room for it.
+        if (banner && bannerFits && art != null) AsyncImage(
             model = art,
             contentDescription = null,
             contentScale = ContentScale.Crop,
             modifier = Modifier.padding(start = 16.dp).fillMaxHeight().aspectRatio(16f / 9f).clip(RoundedCornerShape(8.dp)),
         )
     }
+    }
 }
 
-/** The programme's title logo (TMDB) when it has one, else its name (or the channel's, with no guide). */
+/** The programme's name (or the channel's, with no guide). (Programme title logos were removed: Peter, 2026-11-20.) */
 @Composable
-private fun InfoTitle(channel: ChannelListItem?, program: GuideProgram?, titleLogo: String?) {
-    // (A logo that fails to load gives the name back, rather than no title at all.)
-    var logoFailed by remember(titleLogo) { mutableStateOf(false) }
-    if (titleLogo != null && program != null && !logoFailed) Box(Modifier.fillMaxWidth().height(44.dp), contentAlignment = Alignment.CenterStart) {
-        AsyncImage(
-            model = titleLogo,
-            contentDescription = guideTitle(program),
-            contentScale = ContentScale.Fit,
-            alignment = Alignment.CenterStart,
-            onError = { logoFailed = true },
-            modifier = Modifier.fillMaxHeight().then(Modifier.widthIn(max = 360.dp)),
-        )
-    } else Text(
+private fun InfoTitle(channel: ChannelListItem?, program: GuideProgram?) {
+    Text(
         program?.let(::guideTitle) ?: channel?.name.orEmpty(),
         fontSize = 22.sp,
         fontWeight = FontWeight.SemiBold,
@@ -509,44 +510,46 @@ private fun InfoTimes(program: GuideProgram, channel: ChannelListItem?, now: Lon
         "${program.startTime.local().format(timeFormat)} – ${program.endTime.local().format(timeFormat)}",
         fontSize = 14.sp,
         color = AppColors.TextPrimary,
+        maxLines = 1, softWrap = false,
     )
     val length = (program.endTime - program.startTime) / 60_000
     when {
         program.startTime <= now && program.endTime > now -> {
             val fraction = (now - program.startTime).toFloat() / (program.endTime - program.startTime)
             Spacer(Modifier.width(14.dp))
-            Box(Modifier.width(180.dp).height(4.dp).background(Color(0x33FFFFFF), RoundedCornerShape(2.dp))) {
+            // (Narrower with a 12-hour clock: "9:00 pm – 10:00 pm" left no room for "min left" beside it. A tester, 2026-11-19.)
+            Box(Modifier.width(if (io.github.petebutty.viewarr.ui.theme.Dates.twelve) 120.dp else 180.dp).height(4.dp).background(Color(0x33FFFFFF), RoundedCornerShape(2.dp))) {
                 Box(Modifier.fillMaxWidth(fraction).fillMaxHeight().background(AppColors.Accent, RoundedCornerShape(2.dp)))
             }
             Spacer(Modifier.width(10.dp))
-            Text("${(program.endTime - now) / 60_000} min left", fontSize = 14.sp, color = AppColors.TextSecondary)
+            Text("${(program.endTime - now) / 60_000} min left", fontSize = 14.sp, color = AppColors.TextSecondary, maxLines = 1, softWrap = false)
         }
         program.startTime > now -> {
             Spacer(Modifier.width(14.dp))
-            Text("Starts in ${(program.startTime - now) / 60_000} min  ·  $length min", fontSize = 14.sp, color = AppColors.TextSecondary)
+            Text("Starts in ${(program.startTime - now) / 60_000} min  ·  $length min", fontSize = 14.sp, color = AppColors.TextSecondary, maxLines = 1, softWrap = false)
         }
         else -> {
             Spacer(Modifier.width(14.dp))
             val catchup = if ((channel?.catchupDays ?: 0) > 0) "  ·  Catch-up" else ""
-            Text("Ended ${program.endTime.local().format(timeFormat)}$catchup", fontSize = 14.sp, color = AppColors.TextSecondary)
+            Text("Ended ${program.endTime.local().format(timeFormat)}$catchup", fontSize = 14.sp, color = AppColors.TextSecondary, maxLines = 1, softWrap = false)
         }
     }
 }
 
 /** On the right of the panel: what's on this channel next and after that, and the programme's badges under them. */
 @Composable
-private fun NextUpColumn(channel: ChannelListItem, program: GuideProgram?, now: Long, channelPrograms: List<GuideProgram>, recorded: List<LongRange>) {
+private fun NextUpColumn(channel: ChannelListItem, program: GuideProgram?, now: Long, channelPrograms: List<GuideProgram>, recorded: List<LongRange>, width: Dp = 260.dp) {
     // After the highlighted programme (or after now, with nothing highlighted).
     val from = program?.endTime ?: now
     val coming = remember(channelPrograms, from) { channelPrograms.filter { it.startTime >= from }.sortedBy { it.startTime }.take(2) }
     // (260 wide: the screen is laid out at 960 units, and the title column needs its share.)
-    Column(Modifier.width(260.dp).padding(start = 24.dp, top = 4.dp).fillMaxHeight().clipToBounds()) {
+    Column(Modifier.width(width).padding(start = 24.dp, top = 4.dp).fillMaxHeight().clipToBounds()) {
         // Settings → Appearance → TV guide → Next and Then: off hides the two lines (the badges stay).
         if (AppColors.palette.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.GUIDE_NEXT) == 0) listOf("Next", "Then").forEachIndexed { i, label ->
             val p = coming.getOrNull(i) ?: return@forEachIndexed
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(label, fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.width(40.dp))
-                Text(p.startTime.local().format(timeFormat), fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(end = 8.dp))
+                Text(label, fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.width(40.dp), maxLines = 1, softWrap = false)
+                Text(p.startTime.local().format(timeFormat), fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(end = 8.dp), maxLines = 1, softWrap = false)
                 Text(guideTitle(p), fontSize = 13.sp, color = AppColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             Spacer(Modifier.height(4.dp))
@@ -598,6 +601,7 @@ private fun TimeHeader(now: Long, windowStart: Long, sync: SyncState, gridWidth:
             fontSize = 13.sp,
             color = if (otherDay) AppColors.Accent else AppColors.TextPrimary,
             modifier = Modifier.align(Alignment.CenterStart),
+            maxLines = 1, softWrap = false,
         )
         Box(Modifier.padding(start = ChannelColumn).fillMaxSize().clipToBounds()) {
             // (Hourly marks on a long timeline start on the hour.)
@@ -610,6 +614,7 @@ private fun TimeHeader(now: Long, windowStart: Long, sync: SyncState, gridWidth:
                     fontSize = 13.sp,
                     color = AppColors.TextSecondary,
                     modifier = Modifier.align(Alignment.CenterStart).offset(x = xOf(t, windowStart, gridWidth) + 4.dp),
+                    maxLines = 1, softWrap = false,
                 )
                 // (Hourly marks on a long timeline, so the times don't crowd.)
                 t += if (hourly) 2 * GuideViewModel.STEP_MS else GuideViewModel.STEP_MS
@@ -624,6 +629,7 @@ private fun TimeHeader(now: Long, windowStart: Long, sync: SyncState, gridWidth:
                 // (Over the times on a scrim, not a solid block of the background colour: that showed as a dark patch
                 // on wallpapers and glass themes.)
                 modifier = Modifier.align(Alignment.CenterEnd).background(AppColors.Scrim).padding(start = 8.dp),
+                maxLines = 1, overflow = TextOverflow.Ellipsis,
             )
         }
     }

@@ -194,7 +194,7 @@ internal fun SportsPage(
     // (Drawn at full-screen size and shifted back by where the page starts, so it lines up with the menu's copy of
     // the same wallpaper: drawn from the page's own edge it left a seam where the menu ends. Peter, 2026-11-18.)
     var pageX by remember { mutableStateOf(0) }
-    val screenW = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp.dp
+    val screenW = io.github.petebutty.viewarr.ui.common.LocalCanvas.current.width
     Box(Modifier.fillMaxSize().clipToBounds().onGloballyPositioned { pageX = it.positionInRoot().x.toInt() }) {
     Box(Modifier.wrapContentWidth(Alignment.Start, unbounded = true).requiredWidth(screenW).fillMaxHeight()
         .offset { androidx.compose.ui.unit.IntOffset(-pageX, 0) }
@@ -223,7 +223,7 @@ internal fun SportsPage(
             sections.forEachIndexed { r, (title, cards) ->
                 item(key = "s-$title") {
                     Text(title.uppercase(), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp,
-                        color = if (title == "Live now") Color(0xFFFF5A5F) else AppColors.Accent, modifier = Modifier.padding(top = if (r == 0) 6.dp else 12.dp, bottom = 3.dp))
+                        color = if (title == "Live now") Color(0xFFFF5A5F) else AppColors.Accent, modifier = Modifier.padding(top = if (r == 0) 6.dp else 12.dp, bottom = 3.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 itemsIndexed(cards, key = { _, c -> "g-${c.game.id}" }) { i, c ->
                     val lineKey = "g-${c.game.id}"
@@ -275,16 +275,16 @@ internal fun SportsPage(
  */
 @Composable
 private fun SportsHeader(c: GameCard?, besidePreview: Boolean) {
-    Row(Modifier.fillMaxWidth().height(if (besidePreview) 214.dp else 150.dp)) {
+    Row(Modifier.fillMaxWidth().height(if (besidePreview) 214.dp else 150.dp).clipToBounds()) {
         Spacer(Modifier.width(if (besidePreview) Tokens.BesideWindowStart else Tokens.Gutter))
         Column(Modifier.padding(top = 26.dp, end = Tokens.Gutter)) {
-            Text("Sports", fontSize = 14.sp, color = AppColors.Accent)
+            Text("Sports", fontSize = 14.sp, color = AppColors.Accent, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.height(4.dp))
             Text(c?.game?.let { g -> if (g.score != null) "${g.home} ${g.score} ${g.away}" else g.title } ?: "Your teams and leagues",
                 fontSize = 22.sp, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = if (besidePreview) 2 else 1, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.height(6.dp))
-            Text(c?.let { whenLine(it) } ?: "Follow teams and leagues in Settings → Sports.", fontSize = 15.sp, color = AppColors.TextSecondary, maxLines = 2)
-            c?.let { Spacer(Modifier.height(4.dp)); Text(it.game.leagueName, fontSize = 13.sp, color = AppColors.TextSecondary) }
+            Text(c?.let { whenLine(it) } ?: "Follow teams and leagues in Settings → Sports.", fontSize = 15.sp, color = AppColors.TextSecondary, maxLines = if (besidePreview) 2 else 1, overflow = TextOverflow.Ellipsis)
+            c?.let { Spacer(Modifier.height(4.dp)); Text(it.game.leagueName, fontSize = 13.sp, color = AppColors.TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis) }
             c?.let { Spacer(Modifier.height(6.dp)); Text(okLine(it), fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, color = if (it.channel != null && it.sure) AppColors.Accent else AppColors.TextSecondary) }
         }
     }
@@ -407,7 +407,7 @@ private fun FixtureLine(c: GameCard, modifier: Modifier, reminded: Boolean = fal
                 Spacer(Modifier.width(8.dp)); Badge(g.homeLogo, g.home)
             }
             Text(g.score ?: "v", fontSize = if (g.score != null) 15.sp else 13.sp, fontWeight = FontWeight.Bold,
-                color = if (g.score != null) main else dim, textAlign = TextAlign.Center, modifier = Modifier.width(60.dp))
+                color = if (g.score != null) main else dim, textAlign = TextAlign.Center, modifier = Modifier.width(60.dp), maxLines = 1, softWrap = false)
             Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
                 Badge(g.awayLogo, g.away); Spacer(Modifier.width(8.dp))
                 Text(g.away, fontSize = 14.sp, color = main, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -427,6 +427,6 @@ private fun FixtureLine(c: GameCard, modifier: Modifier, reminded: Boolean = fal
 private fun Badge(logo: String?, name: String) {
     Box(Modifier.size(24.dp), contentAlignment = Alignment.Center) {
         if (logo != null) AsyncImage(model = logo, contentDescription = name, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
-        else Text(name.take(3).uppercase(), fontSize = 9.sp, fontWeight = FontWeight.Bold, color = Color.White)
+        else Text(name.take(3).uppercase(), fontSize = 9.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1, softWrap = false)
     }
 }

@@ -1,5 +1,6 @@
 package io.github.petebutty.viewarr.ui.common
 
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -24,14 +25,17 @@ import kotlin.math.abs
 @Composable
 fun PosterImage(
     url: String, contentDescription: String?, modifier: Modifier = Modifier,
-    /** A colour washed over the picture as it's drawn (the "Other posters faded" shade): no extra drawing pass. */
+    /**
+     * A colour washed over the picture (the "Other posters faded" shade): one plain rectangle drawn on top, with no
+     * see-through layer (those cost graphics memory per poster). It was a colour filter on the picture, which on some
+     * boxes did nothing at all (Peter, 2026-11-20: "Other posters faded doesn't seem to work").
+     */
     tint: Color? = null,
 ) {
-    val filter = tint?.let { androidx.compose.ui.graphics.ColorFilter.tint(it, androidx.compose.ui.graphics.BlendMode.SrcOver) }
     // The picture's own shape, once it's loaded.
     var ratio by remember(url) { mutableStateOf<Float?>(null) }
     val odd = ratio?.let { abs(it - 2f / 3f) > 0.07f } == true
-    Box(modifier) {
+    Box(if (tint == null) modifier else modifier.drawWithContent { drawContent(); drawRect(tint) }) {
         // The blurred fill needs Android 12; before that a sharp copy would look like a glitch, so it's a plain dark fill.
         if (odd && android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.S) {
             Box(Modifier.fillMaxSize().background(Color(0xFF15171C)))
@@ -44,7 +48,6 @@ fun PosterImage(
         AsyncImage(
             model = url, contentDescription = contentDescription,
             contentScale = if (odd) ContentScale.Fit else ContentScale.Crop,
-            colorFilter = filter,
             onSuccess = { s ->
                 val size = s.painter.intrinsicSize
                 if (size.width > 0f && size.height > 0f) ratio = size.width / size.height

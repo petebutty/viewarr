@@ -19,6 +19,7 @@ import androidx.compose.ui.zIndex
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import io.github.petebutty.viewarr.ui.common.pictureInset
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.remember
@@ -187,7 +188,7 @@ fun AppRoot(vm: AppViewModel = hiltViewModel()) {
     val splashAlpha by androidx.compose.animation.core.animateFloatAsState(
         if (splashShown) 1f else 0f, androidx.compose.animation.core.tween(300), label = "splash",
     )
-    // Settings → Appearance → Text size: everything scaled together (layout and text).
+    // Settings → Appearance → Text size: the words only (the layout is fixed at 90%, below).
     val systemDensity = androidx.compose.ui.platform.LocalDensity.current
     // Always laid out for the standard TV screen (960 × 540 units), whatever density the box's firmware picks: the
     // Shield is 960 wide already, but some boxes (Ugoos: 4K at 480 dpi = 1280 wide) would shrink the mini player
@@ -196,8 +197,21 @@ fun AppRoot(vm: AppViewModel = hiltViewModel()) {
     val baseDensity = androidx.compose.runtime.remember(config.screenWidthDp, config.screenHeightDp, systemDensity) {
         val wPx = config.screenWidthDp * systemDensity.density; val hPx = config.screenHeightDp * systemDensity.density
         val tv = minOf(wPx / 960f, hPx / 540f)
-        if (wPx >= 1200f && tv > 0f) androidx.compose.ui.unit.Density(tv, systemDensity.fontScale) else systemDensity
+        // (The box's own font size setting still counts, within limits: beyond them pages can't hold their text.)
+        val font = systemDensity.fontScale.coerceIn(0.85f, 1.15f)
+        if (wPx >= 1200f && tv > 0f) androidx.compose.ui.unit.Density(tv, font) else androidx.compose.ui.unit.Density(systemDensity.density, font)
     }
+    // How the app is scaled: ui/common/PictureScale.kt. The canvas is 960 x 540 at 90% (1067 x 600 units: the size every
+    // page was tuned at), and Settings → Appearance → Picture size shrinks the finished picture inside the screen.
+    val picture = AppColors.palette.pictureSize
+    val layoutDensity = baseDensity.density * 0.9f * picture
+    val screenPx = androidx.compose.ui.unit.IntSize(
+        (config.screenWidthDp * systemDensity.density).toInt(), (config.screenHeightDp * systemDensity.density).toInt())
+    val pictureInset = androidx.compose.runtime.remember(screenPx, picture) {
+        val ix = (screenPx.width * (1f - picture) / 2f).toInt(); val iy = (screenPx.height * (1f - picture) / 2f).toInt()
+        io.github.petebutty.viewarr.ui.common.PictureInset(ix, iy, androidx.compose.ui.unit.IntSize(screenPx.width - 2 * ix, screenPx.height - 2 * iy))
+    }
+    val canvas = androidx.compose.ui.unit.DpSize((pictureInset.canvas.width / layoutDensity).dp, (pictureInset.canvas.height / layoutDensity).dp)
     val scale = AppColors.palette.textScale
     // Buttons taught in Settings → Remote: read wherever a press is turned into an action.
     androidx.compose.runtime.SideEffect { RemoteKeys.setTaught(remote.buttons) }
@@ -212,7 +226,10 @@ fun AppRoot(vm: AppViewModel = hiltViewModel()) {
         androidx.compose.foundation.gestures.LocalBringIntoViewSpec provides appScroll,
         LocalRemote provides remote,
         LocalPlayback provides playbackSettings,
-        androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(baseDensity.density * scale, baseDensity.fontScale),
+        // The canvas (the same units on every box and at every Picture size), with Text size moving only the words.
+        androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(layoutDensity, baseDensity.fontScale * scale / 0.9f),
+        io.github.petebutty.viewarr.ui.common.LocalCanvas provides canvas,
+        io.github.petebutty.viewarr.ui.common.LocalPictureInset provides pictureInset,
         // Settings → Appearance → Font.
         androidx.tv.material3.LocalTextStyle provides androidx.tv.material3.LocalTextStyle.current.copy(fontFamily = appFont()),
         androidx.compose.material3.LocalTextStyle provides androidx.compose.material3.LocalTextStyle.current.copy(fontFamily = appFont()),
@@ -229,7 +246,9 @@ fun AppRoot(vm: AppViewModel = hiltViewModel()) {
             .appBackground(titleArt = io.github.petebutty.viewarr.ui.theme.Wallpaper.titleBehind)
             // Presses during the splash are swallowed rather than lost on a half-loaded page.
             // (Every press also counts as being there: the music screensaver waits for a quiet spell.)
-            .onPreviewKeyEvent { UserActivity.touch(); splashShown },
+            .onPreviewKeyEvent { UserActivity.touch(); splashShown }
+            // Settings → Appearance → Picture size: the pages inside the border; the background above fills the screen.
+            .pictureInset(pictureInset),
     ) {
         // (After the splash: decoding pictures competed with the start page loading.)
         if (!splashShown) WallpaperLoader()
@@ -309,6 +328,8 @@ fun AppRoot(vm: AppViewModel = hiltViewModel()) {
         }
         // Settings → Troubleshooting → Send a report, over everything.
         if (ReportUi.open) ReportScreen(onClose = { ReportUi.open = false })
+        // Settings → Troubleshooting → Share my settings / Use someone's settings.
+        io.github.petebutty.viewarr.ui.settings.SettingsCodeHost()
         // Live score alerts (the plugin), over everything but the splash.
         io.github.petebutty.viewarr.ui.common.AlertBanner.Host()
         // Report a problem (hold OK on a channel), the guide picker, Settings → Live TV → Reports and the house card.

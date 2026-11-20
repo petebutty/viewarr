@@ -125,6 +125,7 @@ internal fun BoxScope.CornerHighlight(
                     modifier = Modifier
                         .background(if (button == i) AppColors.Accent else AppColors.Panel.copy(alpha = 0.92f), RoundedCornerShape(16.dp))
                         .padding(horizontal = 14.dp, vertical = 6.dp),
+                        maxLines = 1, softWrap = false,
                 )
             }
         }

@@ -374,6 +374,10 @@ interface GuideDao {
     @Query("DELETE FROM programs")
     suspend fun clearPrograms()
 
+    /** How many saved programmes have a synopsis (for the log: a guide source with none shows in a tester's report). */
+    @Query("SELECT COUNT(*) FROM programs WHERE description IS NOT NULL")
+    suspend fun programsWithDescription(): Int
+
     /** Everything still running at [from] or starting after it (a guide top-up brings these again). */
     @Query("DELETE FROM programs WHERE endTime > :from")
     suspend fun deleteProgramsAfter(from: Long)

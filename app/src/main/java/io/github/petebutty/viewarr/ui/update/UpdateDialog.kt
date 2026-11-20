@@ -27,6 +27,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -136,8 +137,9 @@ private fun UpdateDialog(
                 Text(
                     if (release.prerelease) "Test version available" else "Update available",
                     fontSize = 12.sp, color = AppColors.Accent,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
-                Text("Viewarr ${release.version}", fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary)
+                Text("Viewarr ${release.version}", fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text("You have $current. Your settings are kept.", fontSize = 12.sp, color = AppColors.TextSecondary)
                 if (release.notes.isNotBlank()) {
                     Box(Modifier.fillMaxWidth().heightIn(max = 140.dp).background(AppColors.PanelAlt, RoundedCornerShape(8.dp)).padding(12.dp)) {

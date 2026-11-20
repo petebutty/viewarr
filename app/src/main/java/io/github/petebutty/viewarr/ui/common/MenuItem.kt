@@ -55,7 +55,7 @@ fun MenuItem(
                 Spacer(Modifier.width(10.dp))
             }
             Text(text, fontSize = if (compact) 13.sp else 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-            trailing?.let { Text(it, fontSize = 12.sp) }
+            trailing?.let { Text(it, fontSize = 12.sp, maxLines = 1, softWrap = false) }
         }
     }
 }

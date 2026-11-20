@@ -245,6 +245,8 @@ data class PlaybackSettings(
 val LocalPlayback = staticCompositionLocalOf { PlaybackSettings() }
 
 internal val Context.playbackStore by preferencesDataStore(name = "playback")
+/** The Playback settings store (for a report's settings section). */
+internal fun playbackStoreOf(context: Context) = context.playbackStore
 
 @Singleton
 class PlaybackStore @Inject constructor(@ApplicationContext private val context: Context) {

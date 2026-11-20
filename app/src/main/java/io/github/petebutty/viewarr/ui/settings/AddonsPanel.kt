@@ -48,7 +48,7 @@ fun AddonsSettingsScreen(onBack: () -> Unit, vm: AddonsSettingsViewModel = hiltV
     else "An addon that's off adds no rows, search results or streams. Add or remove addons in Accounts & sources."
     SettingsPage(
         title = "Addons",
-        categories = listOf(SettingCategory("Addons", blurb, items)),
+        allCategories = listOf(SettingCategory("Addons", blurb, items)),
         onBack = onBack,
         onReset = if (addons.isEmpty()) null else ({ vm.enableAll() }),
     )
@@ -62,7 +62,7 @@ fun AddonSwitches(vm: AddonsSettingsViewModel = hiltViewModel()) {
     val addons = a?.addons.orEmpty()
     if (addons.isEmpty()) return
     androidx.tv.material3.Text(
-        "Addons", fontSize = 13.sp, color = AppColors.Accent,
+        "Addons", fontSize = 13.sp, color = AppColors.Accent, maxLines = 1,
         modifier = androidx.compose.ui.Modifier.padding(start = 12.dp, top = 6.dp),
     )
     addons.forEach { ad ->

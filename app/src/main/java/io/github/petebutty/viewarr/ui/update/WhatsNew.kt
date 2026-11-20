@@ -25,6 +25,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.tv.material3.Text
 import io.github.petebutty.viewarr.BuildConfig
 import io.github.petebutty.viewarr.ui.common.MenuItem
@@ -73,8 +74,8 @@ fun WhatsNewHost() {
                 Modifier.width(560.dp).background(AppColors.Panel, RoundedCornerShape(14.dp)).padding(24.dp).trapFocus(),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Text("What's new in Viewarr ${BuildConfig.VERSION_NAME}", fontSize = 12.sp, color = AppColors.Accent)
-                Text(heading, fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, modifier = Modifier.padding(bottom = 4.dp))
+                Text("What's new in Viewarr ${BuildConfig.VERSION_NAME}", fontSize = 12.sp, color = AppColors.Accent, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(heading, fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, modifier = Modifier.padding(bottom = 4.dp), maxLines = 2, overflow = TextOverflow.Ellipsis)
                 points.forEach { p ->
                     Row {
                         Text("•", fontSize = 14.sp, color = AppColors.Accent, modifier = Modifier.width(18.dp))

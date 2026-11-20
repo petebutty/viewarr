@@ -158,7 +158,7 @@ private fun MusicHero(card: MusicCard?, artUrl: String?, vm: MusicViewModel, mem
         }
         Spacer(Modifier.width(26.dp))
         Column(Modifier.weight(1f)) {
-            Text(card?.let { "Music · ${kindName(it.kind)}" } ?: "Music", fontSize = 14.sp, color = AppColors.Accent)
+            Text(card?.let { "Music · ${kindName(it.kind)}" } ?: "Music", fontSize = 14.sp, color = AppColors.Accent, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.height(6.dp))
             Text(card?.title ?: "Your music", fontSize = 28.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
             val line = card?.let { it.meta.ifBlank { it.sub } }.orEmpty()
@@ -169,7 +169,7 @@ private fun MusicHero(card: MusicCard?, artUrl: String?, vm: MusicViewModel, mem
             Spacer(Modifier.height(10.dp))
             if (card != null && card.kind != MusicKind.Decade) {
                 Pill("Start radio", Modifier.remembered(mem, page, "home|hero").leftOpens(onMenu = onOpenMenu)) { vm.radioFrom(card) }
-            } else Text("Hold OK on a card for its options", fontSize = 13.sp, color = AppColors.TextSecondary)
+            } else Text("Hold OK on a card for its options", fontSize = 13.sp, color = AppColors.TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
@@ -263,7 +263,7 @@ private fun PictureTile(c: MusicCard, modifier: Modifier, onLongClick: (() -> Un
 @Composable
 internal fun CardFace(c: MusicCard, large: Boolean = false, artUrl: String? = null) {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Text(c.title.take(1).uppercase(), fontSize = if (large) 48.sp else 32.sp, color = AppColors.TextSecondary)
+        Text(c.title.take(1).uppercase(), fontSize = if (large) 48.sp else 32.sp, color = AppColors.TextSecondary, maxLines = 1, softWrap = false)
         val art = artUrl ?: (if (large) c.art?.large else c.cover)
         if (art != null) AsyncImage(art, c.title, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
         else Mosaic(c.mosaic, Modifier.fillMaxSize())

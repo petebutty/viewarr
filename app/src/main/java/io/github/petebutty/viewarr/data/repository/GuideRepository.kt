@@ -432,7 +432,7 @@ class GuideRepository @Inject constructor(
         val dao = dbs.get(sourceId(session)).guideDao(); fun k(key: String) = "$key|${sourceId(session)}"
         val age = System.currentTimeMillis() - prefs.getLong(k(KEY_LAST_SYNC), 0)
         val count = dao.programCount()
-        Log.i("Guide", "source ${activeSource.hashCode()}: guide ${age / 60_000} min old, $count programmes")
+        Log.i("Guide", "source ${activeSource.hashCode()}: guide ${age / 60_000} min old, $count programmes, ${runCatching { dao.programsWithDescription() }.getOrDefault(-1)} with a synopsis (${when { session.isXc -> "IPTV login"; session.isM3u -> "playlist"; else -> "Dispatcharr" }})")
         if ((maxAgeMs != null && age > maxAgeMs) || count == 0) sync(session)
     }
 

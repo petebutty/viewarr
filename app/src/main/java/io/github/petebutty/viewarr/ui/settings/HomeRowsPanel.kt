@@ -85,8 +85,8 @@ fun HomeRowsSettingsScreen(onBack: () -> Unit, startMine: Boolean = false) {
             // (Scrolls: the Continue watching from list can be long with several servers.)
             Column(Modifier.width(300.dp).fillMaxHeight().padding(top = if (SettingsLayout.belowPreview) 170.dp else 0.dp)
                 .verticalScroll(androidx.compose.foundation.rememberScrollState())) {
-                Text("Settings", fontSize = 14.sp, color = AppColors.Accent)
-                Text("Home page & menu", fontSize = 30.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, modifier = Modifier.padding(bottom = 20.dp))
+                Text("Settings", fontSize = 14.sp, color = AppColors.Accent, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text("Home page & menu", fontSize = 30.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, modifier = Modifier.padding(bottom = 20.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 listOf(MediaType.Movie to "Movies", MediaType.Show to "Shows").forEachIndexed { i, (t, label) ->
                     MenuItem(
                         text = label,
@@ -110,6 +110,16 @@ fun HomeRowsSettingsScreen(onBack: () -> Unit, startMine: Boolean = false) {
                     "One Continue watching, and one Recently added per library, instead of a row for each server.",
                     fontSize = 12.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(horizontal = 12.dp),
                 )
+                // "<service> · Just added" (the Viewarr plugin's, from JustWatch) in place of each "<service> · New".
+                val showsVmJ: MediaViewModel = hiltViewModel(key = "media-${MediaType.Show.name}")
+                Spacer(Modifier.height(10.dp))
+                io.github.petebutty.viewarr.ui.common.MenuItem(text = "Use Just added instead of New", selected = false,
+                    onClick = { mediaVm.useJustAddedForNewWhenReady(MediaType.Movie); showsVmJ.useJustAddedForNewWhenReady(MediaType.Show) },
+                    modifier = Modifier.leftGoesBack(onBack))
+                Text(
+                    "Each service's Just added row (what really arrived on it lately, new seasons too) takes the place of its New row, on Movies and Shows. The New rows are hidden, not removed.",
+                    fontSize = 12.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(horizontal = 12.dp),
+                )
                 // Network rows (an addon's "Netflix · Popular"…) on Movies / Shows too, or only on each network's own
                 // page in the menu. (Its switch was in the old live TV shortcut lists, 2026-11-18.)
                 val optsNet: UiOptsViewModel = hiltViewModel()
@@ -128,7 +138,7 @@ fun HomeRowsSettingsScreen(onBack: () -> Unit, startMine: Boolean = false) {
                 val fromShows by showsVm.continueSources.collectAsStateWithLifecycle()
                 val sources = (fromServers + fromShows + cf.IPTV + cf.TRAKT).distinct()
                 Spacer(Modifier.height(18.dp))
-                Text("Continue watching from", fontSize = 14.sp, color = AppColors.Accent, modifier = Modifier.padding(start = 12.dp, bottom = 4.dp))
+                Text("Continue watching from", fontSize = 14.sp, color = AppColors.Accent, modifier = Modifier.padding(start = 12.dp, bottom = 4.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 sources.forEach { src ->
                     val on = cf.on(src)
                     OnOffRow(src, on, carry, onBack, compact = true) { appearance.setTitlePart(cf.key(src), !on) }
@@ -414,7 +424,7 @@ private fun EntryOptions(
 
 @Composable
 private fun SectionHead(text: String, first: Boolean) {
-    Text(text, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = AppColors.Accent, modifier = Modifier.padding(start = 4.dp, top = if (first) 0.dp else 18.dp, bottom = 4.dp))
+    Text(text, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = AppColors.Accent, modifier = Modifier.padding(start = 4.dp, top = if (first) 0.dp else 18.dp, bottom = 4.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
 }
 
 /** Hold OK on a library: give it your own name (empty puts the server's name back). */
@@ -463,10 +473,10 @@ private fun OrderedToggle(
         ),
     ) {
         Row(Modifier.padding(horizontal = 18.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(marker, fontSize = 14.sp, modifier = Modifier.width(36.dp))
+            Text(marker, fontSize = 14.sp, modifier = Modifier.width(36.dp), maxLines = 1, softWrap = false)
             Column(Modifier.weight(1f)) {
                 Text(title, fontSize = 16.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(subtitle, fontSize = 12.sp)
+                Text(subtitle, fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
             SettingSwitch(on)
         }

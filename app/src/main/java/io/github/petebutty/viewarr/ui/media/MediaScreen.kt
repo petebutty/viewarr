@@ -187,6 +187,10 @@ fun MediaScreen(
     val hero by produceState<MediaItem?>(null) {
         androidx.compose.runtime.snapshotFlow { focused }.collectLatest { delay(HERO_SETTLE_MS); value = it }
     }
+    // Still on the poster the top panel shows (false from the first press of a scroll until you stop again): its
+    // trailer plays only then. It used to carry on for the last poster you'd stopped on while you scrolled past others
+    // (Peter, 2026-11-20). (A yes / no, so the page is rebuilt twice a scroll, not on every press.)
+    val onHero by remember { androidx.compose.runtime.derivedStateOf { focused?.key == hero?.key } }
 
     LaunchedEffect(type) { if (searchHeader == null) vm.load(type) }
     // Typing in the library's search box: results arriving mustn't take focus (and the keyboard) away.
@@ -380,7 +384,7 @@ fun MediaScreen(
                 item = hero ?: rows.firstOrNull()?.items?.firstOrNull(),
                 // Only the poster you've stopped on plays: not the first-row fallback, nor while anything covers the rows.
                 trailerItem = hero,
-                trailerOk = focusEnabled && !covered && hasFocus && detail == null && playing == null && quiet,
+                trailerOk = onHero && focusEnabled && !covered && hasFocus && detail == null && playing == null && quiet,
                 vm = vm,
             )
             // Cinema: one page-tall row at a time, the posters along the bottom. Moving to another row turns the
@@ -803,7 +807,7 @@ private fun Hero(
                 .fillMaxWidth(if (endSide) 0.58f else if (besidePreview) 0.6f else 0.5f),
             horizontalAlignment = colAlign,
         ) {
-            Text(label ?: if (type == MediaType.Movie) "Movies" else "Shows", fontSize = 14.sp, color = AppColors.Accent, textAlign = align)
+            Text(label ?: if (type == MediaType.Movie) "Movies" else "Shows", fontSize = 14.sp, color = AppColors.Accent, textAlign = align, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.height(8.dp))
             val ex = extras
             // (Cinema: the details rise a little as they fade in, eased, for a cleaner change between titles.)
@@ -1032,7 +1036,7 @@ private fun LibraryGrid(
         if (railOn) Box(
             Modifier.align(Alignment.Center).size(140.dp).background(AppColors.Panel.copy(alpha = 0.92f), RoundedCornerShape(24.dp)),
             contentAlignment = Alignment.Center,
-        ) { Text(railLetter.toString(), fontSize = 72.sp, fontWeight = FontWeight.Bold, color = AppColors.Accent) }
+        ) { Text(railLetter.toString(), fontSize = 72.sp, fontWeight = FontWeight.Bold, color = AppColors.Accent, maxLines = 1, softWrap = false) }
         LibraryPanels(b, vm, panel) { panel = null }
     }
 }
@@ -1208,7 +1212,10 @@ private fun PosterRow(
             if (from == null || to == null) return@slide
             val used = state.dispatchRawDelta((to.offset - from.offset).toFloat())
             if (used == 0f) return@slide
-            glide.floatValue = (glide.floatValue + used).coerceIn(-1500f, 1500f)
+            // Never more than one poster behind: a held or fast-pressed button used to add a step per press (up to 1500
+            // px), so the whole row was drawn far to one side and its near side showed empty (Peter, 2026-11-20).
+            val step = kotlin.math.abs(used)
+            glide.floatValue = (glide.floatValue + used).coerceIn(-step, step)
             glideJob[0]?.cancel()
             glideJob[0] = scope.launch {
                 androidx.compose.animation.core.animate(glide.floatValue, 0f,
@@ -1284,7 +1291,7 @@ private fun PosterRow(
 
 /** A pinned poster row: bring-into-view never scrolls it (PosterRow's slideTo does). */
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
-private val NoRowScroll = object : BringIntoViewSpec {
+internal val NoRowScroll = object : BringIntoViewSpec {
     override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float = 0f
 }
 
@@ -1547,7 +1554,7 @@ private fun DetailScreen(
                             // OK: the episodes (that one shows "Not out yet"), not a play that can only fail.
                             Button(compact = true, onClick = vm::openEpisodes, modifier = (Modifier.focusRequester(playFocus).onFocusChanged { playFocused = it.isFocused }).free()) {
                                 androidx.compose.material3.Icon(AppIcons.Clock, null, modifier = Modifier.padding(end = 6.dp).size(20.dp), tint = androidx.tv.material3.LocalContentColor.current)
-                                Text("S${next.first} · E${next.second} out $whenOut")
+                                Text("S${next.first} · E${next.second} out $whenOut", maxLines = 1, softWrap = false)
                             }
                         } else if (canPlay) {
                             val label = when {
@@ -1557,18 +1564,18 @@ private fun DetailScreen(
                             }
                             // Holding OK: the sources found for that episode, to pick from (as a film's Play). The seasons and
                             // episodes are on the page itself (below).
-                            Button(compact = true, onClick = vm::playNextUp, onLongClick = vm::pickNextUp, modifier = (Modifier.focusRequester(playFocus).onFocusChanged { playFocused = it.isFocused }).free()) { androidx.compose.material3.Icon(AppIcons.Play, null, modifier = Modifier.padding(end = 6.dp).size(17.dp), tint = androidx.tv.material3.LocalContentColor.current); Text(if (ui.searching) "Looking…" else label) }
+                            Button(compact = true, onClick = vm::playNextUp, onLongClick = vm::pickNextUp, modifier = (Modifier.focusRequester(playFocus).onFocusChanged { playFocused = it.isFocused }).free()) { androidx.compose.material3.Icon(AppIcons.Play, null, modifier = Modifier.padding(end = 6.dp).size(17.dp), tint = androidx.tv.material3.LocalContentColor.current); Text(if (ui.searching) "Looking…" else label, maxLines = 1, softWrap = false) }
                             // Part-way through that episode: or start it again.
                             if (next?.third == true) IconAction(AppIcons.Replay, "Start over", vm::playFromStart, Modifier.free())
                         } else {
-                            Button(onClick = vm::openEpisodes, modifier = (Modifier.focusRequester(playFocus).onFocusChanged { playFocused = it.isFocused }).free()) { Text("Episodes") }
+                            Button(onClick = vm::openEpisodes, modifier = (Modifier.focusRequester(playFocus).onFocusChanged { playFocused = it.isFocused }).free()) { Text("Episodes", maxLines = 1, softWrap = false) }
                         }
                     } else if (onPlex || onServer || onProvider || ui.hasAddons) {
                         // One Play: your servers, IPTV and addons in the Play order setting (MediaViewModel.playBest).
                         // OK plays from the best source; holding OK lists every source to pick from.
                         Button(compact = true, onClick = vm::playBest, onLongClick = { sourcesOpen = true }, modifier = (Modifier.focusRequester(playFocus).onFocusChanged { playFocused = it.isFocused }).free()) {
                             androidx.compose.material3.Icon(AppIcons.Play, null, modifier = Modifier.padding(end = 6.dp).size(17.dp), tint = androidx.tv.material3.LocalContentColor.current)
-                            Text(if (ui.searching) "Looking…" else if (item.progress != null) "Resume" else "Play")
+                            Text(if (ui.searching) "Looking…" else if (item.progress != null) "Resume" else "Play", maxLines = 1, softWrap = false)
                         }
                         // Part-way through: or watch it again from the beginning.
                         if (item.progress != null) IconAction(AppIcons.Replay, "Start over", vm::playFromStart, Modifier.free())
@@ -1576,7 +1583,7 @@ private fun DetailScreen(
                         // Still checking your servers (or nowhere to play it): a button to land on, so the page has a
                         // highlight and Left reaches the menu (there was none until the check finished).
                         Button(onClick = { if (ui.copies != null) onSearch() }, modifier = (Modifier.focusRequester(playFocus).onFocusChanged { playFocused = it.isFocused }).free()) {
-                            Text(if (ui.copies == null || ui.searching) "Looking…" else "Find a source")
+                            Text(if (ui.copies == null || ui.searching) "Looking…" else "Find a source", maxLines = 1, softWrap = false)
                         }
                     }
                     // Films on your own server: pick the soundtrack and subtitles before Play (this play only).
@@ -1600,7 +1607,7 @@ private fun DetailScreen(
                     SeerrAction(ui, vm)
                 }
                 }
-                if (!ui.episodesOpen) ui.message?.let { Text(it, fontSize = 14.sp, color = AppColors.Accent) }
+                if (!ui.episodesOpen) ui.message?.let { Text(it, fontSize = 14.sp, color = AppColors.Accent, maxLines = 2, overflow = TextOverflow.Ellipsis) }
                 if (!onPlex && !onProvider && !onServer && !ui.hasAddons && ui.copies != null) {
                     Text("Connect Plex or an addon in Settings → Accounts & sources to play this.", fontSize = 13.sp, color = AppColors.TextSecondary)
                 }
@@ -1721,7 +1728,7 @@ private fun EpisodesPanel(ui: DetailUi, vm: MediaViewModel) {
                         if (plex != null) "In Plex" else null,
                         if (watched(ep.season, ep.number)) "Watched" else null,
                     ).joinToString("  ·  ")
-                    if (tags.isNotEmpty()) Text(tags, fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(top = 4.dp))
+                    if (tags.isNotEmpty()) Text(tags, fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(top = 4.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
                     ep.overview?.let { Text(it, fontSize = 15.sp, lineHeight = 21.sp, color = AppColors.TextPrimary, maxLines = 6, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 10.dp)) }
                 }
                 Spacer(Modifier.height(24.dp))
@@ -1834,7 +1841,7 @@ private fun TracksDialog(
 /** A heading inside a pop-up's list ("Audio", "Subtitles"). */
 @Composable
 private fun PopupSection(text: String) {
-    Text(text, fontSize = 13.sp, color = AppColors.Accent, modifier = Modifier.padding(top = 8.dp, start = 12.dp, bottom = 2.dp))
+    Text(text, fontSize = 13.sp, color = AppColors.Accent, modifier = Modifier.padding(top = 8.dp, start = 12.dp, bottom = 2.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
 }
 
 /** Holding OK on an episode: where to play it from. */
@@ -1879,6 +1886,7 @@ private fun EpisodeActionsFor(ui: DetailUi, vm: MediaViewModel) {
  * A show's page: its seasons and that season's episodes in a row, right under the buttons (opens on the season you're
  * up to). OK plays an episode from the best source; holding OK lists the sources.
  */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun InlineEpisodes(ui: DetailUi, vm: MediaViewModel, free: Boolean, entry: FocusRequester, up: FocusRequester, down: FocusRequester, onHover: (EpisodeInfo) -> Unit = {}) {
     val item = ui.detail.item
@@ -1914,7 +1922,8 @@ private fun InlineEpisodes(ui: DetailUi, vm: MediaViewModel, free: Boolean, entr
     } ?: -1
     // The row starts at the episode you're up to.
     LaunchedEffect(ui.season, ui.episodes != null) {
-        if (target > 0) runCatching { episodeRow.scrollToItem(maxOf(0, target - 1)) }
+        // (In the first place, where the highlight stays: the row moves as the poster rows do.)
+        if (target > 0) runCatching { episodeRow.scrollToItem(target) }
     }
     // The episode last highlighted this season: coming back to the row (an episode's actions closed with Cancel /
     // Back, Down from the buttons) lands on it, not on the one you're up to.
@@ -1926,6 +1935,9 @@ private fun InlineEpisodes(ui: DetailUi, vm: MediaViewModel, free: Boolean, entr
         if (idx >= 0) runCatching { seasonRow.scrollToItem(maxOf(0, idx - 1)) }
     }
     if (ui.seasons.isEmpty()) return
+    // The episode cards move as the poster rows do: the highlight stays in the first place, the cards slide under it.
+    val episodeCount = (ui.episodes ?: lastEpisodes)?.size ?: 0
+    val episodeSlide = rememberRowSlide(episodeRow) { episodeCount }
     Column(Modifier.padding(top = 10.dp)) {
         SeasonPills(
             ui, seasonRow, free = free, selectedFocus = seasonFocus,
@@ -1941,10 +1953,10 @@ private fun InlineEpisodes(ui: DetailUi, vm: MediaViewModel, free: Boolean, entr
             eps.isEmpty() -> Text("No episodes listed for this season.", fontSize = 13.sp, color = AppColors.TextSecondary)
             // Room round the cards for the focused one's frame (it was clipped at the row's edge); pulled back by the
             // same amount so the row still lines up with the page.
-            else -> LazyRow(
+            else -> CompositionLocalProvider(LocalBringIntoViewSpec provides NoRowScroll) { LazyRow(
                 state = episodeRow, horizontalArrangement = Arrangement.spacedBy(12.dp),
                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
-                modifier = Modifier.offset(x = (-8).dp).graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha; alpha = if (loading) 0.4f else 1f },
+                modifier = Modifier.offset(x = (-8).dp).onFocusChanged { if (!it.hasFocus) episodeSlide.focused = -1 }.then(episodeSlide.modifier).graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha; alpha = if (loading) 0.4f else 1f },
             ) {
                 itemsIndexed(eps, key = { _, e -> "${e.season}-${e.number}" }) { i, ep ->
                     var focused by remember { mutableStateOf(false) }
@@ -1956,7 +1968,7 @@ private fun InlineEpisodes(ui: DetailUi, vm: MediaViewModel, free: Boolean, entr
                             modifier = (if (i == entryEp) Modifier.focusRequester(entry) else Modifier)
                                 .focusProperties { canFocus = free && !loading }
                                 .safeMove(Key.DirectionUp) { seasonFocus }.safeMove(Key.DirectionDown) { down }
-                                .onFocusChanged { focused = it.isFocused; if (it.isFocused) { lastEp = i; onHover(ep) } }
+                                .onFocusChanged { focused = it.isFocused; if (it.isFocused) { lastEp = i; episodeSlide.focused = i; onHover(ep) } }
                                 .width(EpisodeCardW),
                             aspect = CardAspect.Wide,
                             containerColor = AppColors.PanelAlt,
@@ -1982,7 +1994,7 @@ private fun InlineEpisodes(ui: DetailUi, vm: MediaViewModel, free: Boolean, entr
                         )
                     }
                 }
-            }
+            } }
         }
     }
 }
@@ -2230,7 +2242,7 @@ private fun DetailTabs(
                 Row(Modifier.padding(horizontal = 18.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(30.dp)) {
                     facts.forEach { (k, v) ->
                         Column {
-                            Text(k, fontSize = 11.sp, color = AppColors.TextSecondary)
+                            Text(k, fontSize = 11.sp, color = AppColors.TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             Text(v, fontSize = 14.sp, color = AppColors.TextPrimary, maxLines = 1)
                         }
                     }

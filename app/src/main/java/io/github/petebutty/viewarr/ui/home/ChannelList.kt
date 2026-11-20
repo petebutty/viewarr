@@ -221,7 +221,7 @@ internal fun ChannelListOverlay(
                     ),
                 ) {
                     Row(Modifier.padding(horizontal = 10.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                        if (AppColors.palette.showNumbers) Text(ch.number?.let { n -> if (n % 1.0 == 0.0) n.toInt().toString() else n.toString() }.orEmpty(), fontSize = 13.sp, modifier = Modifier.width(44.dp))
+                        if (AppColors.palette.showNumbers) Text(ch.number?.let { n -> if (n % 1.0 == 0.0) n.toInt().toString() else n.toString() }.orEmpty(), fontSize = 13.sp, modifier = Modifier.width(44.dp), maxLines = 1, softWrap = false)
                         Box(Modifier.size(width = 56.dp, height = 34.dp), contentAlignment = Alignment.Center) {
                             io.github.petebutty.viewarr.ui.guide.channelLogo(serverUrl, ch)?.let { logo ->
                                 coil.compose.AsyncImage(
@@ -309,13 +309,13 @@ internal fun ChannelPrograms(
     val today = java.time.LocalDate.now(zone)
     val catchupFrom = if (ch.catchupDays > 0) now - ch.catchupDays * 86_400_000L else Long.MAX_VALUE
     Box(
-        Modifier.fillMaxHeight().width(440.dp)
+        Modifier.fillMaxHeight().width(360.dp)  // (was 440: Peter, 2026-11-20, "narrow the live screen EPG list also")
             // The glass as Settings → Appearance → Transparency → Glass has it (and its colour).
             .then(if (embedded) Modifier else Modifier.background(AppColors.MenuPanel))
             .padding(start = 16.dp, top = 24.dp, bottom = 24.dp, end = 20.dp),
     ) {
         Column {
-            Text(ch.name, fontSize = 13.sp, color = AppColors.Accent, modifier = Modifier.padding(start = 8.dp, bottom = 8.dp))
+            Text(ch.name, fontSize = 13.sp, color = AppColors.Accent, modifier = Modifier.padding(start = 8.dp, bottom = 8.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
             when {
                 list == null -> Text("Loading…", fontSize = 13.sp, color = AppColors.TextSecondary, modifier = placeholder)
                 list.isEmpty() -> Text("No programme information for this channel.", fontSize = 13.sp, color = AppColors.TextSecondary, modifier = placeholder)
@@ -342,7 +342,7 @@ internal fun ChannelPrograms(
                             ),
                         ) {
                             Row(Modifier.padding(horizontal = 10.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Text(time, fontSize = 13.sp, modifier = Modifier.width(if (start.toLocalDate() != today) 92.dp else 52.dp))
+                                Text(time, fontSize = 13.sp, modifier = Modifier.width(if (start.toLocalDate() != today) 92.dp else 52.dp), maxLines = 1, softWrap = false)
                                 Column(Modifier.weight(1f)) {
                                     Text(io.github.petebutty.viewarr.ui.guide.guideTitle(p), fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                                     // (Later ones: what holding OK does, as the guide. UI review, Tier 2.)

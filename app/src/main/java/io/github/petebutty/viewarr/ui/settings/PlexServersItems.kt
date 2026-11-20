@@ -6,6 +6,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -40,7 +41,7 @@ fun PlexServersItems() {
     val main = a.plex ?: return
     val servers = listOf(main) + a.plexMore.filter { it.machineId != main.machineId }
     if (servers.size < 2) return
-    Text("Plex servers", fontSize = 13.sp, color = AppColors.Accent, modifier = Modifier.padding(start = 12.dp, top = 6.dp))
+    Text("Plex servers", fontSize = 13.sp, color = AppColors.Accent, modifier = Modifier.padding(start = 12.dp, top = 6.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
     servers.forEach { s ->
         val on = s.machineId !in a.plexOff
         MenuItem(text = "Plex: ${s.serverName}", trailing = if (on) "On" else "Off", selected = false, dim = !on, onClick = { vm.toggle(s.machineId) })

@@ -100,6 +100,7 @@ internal fun BoxScope.MediaNotice(vm: MediaViewModel) {
             modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 40.dp)
                 .glass(24.dp)
                 .padding(horizontal = 24.dp, vertical = 10.dp),
+                maxLines = 1, overflow = TextOverflow.Ellipsis,
         )
     }
 }
@@ -250,7 +251,7 @@ internal fun UpNextOverlay(ep: EpisodeInfo, onPlay: () -> Unit, onCancel: () -> 
             Modifier.padding(56.dp).width(520.dp).glass(Tokens.PopupRadius).padding(24.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Text("Next episode in $left s", fontSize = 14.sp, color = AppColors.Accent)
+            Text("Next episode in $left s", fontSize = 14.sp, color = AppColors.Accent, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text("S${ep.season} · E${ep.number}  ${ep.name}", fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis)
             ep.overview?.let { Text(it, fontSize = 13.sp, color = AppColors.TextSecondary, maxLines = 3, overflow = TextOverflow.Ellipsis) }
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(top = 8.dp)) {
@@ -435,7 +436,7 @@ internal fun CastCard(c: CastMember, free: Boolean, onClick: () -> Unit) {
             shape = Tokens.RoundShape,
         ) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(c.name.split(' ').mapNotNull { it.firstOrNull()?.uppercase() }.take(2).joinToString(""), fontSize = 20.sp, color = AppColors.TextSecondary)
+                Text(c.name.split(' ').mapNotNull { it.firstOrNull()?.uppercase() }.take(2).joinToString(""), fontSize = 20.sp, color = AppColors.TextSecondary, maxLines = 1, softWrap = false)
                 c.photo?.let { AsyncImage(model = it, contentDescription = c.name, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
             }
         }
@@ -455,10 +456,10 @@ internal fun ReviewCard(r: Review, free: Boolean, onClick: () -> Unit) {
         Column(Modifier.padding(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(r.author, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                r.rating?.let { Text("★ %.0f/10".format(it), fontSize = 13.sp, color = AppColors.Accent) }
+                r.rating?.let { Text("★ %.0f/10".format(it), fontSize = 13.sp, color = AppColors.Accent, maxLines = 1, softWrap = false) }
             }
-            Text(listOfNotNull(r.source, r.date, r.likes.takeIf { it > 0 }?.let { "♥ $it" }).joinToString("  ·  "), fontSize = 11.sp, color = AppColors.TextSecondary)
-            if (r.spoiler) Text("Contains spoilers  ·  OK: read", fontSize = 13.sp, color = AppColors.Accent, modifier = Modifier.padding(top = 8.dp))
+            Text(listOfNotNull(r.source, r.date, r.likes.takeIf { it > 0 }?.let { "♥ $it" }).joinToString("  ·  "), fontSize = 11.sp, color = AppColors.TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (r.spoiler) Text("Contains spoilers  ·  OK: read", fontSize = 13.sp, color = AppColors.Accent, modifier = Modifier.padding(top = 8.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
             else Text(r.text.replace(Regex("\\s+"), " "), fontSize = 12.sp, lineHeight = 17.sp, color = AppColors.TextPrimary, maxLines = 4, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 8.dp))
         }
     }
@@ -473,10 +474,10 @@ internal fun ReviewDialog(r: Review, onClose: () -> Unit) {
     LaunchedEffect(Unit) { awaitFrame(); runCatching { f.requestFocus() } }
     PopupPanel(onClose = onClose, width = Tokens.PopupWide + 120.dp) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(r.author, fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, modifier = Modifier.weight(1f))
-            r.rating?.let { Text("★ %.0f/10".format(it), fontSize = 16.sp, color = AppColors.Accent) }
+            Text(r.author, fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            r.rating?.let { Text("★ %.0f/10".format(it), fontSize = 16.sp, color = AppColors.Accent, maxLines = 1, softWrap = false) }
         }
-        r.date?.let { Text(it, fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(bottom = 12.dp)) }
+        r.date?.let { Text(it, fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(bottom = 12.dp), maxLines = 1, overflow = TextOverflow.Ellipsis) }
         // (Its own scroll, held under the panel's height, moved by Up / Down on the text.)
         Column(
             Modifier.heightIn(max = 380.dp).verticalScroll(scroll)
@@ -612,7 +613,7 @@ internal fun IconAction(icon: androidx.compose.ui.graphics.vector.ImageVector, l
 @Composable
 internal fun LiteStrip(type: MediaType, item: MediaItem?, label: String?) {
     Column(Modifier.fillMaxWidth().padding(start = Tokens.Gutter, end = Tokens.Gutter, top = 24.dp, bottom = 6.dp)) {
-        Text(label ?: if (type == MediaType.Movie) "Movies" else "Shows", fontSize = 14.sp, color = AppColors.Accent)
+        Text(label ?: if (type == MediaType.Movie) "Movies" else "Shows", fontSize = 14.sp, color = AppColors.Accent, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Text(item?.let { "${it.title}   ${metaLine(it)}" } ?: " ", fontSize = 15.sp, color = AppColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp))
     }
 }

@@ -1,5 +1,6 @@
 package io.github.petebutty.viewarr.ui.player
 
+import io.github.petebutty.viewarr.ui.common.videoBleed
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -115,6 +116,6 @@ fun LiveMpvPicture(url: String, apiKey: String?, onStarted: () -> Unit, onFailed
                 })
             }
         },
-        modifier = modifier,
+        modifier = modifier.videoBleed(),
     )
 }

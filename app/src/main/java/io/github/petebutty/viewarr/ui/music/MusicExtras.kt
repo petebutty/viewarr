@@ -131,7 +131,7 @@ fun LyricsPanel(lyrics: Lyrics, position: Long, duration: Long, modifier: Modifi
                 maxLines = 2, overflow = TextOverflow.Ellipsis,
             )
         }
-        if (lyrics.from.isNotBlank()) Text("Lyrics: ${lyrics.from}", fontSize = 10.sp, color = Color.White.copy(alpha = 0.4f), modifier = Modifier.padding(top = 6.dp))
+        if (lyrics.from.isNotBlank()) Text("Lyrics: ${lyrics.from}", fontSize = 10.sp, color = Color.White.copy(alpha = 0.4f), modifier = Modifier.padding(top = 6.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -175,10 +175,11 @@ fun QueuePanel(onClose: () -> Unit) {
         Box(Modifier.fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.CenterEnd) {
             Box(Modifier.fillMaxHeight().width(460.dp).glass(0.dp).padding(horizontal = 18.dp, vertical = 28.dp)) {
                 Column {
-                    Text("QUEUE", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = AppColors.Accent, letterSpacing = 2.sp)
+                    Text("QUEUE", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = AppColors.Accent, letterSpacing = 2.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(
                         if (carry.active) movingHint() else "${MusicPlayer.queue.size} songs  ·  OK: play from here  ·  Hold OK: options",
                         fontSize = 11.sp, color = if (carry.active) AppColors.Accent else AppColors.TextSecondary, modifier = Modifier.padding(top = 2.dp, bottom = 10.dp),
+                        maxLines = 1, overflow = TextOverflow.Ellipsis,
                     )
                     LazyColumn(state = list, verticalArrangement = Arrangement.spacedBy(2.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
                         itemsIndexed(MusicPlayer.queue, key = { i, _ -> keys[i] }) { i, s ->

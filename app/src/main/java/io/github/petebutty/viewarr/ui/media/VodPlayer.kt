@@ -1,5 +1,6 @@
 package io.github.petebutty.viewarr.ui.media
 
+import io.github.petebutty.viewarr.ui.common.videoBleed
 import kotlinx.coroutines.delay
 import io.github.petebutty.viewarr.ui.common.ignoreHeldOk
 import io.github.petebutty.viewarr.ui.common.trapFocus
@@ -30,6 +31,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
@@ -454,7 +456,7 @@ fun VodPlayer(
                     }
                 }
             },
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().videoBleed(),
         )
         var started by remember(stream) { mutableStateOf(false) }
         if (!buffering && durationMs > 0) started = true
@@ -560,7 +562,7 @@ private fun TrackPicker(player: ExoPlayer, subtitlesFirst: Boolean = false, onSw
         choices.forEachIndexed { idx, c ->
             val header = c.label == "Audio" || c.label == "Subtitles" || c.label == "Player"
             item(key = idx) {
-                if (header) Text(c.label, fontSize = 13.sp, color = AppColors.Accent, modifier = Modifier.padding(top = 10.dp, start = 12.dp))
+                if (header) Text(c.label, fontSize = 13.sp, color = AppColors.Accent, modifier = Modifier.padding(top = 10.dp, start = 12.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 else {
                     val m = if (idx == firstIdx) Modifier.focusRequester(first) else Modifier
                     MenuItem(text = c.label, selected = false, modifier = m, onClick = { c.apply(); onClose() })
@@ -577,5 +579,5 @@ private fun filmBufferBytes(size: io.github.petebutty.viewarr.data.settings.Buff
         io.github.petebutty.viewarr.data.settings.BufferSize.Normal -> 0.20
         io.github.petebutty.viewarr.data.settings.BufferSize.Large -> 0.30
     }
-    return (io.github.petebutty.viewarr.MemoryBudget.normalBytes * share).toLong().coerceIn(16L shl 20, 160L shl 20).toInt()
+    return (io.github.petebutty.viewarr.MemoryBudget.normalBytes * share).toLong().coerceIn(16L shl 20, 256L shl 20).toInt()
 }

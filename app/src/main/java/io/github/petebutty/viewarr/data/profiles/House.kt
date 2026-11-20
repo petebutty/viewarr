@@ -68,7 +68,7 @@ class House @Inject constructor(
 
     // ---------------------------------------------------------------- backups (admins: plugin actions are admin-only)
 
-    data class Backup(val id: String, val name: String, val savedAt: Long, val device: String)
+    data class Backup(val id: String, val name: String, val savedAt: Long, val device: String, val size: Long = 0)
 
     /** Runs one of the plugin's actions; its result (null: no plugin, not allowed, or it failed). */
     private suspend fun run(s: Session, action: String, params: JsonObject = JsonObject(emptyMap())): JsonObject? {
@@ -80,7 +80,7 @@ class House @Inject constructor(
     suspend fun backups(s: Session): List<Backup>? = run(s, "backup_list")?.let { res ->
         (res["backups"] as? JsonArray).orEmpty().mapNotNull { b ->
             val id = b.str("id") ?: return@mapNotNull null
-            Backup(id, b.str("name") ?: "Backup", b.str("savedAt")?.toLongOrNull() ?: 0, b.str("device").orEmpty())
+            Backup(id, b.str("name") ?: "Backup", b.str("savedAt")?.toLongOrNull() ?: 0, b.str("device").orEmpty(), b.str("size")?.toLongOrNull() ?: 0)
         }
     }
 

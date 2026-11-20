@@ -660,8 +660,8 @@ fun HomeScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(AppIcons.Replay, null, tint = AppColors.Accent, modifier = Modifier.size(22.dp))
-                Text("Rewind?", fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, modifier = Modifier.padding(start = 10.dp))
-                Text("   Press ◀ again, or hold ◀", fontSize = 13.sp, color = AppColors.TextSecondary)
+                Text("Rewind?", fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, modifier = Modifier.padding(start = 10.dp), maxLines = 1, softWrap = false)
+                Text("   Press ◀ again, or hold ◀", fontSize = 13.sp, color = AppColors.TextSecondary, maxLines = 1, softWrap = false)
             }
         }
         HomeButtonHints(hs, remote, session != null, playing != null, guideBack)
@@ -1031,9 +1031,9 @@ private fun BoxScope.DialogsLayer(
                 .glass(10.dp, Color(0xFFE5A23B))
                 .padding(horizontal = 18.dp, vertical = 12.dp),
         ) {
-            Text("All connections in use", fontSize = 13.sp, color = Color(0xFFE5A23B))
+            Text("All connections in use", fontSize = 13.sp, color = Color(0xFFE5A23B), maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(text, fontSize = 15.sp, color = AppColors.TextPrimary)
-            recordingNow?.let { Text("Recording now: ${it.title}", fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(top = 4.dp)) }
+            recordingNow?.let { Text("Recording now: ${it.title}", fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(top = 4.dp), maxLines = 1, overflow = TextOverflow.Ellipsis) }
         }
     }
     hs.dueReminder?.let { r ->
@@ -1042,10 +1042,10 @@ private fun BoxScope.DialogsLayer(
                 .glass(12.dp)
                 .padding(horizontal = 18.dp, vertical = 14.dp),
         ) {
-            Text("⏰  Starting now", fontSize = 13.sp, color = AppColors.Accent)
+            Text("⏰  Starting now", fontSize = 13.sp, color = AppColors.Accent, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(r.title, fontSize = 18.sp, color = AppColors.TextPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Text(r.channelName, fontSize = 14.sp, color = AppColors.TextSecondary)
-            Text("OK: watch  ·  Back: dismiss", fontSize = 12.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(top = 6.dp))
+            Text(r.channelName, fontSize = 14.sp, color = AppColors.TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text("OK: watch  ·  Back: dismiss", fontSize = 12.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(top = 6.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
     // Search opens on the title (so there's something to pick if it isn't matched), then the title's page opens:
@@ -1126,6 +1126,7 @@ private fun BoxScope.DialogsLayer(
                 .padding(bottom = 40.dp)
                 .glass(24.dp)
                 .padding(horizontal = 26.dp, vertical = 12.dp),
+                maxLines = 1, softWrap = false,
         )
     }
 
@@ -1139,6 +1140,7 @@ private fun BoxScope.DialogsLayer(
                 .padding(top = 28.dp, end = 40.dp)
                 .glass(10.dp)
                 .padding(horizontal = 22.dp, vertical = 8.dp),
+                maxLines = 1, overflow = TextOverflow.Ellipsis,
         )
     }
 }
@@ -1458,8 +1460,12 @@ private fun HomeCommandEffects(hs: HomeState) {
                     }
                 }
                 "search" -> { hs.menuOpen = false; VodHost.minimise(); hs.searchStart = c.arg; hs.searchVoice = false; hs.quickSearch = true }
+                // (The remote's mic button, with Viewarr chosen for voice search: search opens already listening.)
+                "voice" -> { hs.menuOpen = false; VodHost.minimise(); hs.searchStart = null; hs.searchVoice = true; hs.quickSearch = true }
                 // The channel list again (quick), or with guide=1 the whole guide.
                 "refresh" -> { if (c.arg == "guide") vm.refreshGuide() else vm.refreshChannels() }
+                "homerows" -> if (c.arg == "justadded") { vm.addJustAddedRows(); hs.toast("Just added rows going on the home screen") }
+                "rows" -> if (c.arg == "justadded") { hs.moviesVm.useJustAddedForNewWhenReady(MediaType.Movie); hs.showsVm.useJustAddedForNewWhenReady(MediaType.Show); hs.toast("Just added in place of New") }
             }
         }
     }
