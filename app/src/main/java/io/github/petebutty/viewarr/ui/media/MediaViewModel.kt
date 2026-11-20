@@ -161,6 +161,8 @@ private val DetailUi.plexShowKey get() = copies?.firstOrNull { it.source == "Ple
 @HiltViewModel
 class MediaViewModel @Inject constructor(
     private val repo: CatalogRepository,
+    /** Recordings you've started (Continue watching on the Shows page). */
+    private val dvrRepo: io.github.petebutty.viewarr.data.dvr.DvrRepository,
     private val store: AccountStore,
     private val playbackStore: PlaybackStore,
     /** YouTube trailers: the poster preview window and the title page's Trailer button. */
@@ -284,6 +286,13 @@ class MediaViewModel @Inject constructor(
      * rows are next loaded (Peter, 2026-11-18: Chainsaw Man stayed there after the credits, its bar at the start).
      */
     private val finishedHere = MutableStateFlow<Set<String>>(emptySet())
+    /**
+     * Films and shows stopped partway here (title keys → when): first in Continue watching straight away, newest first,
+     * rather than wherever the server's last list had them until it was fetched again (Peter, 2026-11-20).
+     */
+    // (One list for the Movies and Shows pages both: an episode played from My Library, which is the Movies page's,
+    // must move to the front of the Shows page's Continue watching too.)
+    private val stoppedHere get() = StoppedHere.items
     private fun filmKeys(tmdb: Int?, imdb: String?) = listOfNotNull(tmdb?.let { "tmdb:$it" }, imdb?.takeIf { it.isNotBlank() }?.let { "imdb:$it" })
     /**
      * A film finished: here this session, or (unless [fromTrakt]: Trakt's own Continue watching, where a re-watch
@@ -295,6 +304,34 @@ class MediaViewModel @Inject constructor(
     private fun oneContinue(r: RowsState): RowsState = r.copy(rows = mergeContinue(r.rows,
         { row -> dropsFrom(row) && !row.id.startsWith("upcoming-") }, { i, trakt -> finishedFilm(i, trakt) }))
     /** The rows as shown: repeats across servers combined when that's switched on. */
+    /**
+     * Recordings started and not finished (RecordingProgress), most recently watched first, as cards: the programme
+     * name, its channel's logo, how far through. A card plays it (RecordingOpen). Only Dispatcharr's own logo
+     * addresses, which carry no sign-in.
+     */
+    private val recordingResume: kotlinx.coroutines.flow.Flow<List<MediaItem>> =
+        kotlinx.coroutines.flow.combine(dvrRepo.recordings, io.github.petebutty.viewarr.data.dvr.RecordingProgress.version) { recs, _ ->
+            val ctx = appContext
+            val server = runCatching { dvrRepo.serverUrl()?.trimEnd('/') }.getOrNull()
+            recs.filter { it.state == io.github.petebutty.viewarr.data.dvr.DvrState.Recorded && it.hasFile }
+                .mapNotNull { rec ->
+                    // Started and not finished, or new: recorded in the last week and never played (Peter, 2026-11-20).
+                    val played = io.github.petebutty.viewarr.data.dvr.RecordingProgress.fraction(ctx, rec.id)
+                    val fresh = played == null && System.currentTimeMillis() - rec.end < 7 * 86_400_000L
+                    val f = played ?: 0f
+                    if (!fresh && (played == null || f < 0.02f || f >= io.github.petebutty.viewarr.data.dvr.RecordingProgress.WATCHED_AT)) return@mapNotNull null
+                    val logo = rec.posterLogoId?.let { id -> server?.let { "$it/api/channels/logos/$id/cache/" } }
+                    rec to MediaItem(
+                        key = io.github.petebutty.viewarr.data.dvr.RecordingOpen.PREFIX + rec.id, type = MediaType.Show,
+                        title = rec.title + (if (rec.season != null && rec.episode != null) " · S${rec.season} E${rec.episode}" else ""),
+                        poster = logo, origin = "Recordings", subtitle = if (fresh) "New recording" else "Recording", progress = f.takeIf { it > 0f },
+                    )
+                }
+                // Newest first: when it was last watched, or for a new one when it finished recording.
+                .sortedByDescending { (rec, _) -> maxOf(io.github.petebutty.viewarr.data.dvr.RecordingProgress.lastWatched(ctx, rec.id), rec.end) }
+                .map { it.second }
+        }
+
     private val shownRows = kotlinx.coroutines.flow.combine(_rows, mergeRows, droppedShows, localWatch.rowEntries, layoutType) { r000, merge, dropped, local, type ->
         // Continue watching from a server / IPTV switched off (Settings → Home page & menu): that row goes.
         val r00 = r000.copy(rows = r000.rows.filter { row -> ContinueFrom.ofRow(row)?.let { ContinueFrom.on(it) } != false })
@@ -309,9 +346,17 @@ class MediaViewModel @Inject constructor(
     }.let { rows ->
         // (Again when a film's finished here or Trakt's history changes; combined across servers after, so the
         // merged row keeps the title from the row that won.)
-        kotlinx.coroutines.flow.combine(rows, finishedHere, repo.traktWatchedState) { (r, merge), _, _ ->
+        kotlinx.coroutines.flow.combine(rows, finishedHere, repo.traktWatchedState, stoppedHere, recordingResume) { (r0, merge), _, _, stopped, recs ->
+            // Recordings you've started, not finished (Shows page): in Continue watching with everything else.
+            val r = if (recs.isEmpty() || layoutType.value != MediaType.Show || r0.rows.isEmpty()) r0
+                else r0.copy(rows = r0.rows + MediaRow("rec-resume-Show", "Continue watching recordings", recs, group = "deck"))
             val one = oneContinue(r)
-            if (merge) one.copy(rows = io.github.petebutty.viewarr.data.media.mergeRows(one.rows)) else one
+            val merged = if (merge) one.copy(rows = io.github.petebutty.viewarr.data.media.mergeRows(one.rows)) else one
+            if (stopped.isEmpty()) merged else merged.copy(rows = merged.rows.map { row ->
+                if (row.group != "deck" && !row.title.startsWith("Continue watching")) row
+                else row.copy(items = row.items.withIndex().sortedWith(compareBy(
+                    { iv -> -(filmKeys(iv.value.tmdbId, iv.value.imdbId).mapNotNull { stopped[it] }.maxOrNull() ?: 0L) }, { it.index })).map { it.value })
+            })
         }
             // (Sorting and merging the rows off the main thread: profiled at ~0.35 s of it in 12 s of browsing while
             // rows were arriving, which made the poster slides drop frames. Peter, 2026-11-19.)
@@ -1197,6 +1242,11 @@ class MediaViewModel @Inject constructor(
 
     fun open(item: MediaItem) {
         if (item.key.startsWith("person:")) return openPerson(item)
+        // A recording (Continue watching): straight back into it, where you stopped.
+        if (item.key.startsWith(io.github.petebutty.viewarr.data.dvr.RecordingOpen.PREFIX)) {
+            item.key.removePrefix(io.github.petebutty.viewarr.data.dvr.RecordingOpen.PREFIX).toIntOrNull()?.let { io.github.petebutty.viewarr.data.dvr.RecordingOpen.pending.value = it }
+            return
+        }
         // A collection / playlist card: its titles, like a library (Back returns to the list it was picked from).
         if (item.key.startsWith("col:")) {
             repo.groupFor(item.key)?.let { g -> openLibrary(g, libType.value ?: layoutType.value ?: item.type, parent = _browse.value?.library) }
@@ -1984,6 +2034,11 @@ class MediaViewModel @Inject constructor(
                     repo.scrobbleTrakt("start", target, pct)
                 }
             }
+            // Stopped partway: first in Continue watching now (the servers' lists catch up when next fetched).
+            if (state == "stopped" && !nearEnd) {
+                val keys = filmKeys(target.tmdbId, target.imdbId)
+                if (keys.isNotEmpty()) stoppedHere.value = stoppedHere.value + keys.associateWith { now }
+            }
             // A film finished here (past 80%): out of Continue watching now.
             if (state == "stopped" && nearEnd && target.type == MediaType.Movie) {
                 val keys = filmKeys(target.tmdbId, target.imdbId)
@@ -2157,3 +2212,8 @@ enum class SearchFilter(val label: String) {
 
 /** Titles per library page: enough to browse, small enough for a weak box to hold. */
 const val LIBRARY_PAGE = 60
+
+/** Titles stopped partway on this TV (title keys → when), shared by the Movies and Shows pages. */
+private object StoppedHere {
+    val items = MutableStateFlow<Map<String, Long>>(emptyMap())
+}

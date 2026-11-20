@@ -185,7 +185,18 @@ fun HomeScreen(
     hs.vm = vm; hs.playback = playback; hs.dvr = dvr; hs.session = session
     // Recordings play in the same player as films (VodHost, above every page), so they can shrink to a corner too.
     val recordingFlow = remember { MutableStateFlow<VodStream?>(null) }
-    val recordingSource = remember { VodSource(recordingFlow, MutableStateFlow(null), onClose = { recordingFlow.value = null }) }
+    // (Where a recording has got to is kept on the box: the Recordings page's bar and tick, and Resume.)
+    val recordingCtx = androidx.compose.ui.platform.LocalContext.current.applicationContext
+    val recordingSource = remember { VodSource(recordingFlow, MutableStateFlow(null), onClose = { recordingFlow.value = null },
+        onProgress = { s, state, pos, dur -> io.github.petebutty.viewarr.data.dvr.RecordingProgress.idOf(s.url)?.let { io.github.petebutty.viewarr.data.dvr.RecordingProgress.record(recordingCtx, it, pos, dur, state) } }) }
+    // A recording's card in Continue watching: played straight away, where you stopped.
+    val recordingOpen by io.github.petebutty.viewarr.data.dvr.RecordingOpen.pending.collectAsStateWithLifecycle()
+    LaunchedEffect(recordingOpen) {
+        val id = recordingOpen ?: return@LaunchedEffect
+        io.github.petebutty.viewarr.data.dvr.RecordingOpen.pending.value = null
+        val rec = dvr.recordings.value.firstOrNull { it.id == id } ?: run { hs.toast("That recording isn't there any more"); return@LaunchedEffect }
+        dvr.playback(rec)?.let { hs.recordingPlayback = it } ?: hs.toast("That recording couldn't be played")
+    }
     LaunchedEffect(hs.recordingPlayback) {
         hs.recordingPlayback?.let { recordingFlow.value = it; VodHost.show(recordingSource); hs.recordingPlayback = null }
     }

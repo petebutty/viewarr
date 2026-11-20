@@ -223,7 +223,8 @@ fun MediaScreen(
     val rows = remember(state.rows) { state.rows.filter { it.items.isNotEmpty() } }
     // Cinema: one page-tall row at a time; Viewarr style: two rows a page (the list below says how they turn).
     val cinemaRows = AppColors.palette.heroStyle == 1 && searchHeader == null
-    val pairRows = AppColors.palette.heroStyle == 0 && searchHeader == null && !LiveBehind.on
+    // (Live TV behind the page too, as My Library opens: it fell back to Android's own slow scroll there. 2026-11-20.)
+    val pairRows = AppColors.palette.heroStyle == 0 && searchHeader == null
     // Scrolling the list to a row by hand: lined up as the page turns are (a pair's first row, the title's room
     // above it), or the next page turn started from a half-turned page.
     val scrollRow: suspend (Int) -> Unit = { i ->
@@ -620,7 +621,9 @@ private fun LibraryPage(
             // The corner trailer window shrinks to fit it. Peter, 2026-11-19.)
             // (With live TV in the guide's preview place at the top left, the header is as tall as that window, so
             // the library's own heading and toolbar sit under it, not hidden behind it. Peter, 2026-11-19.)
-            height = if (LiveBehind.preview) 250.dp else 180.dp,
+            // (205: the window ends at 200, so the toolbar sits just under it; 250 left a gap and cut the grid's second row
+            // off. Peter, 2026-11-20: "needs to come up a bit".)
+            height = if (LiveBehind.preview) 205.dp else 180.dp,
             compact = true,
         )
         Box(Modifier.fillMaxWidth().weight(1f)) {
@@ -803,8 +806,14 @@ private fun Hero(
         val colAlign = if (endSide) Alignment.End else Alignment.Start
         Column(
             Modifier.align(if (endSide) Alignment.TopEnd else Alignment.TopStart)
-                .padding(start = Tokens.Gutter, top = 26.dp, end = Tokens.Gutter)
-                .fillMaxWidth(if (endSide) 0.58f else if (besidePreview) 0.6f else 0.5f),
+                .padding(start = Tokens.Gutter, top = if (endSide) 14.dp else 26.dp, end = if (endSide) 0.dp else Tokens.Gutter)
+                .fillMaxWidth(if (endSide) 0.6f else if (besidePreview) 0.6f else 0.5f)
+                // Over at the right it sits on the artwork: a shade behind it, fading in from the left, so the details
+                // and description stay readable on a bright picture (Peter, 2026-11-20).
+                .then(if (endSide) Modifier.background(androidx.compose.ui.graphics.Brush.horizontalGradient(
+                    0f to Color.Transparent, 0.3f to AppColors.palette.main.copy(alpha = 0.7f), 1f to AppColors.palette.main.copy(alpha = 0.85f)),
+                    RoundedCornerShape(topStart = 16.dp, bottomStart = 16.dp)).padding(start = 24.dp, top = 12.dp, bottom = 14.dp, end = Tokens.Gutter)
+                else Modifier),
             horizontalAlignment = colAlign,
         ) {
             Text(label ?: if (type == MediaType.Movie) "Movies" else "Shows", fontSize = 14.sp, color = AppColors.Accent, textAlign = align, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -977,7 +986,31 @@ private fun LibraryGrid(
                 // the row you're on is never cut off (the app's usual resting place, a third of the way down, left
                 // too little room under the header: half a poster per press, the row half hidden).
                 val rowTop = with(density) { 4.dp.toPx() }
-                val gridSpec = remember(rowTop) { insetSpec(rowTop).cinemaGlide() } // (library grids glide too, as the rows)
+                // Down / Up move the grid a row from the key press, in the same instant as the highlight, and the
+                // posters are then drawn where they were and eased into place: one layer moved, nothing laid out again
+                // per frame (Android's own scroll re-laid the grid every frame while new posters loaded: slow and
+                // jerky; Peter, 2026-11-20). Anything left to bring into view snaps.
+                val gridSpec = remember(rowTop) { insetSpec(rowTop).snapped() }
+                val gridGlide = remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
+                val gridGlideJob = remember { arrayOfNulls<kotlinx.coroutines.Job>(1) }
+                val gridScope = rememberCoroutineScope()
+                val slideGrid: (Int, Int) -> Unit = { from, to ->
+                    val info = gridState.layoutInfo.visibleItemsInfo
+                    val a = info.firstOrNull { it.index == from }
+                    val b2 = info.firstOrNull { it.index == to }
+                    if (a != null && b2 != null) {
+                        val used = gridState.dispatchRawDelta((b2.offset.y - a.offset.y).toFloat())
+                        if (used != 0f) {
+                            val step = kotlin.math.abs(used)
+                            gridGlide.floatValue = (gridGlide.floatValue + used).coerceIn(-step, step)
+                            gridGlideJob[0]?.cancel()
+                            gridGlideJob[0] = gridScope.launch {
+                                androidx.compose.animation.core.animate(gridGlide.floatValue, 0f,
+                                    animationSpec = androidx.compose.animation.core.tween(240, easing = androidx.compose.animation.core.FastOutSlowInEasing)) { v, _ -> gridGlide.floatValue = v }
+                            }
+                        }
+                    }
+                }
                 CompositionLocalProvider(LocalBringIntoViewSpec provides gridSpec) {
                 androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
                     columns = androidx.compose.foundation.lazy.grid.GridCells.Fixed(gridColumns),
@@ -985,6 +1018,7 @@ private fun LibraryGrid(
                     // Into the grid (from the menu, from the toolbar, back from a title): the poster you were on, else the
                     // first (Down from the toolbar landed on whichever was nearest; from the menu, on the toolbar).
                     modifier = Modifier.weight(1f).fillMaxHeight()
+                        .clipToBounds().graphicsLayer { translationY = gridGlide.floatValue }
                         .focusRequester(focusRequester)
                         .focusProperties { enter = { gridEntry() } }
                         .focusGroup()
@@ -1006,6 +1040,9 @@ private fun LibraryGrid(
                                 when {
                                     // Right at the end of a row: onto the A–Z strip.
                                     e.key == Key.DirectionRight && b.canLetters && (col == gridColumns - 1 || i == count - 1) -> { runCatching { railFocus.requestFocus() }; true }
+                                    // (The grid moves from here; the highlight then moves as usual.)
+                                    e.key == Key.DirectionDown && i + gridColumns < count -> { slideGrid(i, i + gridColumns); false }
+                                    e.key == Key.DirectionUp && i - gridColumns >= 0 -> { slideGrid(i, i - gridColumns); false }
                                     else -> false
                                 }
                             }

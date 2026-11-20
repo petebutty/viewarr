@@ -1,5 +1,29 @@
 # Viewarr changelog (built by tools/changelog.py from the GitHub releases; don't edit by hand)
 
+## 0.29.4 · 20 Nov 2026
+
+A recordings update, smoother library pages, and Continue watching that keeps up.
+
+### Recordings
+- **Three lists:** Scheduled (with anything recording now at the top), Recorded and Series recordings, each sorted by date either way. Viewarr remembers which list you were on and each list's order.
+- **Watched progress:** a bar on recordings you've started, a tick once watched, and playing carries on where you stopped.
+- **In Continue watching:** recordings you've started, and new ones from the last week you haven't played yet, appear in Continue watching (shows) with the channel's logo. Pressing one plays it straight away.
+
+### Continue watching
+- A film or episode you stop partway moves to the front of its Continue watching row straight away, on My Library, Movies and Shows.
+
+### Smoother pages
+- **Library grids** (My Library → Left → a library) move a row the moment you press, then glide into place, and sit higher under the live TV window.
+- **My Library** with live TV in the corner glides between rows as Movies and Shows do.
+- With a film in the corner, the top panel's text on the right sits on a shade, so it's easy to read over bright artwork.
+
+### Streaming services and the home screen
+- Each service's page (Netflix, Prime Video…) opens with **Just added** first (needs the Viewarr plugin 0.6.2).
+- **Settings → Live TV → Home screen rows → Show them on the Android TV home screen:** for Google's Android TV home, which shows an app's rows only once each is approved; this asks for every row in order.
+
+### Fixes
+- The Recordings page's tabs couldn't all be reached with the remote.
+
 ## 0.29.3 · 20 Nov 2026
 
 A big tidy-up of settings and scaling, Viewarr's rows on your TV's home screen, and "Just added" rows showing what really arrived on each streaming service.

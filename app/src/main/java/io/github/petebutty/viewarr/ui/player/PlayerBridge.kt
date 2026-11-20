@@ -84,7 +84,8 @@ object RowSets {
     private const val SEP = " · "
     /** The set name an addon row belongs to ("Netflix" for "Netflix · Popular"), or null. */
     fun name(row: MediaRow): String? =
-        if (!row.id.startsWith("stremio-")) null else row.title.substringBefore(SEP, "").trim().takeIf { it.isNotEmpty() }
+        // (The Viewarr plugin's "Netflix · Just added" rows belong to their service too: they weren't on its page.)
+        if (!row.id.startsWith("stremio-") && !row.id.startsWith("justadded-")) null else row.title.substringBefore(SEP, "").trim().takeIf { it.isNotEmpty() }
     fun matches(set: String, row: MediaRow): Boolean = when {
         set == "plex" -> row.id.startsWith("plex-")
         set.startsWith("name:") -> name(row) == set.removePrefix("name:")
@@ -93,11 +94,12 @@ object RowSets {
     /** A row's own name on its set's page ("Popular"). */
     fun rowTitle(row: MediaRow): String = if (name(row) != null) row.title.substringAfter(SEP) else row.title
     /**
-     * A service's rows always in one order, films and shows together: New (shows, then films), Originals, Popular,
-     * Top rated, then anything else.
+     * A service's rows always in one order, films and shows together: Just added first (what really arrived lately,
+     * from the Viewarr plugin: the rest change slowly; Peter, 2026-11-20), then New (shows, then films), Originals,
+     * Popular, Top rated, then anything else.
      */
     fun kindRank(row: MediaRow): Int = when (rowTitle(row).trim().lowercase()) {
-        "new" -> 0; "originals" -> 1; "popular" -> 2; "top rated" -> 3; else -> 4
+        "just added" -> 0; "new" -> 1; "originals" -> 2; "popular" -> 3; "top rated" -> 4; else -> 5
     }
     fun sets(rows: List<MediaRow>): List<String> = buildList {
         if (rows.any { it.id.startsWith("plex-") }) add("plex")

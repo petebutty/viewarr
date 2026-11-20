@@ -210,7 +210,7 @@ fun playbackCategories(vm: PlaybackSettingsViewModel = hiltViewModel(), opts: Ui
                     appearance.setTitlePart(io.github.petebutty.viewarr.data.media.HomeRows.PART + g.name.trim().lowercase(), !on)
                     guideVm.refreshHomeRows()
                 }
-            } + listOf(SettingItem("Add every Just added row", "Every streaming service's Just added rows (films and shows) onto the home screen at once, in order: Netflix, Prime Video, Disney+ and so on.",
+            } + listOf(androidHomeApprovalItem(), SettingItem("Add every Just added row", "Every streaming service's Just added rows (films and shows) onto the home screen at once, in order: Netflix, Prime Video, Disney+ and so on.",
                 listOf(PlainChoice("OK: add")), PlainChoice("OK: add"), action = { guideVm.addJustAddedRows() }, onSelect = {})) +
                 homeScreenMediaRows(appearance) { guideVm.refreshHomeRows() },
         ),

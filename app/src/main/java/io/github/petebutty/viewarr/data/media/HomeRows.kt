@@ -278,6 +278,17 @@ class HomeRows @Inject constructor(
             MediaType.entries.map { t -> mediaPart(t, "justadded-$slug-${t.name}") }
         }
 
+        /** Viewarr's home-screen rows the launcher isn't showing yet, oldest first (the order they were made). */
+        fun notShown(context: Context): List<Long> = runCatching {
+            val out = ArrayList<Long>()
+            context.contentResolver.query(TvContractCompat.Channels.CONTENT_URI,
+                arrayOf(TvContractCompat.Channels._ID, TvContractCompat.Channels.COLUMN_INTERNAL_PROVIDER_ID, TvContractCompat.Channels.COLUMN_BROWSABLE),
+                null, null, TvContractCompat.Channels._ID)?.use { c ->
+                while (c.moveToNext()) if (c.getString(1)?.startsWith(ROW) == true && c.getInt(2) == 0) out += c.getLong(0)
+            }
+            out
+        }.getOrDefault(emptyList())
+
         /** Where a Movies / Shows row comes from, for the settings list: IPTV, Libraries or Catalogues. */
         fun kindOf(rowId: String): String = when {
             rowId.startsWith("xc-") -> "IPTV"

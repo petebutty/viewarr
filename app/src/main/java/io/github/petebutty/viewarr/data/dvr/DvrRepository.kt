@@ -77,6 +77,8 @@ class DvrRepository @Inject constructor(
     val allowed = _allowed.asStateFlow()
 
     private suspend fun session(): Session? = sessions.session.first()
+    /** The Dispatcharr server's address (for its logo pictures), or null. */
+    suspend fun serverUrl(): String? = session()?.takeIf { !it.isDirect }?.serverUrl
     private fun headers(s: Session) = mapOf("X-API-Key" to s.apiKey)
 
     /** True when live TV comes from an IPTV provider: recordings need a Dispatcharr server. */

@@ -1,5 +1,6 @@
 package io.github.petebutty.viewarr.ui.home
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -538,7 +539,8 @@ private fun RecordingOptions(r: DvrRecording, subtitle: String, message: String?
 
 /** A recording in the menu: its title, and underneath when / channel / length (red dot while recording). */
 @Composable
-internal fun RecordingRow(title: String, details: String, live: Boolean, onClick: () -> Unit, onLongClick: () -> Unit, modifier: Modifier = Modifier) {
+internal fun RecordingRow(title: String, details: String, live: Boolean, onClick: () -> Unit, onLongClick: () -> Unit, modifier: Modifier = Modifier,
+                          /** How far it's been watched (a thin bar under it), or null. */ progress: Float? = null) {
     var focused by remember { mutableStateOf(false) }
     Surface(
         onClick = onClick,
@@ -559,6 +561,11 @@ internal fun RecordingRow(title: String, details: String, live: Boolean, onClick
                 color = when { focused -> AppColors.OnAccent.copy(alpha = 0.8f); live -> Color(0xFFE53935); else -> AppColors.TextSecondary },
                 modifier = Modifier.padding(top = 1.dp),
             )
+            progress?.takeIf { it > 0.01f && it < io.github.petebutty.viewarr.data.dvr.RecordingProgress.WATCHED_AT }?.let { f ->
+                androidx.compose.foundation.layout.Box(Modifier.padding(top = 4.dp).then(Modifier.size(width = 160.dp, height = 3.dp)).background((if (focused) AppColors.OnAccent else AppColors.TextSecondary).copy(alpha = 0.3f), androidx.compose.foundation.shape.RoundedCornerShape(2.dp))) {
+                    androidx.compose.foundation.layout.Box(Modifier.fillMaxWidth(f).then(Modifier.size(height = 3.dp, width = 160.dp * f)).background(if (focused) AppColors.OnAccent else AppColors.Accent, androidx.compose.foundation.shape.RoundedCornerShape(2.dp)))
+                }
+            }
         }
     }
 }
