@@ -76,8 +76,10 @@ class NewsFeeds @Inject constructor(@ApplicationContext context: Context, privat
 
     /** A feed's headlines (newest first), from the last 10 minutes' copy if there is one. */
     suspend fun headlines(f: NewsFeed): List<String> {
-        // Not a feed on the web: the live scores the plugin shares (data/sync/ServerSports), fresh each time.
+        // Not a feed on the web: the live scores the plugin shares (data/sync/ServerSports), fresh each time; without
+        // the plugin, the ones this TV checks itself (data/sports/TvScoreAlerts).
         if (f.id == LIVE_SCORES) return io.github.petebutty.viewarr.data.sync.ServerSports.scoreLines
+            .ifEmpty { io.github.petebutty.viewarr.data.sports.TvScoreAlerts.scoreLines }
         cache[f.url]?.takeIf { System.currentTimeMillis() - it.first < 10 * 60_000L }?.let { return it.second }
         val list = fetch(f.url)
         if (list.isNotEmpty()) cache[f.url] = System.currentTimeMillis() to list

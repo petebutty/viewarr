@@ -1,5 +1,6 @@
 package io.github.petebutty.viewarr.ui.home
 
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Arrangement
@@ -540,7 +541,8 @@ private fun RecordingOptions(r: DvrRecording, subtitle: String, message: String?
 /** A recording in the menu: its title, and underneath when / channel / length (red dot while recording). */
 @Composable
 internal fun RecordingRow(title: String, details: String, live: Boolean, onClick: () -> Unit, onLongClick: () -> Unit, modifier: Modifier = Modifier,
-                          /** How far it's been watched (a thin bar under it), or null. */ progress: Float? = null) {
+                          /** How far it's been watched (a thin bar under it), or null. */ progress: Float? = null,
+                          /** A small poster on its left (a recording's show or film, from TMDB), or null. */ art: String? = null) {
     var focused by remember { mutableStateOf(false) }
     Surface(
         onClick = onClick,
@@ -554,6 +556,9 @@ internal fun RecordingRow(title: String, details: String, live: Boolean, onClick
             pressedContainerColor = AppColors.Accent, pressedContentColor = AppColors.OnAccent,
         ),
     ) {
+        androidx.compose.foundation.layout.Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+        if (art != null) coil.compose.AsyncImage(art, null, contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+            modifier = Modifier.padding(start = 8.dp, top = 4.dp, bottom = 4.dp).size(width = 32.dp, height = 48.dp).clip(androidx.compose.foundation.shape.RoundedCornerShape(4.dp)))
         Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp)) {
             Text(title, fontSize = 14.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Medium, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
             Text(
@@ -566,6 +571,7 @@ internal fun RecordingRow(title: String, details: String, live: Boolean, onClick
                     androidx.compose.foundation.layout.Box(Modifier.fillMaxWidth(f).then(Modifier.size(height = 3.dp, width = 160.dp * f)).background(if (focused) AppColors.OnAccent else AppColors.Accent, androidx.compose.foundation.shape.RoundedCornerShape(2.dp)))
                 }
             }
+        }
         }
     }
 }

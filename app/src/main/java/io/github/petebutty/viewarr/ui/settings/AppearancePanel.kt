@@ -155,6 +155,9 @@ fun appearanceCategories(vm: AppearanceViewModel = hiltViewModel(), opts: UiOpts
                 add(optItem(opts, "Wallpaper shade", "What darkens the wallpaper and the Movies / Shows artwork. Background colour: your theme's colour washed over the picture. Black: darker without tinting, so pictures keep their own colours.", UiOpts.WALL_SHADE))
                 if (palette.wallpaper == 1) add(SettingItem("Design", "Which built-in wallpaper.", wallStyles,
                     wallStyles[palette.wallpaperStyle.coerceIn(0, wallStyles.lastIndex)]) { c -> vm.setWallpaper(1, (c as Choice).value as Int, palette.wallpaperDim) })
+                // The Christmas design: snow falling behind the pages (ChristmasSnow).
+                if (palette.wallpaper == 1 && io.github.petebutty.viewarr.ui.theme.WallpaperStyles.getOrNull(palette.wallpaperStyle)?.name == io.github.petebutty.viewarr.ui.theme.CHRISTMAS)
+                    add(optItem(opts, "Falling snow", "Gentle snow falling behind the pages with the Christmas wallpaper. It stops while a film plays full screen.", UiOpts.SNOW))
             }.map { it.locked(lowLock) },
         ),
         // Every transparency in one place, as sliders (Left / Right).

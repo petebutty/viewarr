@@ -58,7 +58,6 @@ import java.time.ZoneId
 import java.util.Collections
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
-import kotlin.math.abs
 
 /** row = selected channel index; focusTime = time anchor (classic IPTV apps keeps the column time when moving up/down). */
 data class GuideCursor(val row: Int, val focusTime: Long, val windowStart: Long)
@@ -729,17 +728,8 @@ class GuideViewModel @Inject constructor(
     suspend fun channelForGame(game: SportGame): Pair<ChannelListItem, GuideProgram>? {
         val t = System.currentTimeMillis()
         gameChannels[game.id + "|" + game.start]?.takeIf { t - it.first < 10 * 60_000L }?.let { return it.second }
-        // The shows around kick-off (starting up to 3 h before to 1 h after; so ending by 7 h after) with either team's
-        // telling word, then only those naming both teams (GameMatch: ESPN's names for them, whole words). One team
-        // alone isn't enough here: a club's channel shows its name all day.
-        val channels = allChannelsById()
-        val found = GameMatch.searchWords(game).flatMap { w ->
-            runCatching { repo.searchProgramsEnding(w, game.start - 3 * 3_600_000L, game.start + 7 * 3_600_000L) }.getOrNull().orEmpty()
-        }.distinctBy { it.channelId to it.startTime }.mapNotNull { p -> channels[p.channelId]?.let { it to p } }
-        val best = found.filter { (_, p) ->
-            p.startTime in (game.start - 3 * 3_600_000L)..(game.start + 3_600_000L) &&
-                GameMatch.textIsGame(p.title + " " + p.subTitle.orEmpty(), game) == GameMatch.SURE // (a few dozen at most)
-        }.minByOrNull { (_, p) -> abs(p.startTime - game.start) }
+        // (The matching itself is shared with the background recorder, so both find the same channel and programme.)
+        val best = io.github.petebutty.viewarr.data.sports.TvGameRecorder.channelForGame(repo, allChannelsById(), game)
         gameChannels[game.id + "|" + game.start] = t to best
         return best
     }

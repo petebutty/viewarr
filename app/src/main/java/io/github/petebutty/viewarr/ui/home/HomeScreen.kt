@@ -188,7 +188,11 @@ fun HomeScreen(
     // (Where a recording has got to is kept on the box: the Recordings page's bar and tick, and Resume.)
     val recordingCtx = androidx.compose.ui.platform.LocalContext.current.applicationContext
     val recordingSource = remember { VodSource(recordingFlow, MutableStateFlow(null), onClose = { recordingFlow.value = null },
-        onProgress = { s, state, pos, dur -> io.github.petebutty.viewarr.data.dvr.RecordingProgress.idOf(s.url)?.let { io.github.petebutty.viewarr.data.dvr.RecordingProgress.record(recordingCtx, it, pos, dur, state) } }) }
+        onProgress = { s, state, pos, dur -> io.github.petebutty.viewarr.data.dvr.RecordingProgress.idOf(s.url)?.let {
+            io.github.petebutty.viewarr.data.dvr.RecordingProgress.record(recordingCtx, it, pos, dur, state)
+            // And to Trakt, as any film or episode (when the recording is matched on TMDB).
+            hs.showsVm.reportRecording(it, state, pos, dur)
+        } }) }
     // A recording's card in Continue watching: played straight away, where you stopped.
     val recordingOpen by io.github.petebutty.viewarr.data.dvr.RecordingOpen.pending.collectAsStateWithLifecycle()
     LaunchedEffect(recordingOpen) {

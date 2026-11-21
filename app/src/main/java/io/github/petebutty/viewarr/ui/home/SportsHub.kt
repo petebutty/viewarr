@@ -256,7 +256,7 @@ internal class SportsHub(
             } else null,
             if (ch == null && g.state == "pre") CardOption(if (gw.wantsRecording(g.id)) "Don't record" else "Record when it's in the guide") {
                 val want = !gw.wantsRecording(g.id); gw.setRecording(g.id, want)
-                toast(if (want) "${g.title} will be recorded once it's in your TV guide" else "Won't record ${g.title}")
+                toast(if (want) "${g.title} will be recorded once it's in your TV guide" + io.github.petebutty.viewarr.data.sports.TvGameRecorder.whileRunning else "Won't record ${g.title}")
             } else null,
             // (Shows whether it's set, and takes it off again: Remind me said nothing it had done. Peter, 2026-11-18.)
             if (ch != null && !started) CardOption(if (dvr.reminderFor(ch.first.id, ch.second) != null) "✓ Reminder set: cancel it" else "Remind me") {

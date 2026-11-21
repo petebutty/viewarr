@@ -346,6 +346,7 @@ object UiOpts {
     /** The guide's top panel: the "Next" and "Then" lines on the right (a tester, 2026-11-19: a way to hide them). */
     const val GUIDE_NEXT = "guide_next"
     const val GUIDE_ROWS = "guide_rows"
+    const val SNOW = "snow"
     /** Movies / Shows background: the highlighted title's artwork, or the wallpaper (a tester, 2026-11-19). */
     const val TITLE_BG = "title_bg"
     /** The wallpaper behind the TV guide too, or a plain background there (Peter, 2026-11-19: a clean guide). */
@@ -488,6 +489,7 @@ object UiOpts {
         GUIDE_ART_PLACE to listOf("Background", "Banner"),
         GUIDE_NEXT to listOf("On", "Off"),
         GUIDE_ROWS to listOf("10 rows", "12 rows", "9 rows", "8 rows"),
+        SNOW to listOf("On", "Off"),
         TITLE_BG to listOf("What's selected", "Your wallpaper", "None"),
         GUIDE_WALL to listOf("On", "Off"),
         GUIDE_EPISODE_BADGE to listOf("On", "Off"),

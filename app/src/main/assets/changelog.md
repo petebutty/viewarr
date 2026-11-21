@@ -1,6 +1,32 @@
 # Viewarr changelog (built by tools/changelog.py from the GitHub releases; don't edit by hand)
 
-## 0.29.4 · 20 Nov 2026
+## 0.29.5 · 21 Nov 2026
+
+Everything now works without the Viewarr plugin, plus TMDB-organised recordings, recordings on Trakt, and a Christmas wallpaper.
+
+### Works without the Viewarr plugin
+With the plugin, your Dispatcharr server still does these once for the whole house. Without it, each TV now does them itself while Viewarr is running:
+- **Just added** rows: the TV checks JustWatch once a day.
+- **Live score alerts** and the **Live scores** news ticker: the TV checks ESPN while your games are on.
+- **Event channels: only with a listing**: the TV spots event groups by their names and hides channels with nothing on.
+- **Record all <team>** and **Record when it's in the guide**: the TV schedules the recording once the game's channel is in the guide.
+- **Sync IPTV progress with my Emby / Jellyfin / Plex**: the TV keeps them in step every 15 minutes and soon after you stop.
+
+### Recordings
+- **Organised with TMDB:** Recorded is split into Shows (each show's episodes together), Films, and Sport & other, with posters and episode names.
+- **Recorded is the first tab**, and each tab has its own date order: press OK on the tab you're on to turn it round.
+- **Series recordings** show readable names ("Celtic games") instead of search patterns.
+- **On Trakt:** recordings matched on TMDB are sent to Trakt like any film or episode, so they appear in your Trakt history and Continue watching.
+- **As a source:** a film's recording is listed in Play from.
+- Recordings in Continue watching use the show's or film's poster.
+
+### Christmas 🎄
+- **Christmas wallpaper** (Settings → Appearance → Wallpaper → Built-in → Christmas): a winter night with fairy lights and gently falling snow behind the pages. Falling snow can be switched off, and it stops while a film plays full screen.
+
+### Fixes
+- The order button on the Recordings page did nothing (the list stayed where it was).
+
+## 0.29.4 · 21 Nov 2026
 
 A recordings update, smoother library pages, and Continue watching that keeps up.
 

@@ -567,9 +567,12 @@ class CatalogRepository @Inject constructor(
      * TMDB's "New" can't show these: it knows which service has a title, not when it arrived (Peter, 2026-11-20).
      */
     private suspend fun justAddedRows(a: Accounts, type: MediaType): List<MediaRow> {
-        val s = sessions.session.first()?.takeIf { !it.isDirect } ?: return emptyList()
-        val r = runCatching { http.get(s.serverUrl.trimEnd('/') + "/api/accounts/users/me/app-data/viewarr_just_added/", mapOf("X-API-Key" to s.apiKey)) }.getOrNull()
-        val o = (r?.body as? JsonObject)?.takeIf { r.ok } ?: return emptyList()
+        // From the Viewarr plugin when it's there (it asks JustWatch once a day for the house); else the TV asks JustWatch
+        // itself, once a day (JustAddedLocal), so everyone has these rows.
+        val s = sessions.session.first()?.takeIf { !it.isDirect }
+        val r = s?.let { runCatching { http.get(it.serverUrl.trimEnd('/') + "/api/accounts/users/me/app-data/viewarr_just_added/", mapOf("X-API-Key" to it.apiKey)) }.getOrNull() }
+        val o = (r?.body as? JsonObject)?.takeIf { r.ok && (it["at"] as? kotlinx.serialization.json.JsonPrimitive)?.content?.toLongOrNull()?.let { at -> System.currentTimeMillis() / 1000 - at < 3 * 86_400 } == true }
+            ?: JustAddedLocal.lists(appContext, http) ?: return emptyList()
         if (o.int("v") != 1) return emptyList()
         val field = if (type == MediaType.Movie) "movies" else "shows"
         val day = java.time.format.DateTimeFormatter.ofPattern("d MMM", java.util.Locale.UK)

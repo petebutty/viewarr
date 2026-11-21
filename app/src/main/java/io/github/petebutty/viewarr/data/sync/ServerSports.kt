@@ -30,6 +30,8 @@ import javax.inject.Singleton
 class ServerSports @Inject constructor(
     private val sessions: SessionStore,
     private val http: HttpJson,
+    /** Score alerts checked by this TV itself, used only while the plugin isn't doing them (no double alerts). */
+    private val tvAlerts: io.github.petebutty.viewarr.data.sports.TvScoreAlerts,
 ) {
     class Live(
         val uuid: String, val start: Long, val end: Long, val title: String, val sport: String?, val group: String?,
@@ -78,14 +80,7 @@ class ServerSports @Inject constructor(
             if (!io.github.petebutty.viewarr.data.sports.ScoreAlerts.kindOn(e.text("kind"))) continue
             val text = e.text("text") ?: continue
             Log.i(TAG, "alert: $text")
-            kotlinx.coroutines.withContext(Dispatchers.Main) {
-                // On the ticker when one's on screen with Live scores on (next to scroll across); else the banner.
-                // (Settings → Sports → Score alerts: on the ticker and / or the banner.)
-                val sa = io.github.petebutty.viewarr.data.sports.ScoreAlerts
-                if (sa.ticker && io.github.petebutty.viewarr.ui.common.LiveScores.onScreen > 0 && io.github.petebutty.viewarr.ui.common.Ticker.feedOn(io.github.petebutty.viewarr.data.news.NewsFeeds.LIVE_SCORES))
-                    io.github.petebutty.viewarr.ui.common.LiveScores.pending.add(text)
-                else if (sa.banner) io.github.petebutty.viewarr.ui.common.AlertBanner.show(text)
-            }
+            showAlert(text)
         }
         alertsPrimed = true
         // The scores as they stand, for the ticker's Live scores (this user's teams and leagues only).
@@ -99,6 +94,7 @@ class ServerSports @Inject constructor(
 
     /** Started with [start]: the alert loop, given the user's follows as they change. */
     fun startAlerts(follows: kotlinx.coroutines.flow.Flow<List<io.github.petebutty.viewarr.data.sports.SportFollow>>) {
+        tvAlerts.start()
         scope.launch {
             var current = emptyList<io.github.petebutty.viewarr.data.sports.SportFollow>()
             launch { follows.collect { current = it } }
@@ -124,8 +120,9 @@ class ServerSports @Inject constructor(
     }
 
     suspend fun refresh() {
-        val s = sessions.session.first()?.takeIf { !it.isDirect } ?: return
+        val s = sessions.session.first()?.takeIf { !it.isDirect } ?: run { latest = null; checked = true; return }
         val r = http.get(s.serverUrl.trimEnd('/') + "/api/accounts/users/me/app-data/$KEY/", mapOf("X-API-Key" to s.apiKey))
+        checked = true
         if (r.code == 404) { latest = null; return }
         val o = (r.body as? JsonObject)?.takeIf { r.code in 200..299 } ?: return
         latest = parse(o)?.also { Log.i(TAG, "from the server: ${it.live.size} live now, ${it.games.size} games, ${(System.currentTimeMillis() / 1000 - it.at) / 60} min old") }
@@ -166,6 +163,27 @@ class ServerSports @Inject constructor(
         /** Your teams' live scores as they stand ("Celtic 1–0 Rangers  ·  34'"), for the ticker. Empty: none live. */
         @Volatile var scoreLines: List<String> = emptyList()
             private set
+        /** The server has been asked at least once since the app started (whatever the answer). */
+        @Volatile var checked = false
+            private set
+        /**
+         * The plugin's service is running for this house: its data was written in the last 10 minutes (it writes every
+         * 5). Its score alerts run in the same loop, so while this is true the TV doesn't check scores itself.
+         */
+        val pluginAlive: Boolean get() = latest?.let { System.currentTimeMillis() / 1000 - it.at < 10 * 60 } == true
+
+        /**
+         * A score alert on this TV: on the ticker when one's on screen with Live scores on (next to scroll across);
+         * else the banner. (Settings → Sports → Score alerts: on the ticker and / or the banner.) Used for the plugin's
+         * alerts and the TV's own (data/sports/TvScoreAlerts).
+         */
+        suspend fun showAlert(text: String) = kotlinx.coroutines.withContext(Dispatchers.Main) {
+            val sa = io.github.petebutty.viewarr.data.sports.ScoreAlerts
+            if (sa.ticker && io.github.petebutty.viewarr.ui.common.LiveScores.onScreen > 0 && io.github.petebutty.viewarr.ui.common.Ticker.feedOn(io.github.petebutty.viewarr.data.news.NewsFeeds.LIVE_SCORES))
+                io.github.petebutty.viewarr.ui.common.LiveScores.pending.add(text)
+            else if (sa.banner) io.github.petebutty.viewarr.ui.common.AlertBanner.show(text)
+        }
+
         /** [latest] while it's recent enough to trust (the service writes every 5 minutes): 15 minutes. */
         val fresh: Data? get() = latest?.takeIf { System.currentTimeMillis() / 1000 - it.at < 15 * 60 }
 

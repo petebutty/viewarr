@@ -380,6 +380,15 @@ class SportsRepository @Inject constructor(
         (plain.array("events").mapNotNull { game(it, league) } + ahead).distinctBy { it.id }.sortedBy { it.start }
     }
 
+    /**
+     * A league's scoreboard as it stands now: one request, never cached (the on-TV score alerts, TvScoreAlerts, poll
+     * it while a game is live). Null: it couldn't be read (the caller backs off).
+     */
+    suspend fun scoreboardNow(league: String): List<SportGame>? {
+        val res = withTimeoutOrNull(10_000) { runCatching { http.get("$base/$league/scoreboard") }.getOrNull() }?.takeIf { it.ok } ?: return null
+        return res.body.array("events").mapNotNull { game(it, league) }
+    }
+
     private fun game(e: JsonElement, league: String): SportGame? {
         val id = e.str("id") ?: return null
         val comp = e.array("competitions").firstOrNull()

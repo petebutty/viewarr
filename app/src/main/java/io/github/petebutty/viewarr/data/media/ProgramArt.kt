@@ -72,7 +72,7 @@ class ProgramArt @Inject constructor(
     private val logos = LruCache<String, Any>(300) // "tv:123" → logo url, or NONE
     private object None
     /** A guide title matched to TMDB: tv or movie, its id, and its backdrop. */
-    private data class Match(val type: String, val id: Int, val backdrop: String?, val logoMatch: Match? = null)
+    private data class Match(val type: String, val id: Int, val backdrop: String?, val logoMatch: Match? = null, val poster: String? = null, val name: String? = null)
 
     /** The programme's show / film on TMDB, by a close name match only (cached, hits and misses). */
     private suspend fun match(rawTitle: String): Match? {
@@ -88,7 +88,7 @@ class ProgramArt @Inject constructor(
                 val same = r.body.array("results")
                     .filter { it.str("media_type") == "tv" || it.str("media_type") == "movie" }
                     .filter { j -> norm(j.str("name") ?: j.str("title") ?: "") == want }
-                fun m(j: JsonElement) = j.int("id")?.let { Match(j.str("media_type")!!, it, j.str("backdrop_path")) }
+                fun m(j: JsonElement) = j.int("id")?.let { Match(j.str("media_type")!!, it, j.str("backdrop_path"), poster = j.str("poster_path"), name = j.str("name") ?: j.str("title")) }
                 // For the title logo, stricter (a wrong logo is worse than the name): a UK / Irish / US show, or the
                 // only film with that name. ("Breakfast": five films and a Philippine show, so no logo.)
                 val tvOk = same.firstOrNull { j -> j.str("media_type") == "tv" && (j.child("origin_country") as? JsonArray).orEmpty().any { (it as? JsonPrimitive)?.content in setOf("GB", "IE", "US") } }
@@ -101,6 +101,25 @@ class ProgramArt @Inject constructor(
         }
         cache.put(title, found ?: None)
         return found
+    }
+
+    /**
+     * A recording's (or any programme's) show or film on TMDB, by the same close name match as the guide's pictures:
+     * "tv" or "movie", its id, its name there, poster and backdrop. Null: no close match (news, sport, one-offs).
+     */
+    suspend fun tmdbFor(rawTitle: String): TmdbTag? = match(rawTitle)?.let { m ->
+        TmdbTag(m.type, m.id, m.name, m.poster?.let { "https://image.tmdb.org/t/p/w342$it" }, m.backdrop?.let { "https://image.tmdb.org/t/p/w780$it" })
+    }
+
+    /** An episode's own name on TMDB (null: unknown). */
+    suspend fun episodeName(showId: Int, season: Int, episode: Int): String? {
+        val key = store.current().tmdbKey ?: return null
+        return withTimeoutOrNull(6_000) {
+            runCatching {
+                http.get(tmdb.url("/tv/$showId/season/$season/episode/$episode", key, mapOf("language" to "en-GB")), tmdb.headers(key))
+                    .takeIf { it.ok }?.body?.str("name")?.takeIf { n -> n.isNotBlank() && !n.matches(Regex("(?i)episode \\d+")) }
+            }.getOrNull()
+        }
     }
 
     suspend fun imageFor(rawTitle: String): String? {
@@ -119,3 +138,6 @@ class ProgramArt @Inject constructor(
 
     private fun norm(s: String) = s.lowercase().replace("&", "and").replace(Regex("[^a-z0-9]"), "")
 }
+
+/** A programme matched on TMDB: its kind ("tv" / "movie"), id, name there, and pictures (full addresses). */
+data class TmdbTag(val type: String, val id: Int, val name: String?, val poster: String?, val backdrop: String?)

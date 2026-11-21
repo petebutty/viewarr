@@ -12,7 +12,8 @@ import javax.inject.Singleton
 /**
  * Reminders and recordings asked for on games the TV guide doesn't list yet (it reaches a few days ahead), and
  * "record all of a team's games". Kept on this TV; the Sports page turns each into a real reminder / Dispatcharr
- * recording as soon as it finds the game's channel in the guide (so a Viewarr TV has to be on once the game is listed).
+ * recording as soon as it finds the game's channel in the guide. Recordings are also made in the background: by the
+ * Viewarr plugin on Dispatcharr when it's running, else by this TV while Viewarr is running (TvGameRecorder).
  */
 @Singleton
 class GameWatch @Inject constructor(
@@ -108,6 +109,20 @@ class GameWatch @Inject constructor(
     fun resolved(gameId: String) {
         val r = set(REMIND); val c = set(RECORD)
         if (gameId in r || gameId in c) prefs.edit().putStringSet(REMIND, r - gameId).putStringSet(RECORD, c - gameId).apply()
+        markDone(gameId)
+    }
+
+    /** The games asked to be recorded once they're in the guide, and the teams recorded in full (lower case). */
+    fun recordIds(): Set<String> = set(RECORD)
+    fun teams(): Set<String> = set(TEAMS)
+
+    /**
+     * Recorded by this TV in the background (TvGameRecorder): off the record list and remembered as done, but a
+     * reminder asked for on the same game stays for the Sports page to set.
+     */
+    fun recorded(gameId: String) {
+        val c = set(RECORD)
+        if (gameId in c) put(RECORD, c - gameId)
         markDone(gameId)
     }
 

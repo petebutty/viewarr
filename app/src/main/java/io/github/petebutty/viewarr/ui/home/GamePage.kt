@@ -158,12 +158,15 @@ internal fun GamePageHost(hub: SportsHub, besidePreview: Boolean) {
                             })
                             add((if (gw.wantsRecording(g.id)) "✓ Recording" else "Record") to {
                                 val want = !gw.wantsRecording(g.id); gw.setRecording(g.id, want)
-                                hub.toast(if (want) "${g.title} will be recorded once it's in your TV guide" else "Won't record ${g.title}")
+                                hub.toast(if (want) "${g.title} will be recorded once it's in your TV guide" + io.github.petebutty.viewarr.data.sports.TvGameRecorder.whileRunning else "Won't record ${g.title}")
                             })
                         }
                     }
                     listOf(g.home, g.away).forEach { team ->
-                        add((if (gw.recordsTeam(team)) "✓ Record all $team" else "Record all $team") to { gw.setTeam(team, !gw.recordsTeam(team)) })
+                        add((if (gw.recordsTeam(team)) "✓ Record all $team" else "Record all $team") to {
+                            val want = !gw.recordsTeam(team); gw.setTeam(team, want)
+                            hub.toast(if (want) "Recording every $team game once it's in your TV guide" + io.github.petebutty.viewarr.data.sports.TvGameRecorder.whileRunning else "Won't record every $team game")
+                        })
                     }
                     add("Close" to { hub.closeGame() })
                 }
@@ -175,7 +178,8 @@ internal fun GamePageHost(hub: SportsHub, besidePreview: Boolean) {
                 }
             }
             if (g.state == "pre" && ch == null) Text(
-                "Not in your TV guide yet: a recording asked for here is set as soon as the guide lists it (a Viewarr TV needs to be on then).",
+                "Not in your TV guide yet: a recording asked for here is set as soon as the guide lists it" +
+                    (if (io.github.petebutty.viewarr.data.sync.ServerSports.pluginAlive) "." else ", while Viewarr is running on this TV (the Viewarr plugin on Dispatcharr does it with every TV off)."),
                 fontSize = 12.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(top = 6.dp),
             )
             }

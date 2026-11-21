@@ -8,6 +8,7 @@ import io.github.petebutty.viewarr.data.dvr.PluginsRepository
 import io.github.petebutty.viewarr.data.profiles.Access
 import io.github.petebutty.viewarr.data.profiles.House
 import io.github.petebutty.viewarr.data.remote.services.HttpJson
+import io.github.petebutty.viewarr.data.repository.EventChannelRule
 import io.github.petebutty.viewarr.data.repository.GuideRepository
 import io.github.petebutty.viewarr.data.session.Session
 import io.github.petebutty.viewarr.data.session.SessionStore
@@ -97,11 +98,18 @@ class HouseSync @Inject constructor(
         scope.launch(Dispatchers.IO) {
             sessions.session.distinctUntilChanged { a, b -> a?.id == b?.id }.collectLatest { s ->
                 _data.value = null; fetched = false
-                // (No Dispatcharr: no quiet channels, so no event channel is hidden; see GuideRepository.)
-                if (s == null || s.isDirect) { guide.setQuietChannels(emptySet()); return@collectLatest }
+                // (No Dispatcharr: no plugin quiet channels; the TV's own event-channel rule is used, see GuideRepository.)
+                if (s == null || s.isDirect) { guide.setQuietChannels(emptySet()); EventChannelRule.setManagedGroups(emptySet()); return@collectLatest }
                 // The last copy first (the offsets are wanted before the guide draws), then a fresh read every 10 minutes.
                 prefs.getString(dataKey(s), null)?.let { runCatching { parse(http.json.parseToJsonElement(it) as JsonObject) }.getOrNull() }
                     ?.let { _data.value = it; guide.setQuietChannels(it.quiet); runCatching { applyOffsets(s, it) } }
+                // Event Channel Managarr's groups, once per sign-in: the TV's own event-channel rule uses them while the
+                // Viewarr plugin isn't running (EventChannelRule). Not visible to this user: just the rule's other signs.
+                runCatching { plugins.installed() }.getOrNull()?.let { list ->
+                    EventChannelRule.setManagedGroups(list.firstOrNull { it.key == "event_channel_managarr" && it.enabled }
+                        ?.settings?.get("channel_groups")?.let { (it as? JsonPrimitive)?.contentOrNull }
+                        ?.split(',')?.toSet().orEmpty())
+                }
                 while (true) {
                     runCatching { fetch(s) }.onFailure { Log.w(TAG, "read failed: ${it.message}") }
                     delay(10 * 60_000L)

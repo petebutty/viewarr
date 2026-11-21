@@ -97,11 +97,14 @@ private fun traktWatchItems(): List<SettingItem> {
 private fun dispatcharrItems(appearance: AppearanceViewModel): List<SettingItem> = listOf(
     onOffItem(
         "Sync IPTV progress with my Emby / Jellyfin / Plex",
-        "For people without Trakt. On: when you finish or stop an IPTV film or episode, the Viewarr plugin on your Dispatcharr marks the same title in your Emby, Jellyfin or Plex (and the other way round for titles you've watched on IPTV), every 5 minutes. Needs \"Share IPTV progress between TVs\" on and the Viewarr plugin installed. To do it, Viewarr gives the plugin your sign-in for those servers, kept in your own Dispatcharr storage. Off: the sign-in is taken back out and nothing more is synced.",
+        "For people without Trakt. On: when you finish or stop an IPTV film or episode, the same title is marked in your own Emby, Jellyfin or Plex, and what you watch there carries on here (the newest wins). With the Viewarr plugin on your Dispatcharr, the server does it for the whole house every 5 minutes (it gets your sign-in for those servers, kept in your own Dispatcharr storage). Without it, each TV does it itself while Viewarr is running, every 15 minutes and soon after you stop. Off: nothing more is synced." +
+            (if (io.github.petebutty.viewarr.data.sync.ServerSports.pluginAlive) " Now: done by the Viewarr plugin."
+            else io.github.petebutty.viewarr.data.sync.TvServerWatch.status?.takeIf { WatchSync.serversOn }?.let { " $it." } ?: ""),
         WatchSync.serversOn,
     ) { on ->
         appearance.setTitlePart(WatchSync.SERVERS_SWITCH, !on)
         WatchSync.setServers(on)
+        if (on) io.github.petebutty.viewarr.data.sync.TvServerWatch.requestRound()
     }.locked(
         if (!WatchSource.hasTrakt) null
         else "Off while Trakt is connected: Trakt already gets your IPTV plays from Viewarr, and copying them into your servers as well would send Trakt the same watch again.",

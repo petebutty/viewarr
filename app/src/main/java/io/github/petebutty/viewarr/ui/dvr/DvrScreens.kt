@@ -24,6 +24,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -38,6 +41,7 @@ import io.github.petebutty.viewarr.data.dvr.DvrRepository
 import io.github.petebutty.viewarr.data.dvr.DvrState
 import io.github.petebutty.viewarr.data.dvr.SeriesRule
 import io.github.petebutty.viewarr.data.dvr.RecordingProgress
+import io.github.petebutty.viewarr.data.dvr.RecordingTags
 import io.github.petebutty.viewarr.data.local.ChannelListItem
 import io.github.petebutty.viewarr.data.local.GuideProgram
 import io.github.petebutty.viewarr.data.media.VodStream
@@ -75,6 +79,8 @@ class DvrViewModel @Inject constructor(
     guide: GuideRepository,
     private val reminderStore: ReminderStore,
     @dagger.hilt.android.qualifiers.ApplicationContext private val appContext: android.content.Context,
+    /** TMDB look-ups for tagging recordings (RecordingTags). */
+    private val programArt: io.github.petebutty.viewarr.data.media.ProgramArt,
 ) : ViewModel() {
     /** "Remind me" programmes (pop up when they start). */
     val reminders = reminderStore.reminders.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
@@ -102,6 +108,10 @@ class DvrViewModel @Inject constructor(
     val message = _message.asStateFlow()
 
     init {
+        // Finished recordings tagged from TMDB (once each, kept on the box): their show or film, pictures, episode name.
+        viewModelScope.launch {
+            repo.recordings.collect { recs -> runCatching { RecordingTags.tagAll(appContext, programArt, recs.filter { it.state == DvrState.Recorded }) } }
+        }
         viewModelScope.launch {
             // Keep the red dots and the Recordings page current; Dispatcharr's own UI may change things too.
             while (true) {
@@ -343,18 +353,24 @@ private val HoldKinds = listOf(
     "details" to "Details",
 )
 
+/** The Recordings tabs left to right: Recorded, Scheduled, Series recordings. */
+private val TAB_ORDER = listOf(1, 0, 2)
+
 private sealed interface DvrRow {
     data class Header(val text: String) : DvrRow
     /** A quiet line under an empty section ("Nothing recorded yet…"). */
     data class Note(val text: String) : DvrRow
     data class Rec(val rec: DvrRecording) : DvrRow
     data class Rule(val rule: SeriesRule) : DvrRow
+    /** A show's recordings together ("Shetland · 3 episodes"); OK opens or closes it. */
+    data class Group(val key: String, val name: String, val recs: List<DvrRecording>, val poster: String?) : DvrRow
 }
 
 /** A recording's or rule's key in the list (null: a header or note, which can't take focus). */
 private fun rowKey(r: DvrRow): String? = when (r) {
     is DvrRow.Rec -> "r-${r.rec.id}"
     is DvrRow.Rule -> "s-${r.rule.tvgId}-${r.rule.title}"
+    is DvrRow.Group -> "g-${r.key}"
     else -> null
 }
 
@@ -387,7 +403,9 @@ fun RecordingsScreen(
     // recordings, each sorted by date either way. The list and each one's order are remembered on the box.
     val context = androidx.compose.ui.platform.LocalContext.current
     val prefs = remember { context.getSharedPreferences("recordings_page", android.content.Context.MODE_PRIVATE) }
-    var tab by remember { androidx.compose.runtime.mutableIntStateOf(prefs.getInt("tab", 0).coerceIn(0, 2)) }
+    // (Recorded is the first tab and where the page opens; Peter, 2026-11-21. Tab numbers stay 0 Scheduled, 1 Recorded,
+    // 2 Series recordings; only the order they're shown in changed.)
+    var tab by remember { androidx.compose.runtime.mutableIntStateOf(prefs.getInt("tab_v2", 1).coerceIn(0, 2)) }
     // The highlight on the tabs or the order switch: a list changing under it (moving along the tabs) mustn't pull it
     // back down into the list (it did: Recorded and Series recordings couldn't be reached. Peter, 2026-11-20).
     var onTabs by remember { mutableStateOf(false) }
@@ -396,9 +414,17 @@ fun RecordingsScreen(
     // from the list lands, couldn't be reached).
     var tabAt by remember { androidx.compose.runtime.mutableIntStateOf(-1) }
     val tabFocus = remember { List(4) { FocusRequester() } }
+    // The list back at its top when its order or the list changes. (It kept its place by the row that was at the top,
+    // so after "Newest first" ↔ "Oldest first" the same recording stayed in view, now at the far end of a long list:
+    // the button seemed to do nothing. Peter, 2026-11-21.)
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
     // Newest / latest first: on by default for Recorded only (Scheduled starts with the soonest).
     val latestFirst = remember { androidx.compose.runtime.mutableStateMapOf(0 to prefs.getBoolean("latest_0", false), 1 to prefs.getBoolean("latest_1", true), 2 to prefs.getBoolean("latest_2", false)) }
+    LaunchedEffect(tab, latestFirst[0], latestFirst[1], latestFirst[2]) { runCatching { listState.scrollToItem(0) } }
     val progressVersion by RecordingProgress.version.collectAsStateWithLifecycle()
+    val tagsVersion by RecordingTags.version.collectAsStateWithLifecycle()
+    // Shows opened in the Recorded list (their episodes listed under them).
+    val expanded = remember { androidx.compose.runtime.mutableStateListOf<String>() }
     val nowRecs = recordings.filter { it.state == DvrState.Recording }.sortedBy { it.start }
     val scheduled = recordings.filter { it.state == DvrState.Scheduled }
     val done = recordings.filter { it.state == DvrState.Recorded || it.state == DvrState.Failed }
@@ -415,9 +441,30 @@ fun RecordingsScreen(
                 if (list.isEmpty() && nowRecs.isEmpty()) add(DvrRow.Note("Nothing scheduled. Hold OK on a programme in the TV guide to record it."))
             }
             1 -> {
-                val list = done.sortedBy { it.start }.let { if (desc) it.reversed() else it }
-                list.forEach { add(DvrRow.Rec(it)) }
-                if (list.isEmpty()) add(DvrRow.Note("Nothing recorded yet."))
+                // Organised from TMDB (RecordingTags): Shows (each show's episodes together), Films, then Sport & other
+                // (no TMDB match: matches, news, one-offs). Each in the list's order.
+                fun ordered(l: List<DvrRecording>) = l.sortedBy { it.start }.let { if (desc) it.reversed() else it }
+                val tagOf = { r: DvrRecording -> RecordingTags.of(context, r.id) }
+                val shows = done.filter { tagOf(it)?.kind == "show" }
+                val films = ordered(done.filter { tagOf(it)?.kind == "film" })
+                val other = ordered(done.filter { tagOf(it)?.kind.let { k -> k == null || k == "other" } })
+                if (shows.isNotEmpty()) {
+                    add(DvrRow.Header("Shows"))
+                    val groups = shows.groupBy { tagOf(it)?.tmdbId ?: 0 }.values
+                        .sortedBy { g -> if (desc) -g.maxOf { it.start } else g.minOf { it.start } }
+                    groups.forEach { g ->
+                        val t = tagOf(g.first())
+                        val key = "${t?.tmdbId}"
+                        if (g.size == 1) add(DvrRow.Rec(g.first()))
+                        else {
+                            add(DvrRow.Group(key, t?.name ?: g.first().title, ordered(g), t?.poster))
+                            if (key in expanded) ordered(g).forEach { add(DvrRow.Rec(it)) }
+                        }
+                    }
+                }
+                if (films.isNotEmpty()) { add(DvrRow.Header("Films")); films.forEach { add(DvrRow.Rec(it)) } }
+                if (other.isNotEmpty()) { add(DvrRow.Header(if (shows.isEmpty() && films.isEmpty()) "Recorded" else "Sport & other")); other.forEach { add(DvrRow.Rec(it)) } }
+                if (done.isEmpty()) add(DvrRow.Note("Nothing recorded yet."))
             }
             else -> {
                 val withDate = rules.map { it to nextOf(it) }
@@ -428,7 +475,7 @@ fun RecordingsScreen(
         }
     }
     // (Only recordings and rules take focus: a header or a note can't.)
-    val focusable = rows.mapIndexedNotNull { i, r -> if (r is DvrRow.Rec || r is DvrRow.Rule) i else null }
+    val focusable = rows.mapIndexedNotNull { i, r -> if (r is DvrRow.Rec || r is DvrRow.Rule || r is DvrRow.Group) i else null }
     val firstItem = focusable.firstOrNull() ?: -1
     // The row you were on (its options closing, or coming back to the page): the highlight goes back there, not the top.
     // Kept by the recording / rule, not its place in the list: after deleting the last one, the place is gone and the
@@ -466,7 +513,7 @@ fun RecordingsScreen(
                 .fillMaxSize()
                 // Left (the list has nothing to its left) opens the menu, as on every page (once per press: the
                 // shared leftOpens ignores a held Left's repeats).
-                .leftOpens(enabled = picked == null && tabAt <= 0, onMenu = onOpenMenu)
+                .leftOpens(enabled = picked == null && (tabAt < 0 || tabAt == TAB_ORDER.first()), onMenu = onOpenMenu)
                 .padding(horizontal = Tokens.Gutter, vertical = 32.dp),
         ) {
             if (besidePreview) androidx.compose.foundation.layout.Row(Modifier.heightIn(min = 180.dp)) {
@@ -488,24 +535,27 @@ fun RecordingsScreen(
             if (allowed != false) androidx.compose.foundation.layout.Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
                 modifier = Modifier.onFocusChanged { onTabs = it.hasFocus }) {
                 val names = listOf("Scheduled (${scheduled.size + nowRecs.size})", "Recorded (${done.size})", "Series recordings (${rules.size})")
-                names.forEachIndexed { i, n ->
-                    io.github.petebutty.viewarr.ui.common.AppPill(n, selected = tab == i,
-                        onClick = { tab = i; lastKey = null; prefs.edit().putInt("tab", i).apply() },
+                TAB_ORDER.forEach { i -> val n = names[i]
+                    // Each list's own order beside its name; OK on its tab turns it round (Peter, 2026-11-21: one shared
+                    // order button didn't work). Done from the key press itself, so nothing on the page can swallow it.
+                    val desc = latestFirst[i] == true
+                    val order = when (i) {
+                        0 -> if (desc) "latest first" else "soonest first"
+                        1 -> if (desc) "newest first" else "oldest first"
+                        else -> if (desc) "furthest first" else "next first"
+                    }
+                    val flip = { latestFirst[i] = !desc; prefs.edit().putBoolean("latest_$i", !desc).apply() }
+                    io.github.petebutty.viewarr.ui.common.AppPill("$n  ${if (desc) "↓" else "↑"} $order", selected = tab == i,
+                        onClick = { if (tab == i) flip() else { tab = i; lastKey = null; prefs.edit().putInt("tab_v2", i).apply() } },
                         modifier = (if (firstItem < 0 && i == tab) Modifier.focusRequester(focusRequester) else Modifier)
                             .focusRequester(tabFocus[i]).onFocusChanged { if (it.isFocused) tabAt = i else if (tabAt == i) tabAt = -1 }
+                            .onPreviewKeyEvent { e ->
+                                val ok = e.key == androidx.compose.ui.input.key.Key.DirectionCenter || e.key == androidx.compose.ui.input.key.Key.Enter || e.key == androidx.compose.ui.input.key.Key.NumPadEnter
+                                if (ok && e.type == androidx.compose.ui.input.key.KeyEventType.KeyUp && tab == i) { flip(); true } else ok && tab == i
+                            }
                             // (Another list: the row you were on belongs to the old one, so Down starts at the top.)
-                            .onFocusChanged { if (it.isFocused && tab != i) { tab = i; lastKey = null; prefs.edit().putInt("tab", i).apply() } })
+                            .onFocusChanged { if (it.isFocused && tab != i) { tab = i; lastKey = null; prefs.edit().putInt("tab_v2", i).apply() } })
                 }
-                Spacer(Modifier.width(14.dp))
-                val desc = latestFirst[tab] == true
-                val label = when (tab) {
-                    0 -> if (desc) "Latest first" else "Soonest first"
-                    1 -> if (desc) "Newest first" else "Oldest first"
-                    else -> if (desc) "Furthest away first" else "Next first"
-                }
-                io.github.petebutty.viewarr.ui.common.AppPill((if (desc) "↓  " else "↑  ") + label, selected = false, outlined = true,
-                    onClick = { latestFirst[tab] = !desc; prefs.edit().putBoolean("latest_$tab", !desc).apply() },
-                    modifier = Modifier.focusRequester(tabFocus[3]).onFocusChanged { if (it.isFocused) tabAt = 3 else if (tabAt == 3) tabAt = -1 })
             }
             Spacer(Modifier.height(10.dp))
             when {
@@ -516,7 +566,7 @@ fun RecordingsScreen(
                     fontSize = 15.sp, color = AppColors.TextPrimary,
                 )
                 allowed == null && recordings.isEmpty() -> Text("Loading…", color = AppColors.TextSecondary)
-                else -> LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp), contentPadding = PaddingValues(bottom = 110.dp)) {
+                else -> LazyColumn(state = listState, verticalArrangement = Arrangement.spacedBy(4.dp), contentPadding = PaddingValues(bottom = 110.dp)) {
                     // (Bottom 110 as Music and Movies: the music mini player covers the bottom of the screen.)
                     items(rows.size, key = { i -> rowKey(rows[i]) ?: when (val r = rows[i]) {
                         is DvrRow.Header -> "h-${r.text}"
@@ -528,9 +578,11 @@ fun RecordingsScreen(
                             is DvrRow.Note -> Text(row.text, fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(start = 4.dp, top = 4.dp, bottom = 6.dp))
                             // (The menu's own recording row, so a recording looks the same in the menu and on this page.)
                             is DvrRow.Rec -> RecordingRow(
+                                // Its show's or film's poster (TMDB), and an episode's own name after its number.
+                                art = tagsVersion.let { RecordingTags.of(context, row.rec.id)?.poster },
                                 // (Watched: a tick; started: a bar under it. RecordingProgress, kept on the box.)
                                 progress = progressVersion.let { RecordingProgress.fraction(context, row.rec.id) }?.takeIf { row.rec.state == DvrState.Recorded },
-                                title = (if (row.rec.state == DvrState.Recording) "● " else if (row.rec.state == DvrState.Recorded && RecordingProgress.watched(context, row.rec.id)) "✓ " else "") + row.rec.title + episodeTag(row.rec.season, row.rec.episode) + if (row.rec.state == DvrState.Failed) "  (failed)" else "",
+                                title = (if (row.rec.state == DvrState.Recording) "● " else if (row.rec.state == DvrState.Recorded && RecordingProgress.watched(context, row.rec.id)) "✓ " else "") + row.rec.title + episodeTag(row.rec.season, row.rec.episode) + (RecordingTags.of(context, row.rec.id)?.episodeName?.let { "  ·  $it" } ?: "") + if (row.rec.state == DvrState.Failed) "  (failed)" else "",
                                 details = "${channels[row.rec.channelId]?.name ?: "Channel"}  ·  ${span(row.rec.start, row.rec.end)}",
                                 live = row.rec.state == DvrState.Recording,
                                 modifier = (if (i == firstItem) Modifier.focusRequester(focusRequester).focusProperties { up = tabFocus[tab] } else Modifier).focusRequester(rowFocus.getOrPut(rowKey(row)!!) { FocusRequester() }).onFocusChanged {
@@ -544,6 +596,18 @@ fun RecordingsScreen(
                                     if (row.rec.state == DvrState.Recorded && row.rec.hasFile) scope.launch { vm.playback(row.rec)?.let(onPlay) }
                                     else { picked = row; vm.clearMessage() }
                                 },
+                            )
+                            is DvrRow.Group -> RecordingRow(
+                                art = row.poster,
+                                title = (if (row.key in expanded) "▾  " else "▸  ") + row.name + "  ·  ${row.recs.size} episodes",
+                                details = "Newest: " + span(row.recs.maxOf { it.start }, row.recs.maxBy { it.start }.end) +
+                                    row.recs.count { RecordingProgress.watched(context, it.id) }.let { w -> if (w > 0) "  ·  $w watched" else "" },
+                                live = false,
+                                modifier = (if (i == firstItem) Modifier.focusRequester(focusRequester).focusProperties { up = tabFocus[tab] } else Modifier).focusRequester(rowFocus.getOrPut(rowKey(row)!!) { FocusRequester() }).onFocusChanged {
+                                    if (it.hasFocus) { lastKey = rowKey(row); lastIndex = i; hover = row.name to "${row.recs.size} episodes  ·  OK: show or hide them" }
+                                },
+                                onClick = { if (row.key in expanded) expanded.remove(row.key) else expanded.add(row.key) },
+                                onLongClick = { if (row.key in expanded) expanded.remove(row.key) else expanded.add(row.key) },
                             )
                             is DvrRow.Rule -> RecordingRow(
                                 title = row.rule.label,

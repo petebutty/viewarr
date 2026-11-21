@@ -262,11 +262,15 @@ class GuideRepository @Inject constructor(
     // agree, and a group whose event channels are all hidden goes with them. Worked out again as the guide changes
     // (the DAO flow), when the plugin's data changes, and every five minutes (a programme starting brings a channel in,
     // one ending takes it out). Looking a channel up by id ([observeAllChannels]: links, reminders, recordings, the
-    // Sports page) still finds it, so a hidden channel still plays. Without the plugin nothing is hidden. (Peter, 2026-11-19.)
+    // Sports page) still finds it, so a hidden channel still plays. (Peter, 2026-11-19.)
+    // Without the plugin (ServerSports.pluginAlive false once it has been asked, or an IPTV login / playlist) the TV
+    // works out the event channels itself (EventChannelRule: channels in event-style groups) and hides those with
+    // nothing on now or in the next 24 hours the same way; with the plugin running its list is used, as before.
+    // ("All features should be available to people also not using the Viewarr plugin": Peter, 2026-11-21.)
 
     /** The plugin's quiet channel ids (null: not told yet; the last hidden set saved in the database stays till then). */
     private val _quiet = MutableStateFlow<Set<Int>?>(null)
-    /** The event channels hidden right now (empty with the setting off, or no plugin). */
+    /** The event channels hidden right now (empty with the setting off). */
     private val _hiddenEvents = MutableStateFlow<Set<Int>>(emptySet())
     val hiddenEventIds = _hiddenEvents.asStateFlow()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -280,9 +284,21 @@ class GuideRepository @Inject constructor(
     private suspend fun hideEventChannels() {
         val on = snapshotFlow { AppColors.palette.opt(UiOpts.EVENT_ONLY_LISTED) == 0 }
         val tick = flow { while (true) { emit(Unit); delay(EVENT_TICK_MS) } }
-        combine(_db, _quiet, on, tick) { db, quiet, isOn, _ -> Triple(db, quiet, isOn) }
-            .flatMapLatest { (db, quiet, isOn) ->
+        // The TV's own rule's groups while the plugin isn't running (looked at every 30 s, a cheap check); null: the plugin's list.
+        val ownRule = combine(
+            flow { while (true) { emit(io.github.petebutty.viewarr.data.sync.ServerSports.checked && !io.github.petebutty.viewarr.data.sync.ServerSports.pluginAlive); delay(30_000) } }.distinctUntilChanged(),
+            EventChannelRule.managedGroups,
+        ) { own, managed -> if (own) managed else null }
+        combine(_db, _quiet, on, tick, ownRule) { db, quiet, isOn, _, own -> EventInputs(db, quiet, isOn, own) }
+            .flatMapLatest { (db, quiet, isOn, own) ->
                 when {
+                    own != null && !isOn -> flowOf(db to emptySet<Int>())
+                    own != null -> {
+                        val now = System.currentTimeMillis()
+                        combine(db.guideDao().observeAllChannels(), db.guideDao().observeListedOrClub(now, now + EVENT_AHEAD_MS)) { chans, keep ->
+                            db to (EventChannelRule.eventChannelIds(chans, own) - keep.toSet())
+                        }
+                    }
                     quiet == null -> flowOf<Pair<io.github.petebutty.viewarr.data.local.AppDatabase, Set<Int>>?>(null)
                     !isOn || quiet.isEmpty() -> flowOf(db to emptySet<Int>())
                     else -> {
@@ -299,6 +315,10 @@ class GuideRepository @Inject constructor(
                 Log.i("Guide", "event channels without a listing hidden: ${hidden.size}")
             }
     }
+    /** What [hideEventChannels] works from: [own] is the TV's own rule's managed groups, null while the plugin's list is used. */
+    private data class EventInputs(
+        val db: io.github.petebutty.viewarr.data.local.AppDatabase, val quiet: Set<Int>?, val isOn: Boolean, val own: Set<String>?,
+    )
 
     /** Groups hidden from the channel groups list (hold OK → Hide), by name, per source. Their channels stay (All
      *  channels, numbers, links): only the list entry goes. Unlike "Choose groups", which leaves a group out entirely. */

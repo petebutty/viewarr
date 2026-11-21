@@ -1,5 +1,8 @@
 package io.github.petebutty.viewarr.ui.theme
 
+import androidx.lifecycle.repeatOnLifecycle
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -27,6 +30,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlin.math.max
 import kotlin.math.roundToInt
+
+/** The built-in Christmas wallpaper's name (falling snow goes with it). */
+const val CHRISTMAS = "Christmas"
 
 /** A built-in wallpaper: drawn, not a picture, so it's sharp at any size and costs nothing to load. */
 class WallpaperStyle(val name: String, val draw: DrawScope.(highlight: Color) -> Unit)
@@ -116,6 +122,25 @@ val WallpaperStyles = listOf(
     WallpaperStyle("Emerald night") { _ ->
         drawRect(Brush.linearGradient(listOf(Color(0xFF021C17), Color(0xFF052E26), Color(0xFF020F0C)), Offset(0f, 0f), Offset(size.width, size.height)))
         drawRect(Brush.radialGradient(listOf(Color(0x4410B981), Color.Transparent), Offset(size.width * 0.7f, size.height * 0.2f), size.width * 0.45f))
+        vignette()
+    },
+    // (2026-11-21: a winter night with warm fairy lights; with it, snow falls behind the pages: ChristmasSnow.)
+    WallpaperStyle(CHRISTMAS) { _ ->
+        drawRect(Brush.verticalGradient(listOf(Color(0xFF071226), Color(0xFF0B1D3A), Color(0xFF14284A))))
+        drawRect(Brush.radialGradient(listOf(Color(0x55D4A64B), Color.Transparent), Offset(size.width * 0.15f, size.height * 1.05f), size.width * 0.45f))
+        drawRect(Brush.radialGradient(listOf(Color(0x44B91C1C), Color.Transparent), Offset(size.width * 0.9f, size.height * 0.95f), size.width * 0.4f))
+        drawRect(Brush.radialGradient(listOf(Color(0x3310B981), Color.Transparent), Offset(size.width * 0.6f, size.height * 1.1f), size.width * 0.35f))
+        // Fairy lights along the top: soft warm dots on a gentle curve.
+        val n = 26
+        for (k in 0 until n) {
+            val x = size.width * (k + 0.5f) / n
+            val y = size.height * (0.035f + 0.025f * kotlin.math.sin(k * 0.7f))
+            val c = when (k % 4) { 0 -> Color(0xFFFFD27A); 1 -> Color(0xFFFF6B6B); 2 -> Color(0xFF7CE0A3); else -> Color(0xFF8EC5FF) }
+            drawCircle(Brush.radialGradient(listOf(c.copy(alpha = 0.5f), Color.Transparent), Offset(x, y), size.minDimension * 0.03f), size.minDimension * 0.03f, Offset(x, y))
+            drawCircle(c, size.minDimension * 0.004f, Offset(x, y))
+        }
+        // Snow lying along the bottom.
+        drawRect(Brush.verticalGradient(listOf(Color.Transparent, Color(0x22FFFFFF)), startY = size.height * 0.85f, endY = size.height))
         vignette()
     },
 )
@@ -326,4 +351,44 @@ private fun DrawScope.drawCover(img: ImageBitmap, alpha: Float) {
         dstSize = IntSize(size.width.roundToInt(), size.height.roundToInt()),
         alpha = alpha,
     )
+}
+
+/**
+ * Falling snow over the Christmas wallpaper, behind the pages. Light by design: a fixed set of flakes, each a single
+ * circle, all drawn in one layer from one clock at 30 frames a second (only this layer is drawn again, nothing laid
+ * out). It stops while a film or episode covers the screen and when Viewarr is in the background, and isn't there
+ * with Low-memory mode (no wallpaper then).
+ */
+@androidx.compose.runtime.Composable
+fun ChristmasSnow(modifier: androidx.compose.ui.Modifier = androidx.compose.ui.Modifier) {
+    val p = AppColors.palette
+    val on = p.wallpaperMode == 1 && WallpaperStyles.getOrNull(p.wallpaperStyle)?.name == CHRISTMAS &&
+        p.opt(UiOpts.SNOW) == 0 && !io.github.petebutty.viewarr.ui.media.VodHost.covering
+    if (!on) return
+    val flakes = androidx.compose.runtime.remember {
+        val r = java.util.Random(7)
+        List(90) { floatArrayOf(r.nextFloat(), r.nextFloat(), 0.4f + r.nextFloat() * 1.1f, 0.03f + r.nextFloat() * 0.05f, r.nextFloat() * 6.28f) }
+        // x, y (0..1), size, fall speed (screens a second… scaled below), sway phase
+    }
+    val time = androidx.compose.runtime.remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
+    val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
+    androidx.compose.runtime.LaunchedEffect(lifecycle) {
+        lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
+            var last = 0L
+            while (true) {
+                androidx.compose.runtime.withFrameNanos { now ->
+                    if (now - last >= 33_000_000L) { time.floatValue = now / 1_000_000_000f; last = now }
+                }
+            }
+        }
+    }
+    androidx.compose.foundation.Canvas(modifier.fillMaxSize().graphicsLayer {}) {
+        val t = time.floatValue
+        val w = size.width; val h = size.height; val unit = size.minDimension / 540f
+        for (f in flakes) {
+            val y = ((f[1] + t * f[3]) % 1.1f) * h - 0.05f * h
+            val x = ((f[0] + 0.02f * kotlin.math.sin(t * 0.6f + f[4])) % 1f) * w
+            drawCircle(Color.White.copy(alpha = 0.35f + 0.4f * (f[2] / 1.5f)), f[2] * 1.6f * unit, Offset(x, y))
+        }
+    }
 }

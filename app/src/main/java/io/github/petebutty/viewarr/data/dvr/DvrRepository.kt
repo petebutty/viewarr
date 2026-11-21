@@ -52,7 +52,20 @@ data class DvrRecording(
 )
 
 data class SeriesRule(val tvgId: String, val title: String, val mode: String, val titleMode: String, val epgSourceId: Int?) {
-    val label get() = title.trim('"', '^', '$')
+    /**
+     * Its name for people. A plain title as it is; a pattern (the Viewarr plugin's "Record all <team>" rules, written as
+     * a search like ((\mvs?\M|@).*\mCeltic\M|…)) as the names in it: "Celtic games" (Peter, 2026-11-21: the raw
+     * pattern was shown). An empty one: "Any programme".
+     */
+    val label: String get() {
+        val t = title.trim('"', '^', '$').trim()
+        if (t.isEmpty()) return "Any programme"
+        if (!Regex("""[\\()|*]""").containsMatchIn(t)) return t
+        val names = Regex("""\\m([^\\]+?)\\M""").findAll(t).map { it.groupValues[1].trim() }
+            .filter { it.isNotEmpty() && !it.matches(Regex("(?i)vs?\\??")) && it.any(Char::isLetter) }.distinct().toList()
+        val live = t.startsWith("Live", ignoreCase = true)
+        return if (names.isEmpty()) "Matching programmes" else names.joinToString(" & ") + (if (live) " games (live)" else " games")
+    }
 }
 
 /** Result of a DVR action: whether it worked, and what to tell the user either way. */

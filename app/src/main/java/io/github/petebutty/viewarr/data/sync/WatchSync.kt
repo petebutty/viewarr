@@ -52,6 +52,8 @@ class WatchSync @Inject constructor(
     // (For names and posters of titles another app shared without them. A Provider: no build-time loop.)
     private val catalog: javax.inject.Provider<io.github.petebutty.viewarr.data.media.CatalogRepository>,
     private val accounts: io.github.petebutty.viewarr.data.accounts.AccountStore,
+    // (The same switch done by this TV itself while the Viewarr plugin isn't running: TvServerWatch.)
+    private val tvServerWatch: TvServerWatch,
 ) {
     /**
      * Settings → Playback → Watch progress → Sync IPTV progress with my Emby / Jellyfin (off until switched on): this
@@ -106,7 +108,12 @@ class WatchSync @Inject constructor(
         if (started) return
         started = true
         // Settings → Playback → Watch progress → Sync now.
-        requestSync = { scope.launch { runCatching { sync(force = true) }.onFailure { Log.w(TAG, "sync failed: ${it.message}") } } }
+        requestSync = {
+            scope.launch { runCatching { sync(force = true) }.onFailure { Log.w(TAG, "sync failed: ${it.message}") } }
+            TvServerWatch.requestRound()
+        }
+        // No plugin (or its service stopped): this TV syncs with Emby / Jellyfin / Plex itself while Viewarr runs.
+        tvServerWatch.start()
         // Settings → … → Sync IPTV progress with my Emby / Jellyfin; and on start, if on (a sign-in may have changed).
         setServers = { on -> scope.launch { val want = on && !WatchSource.hasTrakt; if (runCatching { shareServers(want) }.getOrDefault(false)) sharedAs = want } }
         scope.launch { delay(8_000); runCatching { applyServers() } }

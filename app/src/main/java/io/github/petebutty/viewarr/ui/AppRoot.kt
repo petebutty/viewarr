@@ -101,6 +101,8 @@ class AppViewModel @Inject constructor(
     private val watchSync: WatchSync,
     private val serverSports: io.github.petebutty.viewarr.data.sync.ServerSports,
     private val gameWatch: io.github.petebutty.viewarr.data.sports.GameWatch,
+    /** Wanted game recordings made by this TV while the Viewarr plugin isn't running (data/sports/TvGameRecorder). */
+    private val tvGameRecorder: io.github.petebutty.viewarr.data.sports.TvGameRecorder,
     private val sportsRepo: io.github.petebutty.viewarr.data.sports.SportsRepository,
     accessLoader: AccessLoader,
     house: House,
@@ -120,11 +122,13 @@ class AppViewModel @Inject constructor(
             // IPTV / addon watch progress shared between boxes through Dispatcharr (WatchSync).
             watchSync.start()
             io.github.petebutty.viewarr.ui.common.AppStart.after(14_000)
-            // Live score alerts for what this user follows (from the plugin), as a banner on this TV.
+            // Live score alerts for what this user follows (from the plugin, else checked by this TV), as a banner.
             serverSports.startAlerts(sportsRepo.follows)
             io.github.petebutty.viewarr.ui.common.AppStart.after(20_000)
             // "Record all of a team's games" and pending game recordings shared with Dispatcharr (the plugin records them).
             gameWatch.startSharing()
+            // Without the plugin, this TV records them itself while Viewarr is running (every 15 minutes, and after a guide update).
+            tvGameRecorder.start()
         }
         // What the signed-in person may do (an admin's locks on their Dispatcharr user).
         accessLoader.start(viewModelScope)
@@ -252,6 +256,8 @@ fun AppRoot(vm: AppViewModel = hiltViewModel()) {
     ) {
         // (After the splash: decoding pictures competed with the start page loading.)
         if (!splashShown) WallpaperLoader()
+        // The Christmas wallpaper's falling snow: behind everything else drawn here (the pages show it through).
+        if (!splashShown) io.github.petebutty.viewarr.ui.theme.ChristmasSnow()
         when (val s = state) {
             StartState.Loading -> Unit
             StartState.NeedsSetup -> if (!splashShown) {

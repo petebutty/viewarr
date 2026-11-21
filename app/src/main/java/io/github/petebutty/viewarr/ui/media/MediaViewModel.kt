@@ -310,7 +310,7 @@ class MediaViewModel @Inject constructor(
      * addresses, which carry no sign-in.
      */
     private val recordingResume: kotlinx.coroutines.flow.Flow<List<MediaItem>> =
-        kotlinx.coroutines.flow.combine(dvrRepo.recordings, io.github.petebutty.viewarr.data.dvr.RecordingProgress.version) { recs, _ ->
+        kotlinx.coroutines.flow.combine(dvrRepo.recordings, io.github.petebutty.viewarr.data.dvr.RecordingProgress.version, io.github.petebutty.viewarr.data.dvr.RecordingTags.version) { recs, _, _ ->
             val ctx = appContext
             val server = runCatching { dvrRepo.serverUrl()?.trimEnd('/') }.getOrNull()
             recs.filter { it.state == io.github.petebutty.viewarr.data.dvr.DvrState.Recorded && it.hasFile }
@@ -324,7 +324,9 @@ class MediaViewModel @Inject constructor(
                     rec to MediaItem(
                         key = io.github.petebutty.viewarr.data.dvr.RecordingOpen.PREFIX + rec.id, type = MediaType.Show,
                         title = rec.title + (if (rec.season != null && rec.episode != null) " · S${rec.season} E${rec.episode}" else ""),
-                        poster = logo, origin = "Recordings", subtitle = if (fresh) "New recording" else "Recording", progress = f.takeIf { it > 0f },
+                        // The show's or film's own poster and backdrop when TMDB knows it (RecordingTags), else the channel logo.
+                        poster = io.github.petebutty.viewarr.data.dvr.RecordingTags.of(ctx, rec.id)?.poster ?: logo,
+                        backdrop = io.github.petebutty.viewarr.data.dvr.RecordingTags.of(ctx, rec.id)?.backdrop, origin = "Recordings", subtitle = if (fresh) "New recording" else "Recording", progress = f.takeIf { it > 0f },
                     )
                 }
                 // Newest first: when it was last watched, or for a new one when it finished recording.
@@ -1767,13 +1769,55 @@ class MediaViewModel @Inject constructor(
             c to VersionPick.score(c.version, screen, home)
         }.sortedByDescending { it.second }.map { it.first }
         return scored.mapIndexed { i, c -> RankedCopy(c, i == 0 && scored.size > 1, VersionPick.note(c.version, screen, c.source == "Plex")) } +
-            iptv.map { RankedCopy(it, false, null) }
+            iptv.map { RankedCopy(it, false, null) } + recordingCopies().map { RankedCopy(it, false, null) }
+    }
+
+    /**
+     * This film's recordings on Dispatcharr (matched by TMDB: RecordingTags), as Play from choices: "Recording · BBC
+     * Two · Sat 21/11" (Peter, 2026-11-21: recordings in the list of sources). A choice plays the recording, carrying on
+     * where you stopped.
+     */
+    private fun recordingCopies(): List<LibraryCopy> {
+        val item = _detail.value?.detail?.item ?: return emptyList()
+        val id = item.tmdbId ?: return emptyList()
+        if (item.type != MediaType.Movie) return emptyList()
+        return dvrRepo.recordings.value
+            .filter { it.state == io.github.petebutty.viewarr.data.dvr.DvrState.Recorded && it.hasFile }
+            .filter { r -> io.github.petebutty.viewarr.data.dvr.RecordingTags.of(appContext, r.id)?.let { it.kind == "film" && it.tmdbId == id } == true }
+            .sortedByDescending { it.start }
+            .map { r -> LibraryCopy(RECORDING, io.github.petebutty.viewarr.ui.theme.Dates.dayTime(r.start), io.github.petebutty.viewarr.data.dvr.RecordingOpen.PREFIX + r.id) }
+    }
+
+    private var recTraktState = ""
+    /**
+     * A recording playing (any page): Trakt hears it as it hears any film or episode, by the show's or film's TMDB id
+     * (RecordingTags), when Send plays to Trakt is on: start, pause and stop with how far through, so Trakt's own
+     * history and Continue watching follow. Recordings with no TMDB match (sport, news) aren't sent. 2026-11-21.
+     */
+    fun reportRecording(recId: Int, state: String, positionMs: Long, durationMs: Long) {
+        if (state == recTraktState || durationMs <= 0) return
+        recTraktState = state
+        val tag = io.github.petebutty.viewarr.data.dvr.RecordingTags.of(appContext, recId) ?: return
+        val rec = dvrRepo.recordings.value.firstOrNull { it.id == recId }
+        val target = when {
+            tag.kind == "film" && tag.tmdbId != null -> WatchTarget(MediaType.Movie, tmdbId = tag.tmdbId)
+            tag.kind == "show" && tag.tmdbId != null && rec?.season != null && rec.episode != null ->
+                WatchTarget(MediaType.Show, tmdbId = tag.tmdbId, season = rec.season, episode = rec.episode)
+            else -> return
+        }
+        val action = when (state) { "playing" -> "start"; "paused" -> "pause"; else -> "stop" }
+        val pct = positionMs.toFloat() / durationMs
+        if (state == "stopped") recTraktState = ""
+        // (Trakt refuses a pause or stop under 1%.)
+        if (action == "start" || pct >= 0.01f) viewModelScope.launch { runCatching { repo.scrobbleTrakt(action, target, pct) } }
     }
 
     /** Other sources → one particular copy. */
     fun playCopy(c: LibraryCopy) {
         val d = _detail.value ?: return
         if (c.source == PROVIDER) return playProvider()
+        // A recording: the home screen plays it (RecordingOpen), where you stopped.
+        if (c.source == RECORDING) { c.ref?.removePrefix(io.github.petebutty.viewarr.data.dvr.RecordingOpen.PREFIX)?.toIntOrNull()?.let { io.github.petebutty.viewarr.data.dvr.RecordingOpen.pending.value = it }; return }
         launchPlay {
             _detail.update { it?.copy(message = "Opening on ${copyLabel(c)}…") }
             val stream = runCatching { streamFor(c, d.detail.item) }.getOrNull()
@@ -2217,3 +2261,6 @@ const val LIBRARY_PAGE = 60
 private object StoppedHere {
     val items = MutableStateFlow<Map<String, Long>>(emptyMap())
 }
+
+/** A Play from choice that is one of your recordings (MediaViewModel.recordingCopies). */
+private const val RECORDING = "Recording"
