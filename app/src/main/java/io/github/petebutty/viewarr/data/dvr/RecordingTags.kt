@@ -31,6 +31,19 @@ object RecordingTags {
 
     fun of(context: Context, id: Int): Tag? = load(context)[id]
 
+    /** The player's details for a recording (Info, or paused): its show's poster and backdrop, the episode and description. */
+    fun art(context: Context, rec: DvrRecording): io.github.petebutty.viewarr.data.media.PlayerArt {
+        val t = of(context, rec.id)
+        val ep = listOfNotNull(
+            if (rec.season != null && rec.episode != null) "S${rec.season} E${rec.episode}" else null,
+            t?.episodeName ?: rec.subTitle?.takeIf { it.isNotBlank() && !it.equals(rec.title, ignoreCase = true) },
+        ).joinToString(" · ").ifEmpty { null }
+        return io.github.petebutty.viewarr.data.media.PlayerArt(
+            backdrop = t?.backdrop, logo = null, poster = t?.poster, episodeLine = ep,
+            facts = "Recorded " + io.github.petebutty.viewarr.ui.theme.Dates.dayTime(rec.start), overview = rec.description?.takeIf { it.isNotBlank() },
+        )
+    }
+
     /** Looks up every recording not tagged yet (once each; a miss is kept as "other"). */
     suspend fun tagAll(context: Context, art: ProgramArt, recs: List<DvrRecording>) {
         val m = load(context)

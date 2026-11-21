@@ -130,6 +130,9 @@ object DeepLink {
     data class Command(val kind: String, val arg: String? = null, val uuid: String? = null, val number: Double? = null, val at: Long = System.nanoTime())
     val pendingCommand = MutableStateFlow<Command?>(null)
 
+    /** Presses a remote key in the app (MainActivity sets it): viewarr://pause, play, playpause act as the remote's own. */
+    @Volatile var keySink: ((Int) -> Unit)? = null
+
     /** Any viewarr:// link: a title or a channel, each to its own queue. */
     fun handle(uri: Uri?) {
         if (uri == null || uri.scheme != "viewarr") return
@@ -151,6 +154,15 @@ object DeepLink {
             "rows" -> pendingCommand.value = Command("rows", uri.getQueryParameter("use")?.trim()?.lowercase())
             "homerows" -> pendingCommand.value = Command("homerows", uri.getQueryParameter("add")?.trim()?.lowercase())
             "refresh" -> pendingCommand.value = Command("refresh", if (uri.getQueryParameter("guide") in setOf("1", "true", "yes")) "guide" else null)
+            // Pause / play: the remote's media keys, so live TV, films and music each do what their own button does.
+            "pause", "play", "playpause" -> {
+                val code = when (uri.host) {
+                    "pause" -> android.view.KeyEvent.KEYCODE_MEDIA_PAUSE
+                    "play" -> android.view.KeyEvent.KEYCODE_MEDIA_PLAY
+                    else -> android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE
+                }
+                keySink?.let { k -> android.os.Handler(android.os.Looper.getMainLooper()).post { k(code) } }
+            }
         }
     }
 

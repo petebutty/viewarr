@@ -77,6 +77,12 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // viewarr://pause, play, playpause (Home Assistant, ADB): one press of that key, as from the remote.
+        io.github.petebutty.viewarr.data.media.DeepLink.keySink = { code ->
+            val t = android.os.SystemClock.uptimeMillis()
+            dispatchKeyEvent(android.view.KeyEvent(t, t, android.view.KeyEvent.ACTION_DOWN, code, 0))
+            dispatchKeyEvent(android.view.KeyEvent(t, t, android.view.KeyEvent.ACTION_UP, code, 0))
+        }
         // (Only a fresh start: Android hands a restored app its original link again, which replayed it on every restart.)
         if (savedInstanceState == null) { DeepLink.handle(intent?.data); voiceRequest(intent) }
         lifecycleScope.launch { themeStore.palette.collect { AppColors.palette = it } }

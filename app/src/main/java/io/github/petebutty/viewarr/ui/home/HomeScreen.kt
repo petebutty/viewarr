@@ -187,7 +187,8 @@ fun HomeScreen(
     val recordingFlow = remember { MutableStateFlow<VodStream?>(null) }
     // (Where a recording has got to is kept on the box: the Recordings page's bar and tick, and Resume.)
     val recordingCtx = androidx.compose.ui.platform.LocalContext.current.applicationContext
-    val recordingSource = remember { VodSource(recordingFlow, MutableStateFlow(null), onClose = { recordingFlow.value = null },
+    val recordingArt = remember { MutableStateFlow<io.github.petebutty.viewarr.data.media.PlayerArt?>(null) }
+    val recordingSource = remember { VodSource(recordingFlow, recordingArt, onClose = { recordingFlow.value = null },
         onProgress = { s, state, pos, dur -> io.github.petebutty.viewarr.data.dvr.RecordingProgress.idOf(s.url)?.let {
             io.github.petebutty.viewarr.data.dvr.RecordingProgress.record(recordingCtx, it, pos, dur, state)
             // And to Trakt, as any film or episode (when the recording is matched on TMDB).
@@ -202,7 +203,12 @@ fun HomeScreen(
         dvr.playback(rec)?.let { hs.recordingPlayback = it } ?: hs.toast("That recording couldn't be played")
     }
     LaunchedEffect(hs.recordingPlayback) {
-        hs.recordingPlayback?.let { recordingFlow.value = it; VodHost.show(recordingSource); hs.recordingPlayback = null }
+        hs.recordingPlayback?.let { s ->
+            // (Its details for the player's Info panel: the episode, when it was recorded, the description.)
+            recordingArt.value = io.github.petebutty.viewarr.data.dvr.RecordingProgress.idOf(s.url)?.let { id -> dvr.recordings.value.firstOrNull { it.id == id } }
+                ?.let { io.github.petebutty.viewarr.data.dvr.RecordingTags.art(recordingCtx, it) }
+            recordingFlow.value = s; VodHost.show(recordingSource); hs.recordingPlayback = null
+        }
     }
     // "Remind me": the programme starting now pops up in the corner; OK watches it, Back dismisses.
     LaunchedEffect(Unit) {
@@ -1178,7 +1184,12 @@ private fun BoxScope.SearchLayer(hs: HomeState) {
         BackHandler { hs.quickSearch = false; hs.searchStart = null }
         // Solid: the screen underneath showing through between results (guide text, times) looked like a glitch.
         // The remote stays inside search until it closes.
-        Box(Modifier.fillMaxSize().appBackground().then(if (hs.infoTarget == null && hs.recordTarget == null) Modifier.trapFocus() else Modifier)) {
+        // Over full-screen live TV: see-through, so the programme carries on showing behind (Peter, 2026-11-21);
+        // darkest on the left where the box and results are.
+        val overLive = hs.fullscreen && hs.playback.channel.value != null
+        Box(Modifier.fillMaxSize().then(if (overLive) Modifier.background(androidx.compose.ui.graphics.Brush.horizontalGradient(
+                0f to AppColors.palette.main.copy(alpha = 0.9f), 0.6f to AppColors.palette.main.copy(alpha = 0.78f), 1f to AppColors.palette.main.copy(alpha = 0.6f)))
+            else Modifier.appBackground()).then(if (hs.infoTarget == null && hs.recordTarget == null) Modifier.trapFocus() else Modifier)) {
             SearchClosesAfterTitle { hs.quickSearch = false; hs.searchStart = null; hs.searchCatchup = false }
             SearchPage(
                 guide = vm,

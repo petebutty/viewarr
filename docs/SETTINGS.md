@@ -185,6 +185,10 @@ The options:
 
 See [Profiles](PROFILES.md#your-setup-saved-on-dispatcharr) and [Privacy](PRIVACY.md).
 
+### Home Assistant
+
+Optional. Your Home Assistant's **Address** and an **Access token**, **Test connection**, and switches for **Send what's playing** and **Pop-ups from Home Assistant**. **How to use it** explains the events. The token stays on this TV. See [Home Assistant](HOME-ASSISTANT.md).
+
 ### Troubleshooting
 
 **Show playback info** (format, decoder and dropped frames while playing) and **Low-memory mode** for boxes with 1–2 GB. See [Troubleshooting](TROUBLESHOOTING.md).

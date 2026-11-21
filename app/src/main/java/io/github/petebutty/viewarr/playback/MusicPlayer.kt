@@ -90,7 +90,11 @@ object MusicPlayer {
             .setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(), true)
             .build().also { p ->
                 p.addListener(object : Player.Listener {
-                    override fun onIsPlayingChanged(playing: Boolean) { isPlaying = playing; analyser.playing = playing }
+                    override fun onIsPlayingChanged(playing: Boolean) {
+                        isPlaying = playing; analyser.playing = playing
+                        // Home Assistant (when set up): what's playing.
+                        io.github.petebutty.viewarr.data.homeassistant.HaPlayback.music(current, if (playing) "playing" else "paused", p.currentPosition, durationMs)
+                    }
                     override fun onPlaybackStateChanged(state: Int) {
                         buffering = state == Player.STATE_BUFFERING
                         if (state == Player.STATE_READY) failures = 0
@@ -102,6 +106,7 @@ object MusicPlayer {
                         current?.let { onScrobble(it.id, false) }
                         scrobbledId = null
                         radioCheck()
+                        if (p.isPlaying) io.github.petebutty.viewarr.data.homeassistant.HaPlayback.music(current, "playing", 0, durationMs)
                     }
                     override fun onShuffleModeEnabledChanged(on: Boolean) { shuffle = on }
                     override fun onRepeatModeChanged(mode: Int) { repeat = mode }
@@ -254,6 +259,7 @@ object MusicPlayer {
     }
 
     fun stop() {
+        io.github.petebutty.viewarr.data.homeassistant.HaPlayback.music(current, "stopped", positionMs, durationMs)
         player?.let { it.stop(); it.clearMediaItems() }
         queue = emptyList()
         radio = false

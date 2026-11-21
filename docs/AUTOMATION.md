@@ -54,6 +54,7 @@ Quote the link, as shown, so the shell doesn't split it at `?` or `&`.
 | `viewarr://refresh` | Fetches the channel list again (quick; the guide's programmes follow with its next fetch). `viewarr://refresh?guide=1` fetches the whole guide. *(0.27.2 and later.)* |
 | `viewarr://search?q=<words>` | Opens search with those words filled in (encode spaces as `%20`). |
 | `viewarr://title?tmdb=<id>&type=movie` | Opens a film's page from its TMDB id (`type=show` for a TV show). |
+| `viewarr://pause`, `viewarr://play`, `viewarr://playpause` | As the remote's pause / play buttons, for whatever is playing. *(0.29.7 and later.)* |
 
 ### Play, pause, skip
 
@@ -75,7 +76,8 @@ Dispatcharr's API, `GET /api/channels/channels/`, as `uuid`).
 
 ## Home Assistant example
 
-With the [Android Debug Bridge](https://www.home-assistant.io/integrations/androidtv/) integration set up for your
+Viewarr 0.29.7 and later can take commands from Home Assistant directly, with no ADB set-up: see
+[Home Assistant](HOME-ASSISTANT.md). The ADB way still works: with the [Android Debug Bridge](https://www.home-assistant.io/integrations/androidtv/) integration set up for your
 TV, a script that puts BBC One on:
 
 ```yaml

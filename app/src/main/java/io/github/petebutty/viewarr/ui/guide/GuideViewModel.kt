@@ -146,6 +146,7 @@ class GuideViewModel @Inject constructor(
         val dropped = HashMap<String, MutableList<String>>()
         fun drop(why: String, what: String) { dropped.getOrPut(why) { mutableListOf() } += what }
         val picks = runCatching { liveNowPicks.current() }.getOrDefault(emptyList())
+        val rankOf = HashMap<String, Int>()
         val events = srv.live.mapNotNull { l ->
             val c = byUuid[l.uuid] ?: run { drop("channel not on this TV", l.title); return@mapNotNull null }
             val g = l.game?.let { srv.games[it] }
@@ -161,7 +162,9 @@ class GuideViewModel @Inject constructor(
                 )
             val sport = sports.sport("${l.sport.orEmpty()} ${l.title} ${c.name} ${c.groupName.orEmpty()}")
             // Settings → Live TV → Live now: only the teams, leagues and sports picked there (none picked: everything).
-            if (!LiveNowPicks.matches(picks, g?.leaguePath, g?.home, g?.away, l.title, sport?.name)) { drop("not in your Live now list", l.title); return@mapNotNull null }
+            val rank = if (picks.isEmpty()) 0 else LiveNowPicks.rank(picks, g?.leaguePath, g?.home, g?.away, l.title, sport?.name)
+            if (rank >= picks.size && picks.isNotEmpty()) { drop("not in your Live now list", l.title); return@mapNotNull null }
+            rankOf[c.uuid] = minOf(rankOf[c.uuid] ?: Int.MAX_VALUE, rank)
             LiveEvent(c, p, l.score?.let { "${l.title} ($it)" } ?: l.title, sport, l.picture ?: p.image)
         }
         if (events.isEmpty() && srv.live.isNotEmpty() && srv.live.none { byUuid.containsKey(it.uuid) }) return null
@@ -176,7 +179,9 @@ class GuideViewModel @Inject constructor(
             dropped.entries.joinToString("") { (why, t) -> "; $why: ${t.size} (${t.take(3).joinToString(", ") { it.take(30) }})" })
         val onNow = wanted.filter { it.program.startTime <= now }.take(60)
         val soon = wanted.filter { it.program.startTime > now }.take(30)
-        _liveUuids.value = (onNow + soon).filter { it.program.rowId >= 0 || it.channel.uuid in guided }.sortedBy { it.program.startTime }.map { it.channel.uuid }.distinct()
+        // (In the Live now list's order, then by start time.)
+        _liveUuids.value = (onNow + soon).filter { it.program.rowId >= 0 || it.channel.uuid in guided }
+            .sortedWith(compareBy({ rankOf[it.channel.uuid] ?: 0 }, { it.program.startTime })).map { it.channel.uuid }.distinct()
         return LiveEvents(onNow, soon)
     }
 
@@ -316,7 +321,10 @@ class GuideViewModel @Inject constructor(
         // The Live now group in the guide: only channels whose guide has the event (a team or event channel found from
         // the schedule often has no guide at all, an empty row there. Peter, 2026-11-17).
         // In time order (Peter, 2026-11-17): what started first at the top, then what's coming up, soonest first.
-        _liveUuids.value = (onNowList + soonList).filter { it.program.rowId >= 0 }.sortedBy { it.program.startTime }.map { it.channel.uuid }.distinct()
+        // (In the Live now list's order, then by start time.)
+        _liveUuids.value = (onNowList + soonList).filter { it.program.rowId >= 0 }
+            .sortedWith(compareBy({ if (picks.isEmpty()) 0 else LiveNowPicks.rank(picks, null, null, null, it.title, it.sport?.name) }, { it.program.startTime }))
+            .map { it.channel.uuid }.distinct()
         return LiveEvents(
             onNow = onNowList,
             soon = soonList,
@@ -771,13 +779,52 @@ class GuideViewModel @Inject constructor(
     }
 
     /** Channels whose name or number matches a search, across all categories (not event channels hidden for want of a listing). */
+    /**
+     * Voice search (Peter, 2026-11-21: "voice search will play a TV channel automatically"): the channel [said] names,
+     * when it clearly names one ("BBC One", "channel 104", "put on Sky Atlantic", "BBC 2"), else null (a normal search).
+     * Exact name first; else the one channel whose name starts with it ("BBC One" → BBC One Scotland), HD copies aside.
+     */
+    suspend fun voiceChannel(said: String): ChannelListItem? {
+        val words = mapOf("one" to "1", "two" to "2", "three" to "3", "four" to "4", "five" to "5", "six" to "6", "seven" to "7",
+            "eight" to "8", "nine" to "9", "ten" to "10", "first" to "1", "second" to "2", "and" to "&")
+        fun norm(s: String) = s.lowercase().replace("+", " plus ").replace(Regex("[^a-z0-9& ]"), " ").split(' ').filter { it.isNotBlank() }
+            .map { words[it] ?: it }.filter { it != "hd" && it != "fhd" && it != "uhd" && it != "4k" }.joinToString(" ").replace(" & ", " and ").replace("&", " and ")
+        var t = norm(said)
+        t = t.replace(Regex("^(please )?(play|watch|put on|put|switch to|switch|turn on|go to|tune to|change to|show me|open)( the)? "), "")
+            .replace(Regex(" (please|now|on (the )?tv)$"), "").replace(Regex(" channel$"), "").trim()
+        if (t.length < 2) return null
+        // (Old or spoken names first turned into today's: "Sky Movies Premiere" → Sky Cinema Premiere.)
+        channelAliases(t).firstOrNull()?.let { t = norm(it) }
+        val hidden = repo.hiddenEventIds.value
+        val all = allChannelsList().filter { it.id !in hidden }
+        Regex("^(channel |number )?(\\d{1,4})$").find(t)?.groupValues?.get(2)?.toDoubleOrNull()?.let { n -> all.firstOrNull { it.number == n }?.let { return it } } // ("Channel 4" with no channel 4: its name, below.)
+        val named = all.map { it to norm(it.name) }
+        named.filter { it.second == t }.let { if (it.isNotEmpty()) return it.minByOrNull { c -> c.first.number ?: Double.MAX_VALUE }!!.first }
+        val starts = named.filter { it.second.startsWith("$t ") }
+        // (One channel, or copies of one: the lowest number.) A name like "Sky" matching dozens is a search instead.
+        return starts.takeIf { it.isNotEmpty() && it.map { c -> c.second }.distinct().size == 1 }?.minByOrNull { it.first.number ?: Double.MAX_VALUE }?.first
+    }
+
     suspend fun searchChannels(q: String): List<ChannelListItem> {
         val t = q.trim()
         if (t.length < 2) return emptyList()
         val hidden = repo.hiddenEventIds.value
+        // (Also what people call them: "Sky Movies" finds Sky Cinema, "BBC 1" BBC One. Peter, 2026-11-21.)
+        val also = channelAliases(t)
         return allChannelsList().filter { c ->
-            c.id !in hidden && (c.name.contains(t, ignoreCase = true) || c.number?.let { n -> (if (n % 1.0 == 0.0) n.toInt().toString() else n.toString()) == t } == true)
+            c.id !in hidden && (c.name.contains(t, ignoreCase = true) || also.any { c.name.contains(it, ignoreCase = true) } ||
+                c.number?.let { n -> (if (n % 1.0 == 0.0) n.toInt().toString() else n.toString()) == t } == true)
         }.take(30)
+    }
+
+    /** Other names for a channel search: old or spoken names ("Sky Movies" → "Sky Cinema", "BBC 1" → "BBC One"). */
+    private fun channelAliases(q: String): List<String> {
+        val l = q.lowercase().trim()
+        val swaps = listOf("sky movies" to "sky cinema", "sky movie" to "sky cinema", "sky sport " to "sky sports ", "bbc 1" to "bbc one",
+            "bbc 2" to "bbc two", "bbc 3" to "bbc three", "bbc 4" to "bbc four", "itv 1" to "itv1", "itv one" to "itv1", "channel four" to "channel 4",
+            "channel five" to "channel 5", "five" to "channel 5", "tnt sport " to "tnt sports ", "bt sport" to "tnt sports", "premier sports" to "premier sports")
+        return swaps.mapNotNull { (from, to) -> if (l.startsWith(from) || l == from.trim()) to + l.removePrefix(from.trim()).let { if (from.endsWith(" ")) l.removePrefix(from) else it } else null }
+            .map { it.trim() }.filter { it.isNotEmpty() && it != l }.distinct()
     }
 
     /**

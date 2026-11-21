@@ -435,6 +435,22 @@ class CatalogRepository @Inject constructor(
         ).filter { it.items.isNotEmpty() }
     }
 
+    private val personCache = BoundedCache<String, PersonDetails>(12)
+
+    /**
+     * A person's page: who they are, their credits and pictures, in one TMDB call (a second, small one only when
+     * there's no British English biography). Kept for the session.
+     */
+    suspend fun personDetails(personId: String, name: String): PersonDetails? {
+        personCache[personId]?.let { return it }
+        val key = store.current().tmdbKey ?: return null
+        suspend fun get(params: Map<String, String>) = runCatching { http.get(tmdb.url("/person/$personId", key, params), tmdb.headers(key)) }
+            .getOrNull()?.takeIf { it.ok }?.body
+        val j = get(mapOf("language" to "en-GB", "append_to_response" to "combined_credits,images,tagged_images")) ?: return null
+        val bio = j.str("biography")?.takeIf { it.isNotBlank() } ?: get(mapOf("language" to "en-US"))?.str("biography")?.takeIf { it.isNotBlank() }
+        return parsePersonDetails(personId, name, j, bio) { e, t -> tmdbItem(e, t) }.also { personCache[personId] = it }
+    }
+
     /** Quick picks while typing: the best-known titles and names that match (TMDB). */
     suspend fun suggestions(q: String): List<String> {
         val key = store.current().tmdbKey ?: return emptyList()

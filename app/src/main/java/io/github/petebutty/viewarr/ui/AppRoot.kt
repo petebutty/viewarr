@@ -340,6 +340,8 @@ fun AppRoot(vm: AppViewModel = hiltViewModel()) {
         io.github.petebutty.viewarr.ui.settings.SettingsCodeHost()
         // Live score alerts (the plugin), over everything but the splash.
         io.github.petebutty.viewarr.ui.common.AlertBanner.Host()
+        // Home Assistant (Settings → This TV → Home Assistant): its pop-ups over everything, and what's playing sent to it.
+        io.github.petebutty.viewarr.ui.homeassistant.HomeAssistantHost()
         // Report a problem (hold OK on a channel), the guide picker, Settings → Live TV → Reports and the house card.
         io.github.petebutty.viewarr.ui.report.ReportHost()
         // Settings → Live TV → Live now: its search screen and a pick's Remove pop-up.

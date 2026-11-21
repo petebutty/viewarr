@@ -252,7 +252,7 @@ fun VodHostLayer() {
             val bleed: () -> Float = androidx.compose.runtime.remember(surfaceView) { { if (surfaceView) 1f else 1f - shrinkAnim.value } }
             androidx.compose.runtime.CompositionLocalProvider(io.github.petebutty.viewarr.ui.common.LocalBleedAmount provides bleed) {
                 androidx.compose.runtime.key(s) {
-                    PlayerHost(stream = s, onClose = { src.onClose(); VodHost.afterStop() }, art = art, onProgress = { st, p, d -> src.onProgress(s, st, p, d) })
+                    PlayerHost(stream = s, onClose = { src.onClose(); VodHost.afterStop() }, art = art, onProgress = { st, p, d -> src.onProgress(s, st, p, d); io.github.petebutty.viewarr.data.homeassistant.HaPlayback.vod(s, st, p, d, !VodHost.mini) })
                 }
             }
           }

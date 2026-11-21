@@ -104,6 +104,7 @@ The full walkthrough, with what each step needs and troubleshooting tips, is in 
 - **[Troubleshooting](docs/TROUBLESHOOTING.md)**: channels, playback, a slow box, music
 - **[Privacy](docs/PRIVACY.md)**: what's stored and what's sent where
 - **[Controlling Viewarr from outside](docs/AUTOMATION.md)**: `viewarr://` links for ADB and home automation
+- **[Home Assistant](docs/HOME-ASSISTANT.md)**: lights that follow what you watch, pop-ups on the TV, voice and phone control
 
 ## Building from source
 

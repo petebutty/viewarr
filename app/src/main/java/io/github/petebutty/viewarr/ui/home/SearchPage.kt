@@ -140,8 +140,13 @@ internal fun SearchPage(
     val canVoice = true
     val voice = io.github.petebutty.viewarr.ui.common.rememberVoiceSearch(
         onResult = { said ->
-            query = said
-            searchScope.launch { delay(900); runCatching { rowsFocus.requestFocus() } }
+            searchScope.launch {
+                // A channel's name said: straight to it (else the words are searched as before).
+                val ch = runCatching { guide.voiceChannel(said) }.getOrNull()
+                if (ch != null) { android.util.Log.i("VoiceSearch", "channel: ${ch.name}"); onChannel(ch); return@launch }
+                query = said
+                delay(900); runCatching { rowsFocus.requestFocus() }
+            }
         },
         onKeyboard = {
             typing = true

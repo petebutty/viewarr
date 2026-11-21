@@ -1,5 +1,35 @@
 # Viewarr changelog (built by tools/changelog.py from the GitHub releases; don't edit by hand)
 
+## 0.29.7 · 21 Nov 2026
+
+Home Assistant, voice channel changes, a new actor page and smoother details.
+
+### Home Assistant (optional)
+**Settings → This TV → Home Assistant**: your Home Assistant's address and a long-lived access token. Nothing happens until it's set up. See the Home Assistant guide.
+- **What's playing:** Viewarr tells Home Assistant when a film, episode, recording, live TV or music starts, pauses or stops, so lights can follow what you watch (DreamView on for a film in the evening, back to normal on pause).
+- **Pop-ups on the TV:** Home Assistant can show a message, a picture or a live camera in the corner, over whatever's playing.
+- **Commands:** change channel, pause, play, stop, open the guide and more from Home Assistant, so from your phone, a dashboard button or Alexa / Google ("Alexa, turn on BBC One").
+- The token stays on the TV: it isn't in settings codes, backups or reports.
+
+### Say a channel
+- With the remote's mic, say a channel's name or number ("BBC Two", "Channel 104", "put on Sky Atlantic") and it plays straight away. Anything else is searched as before.
+- Search and voice understand older names too: "Sky Movies" finds Sky Cinema, "BBC 1" BBC One, "BT Sport" TNT Sports.
+- Search is see-through over full-screen live TV, so the programme carries on behind it.
+
+### Actor pages
+- A new page for each person: portrait, born, birthplace, credits and biography (Read more), a big picture, and tabs for **Overview** (Known for, Latest), **Filmography** (every title with year and rating, filter Films / Shows, sort by date or rating) and **Media** (their photos, full screen).
+
+### Live now in your order
+- **Settings → Live TV → Live now:** OK on a team, league or sport to **Move up**, **Move down** or **Move to the top**. Live now shows games in that order.
+
+### Details and recordings
+- The top panel's title and details slide in once they're ready, and its shade is full size from the start.
+- Over the artwork on the right, the description gets two shorter lines, ending with "…" instead of being cut off.
+- Recordings in Continue watching show the episode's name, when it was recorded and its description; so does the player's info panel while one plays.
+
+### Fixes
+- The keyboard's own Done key did nothing in text boxes (Home Assistant address, report notes): it saves now.
+
 ## 0.29.6 · 21 Nov 2026
 
 A small update for the Christmas wallpaper.

@@ -48,6 +48,13 @@ class LiveNowPicks @Inject constructor(
     }
 
     suspend fun remove(p: LiveNowPick) = lock.withLock { save(picks.first().filter { it.key != p.key }) }
+    /** Moves a pick up ([by] < 0) or down the list: Live now shows games in the list's order. */
+    suspend fun move(p: LiveNowPick, by: Int) = lock.withLock {
+        val l = picks.first().toMutableList()
+        val i = l.indexOfFirst { it.key == p.key }.takeIf { it >= 0 } ?: return@withLock
+        val j = (i + by).coerceIn(0, l.lastIndex)
+        if (i != j) { l.add(j, l.removeAt(i)); save(l) }
+    }
 
     /** The list as it is now, after the one-time carry-over from the old switches. */
     suspend fun current(): List<LiveNowPick> { migrate(); return picks.first() }
@@ -111,11 +118,17 @@ class LiveNowPicks @Inject constructor(
          * its name in the title. A league: the fixture's league; with no fixture, the league's name in the title when
          * the sport fits. A sport: the item's sport, or its fixture's league's sport.
          */
-        fun matches(picks: List<LiveNowPick>, leaguePath: String?, home: String?, away: String?, text: String, sport: String?): Boolean {
-            if (picks.isEmpty()) return true
+        fun matches(picks: List<LiveNowPick>, leaguePath: String?, home: String?, away: String?, text: String, sport: String?): Boolean =
+            picks.isEmpty() || rank(picks, leaguePath, home, away, text, sport) < picks.size
+
+        /**
+         * Where an item sits by the list's order (Peter, 2026-11-21: "put them in the order the user wants"): the place of
+         * the first pick it matches, [picks].size when none does. Live now shows games in this order, then by start time.
+         */
+        fun rank(picks: List<LiveNowPick>, leaguePath: String?, home: String?, away: String?, text: String, sport: String?): Int {
             val fixture = home != null || away != null
             val gameSport = leaguePath?.let { LiveSports.ofLeague(it) }
-            return picks.any { p ->
+            val i = picks.indexOfFirst { p ->
                 when (p.kind) {
                     LiveNowPick.Kind.Team ->
                         if (fixture) io.github.petebutty.viewarr.data.sync.ServerSports.followMatches(SportFollow(SportFollow.Kind.Team, p.league, p.id, p.name, null), leaguePath, home, away)
@@ -127,6 +140,7 @@ class LiveNowPicks @Inject constructor(
                     LiveNowPick.Kind.Sport -> p.id.equals(sport, ignoreCase = true) || p.id.equals(gameSport, ignoreCase = true)
                 }
             }
+            return if (i < 0) picks.size else i
         }
     }
 }

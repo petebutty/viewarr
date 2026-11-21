@@ -13,3 +13,4 @@
 | [Troubleshooting](TROUBLESHOOTING.md) | Channels, playback, screen edges cut off, home screen rows, a slow box, music, and where to report problems |
 | [Privacy](PRIVACY.md) | What's stored on the TV and what's sent where |
 | [Controlling Viewarr from outside](AUTOMATION.md) | `viewarr://` links for ADB and home automation |
+| [Home Assistant](HOME-ASSISTANT.md) | What's playing, pop-ups on the TV, and voice / phone control |

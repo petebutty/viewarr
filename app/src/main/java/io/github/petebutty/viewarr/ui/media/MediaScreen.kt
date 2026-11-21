@@ -375,7 +375,11 @@ fun MediaScreen(
                 onLeftEdge = onOpenMenu,
             )
         }
-        if (browse == null) Column(Modifier.fillMaxSize()) {
+        // A person's page (PersonPage.kt) in place of the rows.
+        if (browse == null && personShown != null) CompositionLocalProvider(LocalButtonsFree provides (detail == null && playing == null)) {
+            PersonPageHost(vm, focusRequester, focusEnabled && !covered && detail == null && playing == null, onOpenMenu)
+        }
+        if (browse == null && personShown == null) Column(Modifier.fillMaxSize()) {
             val personInfo by vm.personInfo.collectAsStateWithLifecycle()
             val pi = personInfo?.takeIf { personShown != null }
             SideEffect { PosterTrailer.repo = vm.trailers }
@@ -755,7 +759,7 @@ private fun Hero(
     // Gone the moment the title changes (a new one starts at 0 in that same frame: fading the old out let the new name
     // flash up first), then one fade in once its logo, ratings and library check are in.
     val detailsAnim = remember(item?.key) { androidx.compose.animation.core.Animatable(0f) }
-    LaunchedEffect(item?.key, ready) { if (ready) detailsAnim.animateTo(1f, androidx.compose.animation.core.tween(700)) }
+    LaunchedEffect(item?.key, ready) { if (ready) detailsAnim.animateTo(1f, androidx.compose.animation.core.tween(550)) }
     val detailsAlpha = detailsAnim.value
     val inLibrary = extras?.inLibrary
     // The Movies / Shows background: the highlighted title's backdrop.
@@ -810,7 +814,8 @@ private fun Hero(
                 .fillMaxWidth(if (endSide) 0.6f else if (besidePreview) 0.6f else 0.5f)
                 // Over at the right it sits on the artwork: a shade behind it, fading in from the left, so the details
                 // and description stay readable on a bright picture (Peter, 2026-11-20).
-                .then(if (endSide) Modifier.background(androidx.compose.ui.graphics.Brush.horizontalGradient(
+                // (Its full height from the start: sized by the details, it grew when they came in. Peter, 2026-11-21.)
+                .then(if (endSide) Modifier.padding(bottom = 10.dp).fillMaxHeight().background(androidx.compose.ui.graphics.Brush.horizontalGradient(
                     0f to Color.Transparent, 0.3f to AppColors.palette.main.copy(alpha = 0.7f), 1f to AppColors.palette.main.copy(alpha = 0.85f)),
                     RoundedCornerShape(topStart = 16.dp, bottomStart = 16.dp)).padding(start = 24.dp, top = 12.dp, bottom = 14.dp, end = Tokens.Gutter)
                 else Modifier),
@@ -820,8 +825,15 @@ private fun Hero(
             Spacer(Modifier.height(8.dp))
             val ex = extras
             // (Cinema: the details rise a little as they fade in, eased, for a cleaner change between titles.)
-            val rise = if (cinema) 1f - androidx.compose.animation.core.FastOutSlowInEasing.transform(detailsAlpha) else 0f
-            if (item != null) Column(Modifier.graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha; alpha = detailsAlpha; translationY = rise * 18.dp.toPx() }, horizontalAlignment = colAlign) {
+            // (Then it slides in from off the screen once it's ready, from the side it sits on, easing to a stop. Peter,
+            // 2026-11-21: it popped up. Read in the layer only, so the slide never lays the page out again.)
+            if (item != null) Column(Modifier.graphicsLayer {
+                val t = detailsAnim.value
+                val e = androidx.compose.animation.core.LinearOutSlowInEasing.transform(t)
+                compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha
+                alpha = (t * 2.5f).coerceAtMost(1f)
+                translationX = (1f - e) * (size.width + 48.dp.toPx()) * (if (endSide) 1f else -1f)
+            }, horizontalAlignment = colAlign) {
                 // (The logo already fetched and its picture loaded: shown straight from there.)
                 val exLogo = ex?.takeIf { it.key == item.key }?.logo
                 val logoFn: (suspend (MediaItem) -> String?)? = if (ex?.key == item.key) ({ _: MediaItem -> exLogo }) else null
@@ -844,14 +856,24 @@ private fun Hero(
                 }
                 item.subtitle?.let {
                     Spacer(Modifier.height(4.dp))
-                    Text(it, fontSize = 14.sp, color = AppColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = align)
+                    var tooLong by remember(it) { mutableStateOf(false) }
+                    Text(it, fontSize = 14.sp, color = AppColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        textAlign = if (tooLong) androidx.compose.ui.text.style.TextAlign.Start else align,
+                        onTextLayout = { r -> if (align != null && !tooLong && (r.hasVisualOverflow || r.isLineEllipsized(0))) tooLong = true })
                 }
                 // Ratings and a subtitle (or the shorter library hero): one line of description, so it all fits.
                 val roomy = heroRatings.isEmpty() || (item.subtitle == null && height >= 212.dp)
                 item.overview?.let {
                     Spacer(Modifier.height(10.dp))
+                    // (Right-aligned text that doesn't fit lost its "…" and was cut mid-word (Android's end-aligned ellipsis):
+                    // a description too long for its lines is laid out from the left instead. Peter, 2026-11-21.)
+                    var tooLong by remember(it) { mutableStateOf(false) }
                     Text(it, fontSize = if (cinemaHero) 15.sp else 14.sp, lineHeight = if (cinemaHero) 22.sp else 20.sp, color = AppColors.TextPrimary,
-                        maxLines = if (cinemaHero) 3 else if (roomy) 2 else 1, overflow = TextOverflow.Ellipsis, textAlign = align)
+                        // (Over at the right: two shorter lines, not one very long one. Peter, 2026-11-21.)
+                        maxLines = if (cinemaHero) 3 else if (roomy || endSide) 2 else 1, overflow = TextOverflow.Ellipsis,
+                        modifier = if (endSide) Modifier.widthIn(max = 420.dp) else Modifier,
+                        textAlign = if (tooLong) androidx.compose.ui.text.style.TextAlign.Start else align,
+                        onTextLayout = { r -> if (align != null && !tooLong && (r.hasVisualOverflow || r.isLineEllipsized(r.lineCount - 1))) tooLong = true })
                 }
             }
         }
@@ -1346,7 +1368,7 @@ private fun BringIntoViewSpec.snapped(): BringIntoViewSpec {
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-private fun PosterCard(item: MediaItem, modifier: Modifier, onClick: () -> Unit, onLongClick: () -> Unit = {}, fill: Boolean = false,
+internal fun PosterCard(item: MediaItem, modifier: Modifier, onClick: () -> Unit, onLongClick: () -> Unit = {}, fill: Boolean = false,
                        /** False: the row draws the highlight ring itself (PosterRow: a still ring over sliding posters). */
                        ring: Boolean = true,
                        /** False: no trailer in this card (the title page's small rows). */

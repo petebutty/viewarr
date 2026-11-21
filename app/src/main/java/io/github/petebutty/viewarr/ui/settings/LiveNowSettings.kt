@@ -67,6 +67,7 @@ class LiveNowViewModel @Inject constructor(private val store: LiveNowPicks) : Vi
     init { viewModelScope.launch { runCatching { store.migrate() } } }
     fun add(p: LiveNowPick) = viewModelScope.launch { store.add(p) }
     fun remove(p: LiveNowPick) = viewModelScope.launch { store.remove(p) }
+    fun move(p: LiveNowPick, by: Int) = viewModelScope.launch { store.move(p, by) }
     fun fromFollow(f: SportFollow) = store.fromFollow(f)
 }
 
@@ -89,13 +90,13 @@ fun liveNowPicksState(): List<LiveNowPick> {
  * and Live now leagues switches.
  */
 fun liveNowCategory(picks: List<LiveNowPick>) = SettingCategory(
-    "Live now", "What 📡 Live now in the TV guide shows. Empty: Live now shows everything live. Add teams, leagues or sports to show only those.",
+    "Live now", "What 📡 Live now in the TV guide shows, in this order. Empty: Live now shows everything live. Add teams, leagues or sports to show only those.",
     listOf(
         SettingItem("Add a team, league or sport", "Search for any team, league or sport (darts, snooker, racing too) and add it: Live now then shows only what's in this list.",
             emptyList(), PlainChoice("OK: search"), action = { LiveNowUi.adding = true }, onSelect = {}),
     ) + picks.map { p ->
         SettingItem((if (p.kind == LiveNowPick.Kind.Sport) LiveSports.emoji(p.id) + "  " else "") + p.name,
-            p.kindLine + ". OK: remove it from Live now.", emptyList(), PlainChoice(p.kindLine),
+            p.kindLine + ". Live now shows games in this list's order. OK: move it up or down, or remove it.", emptyList(), PlainChoice(p.kindLine),
             action = { LiveNowUi.removing = p }, onSelect = {})
     },
 )
@@ -115,7 +116,12 @@ fun LiveNowHost() {
     LiveNowUi.removing?.let { p ->
         OptionsPopup(
             title = p.name, subtitle = p.kindLine,
-            options = listOf(PopupOption("Remove from Live now") { vm.remove(p); toast("Removed from Live now: ${p.name}") }),
+            options = listOf(
+                PopupOption("Move up") { vm.move(p, -1) },
+                PopupOption("Move down") { vm.move(p, 1) },
+                PopupOption("Move to the top") { vm.move(p, -1000) },
+                PopupOption("Remove from Live now") { vm.remove(p); toast("Removed from Live now: ${p.name}") },
+            ),
             onClose = { LiveNowUi.removing = null },
         )
     }

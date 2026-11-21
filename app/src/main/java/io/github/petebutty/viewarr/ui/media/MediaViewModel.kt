@@ -321,12 +321,18 @@ class MediaViewModel @Inject constructor(
                     val f = played ?: 0f
                     if (!fresh && (played == null || f < 0.02f || f >= io.github.petebutty.viewarr.data.dvr.RecordingProgress.WATCHED_AT)) return@mapNotNull null
                     val logo = rec.posterLogoId?.let { id -> server?.let { "$it/api/channels/logos/$id/cache/" } }
+                    val tag = io.github.petebutty.viewarr.data.dvr.RecordingTags.of(ctx, rec.id)
+                    // (The episode's details in the top panel too: its name, when it was recorded and the guide's
+                    // description. Peter, 2026-11-21: they showed only "Recording".)
+                    val episodeName = tag?.episodeName ?: rec.subTitle?.takeIf { it.isNotBlank() && !it.equals(rec.title, ignoreCase = true) }
+                    val line = listOfNotNull(if (fresh) "New recording" else "Recording", episodeName,
+                        "recorded " + io.github.petebutty.viewarr.ui.theme.Dates.dayTime(rec.start)).joinToString(" · ")
                     rec to MediaItem(
                         key = io.github.petebutty.viewarr.data.dvr.RecordingOpen.PREFIX + rec.id, type = MediaType.Show,
                         title = rec.title + (if (rec.season != null && rec.episode != null) " · S${rec.season} E${rec.episode}" else ""),
                         // The show's or film's own poster and backdrop when TMDB knows it (RecordingTags), else the channel logo.
                         poster = io.github.petebutty.viewarr.data.dvr.RecordingTags.of(ctx, rec.id)?.poster ?: logo,
-                        backdrop = io.github.petebutty.viewarr.data.dvr.RecordingTags.of(ctx, rec.id)?.backdrop, origin = "Recordings", subtitle = if (fresh) "New recording" else "Recording", progress = f.takeIf { it > 0f },
+                        backdrop = io.github.petebutty.viewarr.data.dvr.RecordingTags.of(ctx, rec.id)?.backdrop, origin = "Recordings", subtitle = line, overview = rec.description?.takeIf { it.isNotBlank() }, progress = f.takeIf { it > 0f },
                     )
                 }
                 // Newest first: when it was last watched, or for a new one when it finished recording.
@@ -887,21 +893,22 @@ class MediaViewModel @Inject constructor(
     /** The person whose films are showing: their photo, dates and biography for the header. */
     val personInfo = _personInfo.asStateFlow()
 
+    private val _personPage = MutableStateFlow<PersonPageUi?>(null)
+    /** The person's page being shown (PersonPage.kt), or null. */
+    internal val personPage = _personPage.asStateFlow()
+
     private fun openPerson(item: MediaItem) {
         val id = item.key.removePrefix("person:")
-        val placeholder = PersonInfo(item.title, item.poster, null, null, null, null, null, loading = true)
-        _personInfo.value = placeholder
-        viewModelScope.launch {
-            val info = runCatching { repo.personInfo(id, item.title) }.getOrNull() ?: placeholder.copy(loading = false)
-            if (_person.value == item.title) _personInfo.value = info
-        }
+        _personInfo.value = null
+        _personPage.value = PersonPageUi(id, item.title, item.poster, details = null, loading = true)
         if (_person.value == null) resultsBeforePerson = _rows.value
         _person.value = item.title
         rowsJob?.cancel()
-        _rows.value = RowsState(emptyList(), done = false)
+        // The page draws its own rows from the details (no poster rows under it).
+        _rows.value = RowsState(emptyList(), done = true)
         rowsJob = viewModelScope.launch {
-            val rows = runCatching { repo.personCredits(id, item.title) }.getOrDefault(emptyList())
-            _rows.value = RowsState(rows, done = true)
+            val d = runCatching { repo.personDetails(id, item.title) }.getOrNull()
+            _personPage.update { p -> if (p?.id == id) p.copy(details = d, loading = false) else p }
         }
     }
 
@@ -911,6 +918,7 @@ class MediaViewModel @Inject constructor(
         rowsJob?.cancel()
         _person.value = null
         _personInfo.value = null
+        _personPage.value = null
         _rows.value = resultsBeforePerson ?: RowsState(emptyList(), done = true)
         resultsBeforePerson = null
     }

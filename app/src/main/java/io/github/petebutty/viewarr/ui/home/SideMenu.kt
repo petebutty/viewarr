@@ -1209,6 +1209,7 @@ internal fun MenuOverlay(
                 other("Accounts & sources", "accounts sources sign in plex jellyfin emby trakt seerr dispatcharr iptv playlist addons music navidrome server") { onAccounts() },
                 other("Dispatcharr plugins", "plugins dispatcharr admin") { showPlugins = true },
                 other("Updates", "update version install new release") { showUpdates = true },
+                other("Home Assistant", "home assistant smart home automation lights scene doorbell camera pop-up notify token") { io.github.petebutty.viewarr.ui.settings.HaSettings.open = true },
                 other("About", "about version storage clear data tour live tv sources this tv") { showAbout = true },
             ),
         )
@@ -1521,6 +1522,8 @@ internal fun SettingsPanel(playbackItem: FocusRequester, onPlayback: () -> Unit,
         // Viewarr's setup kept on the Dispatcharr server (Dispatcharr sign-ins only).
         val canSignOut = Access.can(Lock.SIGNOUT)
         if (canSignOut && session != null && !session.isDirect) BackupSyncItem()
+        // Optional: what's playing to Home Assistant, and its pop-ups on this TV.
+        if (canSettings) io.github.petebutty.viewarr.ui.settings.HomeAssistantItem(Modifier.hint("Optional: tell Home Assistant what's playing (for lights and scenes), and show its pop-ups, like a doorbell camera.").rightIgnored())
         if (canSettings) MenuItem(text = "Troubleshooting", selected = false, onClick = onTrouble, modifier = Modifier.hint("Playback info on screen, and Low-memory mode for boxes that struggle.").focusRequester(troubleItem).rightDoes(onTrouble))
         // Settings most people never need, behind a warning (the page itself says so at the top of each section).
         if (canSettings) {
