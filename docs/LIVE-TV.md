@@ -18,7 +18,7 @@ A classic IPTV-style guide with channel logos, categories, and programmes going 
 
 When a provider's guide is hours out (another time zone, or summer time handled wrongly), move it:
 
-- **The whole source**: Settings → Live TV → **EPG offset**, from −12 h to +12 h in half hours.
+- **The whole source**: Settings → Live TV → Customise → **EPG offset**, from −12 h to +12 h in half hours.
 - **Only some channels**: hold OK on one in the guide → **EPG offset**, then + / − 30 minutes or an hour (channels sharing its guide move with it). The offset shows in that menu, not beside the channel's name.
 - **M3U playlists**: a channel's own `tvg-shift` is used by itself.
 
@@ -44,9 +44,10 @@ What the guide shows:
 - **Programme corners**: rounded or square boxes for programmes and channel names.
 - **Channel numbers**, **Channel logos** and **Episode numbers** ("S15E4") can each be turned on or off.
 - **Catch-up icons**: the replay icon on programmes and channel names, channel names only, beside the highlighted channel only, or off. Catch-up still works with it off.
-- **End of a list**: past the last channel, jump to the other end or stop.
+- **Channel rows**: how many channels fit on screen (10, 12, 9 or 8). This one is in **Settings → Advanced → Screen & sizes**.
+- **End of a list**: past the last channel, jump to the other end or stop. This one is in **Settings → Live TV → Customise**.
 
-All of these are in **Settings → Appearance → TV guide**.
+The rest are in **Settings → Appearance → TV guide**.
 
 ### Channel groups
 
@@ -54,11 +55,11 @@ All of these are in **Settings → Appearance → TV guide**.
 
 Press **Left** on what's on now to see your channel groups. Moving through them changes the guide behind as you go. **OK** picks one and takes you back into the guide. **Left** again brings the main menu.
 
-**Hold OK** on a group for **↕ Move** (then Up / Down, and OK or Back to put it down) or **✕ Hide from this list**; ★ Favourites and All channels can be hidden the same way. Hidden groups gather at the end under **Hidden groups**; OK on one shows it again. Don't want that row? Turn off **Settings → Appearance → Menu → Hidden groups row**, and hold OK on any group → **Show hidden groups** instead. Hiding only takes it out of the list: its channels stay in All channels, by number and in links. Your order and hidden groups are kept for each Live TV source. *(0.28.1 and later.)*
+**Hold OK** on a group for **↕ Move** (then Up / Down, and OK or Back to put it down) or **✕ Hide from this list**; ★ Favourites and All channels can be hidden the same way. Hidden groups gather at the end under **Hidden groups**; OK on one shows it again. Don't want that row? Turn off **Settings → Menu & navigation → Hidden groups row**, and hold OK on any group → **Show hidden groups** instead. Hiding only takes it out of the list: its channels stay in All channels, by number and in links. Your order and hidden groups are kept for each Live TV source. *(0.28.1 and later.)*
 
 Don't need **All channels**? Hide it in **Settings → Live TV → "All channels" group**. The groups then start with your own, and the guide opens on the first of them.
 
-**Event channels** (TNT events, live football slots, pay-per-view and the like) are mostly empty slots. With the [Viewarr plugin](#viewarr-plugin-optional) and **Settings → Live TV → Event channels: only with a listing** on (as it is to start with), an event channel is listed only while the guide has something on it now or starting within the next 24 hours, and a group of nothing but empty event channels disappears until one of them has a listing. This is the same everywhere a channel is listed: the Live TV hub, the guide and its channel groups, the full-screen channel list, favourites and typed channel numbers. Reminders, recordings, links and the Sports page still reach a hidden channel, so a game the plugin puts on one still plays. Club TV channels always show. Off: every event channel, all the time. *(0.29.1 and later.)*
+**Event channels** (TNT events, live football slots, pay-per-view and the like) are mostly empty slots. With **Settings → Advanced → TV guide data → Event channels: only with a listing** on (it's off to start with), an event channel is listed only while the guide has something on it now or starting within the next 24 hours, and a group of nothing but empty event channels disappears until one of them has a listing. This is the same everywhere a channel is listed: the Live TV hub, the guide and its channel groups, the full-screen channel list, favourites and typed channel numbers. Reminders, recordings, links and the Sports page still reach a hidden channel, so a game the plugin puts on one still plays. Club TV channels always show. Off: every event channel, all the time. With the [Viewarr plugin](#viewarr-plugin-optional), the plugin picks out the event groups; without it, the TV spots them by their names. *(0.29.1 and later; without the plugin, 0.29.5 and later.)*
 
 ### Favourites
 
@@ -99,13 +100,13 @@ Without the plugin, reports stay on the TV (the last 50, for two weeks) and the 
 
 ### Guide refresh
 
-The guide is fetched again from your server while Viewarr is open, and when it starts. Choose how often in **Settings → Live TV → TV guide refresh**: every 2, 4, 8 or 12 hours, once a day, or **Only when I ask**.
+The guide is fetched again from your server while Viewarr is open, and when it starts. Choose how often in **Settings → Advanced → TV guide data → TV guide refresh**: every 2, 4, 8 or 12 hours, once a day, or **Only when I ask**.
 
 To refresh now, use **Settings → Refresh channels & guide**.
 
 ### How far ahead
 
-The guide shows **3 days** ahead by default. Change it in **Settings → Live TV → TV guide days ahead**: 1, 3, 5 or 7 days (most guides list 4 to 7). More days take a little longer to fetch and a little more room on the box. A change applies at the next guide refresh. *(0.28.0 and later; before that it was 36 hours.)*
+The guide shows **3 days** ahead by default. Change it in **Settings → Advanced → TV guide data → TV guide days ahead**: 1, 3, 5 or 7 days (most guides list 4 to 7). More days take a little longer to fetch and a little more room on the box. A change applies at the next guide refresh. *(0.28.0 and later; before that it was 36 hours.)*
 
 ## Watching live TV
 
@@ -122,12 +123,11 @@ The guide shows **3 days** ahead by default. Change it in **Settings → Live TV
 
 The info bar shows the channel, what's on now and next, and badges for the stream. Change it in **Settings → Appearance → Info bar & controls**:
 
-- **Pop-up glass**: 0% (solid) to 100% (clear) see-through. The info bar and every pop-up follow it.
-- **Info bar: border**, **Info bar: channel number** and **Info bar: episode numbers**: each on or off.
+- **Info bar: channel number** and **Info bar: episode numbers**: each on or off.
 - **Info bar: picture quality**: badges for the picture (HD · FHD · 4K, or 720p · 1080p · 2160p, or off) and 5.1 sound.
 - **Info bar: frame rate**: a badge with the stream's frames per second.
-- **Info bar size**: Normal, Compact, Small or Large. Smaller covers less of the picture.
-- **Preview cards**: the size of the cards in the bar's rows (next episodes, shortcuts). Live TV and films use the same size.
+
+**Pop-up glass** (0% solid to 100% clear; the info bar and every pop-up follow it) and **Info bar: border** are in **Appearance → Glass & transparency**. **Info bar size** (Normal, Compact, Small or Large), **Info bar width**, **Info bar corners** and **Preview cards** (the size of the cards in the bar's rows; live TV and films use the same size) are in **Settings → Advanced → Screen & sizes**.
 
 ### Rows under the info bar
 
@@ -145,7 +145,7 @@ Choose the buttons in **Settings → Appearance → Info bar buttons** (or hold 
 - **Right** picks one up; **Up / Down** move it; Right again puts it down.
 - **TV guide, Play / Pause, Stop, Audio and Subtitles** are always on the bar. They can be moved, not removed.
 
-**Extra buttons** start off the bar. They are **Favourite** (add or remove this channel), **Last channel**, **Audio sync** (the sound up to 300 ms earlier or later, starting from Settings → Playback → Lip sync), **Sleep timer** (each press: 15, 30, 60 or 90 minutes, the end of the programme, off; then everything stops), **Movies**, **Shows** and **Recordings** (the page, with the channel in the corner), **Info bar style** (each press switches the bar to the next style: Glass, Square, Pill, Fade, Full-width, Minimal), **TV settings** (frame rate matching, picture size, deinterlace, surround passthrough, channels, night mode and volume boost, changed over the picture with OK, with the TV's current mode shown at the top), and for films **Episodes** (the next episodes row).
+**Extra buttons** start off the bar. They are **Favourite** (add or remove this channel), **Last channel**, **Audio sync** (the sound up to 300 ms earlier or later, starting from Settings → Advanced → Audio sync), **Sleep timer** (each press: 15, 30, 60 or 90 minutes, the end of the programme, off; then everything stops), **Movies**, **Shows** and **Recordings** (the page, with the channel in the corner), **Info bar style** (each press switches the bar to the next style: Glass, Square, Pill, Fade, Full-width, Minimal), **TV settings** (frame rate matching, picture size, deinterlace, surround passthrough, channels, night mode and volume boost, changed over the picture with OK, with the TV's current mode shown at the top), and for films **Episodes** (the next episodes row).
 
 The TV guide button always stays. The arrangement is shared with the film and episode controls, so both bars stay the same; live TV's extras (Aspect, Source, Record, Multi-view) keep their places in it, and you can edit it from either bar. *(0.28.0 and later.)*
 
@@ -159,7 +159,7 @@ You can look through channels without changing the picture:
 2. While watching, that button shows each channel and what's on it in the bar, while the picture stays put.
 3. The channel changes when you stop on one.
 
-Choose how long to rest on a channel in **Settings → Live TV → Browsing channels**: 0.3 to 2 seconds, or **Only when I press OK**. OK always changes straight away; Back stays on the channel you were watching.
+Choose how long to rest on a channel in **Settings → Live TV → Customise → Browsing channels**: 0.3 to 2 seconds, or **Only when I press OK**. OK always changes straight away; Back stays on the channel you were watching.
 
 ### Quick zapping
 
@@ -169,7 +169,7 @@ A channel that stalls is asked for again by itself.
 
 ### Still watching?
 
-**Settings → Playback → Still watching?** asks whether you're still there after 2, 3, 4 or 6 hours without a button press. If nobody answers within a minute, live TV stops. This frees a provider connection when the TV's been left on.
+**Settings → Live TV → Customise → Still watching?** asks whether you're still there after 2, 3, 4 or 6 hours without a button press. If nobody answers within a minute, live TV stops. This frees a provider connection when the TV's been left on.
 
 ## Pause, rewind and catch-up
 
@@ -188,12 +188,31 @@ The seek bar shows where you're playing and how far through the programme live i
 
 Recordings are made on your Dispatcharr server.
 
+### Recording something
+
 - **Hold OK** on a programme in the guide: record that programme, or a whole series (every episode, or new ones only). A red dot marks what's set to record.
 - **One-press record**: the remote's **Record** button records what's on (or the highlighted programme in the guide) straight away.
-- **Recordings** in the menu lists what's recorded and scheduled. Watch, stop or delete recordings from there.
+- **Sport**: **Record** or **Record all …** (for example **Record all Celtic**) on a game, or **Record when it's in the guide** for a game no channel lists yet (see [Sports](#sports)).
 - Small cards tell you when a recording starts, finishes or fails.
 
 To record, your Dispatcharr user needs **DVR access: Manage** (Dispatcharr → Users → edit user). If a profile isn't allowed to record, the options don't work for them (see [Profiles](PROFILES.md)).
+
+### The Recordings page
+
+**Recordings** in the menu has three tabs: **Recorded · Scheduled · Series recordings**. It opens on **Recorded** the first time, then on the tab you used last.
+
+- Each tab shows its date order beside its name: Recorded **newest first** or **oldest first**, Scheduled **soonest first** or **latest first**, Series recordings **next first** or **furthest first**. **OK** on the tab you're on turns its order round. Viewarr remembers each tab's order.
+- **Recorded** is organised with TMDB into **Shows**, **Films** and **Sport & other** (matches, news and anything TMDB doesn't know), with posters and episode names. Each show's episodes are grouped together ("Shetland · 3 episodes"): **OK** opens or closes the group.
+- **Scheduled** has anything recording now at the top, then what's coming up.
+- **Series recordings** lists your series rules by readable names (such as "Celtic games"), each with **Every episode** or **New episodes**.
+- **OK** plays a recording. **Hold OK** for its options: **Delete recording…** (it asks first), **Stop recording**, **Cancel recording**, or **Remove from list** for one that failed.
+
+### Watching recordings
+
+- A recording you've started shows a progress bar, a tick once it's watched, and plays on from where you stopped.
+- Recordings you've started, and new ones from the last week you haven't played yet, appear in **Continue watching** on the Shows page, with the show's or film's poster. Pressing one plays it straight away.
+- Recordings matched on TMDB are sent to **Trakt** like any film or episode (start, pause and stop), when **Settings → Playback → Watch progress → Send plays to Trakt** is on. They appear in your Trakt history and Continue watching.
+- A film's recording is listed in **Play from** on its title page (hold OK on Play), with your other copies.
 
 ## Reminders
 
@@ -257,21 +276,37 @@ ESPN's data covers almost every competition.
 - the UK listings, or
 - an event channel named after the match.
 
-**The game page** *(0.28.7 and later)*: with **Settings → Sports → Game page** on, OK on a game opens its page: both line-ups and formations, each side's last five results, this season's meetings, goals and cards, match stats, the venue and the TV channels, refreshed every minute while it's live. From there (or holding OK on a game card): **Watch**, **Remind me**, **Record**, or **Record all of a team's games**. Reminders and recordings asked for before the guide lists a game are set up by themselves as soon as it does (a Viewarr box has to be on once the game is listed), never twice.
+**The game page** *(0.28.7 and later)*: with **Settings → Sports → Game page** on, OK on a game opens its page: both line-ups and formations, each side's last five results, this season's meetings, goals and cards, match stats, the venue and the TV channels, refreshed every minute while it's live. From there (or holding OK on a game card): **Watch**, **Remind me**, **Record** (**Record when it's in the guide** for a game no channel lists yet), or **Record all …** (for example **Record all Celtic**). Reminders and recordings asked for before the guide lists a game are set up by themselves as soon as it does, never twice: by the Viewarr plugin if you have it, otherwise by a TV running Viewarr once the game is listed.
 
 Viewarr finds where each game is on by itself: first your own TV guide (a programme naming both teams around kick-off), then Sky's public TV guide (Sky Sports, TNT Sports, Premier Sports, BBC, ITV, Channel 4 and 5, S4C, BBC Alba; about a week ahead; only channel numbers and dates are sent), then an event channel named after the match, then the home or away club's own channel. Teams are matched by every name ESPN gives them plus the names UK TV uses ("Man Utd", "Spurs", "Hibs"), both teams needed. A channel matched on one team only shows grey, as "Possibly …". The game page says where its channel came from.
 
 With the **Viewarr plugin** installed on Dispatcharr (optional), games also show their UK channel weeks ahead, including Amazon Prime and club TV, and the whole house shares one set of listings.
 
-**Score alerts** *(0.29.0 and later)*: goals, kick-offs, half-time and results as a banner, in the news ticker, or both. No team has alerts to start with: choose them in **Settings → Sports → Score alerts** (followed or not), and switch on **Notifications** in Settings → Menu & navigation. See [Settings](SETTINGS.md#sports).
+**Score alerts** *(0.29.0 and later)*: goals, kick-offs, half-time and results as a banner, in the news ticker, or both. No team has alerts to start with: choose them in **Settings → Sports → Score alerts** (followed or not), and switch on **Notifications** in Settings → Menu & navigation. See [Settings](SETTINGS.md#sports). With the Viewarr plugin the server checks the scores for the whole house; without it, each TV checks ESPN while your games are on and Viewarr is running. The built-in **Live scores** feed in the news ticker works the same way.
 
 If your provider has channels for the clubs themselves (for example "BOLTON WANDERERS" or "SPFL - HIBS FC", in a football group), an English, Scottish or Welsh league or cup game that's on none of your other channels points at the home club's channel, or the away club's, marked "(club stream)". That's how the Saturday 3pm games are shown abroad. Televised games come first in each row; games not on UK TV follow them.
 
 ## Viewarr plugin (optional)
 
-The [Viewarr plugin](https://github.com/petebutty/viewarr-plugin) runs on your Dispatcharr server. With it, Dispatcharr works out **Live now**, which channel shows each game (including UK football on TV weeks ahead), **sport recordings** and **score alerts** once for the whole house, even with every TV off. Each TV then just reads the answer.
+The [Viewarr plugin](https://github.com/petebutty/viewarr-plugin) runs on your Dispatcharr server. Viewarr works fully without it: each TV does the work itself while Viewarr is running. With the plugin, the server does it once for the whole house, even with every TV off, and each TV just reads the answer.
 
-Viewarr works fully without it: each TV does all of this itself, as before. The plugin's page explains how to install it.
+Works either way (with the plugin, done by the server for the house; without it, done by each TV):
+
+- **Just added** rows for the streaming services (see [Films & shows](FILMS-AND-SHOWS.md#just-added)). Needs plugin 0.6.2 or newer to come from the server.
+- **Live now**, and which channel shows each game.
+- **Score alerts** and the **Live scores** news ticker (ESPN).
+- **Event channels: only with a listing** (without the plugin, the TV spots event groups by their names).
+- **Record all …** (for example **Record all Celtic**) and **Record when it's in the guide**.
+- **Sync IPTV progress with my Emby / Jellyfin / Plex**.
+
+Only with the plugin:
+
+- **Best stream first**, with the house's streams measured at night.
+- **Report a problem** fixing a channel for the whole house, with Undo for admins (without it, reports wait on the TV).
+- **Backups on the Viewarr plugin** in Settings → Backup & sync.
+- UK channels for games weeks ahead, including Amazon Prime and club TV.
+
+The plugin's page explains how to install it.
 
 ## Dispatcharr plugins
 
@@ -317,9 +352,16 @@ Home automation, a web page on your server or ADB can change channel, stop, reco
 
 ## Viewarr's rows on your TV's home screen
 
-**Settings → Live TV → Customise → Home screen rows** puts Viewarr's rows on the TV's home screen (Projectivy, Google's launcher and others that show apps' rows). Switch on what you want:
+**Settings → Live TV → Customise → Home screen rows** puts Viewarr's rows on the TV's home screen (Projectivy, Google's Android TV home and other launchers that show apps' rows). Switch on what you want:
 
-- **Live TV · a channel group**: a card per channel, with its logo and what's on now; it opens that channel. The first 15 channels, refreshed every 15 minutes.
-- **IPTV, Library or Catalogue rows**: any row from the Movies and Shows pages (an IPTV provider's rows, a library's Recently added or Continue watching, an addon's catalogue). A card per title; it opens that title's page. The first 15 titles, refreshed once a day.
+- **Live TV · a channel group**: a card per channel, showing what's on now with the programme's picture and the channel's logo, and a live preview where the launcher supports it. OK on a card opens that channel.
+- **Any Movies or Shows row** (listed as IPTV, Library or Catalogue rows): an IPTV provider's rows, a library's Recently added or Continue watching, an addon's catalogue, a service's Just added. Wide cards with the title's backdrop and logo; OK opens that title's page.
+- **Add every Just added row**: every streaming service's Just added rows (films and shows) at once, in order: Netflix, Prime Video, Disney+ and so on.
 
-Your launcher may ask to show a new row, or list it in its own settings (Projectivy: Settings → Channels). The rows are kept fresh whether Viewarr is open or not: a small background job does it and stops. Switching a row off removes it from the home screen.
+Each row has its service's logo on its icon, and up to 15 cards. Live TV rows are refreshed every 15 minutes, film and show rows once a day. This happens whether Viewarr is open or not: a small background job wakes, does it and stops. Switching a row off removes it from the home screen.
+
+Getting them to show:
+
+- **Google's Android TV home** (the Shield's, for example) shows an app's rows only once each is approved. **Show them on the Android TV home screen** asks for every row not shown yet, in order; press OK on each.
+- **Projectivy** shows them itself: switch them on in Projectivy's **Settings → Channels**.
+- Other launchers may ask to show a new row, or list it in their own settings.

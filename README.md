@@ -24,29 +24,33 @@ Viewarr doesn't provide any content. It plays only what your own servers and acc
 
 - **One glass menu on the left** that slides the page aside, and a **top-left window** where live TV, a film or a trailer keeps playing while you browse.
 - **A classic IPTV-style TV guide** for your Dispatcharr channels, up to 7 days ahead, with catch-up, pause and rewind, **Start over**, **Go to show**, **★ favourites** and channel groups in your own order.
-- **Recordings, reminders and one-press record** on your Dispatcharr server; **multi-view** of up to four channels.
+- **Recordings, reminders and one-press record** on your Dispatcharr server. The Recordings page sorts what you've recorded into shows, films and sport with posters from TMDB, remembers where you stopped, and puts recordings in Continue watching and on Trakt. **Multi-view** of up to four channels.
 - **Sports**: follow teams and leagues, see which channel shows each game, and get score alerts for the teams you choose. **Live now** lists the games on right now.
 - **No Dispatcharr?** Use an IPTV provider's Xtream Codes login or an M3U playlist, and save several sources.
 - **Films and shows** from Plex, Jellyfin, Emby, your addons and your IPTV provider, in three **browsing styles** (Viewarr, Cinema with trailers in the poster, or Lite for weaker boxes), with Netflix-style rows, full libraries with sort, filter and A–Z, and your **streaming services** in the menu.
+- **Just added**: for 15 UK streaming services (Netflix, BBC iPlayer, Disney+ and more), a row of what actually arrived on each lately, new seasons included.
+- **Viewarr on your TV's home screen**: channel groups (what's on now, with live previews where the launcher allows) and any Movies or Shows row, kept fresh even while Viewarr is closed.
 - **One Play button** that picks the best copy you have; hold OK on Play to choose the source yourself. **Auto-play match** rules (4K, Dolby Vision, Atmos, English…) decide which addon stream plays, with **Cached only** and **Try the next stream** if one fails.
 - **Watch progress for IPTV films and shows** too: Resume, watched ticks and Continue watching, shared between your TVs through your Dispatcharr user (Dispatcharr and Xtream keep none themselves).
 - **Skip intro, next episode** and a **mini player** that keeps a film going while you browse.
 - **Music** from Navidrome, Plex, Jellyfin or Emby, with a home page made from what you play (Your Mix, daily mixes, Because you played…), endless radio, lyrics, the queue, artist pages and a spinning vinyl Now Playing.
-- **An info bar you arrange yourself**, in **11 styles** from glass to a soft fade: show, hide and move its buttons, and add extras such as Favourite, Last channel, Audio sync, a Sleep timer and TV settings. Browse channels in it without changing until you press OK. Press Down for **rows you choose** under it: next episodes, Continue watching, favourite or recent channels, what's on now and more.
+- **An info bar you arrange yourself**, in **14 styles** from glass to a soft fade: show, hide and move its buttons, and add extras such as Favourite, Last channel, Audio sync, a Sleep timer and TV settings. Browse channels in it without changing until you press OK. Press Down for **rows you choose** under it: next episodes, Continue watching, favourite or recent channels, what's on now and more.
 - **Frame rate matching** for films and live TV (the TV switches to 50 Hz for UK channels), with frame-rate badges on the info bar; for films and shows the TV switches as they open, with the frame rate from Plex, Jellyfin or Emby, so the sound works from the start.
 - **Source switching without a break**: the channel keeps playing while its backup stream opens, then swaps in; stalled streams reconnect by themselves, and the info bar shows which provider you're on.
-- **Report a problem** on any channel (wrong guide, times out, dead stream, logo, name) by holding OK: with the [Viewarr plugin](docs/LIVE-TV.md#report-a-problem) the fix reaches the whole house, with Undo for admins.
+- **Report a problem** on any channel (wrong guide, times out, dead stream, logo, name) by holding OK: with the [Viewarr plugin](#viewarr-plugin-optional) the fix reaches the whole house, with Undo for admins.
 - **Every remote button your way**, with Classic and Viewarr presets.
-- **Your setup saved on Dispatcharr**, so a new TV picks it up. *(Profiles for everyone in the house, and sharing with friends in another house, are coming soon.)*
+- **Your setup saved on Dispatcharr**, so a new TV picks it up, with earlier versions to go back to and every restore undoable. *(Profiles for everyone in the house, and sharing with friends in another house, are coming soon.)*
 - **Settings codes**: share your look, playback and remote settings with another TV (a friend's, or a tester's) as a short code, without their sign-ins or sources. Undo puts theirs back.
-- **Easy setup** from your phone with a QR code, and **Search settings** to find any option by name.
+- **Fits every TV**: every page is laid out the same on every box. **App scaling** shrinks the whole picture for a TV that cuts off the edges, and **Text size** changes just the words.
+- **Simple settings**: each page opens on the main choices, with the rest under **Customise** and the rarely needed ones on an **Advanced** page. **Easy setup** from your phone with a QR code, and **Search settings** to find any option by name.
+- **Voice search** from the remote's mic button, and a **Christmas wallpaper** with falling snow.
 - **No pop-ups you didn't ask for**: score alerts, reminders, update cards and What's new are all off until you turn them on.
 
 ## Viewarr plugin (optional)
 
-The [Viewarr plugin](https://github.com/petebutty/viewarr-plugin) runs on your Dispatcharr server. With it, Dispatcharr works out **Live now**, which channel shows each game (including UK football on TV weeks ahead), **sport recordings** and **score alerts** once for the whole house, even with every TV off.
+The [Viewarr plugin](https://github.com/petebutty/viewarr-plugin) runs on your Dispatcharr server. You don't need it: Viewarr works fully without it, and each TV does the work itself while Viewarr is running (Just added rows, Live now, score alerts and the Live scores ticker, event channels only with a listing, sport recordings, and syncing IPTV progress with Emby, Jellyfin or Plex).
 
-Viewarr works fully without it: each TV then does all of this itself. See [Live TV](docs/LIVE-TV.md#viewarr-plugin-optional).
+With the plugin, your server does all of that once for the whole house, even with every TV off. It also adds a few things only a server can do: **Best stream first** with night-time measuring of your streams, **Report a problem** fixes that reach every TV, UK football channels weeks ahead, and named **plugin backups**. See [Live TV](docs/LIVE-TV.md#viewarr-plugin-optional).
 
 ## The remote in a nutshell
 
@@ -72,6 +76,7 @@ Hints at the bottom of the screen remind you the first few times. Every button c
   - A Seerr (Overseerr / Jellyseerr) server, for requests.
   - A free MDBList API key, for extra ratings.
   - A Navidrome server, or music libraries on Plex, Jellyfin or Emby, for Music.
+  - The [Viewarr plugin](#viewarr-plugin-optional) on your Dispatcharr server.
 
 ## Install
 
@@ -82,6 +87,7 @@ Hints at the bottom of the screen remind you the first few times. Every button c
 
    Allow Downloader to install apps when asked. (Or download `viewarr.apk` from [Releases](../../releases) and copy it over with **Send Files to TV**, or use `adb install`.)
 3. Open Viewarr and follow the setup. It takes a few minutes.
+4. Optional: install the [Viewarr plugin](https://github.com/petebutty/viewarr-plugin) on your Dispatcharr server, so the server does the daily and sport work for every TV in the house. Viewarr works fully without it.
 
 The full walkthrough, with what each step needs and troubleshooting tips, is in the **[setup guide](docs/SETUP.md)**.
 
@@ -89,8 +95,8 @@ The full walkthrough, with what each step needs and troubleshooting tips, is in 
 
 - **[Setup](docs/SETUP.md)**: installing, what to have ready, the first run and setting up on your phone
 - **[Getting around](docs/GETTING-AROUND.md)**: the glass menu, editing it, search, the top-left window and the info bar
-- **[Live TV](docs/LIVE-TV.md)**: the TV guide, catch-up, recordings, multi-view, sport and several sources
-- **[Films & shows](docs/FILMS-AND-SHOWS.md)**: rows, libraries, streaming services, title pages, players, search, Seerr and Trakt
+- **[Live TV](docs/LIVE-TV.md)**: the TV guide, catch-up, recordings, multi-view, sport, the Viewarr plugin, several sources and rows on your TV's home screen
+- **[Films & shows](docs/FILMS-AND-SHOWS.md)**: rows, libraries, streaming services and Just added, title pages, players, search, Seerr and Trakt
 - **[Music](docs/MUSIC.md)**: sources, the Music home and radio, Now Playing, the queue, artist pages and music settings
 - **[Remote control](docs/REMOTE.md)**: what every button does, and changing them
 - **[Settings](docs/SETTINGS.md)**: every Settings page, briefly

@@ -45,6 +45,7 @@ These are the **Viewarr** buttons (the default). Where the **Classic** preset di
 | Film player | Info | The poster, episode and synopsis |
 | Music | Hold Back | Bring Now Playing back |
 | Anywhere | Hold Menu (≡) | Search |
+| Anywhere | Mic | Search, already listening (with Viewarr chosen as the TV's voice search app) |
 | Anywhere, nothing playing | Hold Back | The menu |
 
 Remotes with **Guide** and **Record** buttons open the TV guide and record what's on.
@@ -99,7 +100,7 @@ The **Other buttons** section has:
 
 ### Button hints
 
-A small pill at the bottom of the screen says what the buttons do where you are. Choose **First few times**, **Always** or **Off** in **Settings → Appearance → Menu → Button hints**.
+A small pill at the bottom of the screen says what the buttons do where you are. Choose **First few times**, **Always** or **Off** in **Settings → Menu & navigation → Menu → Button hints**.
 
 ### Navigation
 

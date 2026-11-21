@@ -8,7 +8,7 @@ Films and shows come from your Plex, Jellyfin and Emby servers, from addons you 
 
 Netflix-style rows, with the highlighted title's details at the top and its artwork across the page. Rows include:
 
-- **Continue watching**
+- **Continue watching**: a film or episode you stop partway moves to the front straight away. On Shows it also has your recordings (see [Live TV](LIVE-TV.md#watching-recordings)).
 - Your **Trakt watchlist** and recommendations
 - **Recently added** on your servers
 - Trending, popular and top-rated titles from TMDB
@@ -34,9 +34,8 @@ If nothing is playing, the highlighted title's trailer plays in the window at th
 
 Each part can still be changed on its own (the style then says **Custom**):
 
-- **Top panel**: Normal, Big or Off (more rows on screen).
-- **Row posters**: Normal, Large or Small.
-- **Other posters faded** (in **Appearance → Posters**): a slider for how much the posters you're not on fade, so the highlighted one stands out. Off keeps them all solid.
+- **Top panel**: Normal, Big or Off (more rows on screen), and **Row posters**: Normal, Large or Small. Both are in **Settings → Advanced → Screen & sizes**, as the pages are laid out around their normal sizes.
+- **Other posters faded** (in **Appearance → Posters**): a slider (Off to 100%) for how much the posters you're not on fade, so the highlighted one stands out. Off keeps them all solid.
 - **Highlight zoom** (in **Appearance → Posters**): the highlighted poster grows a little (Slight), more, or stays its size.
 
 ### Trailers in the poster
@@ -69,7 +68,7 @@ Under the libraries in **Settings → Home page & menu**, **Continue watching fr
 - Going into a list slides the one before it away, like the guide's channel groups.
 - **My Library** in the main menu lists every library on all your servers (films and shows together, under each server's name: your Plex servers, Jellyfin / Emby, IPTV), then your music. Moving onto one shows it behind; OK or Right goes into it, with Sort, Filter (genres, years…) and A–Z. Movies and Shows themselves are the discovery pages: their home rows, catalogues and Jump to a row. Which libraries show, and their order, are set in Settings → Home page & menu (or by holding OK on a menu entry). *(0.28.1 and later.)*
 
-A library is one continuous grid with:
+A library is one continuous grid. It moves a row the moment you press, then glides into place. It has:
 
 - **Sort** and **Filter**, built from what your own server offers. Plex lists its own per library, such as genre, decade, network, studio, resolution, HDR / Dolby Vision, Atmos, unwatched and in progress. Jellyfin and Emby have theirs.
 - Removable filter chips.
@@ -86,7 +85,16 @@ Each library remembers its sort and filters.
 
 Streaming services and networks (Netflix, BBC One, HBO…) come from your own addons' rows, such as your own **AIOMetadata** instance. Each appears in the menu with its own page.
 
-A service's rows are always in the same order: **New shows**, **New films**, **Originals**, **Popular**, **Top rated**. You can show or hide each row while editing the menu (hold OK on an entry), but not reorder them.
+A service's rows are always in the same order: **Just added** (films and shows), then **New shows**, **New films**, **Originals**, **Popular**, **Top rated**. You can show or hide each row while editing the menu (hold OK on an entry), but not reorder them.
+
+### Just added
+
+**Netflix · Just added**, and the same for 15 UK services: Netflix, Prime Video, Disney+, Apple TV+, HBO Max, NOW, BBC iPlayer, ITVX, Paramount+, Sky Go, UKTV Play, My5, Discovery+, Crunchyroll and Shudder. Each row shows what actually arrived on that service lately, from JustWatch, older films newly added and new seasons included. A card says **Season 3 new** or the day it was added. *(0.29.3 and later.)*
+
+- With the [Viewarr plugin](LIVE-TV.md#viewarr-plugin-optional) 0.6.2 or newer, your Dispatcharr server fetches the lists once a day for the whole house.
+- Without it, each TV fetches them itself, once a day. *(0.29.5 and later.)*
+- **Settings → Home page & menu → Use Just added instead of New** puts each service's Just added row in place of its New row on Movies and Shows.
+- Just added rows can go on your TV's home screen too: **Settings → Live TV → Customise → Home screen rows → Add every Just added row** (see [Live TV](LIVE-TV.md#viewarrs-rows-on-your-tvs-home-screen)).
 
 ## Title pages
 
@@ -133,7 +141,7 @@ Also on title pages:
 - **Audio & subtitles**: pick them before Play (films on your Plex, Jellyfin or Emby).
 - **Mark watched / unwatched**, saved everywhere the title is: Trakt, each server it's on, and Viewarr's own record for IPTV (the message says where). A film marked watched leaves Continue watching straight away.
 
-How addon streams are picked is set in **Settings → Playback → Streams**: choose from the list yourself, or let Viewarr start the best cached stream within your quality limit (**Best quality allowed**).
+How addon streams are picked is set with **Settings → Playback → Addon streams**: choose from the list yourself, or let Viewarr start the best cached stream within your quality limit (**Best quality allowed**, in **Settings → Advanced → Streams**).
 
 ### Seasons and episodes
 
@@ -153,7 +161,7 @@ Addons with their own titles (no IMDb or TMDB id, such as fan edits) get proper 
 - **Down**, then **Left / Right** and **OK**: move along the seek bar with preview pictures and jump there. Previews come from Plex, Emby or Jellyfin when the server made them; otherwise the box makes them from the film itself (**Settings → Playback → Seek-bar previews**).
 - **OK**, then **Left** on the first button opens the menu over the film.
 
-**Settings → Playback** also sets how long the controls stay up (**Controls stay up for**) and how big they are (**Player controls size**).
+**Settings → Playback → Customise → Player** sets how long the controls stay up (**Controls stay up for**); how big they are (**Player controls size**) is in **Settings → Advanced → Screen & sizes**.
 
 ### Next episodes and the rows under the bar
 
@@ -223,11 +231,11 @@ All are in **Settings → Playback → Episodes**.
 | **Built-in player** (the default) | Light, and passes surround sound to your TV or receiver. |
 | **mpv** | Plays almost any file, codec or soundtrack. |
 
-If the built-in player can't play a file, Viewarr switches to mpv by itself at the same moment. You can also switch mid-film from the controls, keeping your soundtrack and subtitles. To use mpv for everything, choose it in **Settings → Playback → Player**.
+If the built-in player can't play a file, Viewarr switches to mpv by itself at the same moment. You can also switch mid-film from the controls, keeping your soundtrack and subtitles. To use mpv for everything, choose it in **Settings → Advanced → Player**.
 
 For smooth playback on weak boxes, mpv draws straight to the screen, the TV can switch to the film's frame rate (**Match frame rate**: as it opens, behind the loading screen, using the frame rate Plex, Jellyfin or Emby gives, so the sound works from the start; without one the TV is left as it is), and surround passthrough only uses formats your TV or receiver really accepts. See [Troubleshooting](TROUBLESHOOTING.md#picture-and-sound) for more.
 
-**Settings → Playback** also covers audio and subtitle language, surround passthrough, stereo downmix, night mode, subtitle size and colour, resume, and Plex quality. See [Settings](SETTINGS.md#playback).
+**Settings → Playback** also covers audio and subtitle language, night mode, volume boost and resume; subtitle size and colour are in **Appearance → Subtitles**. Surround passthrough, **Sound channels** (stereo downmix), **Audio sync** and **Plex quality** are in **Settings → Advanced**. See [Settings](SETTINGS.md#playback).
 
 ## Search
 
@@ -243,7 +251,7 @@ Search puts what you meant first (a person, a channel, or your own copy of a fil
 
 Quick picks appear as you type. Filters ("pills") at the top bring that kind of result to the top as you move onto them; OK on one filters.
 
-**Voice search**: Viewarr asks for the microphone the first time. It works on the Nvidia Shield too.
+**Voice search**: Viewarr asks for the microphone the first time. It works on the Nvidia Shield too. **The remote's mic button**: with Viewarr chosen as the TV's voice search app, the mic opens Viewarr's search, already listening. *(0.29.3 and later.)*
 
 ## Seerr requests
 
@@ -271,8 +279,9 @@ Sign in to Trakt in **Settings → Accounts & sources → Trakt** (a code to app
 - Everything you watch in Viewarr is scrobbled to Trakt (Settings → Playback → Watch progress → **Send plays to Trakt**, on to start), and Trakt's history adds to the ticks, Continue watching and Up next.
 - **Continue watching (Trakt)**, a row for under the info bar: the shows you've watched lately (in any app that tells Trakt), each at its next episode.
 - Your **Trakt watched history** comes back: episodes and films you've watched in any app that tells Trakt get their tick, and Play / Resume carries on from where Trakt says you're up to.
-- **Sync with Trakt now** is in **Settings → Playback → Watch progress**, with an optional **Copy watched to Plex** (it marks on your own Plex server what you've watched on Trakt in the last 30 days, and never un-marks anything).
+- **Recordings** matched on TMDB are sent to Trakt too (start, pause and stop), so they appear in your Trakt history.
+- **Sync with Trakt now** is in **Settings → Playback → Watch progress**, with an optional **Copy watched to Plex** (it marks on your own Plex server, only that one, what you've watched on Trakt in the last 30 days, and never un-marks anything).
 
 ## Watch Next
 
-Your Continue watching appears in the Android TV home screen's **Watch Next** row.
+Your Continue watching appears in the Android TV home screen's **Watch Next** row. To put whole rows (a library's Recently added, a catalogue, a service's Just added) on the home screen as well, see [Viewarr's rows on your TV's home screen](LIVE-TV.md#viewarrs-rows-on-your-tvs-home-screen).

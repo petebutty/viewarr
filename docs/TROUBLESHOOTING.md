@@ -7,7 +7,7 @@ Practical fixes for the most common problems. Problems during setup (the phone c
 ## No channels, or the guide is empty
 
 - Use **Settings → Refresh channels & guide** to load the channel list and TV guide again now. The first load can take a minute while it downloads the listings.
-- Check **Settings → Live TV → TV guide refresh** isn't set to **Only when I ask** if you expect it to update by itself.
+- Check **Settings → Advanced → TV guide data → TV guide refresh** isn't set to **Only when I ask** if you expect it to update by itself.
 - Check Dispatcharr itself: open its web page and make sure the channels have streams and the guide (EPG) has data for them.
 - Check your Dispatcharr user is a **Standard** or **Admin** user. *Streamer* accounts only work in player apps.
 - If an admin set **Live TV limits** for your profile, you only see the channel groups they ticked.
@@ -25,7 +25,7 @@ Practical fixes for the most common problems. Problems during setup (the phone c
 ## Picture and sound
 
 **Sound drops out or stutters on a film**
-Some boxes struggle to decode Dolby TrueHD or DTS-HD. If you have a receiver or soundbar, turn on **Settings → Playback → Surround passthrough**. Otherwise pick an AC3 / 5.1 soundtrack in **Audio & subtitles**, or set **Settings → Playback → Channels** to **Stereo**.
+Some boxes struggle to decode Dolby TrueHD or DTS-HD. If you have a receiver or soundbar, turn on **Settings → Advanced → Video & sound → Surround passthrough**. Otherwise pick an AC3 / 5.1 soundtrack in **Audio & subtitles**, or set **Settings → Advanced → Video & sound → Sound channels** to **Stereo**.
 
 **A film freezes at the start with passthrough on**
 Your TV or receiver may not really accept that soundtrack. Viewarr notices and decodes the sound itself after a few seconds. If it keeps happening, turn **Surround passthrough** off.
@@ -33,25 +33,38 @@ Your TV or receiver may not really accept that soundtrack. Viewarr notices and d
 **A film looks choppy or skips frames**
 - Turn on **Settings → Playback → Match frame rate** so the TV switches to the film's own rate (24p films look smoother). Some TVs go black for a second when it switches.
 - **Live TV** (or **Both**, with films) does the same for live channels: the TV goes to 50 Hz for UK channels and 59.94 / 60 Hz for American ones, so motion and sport don't judder. It switches a few seconds after a channel starts full screen, once the rate is certain, and only when it differs from what the TV is already on. *(0.28.0 and later.)*
-- Switch player from the controls (**OK** while watching), or choose the player in **Settings → Playback → Player**. On weak boxes the built-in player is often the smoothest.
-- In mpv, choose **Settings → Playback → mpv decoding → Hardware, direct to screen**, the lightest option. Try software decoding only if the picture glitches or shows colour blocks.
+- Switch player from the controls (**OK** while watching), or choose the player in **Settings → Advanced → Player**. On weak boxes the built-in player is often the smoothest.
+- In mpv, choose **Settings → Advanced → Player → mpv decoding → Hardware, direct to screen**, the lightest option. Try software decoding only if the picture glitches or shows colour blocks.
 
 **A file won't play in the built-in player**
-Viewarr switches to mpv by itself. You can also switch from the controls, or choose mpv for everything in **Settings → Playback → Player**.
+Viewarr switches to mpv by itself. You can also switch from the controls, or choose mpv for everything in **Settings → Advanced → Player**.
 
 **Sound but no picture**
-- Try **Settings → Playback → Video view → Compatible**, for boxes where Standard leaves the picture black.
-- From Plex, Viewarr asks Plex to convert the file if the TV can't play it. **Settings → Playback → Plex quality** can force conversion for slow Wi-Fi.
+- Try **Settings → Advanced → Player → Video view → Compatible**, for boxes where Standard leaves the picture black.
+- From Plex, Viewarr asks Plex to convert the file if the TV can't play it. **Settings → Advanced → Streams → Plex quality** can force conversion for slow Wi-Fi.
 - From an addon, go back and pick a different stream (hold OK on Play). 1080p links and cached debrid links work best.
 
 **Voices out of step with lips**
-**Settings → Playback → Lip sync** moves the sound earlier or later (mpv).
+**Settings → Advanced → Video & sound → Audio sync** moves the sound earlier or later (mpv).
 
 **Speech too quiet, explosions too loud**
-Try **Night mode**, **Channels** (**Stereo**) or **Volume boost** in **Settings → Playback → Audio**.
+Try **Night mode** or **Volume boost** in **Settings → Playback → Customise → Audio**, or **Sound channels** (**Stereo**) in **Settings → Advanced → Video & sound**.
 
 **Seeing what's happening**
-**Settings → Playback → Show playback info** shows the video and audio format, decoder and dropped frames while playing.
+**Settings → Troubleshooting → Show playback info** shows the video and audio format, decoder and dropped frames while playing.
+
+## The edges of the screen are cut off
+
+Some TVs crop the edges of the picture (overscan), so the clock, the menu's edge or the bottom row go missing. Set **Settings → Advanced → Screen & sizes → App scaling** to 97.5%, 95%, 92.5% or 90% until everything shows. It shrinks the whole picture evenly: every page keeps the same layout, and video still fills the screen. Turning off your TV's own overscan (often called *Just scan*, *Screen fit* or *Full pixel*) does the same without shrinking anything.
+
+Words too small or too big? **Settings → Appearance → Text size** (Normal, Small or Large) changes only the text.
+
+## Viewarr's rows don't show on the home screen
+
+- Switch the rows on first: **Settings → Live TV → Customise → Home screen rows**.
+- On Google's Android TV home (the Shield's, for example), each row needs approving: use **Show them on the Android TV home screen** there, and press OK on each.
+- In Projectivy, switch them on in its **Settings → Channels**.
+- Film and show rows fill in once a day; live TV rows every 15 minutes.
 
 ## Viewarr is slow, or closes by itself
 
@@ -60,7 +73,7 @@ On boxes with 1 to 2 GB of memory, turn on **Settings → Troubleshooting → Lo
 Other things that help:
 
 - **Settings → Playback → Seek-bar previews → Server's only** or **Off**.
-- **Settings → Playback → Buffer → Small**.
+- **Settings → Advanced → Streams → Buffer → Small**.
 - **Settings → About → Clear artwork** frees space. Posters and logos are fetched again as you browse.
 - **Settings → About** shows the box's memory and storage, and warns when it's low on memory.
 

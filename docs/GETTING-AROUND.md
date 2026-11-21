@@ -32,11 +32,13 @@ Other ways to reach the menu:
 - A hint at the foot of a list says "‹ Left: main menu".
 - Each list can have a heading, such as **LIVE TV · CHANNEL GROUPS** or **MOVIES**, or its path (**Live TV › Channel groups**). That way the guide's channel groups are never mistaken for your libraries.
 
-You can change all of these in **Settings → Appearance → Menu** (see below).
+You can change all of these in **Settings → Appearance → Customise → Menu** (see below).
 
 ### The top of the menu: ⚙, mic and search
 
 The top of the menu has a **⚙** (that's where **Settings** lives; it isn't in the list itself), a **mic** for voice search and a small **search box**: highlight it and press OK to type straight there, and the search page opens with your results as soon as you send it (it closes again once you pick something). **Up** from Live TV lands on these.
+
+The remote's own mic button works too, once Viewarr is chosen as the TV's voice search app: it opens Viewarr's search, already listening.
 
 ### Editing the menu
 
@@ -55,7 +57,8 @@ Only want live TV? Switch Movies, Shows and the services off while editing the m
 Live TV keeps playing in the guide's preview place while you browse Movies, Shows, a service, a library, a title's page, Recordings or Music. The details of whatever you've highlighted sit beside it, with the posters below.
 
 - Nothing playing? The highlighted title's trailer plays there instead (see **Settings → Playback → Trailers**).
-- **The mini player**: press **Back** while watching live TV or a film and it keeps going top left while you browse. **Back** on the mini player brings it full screen again. **Hold Back**, full screen or mini, closes the player. See [Films & shows](FILMS-AND-SHOWS.md#the-mini-player). With **Settings → Playback → Highlight the corner picture** on, pressing towards the window from the edge of a page highlights it too.
+- With live TV or a film in the window, the details sit on the right, over the title's artwork; their text gets a soft shade behind it so it stays easy to read on bright pictures.
+- **The mini player**: press **Back** while watching live TV or a film and it keeps going top left while you browse. **Back** on the mini player brings it full screen again. **Hold Back**, full screen or mini, closes the player. See [Films & shows](FILMS-AND-SHOWS.md#the-mini-player). With **Settings → Live TV → Customise → Highlight the corner picture** on, pressing towards the window from the edge of a page highlights it too.
 
 ![Movies, with the top-left window and the details beside it](screenshots/movies.png)
 
@@ -67,12 +70,12 @@ Skip intro, the next-episode countdown, reminders and every other pop-up use the
 
 - **Pop-up glass**: 0% (solid) to 100% (clear) see-through, for the info bar (every style), the player's controls and every pop-up and notice.
 - **Info bar: border**: the thin light edge round the glass, on or off.
-- **Info bar size** and **Preview cards**: how big the bar and the cards in its rows are drawn.
-- **Clock on the info bar**: the time at the right of the bar, on live TV and films.
+
+**Clock on the info bar** (the time at the right of the bar, on live TV and films) is in **Appearance → Info bar & controls**. **Info bar size** and **Preview cards** (how big the bar and the cards in its rows are drawn) are in **Settings → Advanced → Screen & sizes**.
 
 ### Info bar styles
 
-Choose how the bar looks in **Settings → Appearance → Info bar & controls → Info bar style**, or add the **Style** button to the bar and press it to try each in turn. The style applies to live TV and films alike.
+Choose how the bar looks in **Settings → Appearance → Info bar & controls → Info bar style**, or add the **Info bar style** button to the bar and press it to try each in turn. The style applies to live TV and films alike.
 
 | Style | What it looks like |
 |---|---|
@@ -91,11 +94,11 @@ Choose how the bar looks in **Settings → Appearance → Info bar & controls �
 | **Slim strip** | A thin band along the bottom, with a line of your highlight colour across its top. |
 | **Frosted** | Milky light glass instead of the dark tint. |
 
-**Info bar width** and **corners** apply to the panel styles. Side fade and Corner card are narrower, so if you've added many extra buttons, check they still fit.
+**Info bar width** and **Info bar corners** (in **Settings → Advanced → Screen & sizes**) apply to the panel styles. Side fade and Corner card are narrower, so if you've added many extra buttons, check they still fit.
 
 ## Main menu settings
 
-**Settings → Appearance → Menu** controls how the menu looks, and **Settings → Menu & navigation → What the menu lists** what it lists.
+**Settings → Appearance → Customise → Menu** controls how the menu looks, and **Settings → Menu & navigation → What the menu lists** what it lists.
 
 | Setting | Choices | What it does |
 |---|---|---|
@@ -107,11 +110,11 @@ Choose how the bar looks in **Settings → Appearance → Info bar & controls �
 | **LIVE mark** | Off, On | A red ● LIVE on the channel groups' **All channels**. |
 | **Left / Right hints** | On, Off | The "Right › open its list" and "‹ Left: main menu" hints. |
 
-Below these, each menu entry (Live now, Sports, Movies, Shows, Music, Recordings, Search and each streaming service) can be switched on or off. Live TV and Settings are always there. Streaming services appear once your addons' rows have loaded.
+In **Menu & navigation → What the menu lists**, each menu entry (Sports, Movies, Shows, Music, Recordings, Search and each streaming service) can be switched on or off, and so can the **Hidden groups row** at the end of the channel groups. Live TV and Settings are always there. Streaming services appear once your addons' rows have loaded.
 
 ## More ways to find your way
 
-- **Button hints**: a small pill at the bottom of the screen says what the buttons do where you are. Choose **First few times**, **Always** or **Off** in **Settings → Appearance → Menu → Button hints**.
+- **Button hints**: a small pill at the bottom of the screen says what the buttons do where you are. Choose **First few times**, **Always** or **Off** in **Settings → Menu & navigation → Menu → Button hints**.
 - **Settings explain themselves**: a line at the top of Settings describes the highlighted entry, and every section says what it covers.
 - **Settings → Menu & navigation** sets where Viewarr opens (**App opens on**) and how poster rows behave. See [Settings](SETTINGS.md#menu--navigation).
 - **Search** pops up over any screen: hold **Menu (≡)** or use the remote's search button. See [Films & shows](FILMS-AND-SHOWS.md#search).

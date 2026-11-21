@@ -7,8 +7,10 @@ Viewarr has no analytics, no ads and no servers of its own. It talks only to the
 - **Your sign-ins** (server addresses, logins, API keys and tokens) are stored on the TV, encrypted with the Android Keystore, and left out of Android backups.
 - **Your settings**, for each profile.
 - **Watch progress for IPTV films and episodes** (where you stopped, and what you've finished), for each profile, because Dispatcharr and Xtream don't keep it. Up to 400 entries per profile, the oldest dropped first. With Dispatcharr it's also kept on your own Dispatcharr user (its app-data store), so your other TVs share it; nothing goes anywhere else.
+- **How far you've watched each recording**, kept on the TV only (Dispatcharr doesn't keep a place in a recording).
 - **Each Live TV source's TV guide** (the three most recent sources keep theirs, so switching is quick). With an IPTV login or playlist, groups you leave out with **Choose groups** aren't stored at all.
 - **Artwork** (posters, logos, backdrops) and other caches, and **downloaded updates**.
+- **Home screen rows** you switch on are handed to Android's own home-screen rows on the TV, for your launcher to show. Nothing leaves the TV.
 - **Copies of what pages show**, so they open straight away and refresh quietly behind: the Movies and Shows rows, ratings, guide pictures, title logos and your Trakt watched history. They stay on the TV and are only used to show those pages.
 
 **Settings → About → Storage** shows what Viewarr keeps and lets you clear artwork and downloaded updates. **Sign out of everything** signs the TV out of all your accounts and sources.
@@ -30,7 +32,9 @@ Viewarr talks to the servers you set up, with the sign-ins you give it:
 | **TMDB** | When you add a TMDB key: Movies & Shows rows, title pages, search, and finding a picture for a programme in the guide when Dispatcharr has none. Images come from TMDB's image server. | Your TMDB key, the titles or programme names being looked up, and title ids. |
 | **Trakt** | Only if you sign in to Trakt. | Your watch progress, watched marks, watchlist changes, and requests for your history, recommendations and calendar. |
 | **MDBList** | Only if you add an MDBList key. | Your key and the title's id, for its ratings. |
-| **ESPN** | Only for **Sports**: when you search in **Settings → Sports**, and to fetch the games of the teams and leagues you follow. | What you type in the search, and the teams and leagues you follow. |
+| **ESPN** | Only for **Sports**: when you search in **Settings → Sports**, to fetch the games of the teams and leagues you follow, and (without the Viewarr plugin) to check live scores for score alerts and the **Live scores** ticker while your games are on. | What you type in the search, and the teams and leagues you follow. |
+| **JustWatch** | For the streaming services' **Just added** rows, once a day, when your Dispatcharr has no Viewarr plugin to do it for the house. | The country (UK), the services and the dates being looked up. Nothing about you. |
+| **Sky** | Only for **Sports**: Sky's public TV listings, to find which channel shows a game you follow. | The dates being looked up. Nothing about you. |
 | **TheSportsDB** | For **Live now** and **Sports**: match pictures, and which UK channels show a game the guide doesn't reach yet. | The two team names (and the date). |
 | **TheIntroDB / IntroDB** | For **Skip intro** and **Next episode**, when Plex, Jellyfin or Emby haven't marked the intro (addons, IPTV…). Off if **Skip intros** and **Skip credits** are off. | Only the title's id and the episode. |
 | **LRCLIB** | Only if you turn on **Settings → Playback → Music → Lyrics from LRCLIB**, for songs your server has no lyrics for. | The song's artist, title, album and length. |
@@ -47,7 +51,7 @@ If you sign in with Dispatcharr, Viewarr can keep a copy of its setup on your Di
 - Settings that depend on the box (surround sound, frame rate, decoding) stay on each TV.
 - A few earlier versions are kept too (up to 12, in the same place on your Dispatcharr user), so you can go back. They hold the same things as the main copy, with sign-ins still encrypted.
 - Backups you make on the Viewarr plugin (admins) are kept by the plugin on your Dispatcharr server until you delete them, with sign-ins encrypted the same way.
-- Turn it off, or leave sign-ins out, in **Settings → Backup & sync**.
+- Turn it off, or leave sign-ins out, in **Settings → Backup & sync**. **Restore from Dispatcharr** there lets you pick a version.
 
 Profiles' settings, locks and limits that an admin sets are kept on that person's Dispatcharr user.
 
@@ -69,7 +73,7 @@ The microphone is only used while voice search is listening (after you press the
 
 **Settings → Troubleshooting → Send a report** is the one thing that sends anything to Viewarr's developer, and only when you press **Send**:
 
-- What's in it: Viewarr's version, the box's model, Android version, memory and screen, which *kinds* of sources you use (Dispatcharr, IPTV login, M3U playlist), and the last part of Viewarr's own log. You see it before sending.
+- What's in it: Viewarr's version, the box's model, Android version, memory and screen, which *kinds* of sources you use (Dispatcharr, IPTV login, M3U playlist), every setting you've changed from its default (display and behaviour choices only), and the last part of Viewarr's own log. You see it before sending.
 - What's taken out first: passwords, API keys, tokens, server addresses (also server names inside error messages), IP addresses, email addresses, usernames, and the login that IPTV stream addresses carry. The log does include the names of films and episodes you've played recently.
 - It's locked on the box with the developer's public key, so only the developer can open it, then uploaded to a free file host ([litterbox.catbox.moe](https://litterbox.catbox.moe)) that deletes it after 72 hours. You get a short code (such as `VR-abc123`) to share. The developer also gets a notification ([ntfy.sh](https://ntfy.sh)) with just that code, the Viewarr version and the box's model, nothing else.
 - It also uploads a settings code (`VS-…`, see below) and adds it to the report, so the developer can try your settings.

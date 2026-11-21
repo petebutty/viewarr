@@ -134,6 +134,8 @@ You can bring the phone setup back any time from **Settings → Accounts & sourc
 - [Live TV](LIVE-TV.md), [Films & shows](FILMS-AND-SHOWS.md) and [Music](MUSIC.md).
 - [Remote control](REMOTE.md) and [Settings](SETTINGS.md).
 - [Profiles](PROFILES.md): everyone in the house, and friends in another one.
+- The [Viewarr plugin](LIVE-TV.md#viewarr-plugin-optional) for Dispatcharr is optional: Viewarr works fully without it. With it, your server does the daily and sport work once for the whole house.
+- Edges of the screen cut off on your TV? See [Troubleshooting](TROUBLESHOOTING.md#the-edges-of-the-screen-are-cut-off).
 
 ## 5. Troubleshooting
 
