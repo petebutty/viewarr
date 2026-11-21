@@ -81,7 +81,7 @@ class HomeState(
     showAccountsState: MutableState<Boolean>,
     private val pageState: MutableState<Page>,
     startAppliedState: MutableState<Boolean>,
-    fullscreenState: MutableState<Boolean>,
+    private val fullscreenState: MutableState<Boolean>,
 ) {
     /** (The moved code still says hs.x, as it did inside HomeScreen.) */
     private val hs: HomeState get() = this
@@ -142,7 +142,9 @@ class HomeState(
         else if (start == StartPage.Guide || start == StartPage.LastChannel) StartPage.Movies else start
     /** The start page from Settings, applied once when the app opens. */
     var startApplied by startAppliedState
-    var fullscreen by fullscreenState
+    var fullscreen: Boolean
+        get() = fullscreenState.value
+        set(v) { fullscreenState.value = v; io.github.petebutty.viewarr.ui.common.LiveBehind.fullScreen = v }
     /** Record options for a programme (from the guide or the player's Record button). */
     var recordTarget by mutableStateOf<Pair<ChannelListItem, GuideProgram>?>(null)
     /** Hold OK in the guide → Guide times: the channel whose guide offset is being set. */

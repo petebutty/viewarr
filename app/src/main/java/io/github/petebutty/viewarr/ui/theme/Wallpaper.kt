@@ -287,6 +287,8 @@ fun Modifier.appBackground(titleArt: Boolean = false, readable: Boolean = false)
         1 -> {
             WallpaperStyles.getOrElse(p.wallpaperStyle) { WallpaperStyles[0] }.draw(this, p.highlight)
             drawRect(sh.copy(alpha = p.wallpaperDim))
+            // (Christmas: the falling snow, read from its clock here, so only this background is drawn again.)
+            if (Snow.running) drawSnow()
         }
         3, 4 -> {
             if (Wallpaper.wall.image == null) { drawRect(p.main); return@drawBehind }
@@ -354,41 +356,48 @@ private fun DrawScope.drawCover(img: ImageBitmap, alpha: Float) {
 }
 
 /**
- * Falling snow over the Christmas wallpaper, behind the pages. Light by design: a fixed set of flakes, each a single
- * circle, all drawn in one layer from one clock at 30 frames a second (only this layer is drawn again, nothing laid
- * out). It stops while a film or episode covers the screen and when Viewarr is in the background, and isn't there
- * with Low-memory mode (no wallpaper then).
+ * Falling snow, part of the Christmas wallpaper itself: every page that paints the wallpaper (the guide, Settings,
+ * Movies…) draws it behind its own content, so it falls everywhere and never over text (Peter, 2026-11-21: it only
+ * showed on the TV guide, as every other page covered it with its own copy of the wallpaper). One clock for the app
+ * ([ChristmasSnow] runs it, 30 frames a second); each page only draws, nothing is laid out again. It stops while a film
+ * or live TV is full screen and when Viewarr is in the background, and isn't there with Low-memory mode.
  */
-@androidx.compose.runtime.Composable
-fun ChristmasSnow(modifier: androidx.compose.ui.Modifier = androidx.compose.ui.Modifier) {
-    val p = AppColors.palette
-    val on = p.wallpaperMode == 1 && WallpaperStyles.getOrNull(p.wallpaperStyle)?.name == CHRISTMAS &&
-        p.opt(UiOpts.SNOW) == 0 && !io.github.petebutty.viewarr.ui.media.VodHost.covering
-    if (!on) return
-    val flakes = androidx.compose.runtime.remember {
-        val r = java.util.Random(7)
+object Snow {
+    val time = androidx.compose.runtime.mutableFloatStateOf(0f)
+    @Volatile var running = false
+    internal val flakes: List<FloatArray> = java.util.Random(7).let { r ->
+        // x, y (0..1), size, fall speed (screens a second), sway phase
         List(90) { floatArrayOf(r.nextFloat(), r.nextFloat(), 0.4f + r.nextFloat() * 1.1f, 0.03f + r.nextFloat() * 0.05f, r.nextFloat() * 6.28f) }
-        // x, y (0..1), size, fall speed (screens a second… scaled below), sway phase
     }
-    val time = androidx.compose.runtime.remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
+    fun wanted(p: Palette = AppColors.palette) = p.wallpaperMode == 1 && WallpaperStyles.getOrNull(p.wallpaperStyle)?.name == CHRISTMAS && p.opt(UiOpts.SNOW) == 0
+}
+
+internal fun DrawScope.drawSnow() {
+    if (!Snow.running) return
+    val t = Snow.time.floatValue
+    val w = size.width; val h = size.height; val unit = size.minDimension / 540f
+    for (f in Snow.flakes) {
+        val y = ((f[1] + t * f[3]) % 1.1f) * h - 0.05f * h
+        val x = ((f[0] + 0.02f * kotlin.math.sin(t * 0.6f + f[4])) % 1f) * w
+        drawCircle(Color.White.copy(alpha = 0.35f + 0.4f * (f[2] / 1.5f)), f[2] * 1.6f * unit, Offset(x, y))
+    }
+}
+
+/** The snow's clock (one for the app): runs only while it's wanted and something's to see. Draws nothing itself. */
+@androidx.compose.runtime.Composable
+fun ChristmasSnow() {
+    val on = Snow.wanted() && !io.github.petebutty.viewarr.ui.media.VodHost.covering && !io.github.petebutty.viewarr.ui.common.LiveBehind.fullScreen
+    Snow.running = on
+    if (!on) return
     val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
     androidx.compose.runtime.LaunchedEffect(lifecycle) {
         lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
             var last = 0L
             while (true) {
                 androidx.compose.runtime.withFrameNanos { now ->
-                    if (now - last >= 33_000_000L) { time.floatValue = now / 1_000_000_000f; last = now }
+                    if (now - last >= 33_000_000L) { Snow.time.floatValue = now / 1_000_000_000f; last = now }
                 }
             }
-        }
-    }
-    androidx.compose.foundation.Canvas(modifier.fillMaxSize().graphicsLayer {}) {
-        val t = time.floatValue
-        val w = size.width; val h = size.height; val unit = size.minDimension / 540f
-        for (f in flakes) {
-            val y = ((f[1] + t * f[3]) % 1.1f) * h - 0.05f * h
-            val x = ((f[0] + 0.02f * kotlin.math.sin(t * 0.6f + f[4])) % 1f) * w
-            drawCircle(Color.White.copy(alpha = 0.35f + 0.4f * (f[2] / 1.5f)), f[2] * 1.6f * unit, Offset(x, y))
         }
     }
 }

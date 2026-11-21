@@ -12,4 +12,6 @@ object LiveBehind {
     var on by mutableStateOf(false)
     /** Movies / Shows from the guide: the channel in the guide's preview place, top left (the hero makes room). */
     var preview by mutableStateOf(false)
+    /** Live TV full screen right now (the Christmas snow stops: it's drawn over the pages). */
+    var fullScreen by mutableStateOf(false)
 }

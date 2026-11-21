@@ -256,8 +256,10 @@ fun AppRoot(vm: AppViewModel = hiltViewModel()) {
     ) {
         // (After the splash: decoding pictures competed with the start page loading.)
         if (!splashShown) WallpaperLoader()
-        // The Christmas wallpaper's falling snow: behind everything else drawn here (the pages show it through).
+        // The Christmas wallpaper's falling snow: behind the pages, so it never falls over text (pages that paint their
+        // own background, such as Settings, cover it). It stops during full-screen films and live TV.
         if (!splashShown) io.github.petebutty.viewarr.ui.theme.ChristmasSnow()
+
         when (val s = state) {
             StartState.Loading -> Unit
             StartState.NeedsSetup -> if (!splashShown) {

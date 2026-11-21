@@ -1,5 +1,12 @@
 # Viewarr changelog (built by tools/changelog.py from the GitHub releases; don't edit by hand)
 
+## 0.29.6 · 21 Nov 2026
+
+A small update for the Christmas wallpaper.
+
+- **Snow on every page:** with the Christmas wallpaper, snow now falls behind the guide, Settings, Movies, Shows and the menus, not just the TV guide. It's part of the wallpaper, so it's always behind text and posters, never over them.
+- **Stops during full-screen live TV** as well as films, so it never animates behind a programme for nothing.
+
 ## 0.29.5 · 21 Nov 2026
 
 Everything now works without the Viewarr plugin, plus TMDB-organised recordings, recordings on Trakt, and a Christmas wallpaper.
