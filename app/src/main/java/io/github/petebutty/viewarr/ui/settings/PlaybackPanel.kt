@@ -166,7 +166,7 @@ fun playbackCategories(vm: PlaybackSettingsViewModel = hiltViewModel(), opts: Ui
         ),
         SettingCategory(
             "Live TV", "Watching live channels.",
-            listOf(
+            listOfNotNull(
                 optItem(opts, "Highlight the corner picture", "At the edge of a page, pressing towards the picture in the corner (live TV or a film) highlights it: Full screen or Close. Holding Back gives the same choice anywhere. Off: only hold Back.", UiOpts.CORNER_FOCUS).locked(lowLock),
                 optItem(opts, "Up / Down while watching", "What Up / Down (and Channel + / −) do on full-screen live TV. Browse: the info bar shows the next channels and what's on while the picture stays put; OK changes to the one shown, Back stays where you were. \"Changes when you stop\" waits as long as Browsing channels (below) says.", UiOpts.LIVE_UPDOWN),
                 optItem(opts, "Browsing channels", "With a button set to \"Next channel in the info bar\" (Settings → Remote buttons, On live TV): how long to rest on a channel before it changes. OK changes straight away; Back stays on the one you were watching.", UiOpts.BROWSE_DELAY),
@@ -188,7 +188,8 @@ fun playbackCategories(vm: PlaybackSettingsViewModel = hiltViewModel(), opts: Ui
                 ) { on -> appearance.setTitlePart(GroupNames.TIDY_KEY, !on) },
                 optItem(opts, "Still watching?", "After this long without a button press, live TV asks whether you're still there and stops if nobody answers within a minute (frees a provider connection when the TV's left on).", UiOpts.STILL_WATCHING),
                 optItem(opts, "Start with the best source", "A channel with several streams behind it (Dispatcharr) starts on the best one: the highest quality (Dispatcharr's own check of each stream, or the FHD / HD / SD in its name), streams that failed lately after the rest, Dispatcharr's own order to break ties. A stream that doesn't start or keeps stopping is remembered as failed for a day (three fails in a week: all week) and the next best plays. Off: Dispatcharr's own first stream, as before.", UiOpts.BEST_SOURCE),
-                optItem(opts, "Event channels: only with a listing", "A channel in an event group (TNT events, live football slots, pay-per-view…) is listed only while the guide has something on it now or starting within 24 hours, and a group of nothing but empty event channels is left out altogether. The Viewarr plugin picks the event groups when it's running; without it, Viewarr spots them by their names. Reminders, recordings, links and the Sports page still reach them. Off: every event channel, all the time. Club TV channels always show.", UiOpts.EVENT_ONLY_LISTED),
+                optItem(opts, "Live timeshift", "Pause, rewind and fast-forward live TV from a buffer on your server (Viewarr plugin). Any channel can be paused, rewound and fast-forwarded, not only ones with catch-up. While you watch, the server keeps the last couple of hours of the channel (shared with other TVs on it, no extra provider connection); live TV plays as usual until you pause or rewind. Further back than the server's buffer, catch-up takes over where the channel has it. Off: catch-up only, as without the plugin. The server's own switch and how far back it keeps are in Settings → Plugins → Viewarr (admins).", UiOpts.SERVER_TIMESHIFT).takeIf { io.github.petebutty.viewarr.data.sync.ServerSports.available(io.github.petebutty.viewarr.data.sync.ServerSports.F_TIMESHIFT) },
+                optItem(opts, "Event channels: only with a listing", "A channel in an event group (TNT events, live football slots, pay-per-view…) is listed only while the guide has something on it now or starting within 24 hours, and a group of nothing but empty event channels is left out altogether. The Viewarr plugin picks the event groups when it's running; without it, Viewarr spots them by their names. Reminders, recordings, links and the Sports page still reach them. Off: every event channel, all the time. Club TV channels always show.", UiOpts.EVENT_ONLY_LISTED).takeIf { io.github.petebutty.viewarr.data.sync.ServerSports.available(io.github.petebutty.viewarr.data.sync.ServerSports.F_EVENTS) },
                 // Reports (hold OK on a channel → Report a problem): the plugin's changes with Undo, guides to pick, this TV's own.
                 SettingItem("Reports", "Problems reported from the TVs in the house (hold OK on a channel → Report a problem): what the Viewarr plugin on Dispatcharr changed from them (admins can undo each one), channels that still need the right guide picked, and this TV's own reports. Without the plugin, reports are kept on this TV.",
                     emptyList(), PlainChoice("OK: open"), action = { SettingsJump.reports = true }, onSelect = {}),
@@ -210,8 +211,8 @@ fun playbackCategories(vm: PlaybackSettingsViewModel = hiltViewModel(), opts: Ui
                     appearance.setTitlePart(io.github.petebutty.viewarr.data.media.HomeRows.PART + g.name.trim().lowercase(), !on)
                     guideVm.refreshHomeRows()
                 }
-            } + listOf(androidHomeApprovalItem(), SettingItem("Add every Just added row", "Every streaming service's Just added rows (films and shows) onto the home screen at once, in order: Netflix, Prime Video, Disney+ and so on.",
-                listOf(PlainChoice("OK: add")), PlainChoice("OK: add"), action = { guideVm.addJustAddedRows() }, onSelect = {})) +
+            } + listOfNotNull(androidHomeApprovalItem(), SettingItem("Add every Just added row", "Every streaming service's Just added rows (films and shows) onto the home screen at once, in order: Netflix, Prime Video, Disney+ and so on.",
+                listOf(PlainChoice("OK: add")), PlainChoice("OK: add"), action = { guideVm.addJustAddedRows() }, onSelect = {}).takeIf { io.github.petebutty.viewarr.data.sync.ServerSports.available(io.github.petebutty.viewarr.data.sync.ServerSports.F_JUST) }) +
                 homeScreenMediaRows(appearance) { guideVm.refreshHomeRows() },
         ),
         // Live now: which channel groups it searches (Peter, 2026-11-17: the user picks them). Starting ticks: the event
@@ -225,10 +226,10 @@ fun playbackCategories(vm: PlaybackSettingsViewModel = hiltViewModel(), opts: Ui
                     appearance.setTitlePart("lngrp:" + (if (on) "+" else "-") + k, false)
                 }
             },
-        ),
+        ).takeIf { io.github.petebutty.viewarr.data.sync.ServerSports.available(io.github.petebutty.viewarr.data.sync.ServerSports.F_LIVE) },
         // Live now: the teams, leagues and sports it's limited to, searched for and added (the old per-sport and
         // per-league switches are gone; Peter, 2026-11-19).
-        liveNowCategory(liveNowList),
+        liveNowCategory(liveNowList).takeIf { io.github.petebutty.viewarr.data.sync.ServerSports.available(io.github.petebutty.viewarr.data.sync.ServerSports.F_LIVE) },
         // Notifications: everything Viewarr pops up by itself, all off with one switch, or each kind.
         SettingCategory(
             "Notifications", "Everything Viewarr shows by itself. Off: nothing pops up at all. On: choose each kind below.",
@@ -239,7 +240,8 @@ fun playbackCategories(vm: PlaybackSettingsViewModel = hiltViewModel(), opts: Ui
                 if (!AppColors.palette.shows(n.ON)) {
                     val sa = io.github.petebutty.viewarr.data.sports.ScoreAlerts
                     val modes = sa.modes.map { PlainChoice(it) }
-                    add(SettingItem("Score alerts", "Goals, kick-offs and results for the teams and leagues you choose, and where they show. With the Viewarr plugin, the server checks for the whole house; without it, each TV checks for itself while it's on. Which kinds, and per team: Settings → Sports.",
+                    // (Switched off in the Viewarr plugin: score alerts are off for the house.)
+                    if (io.github.petebutty.viewarr.data.sync.ServerSports.available(io.github.petebutty.viewarr.data.sync.ServerSports.F_ALERTS)) add(SettingItem("Score alerts", "Goals, kick-offs and results for the teams and leagues you choose, and where they show. With the Viewarr plugin, the server checks for the whole house; without it, each TV checks for itself while it's on. Which kinds, and per team: Settings → Sports.",
                         modes, modes.first { it.label == sa.mode }) { c -> sa.partsFor(c.label).forEach { (k, v) -> appearance.setTitlePart(k, v) } })
                     add(onOffItem("Reminders", "A card when something you set a reminder for (a programme or a game) is about to start.", !AppColors.palette.shows(n.REMINDERS)) { on -> appearance.setTitlePart(n.REMINDERS, !on) })
                     if (!AppColors.palette.shows(n.REMINDERS)) add(optItem(opts, "Remind me", "How early the reminder comes up: when it starts, or 2, 5, 10 or 15 minutes before.", io.github.petebutty.viewarr.ui.theme.UiOpts.REMIND_LEAD))

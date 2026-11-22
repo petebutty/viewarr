@@ -583,6 +583,8 @@ class CatalogRepository @Inject constructor(
      * TMDB's "New" can't show these: it knows which service has a title, not when it arrived (Peter, 2026-11-20).
      */
     private suspend fun justAddedRows(a: Accounts, type: MediaType): List<MediaRow> {
+        // Switched off in the Viewarr plugin: no Just added rows for the house (and no fetching of our own).
+        if (io.github.petebutty.viewarr.data.sync.ServerSports.offInPlugin(io.github.petebutty.viewarr.data.sync.ServerSports.F_JUST)) return emptyList()
         // From the Viewarr plugin when it's there (it asks JustWatch once a day for the house); else the TV asks JustWatch
         // itself, once a day (JustAddedLocal), so everyone has these rows.
         val s = sessions.session.first()?.takeIf { !it.isDirect }

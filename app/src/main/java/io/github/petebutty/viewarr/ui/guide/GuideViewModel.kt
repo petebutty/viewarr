@@ -286,6 +286,8 @@ class GuideViewModel @Inject constructor(
         withContext(Dispatchers.Default) { liveEventsNow(games, known) }
 
     private suspend fun liveEventsNow(games: List<LiveGame>, known: List<SportGame>): LiveEvents {
+        // Switched off in the Viewarr plugin: Live now is off for the house (no Live now group at all).
+        if (io.github.petebutty.viewarr.data.sync.ServerSports.offInPlugin(io.github.petebutty.viewarr.data.sync.ServerSports.F_LIVE)) return LiveEvents(emptyList(), emptyList())
         val named = eventGroups()
         val all = allChannelsList()
         // Worked out on the server for the whole house (the Viewarr plugin on Dispatcharr), while it's recent: this TV

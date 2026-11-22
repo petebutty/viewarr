@@ -415,7 +415,8 @@ private fun newsTickerCategory(opts: UiOptsViewModel): SettingCategory {
                 optItem(opts, "In the TV guide", "Along the bottom of the guide.", UiOpts.NEWS_GUIDE),
                 optItem(opts, "On Movies, Shows and Sports", "Along the bottom of those pages.", UiOpts.NEWS_PAGES),
                 optItem(opts, "Speed", "How fast headlines move across.", UiOpts.NEWS_SPEED),
-            ) + newsVm.feeds.all().map { f ->
+            // (Score alerts switched off in the Viewarr plugin: no Live scores feed to offer.)
+            ) + newsVm.feeds.all().filter { it.id != io.github.petebutty.viewarr.data.news.NewsFeeds.LIVE_SCORES || io.github.petebutty.viewarr.data.sync.ServerSports.available(io.github.petebutty.viewarr.data.sync.ServerSports.F_ALERTS) }.map { f ->
                 // One row per feed: Off, or On in a chosen look (your own feeds can be removed here too).
                 val looks = TickerStyle.entries
                 val choices = listOf(Choice("Off", -1)) + looks.mapIndexed { i, st -> Choice("On · ${st.label}" + if (st == f.defaultStyle) " (its own)" else "", i) } +

@@ -106,6 +106,8 @@ class PluginsViewModel @Inject constructor(private val repo: PluginsRepository) 
     fun run(p: InstalledPlugin, actionId: String) = act({ repo.run(p.key, actionId) }, reload = false)
     fun setting(p: InstalledPlugin, f: PluginField, value: kotlinx.serialization.json.JsonElement) = act({ repo.saveSetting(p, f.id, value) })
     fun install(p: StorePlugin) = act({ repo.install(p) })
+    /** A short word on the panel (a value refused before it's sent). */
+    fun say(message: String) { _ui.value = _ui.value.copy(message = message) }
 }
 
 /**
@@ -241,11 +243,62 @@ private fun FieldRow(p: InstalledPlugin, f: PluginField, vm: PluginsViewModel) {
                 f.options.getOrNull((i + 1) % f.options.size.coerceAtLeast(1))?.let { vm.setting(p, f, JsonPrimitive(it.first)) }
             }
         }
-        else -> {
-            val shown = (current as? JsonPrimitive)?.content?.takeIf { it.isNotBlank() }?.lines()?.first() ?: "—"
-            Row2("f:${p.key}:${f.id}", f.label, f.description.ifEmpty { "Change this on Dispatcharr's web page." }, trailing = shown, enabled = false) {}
-        }
+        else -> TextFieldRow(p, f, (current as? JsonPrimitive)?.takeIf { it !is kotlinx.serialization.json.JsonNull }?.content.orEmpty(), vm)
     }
+}
+
+/**
+ * A text, string or number setting: admins change it with the text entry dialog (typed, or by voice), saved through
+ * the same settings call as the switches. Left read-only: anything the plugin marks internal, an "undo" box (only for
+ * Dispatcharr's own Undo button), and text this dialog can't hold whole (several lines, other than this app's own
+ * plugin, whose lists take commas too; or longer than the dialog takes).
+ */
+@Composable
+private fun TextFieldRow(p: InstalledPlugin, f: PluginField, value: String, vm: PluginsViewModel) {
+    val ownPlugin = p.key == "viewarr"
+    val multiLine = '\n' in value.trim()
+    val editable = !f.internal && !f.id.contains("undo", ignoreCase = true) && value.length <= MAX_TEXT && (!multiLine || ownPlugin)
+    val shown = value.takeIf { it.isNotBlank() }?.lines()?.filter { it.isNotBlank() }?.joinToString(", ") ?: "—"
+    var editing by remember { mutableStateOf(false) }
+    // (Why the last try wasn't saved: shown in the dialog itself, as the panel's message is behind it.)
+    var refused by remember { mutableStateOf<String?>(null) }
+    Row2("f:${p.key}:${f.id}", f.label, f.description.ifEmpty { if (editable) "" else "Change this on Dispatcharr's web page." },
+        trailing = if (editable) "$shown  ✎" else shown, enabled = editable) { refused = null; editing = true }
+    if (editing) io.github.petebutty.viewarr.ui.report.TextEntryDialog(
+        title = f.label,
+        subtitle = refused ?: timeWindowHint(f) ?: "Empty is allowed. Saved on your Dispatcharr server for everyone.",
+        placeholder = (f.default as? JsonPrimitive)?.content?.takeIf { it.isNotBlank() } ?: f.label,
+        initial = if (multiLine) value.lines().map { it.trim() }.filter { it.isNotEmpty() }.joinToString(", ") else value,
+        optional = true,
+        onDone = { typed ->
+            val problem = textProblem(f, typed)
+            refused = problem
+            if (problem != null) vm.say(problem)
+            else {
+                editing = false
+                val v = if (f.type == "number") typed.toDoubleOrNull()?.let { d -> if (d % 1.0 == 0.0) JsonPrimitive(d.toLong()) else JsonPrimitive(d) } ?: JsonPrimitive(typed) else JsonPrimitive(typed)
+                vm.setting(p, f, v)
+            }
+        },
+        onClose = { editing = false },
+    )
+}
+
+private const val MAX_TEXT = 200
+private val TIME_WINDOW = Regex("""^([01]?\d|2[0-3]):[0-5]\d\s*-\s*([01]?\d|2[0-3]):[0-5]\d$""")
+
+/** A setting that takes a time window ("HH:MM-HH:MM"): the Viewarr plugin's measuring window, or any with such a default. */
+private fun isTimeWindow(f: PluginField) =
+    f.id == "measure_window" || (f.default as? JsonPrimitive)?.content?.let { TIME_WINDOW.matches(it.trim()) } == true
+
+private fun timeWindowHint(f: PluginField) = if (isTimeWindow(f)) "As HH:MM-HH:MM in the server's local time, e.g. 01:00-07:00. Empty: never." else null
+
+/** Why [typed] can't be saved for [f] (null: fine). Checked here, as Dispatcharr saves plugin settings unchecked. */
+private fun textProblem(f: PluginField, typed: String): String? = when {
+    typed.isEmpty() -> null
+    isTimeWindow(f) && !TIME_WINDOW.matches(typed.trim()) -> "Not saved: use HH:MM-HH:MM, e.g. 01:00-07:00."
+    f.type == "number" && typed.toDoubleOrNull() == null -> "Not saved: that needs a number."
+    else -> null
 }
 
 @Composable

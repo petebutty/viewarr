@@ -111,6 +111,8 @@ fun HomeRowsSettingsScreen(onBack: () -> Unit, startMine: Boolean = false) {
                     fontSize = 12.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(horizontal = 12.dp),
                 )
                 // "<service> · Just added" (the Viewarr plugin's, from JustWatch) in place of each "<service> · New".
+                // (Just added switched off in the Viewarr plugin: there are no such rows, so no option.)
+                if (io.github.petebutty.viewarr.data.sync.ServerSports.available(io.github.petebutty.viewarr.data.sync.ServerSports.F_JUST)) {
                 val showsVmJ: MediaViewModel = hiltViewModel(key = "media-${MediaType.Show.name}")
                 Spacer(Modifier.height(10.dp))
                 io.github.petebutty.viewarr.ui.common.MenuItem(text = "Use Just added instead of New", selected = false,
@@ -120,6 +122,7 @@ fun HomeRowsSettingsScreen(onBack: () -> Unit, startMine: Boolean = false) {
                     "Each service's Just added row (what really arrived on it lately, new seasons too) takes the place of its New row, on Movies and Shows. The New rows are hidden, not removed.",
                     fontSize = 12.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(horizontal = 12.dp),
                 )
+                }
                 // Network rows (an addon's "Netflix · Popular"…) on Movies / Shows too, or only on each network's own
                 // page in the menu. (Its switch was in the old live TV shortcut lists, 2026-11-18.)
                 val optsNet: UiOptsViewModel = hiltViewModel()

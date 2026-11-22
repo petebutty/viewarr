@@ -156,13 +156,14 @@ internal fun GamePageHost(hub: SportsHub, besidePreview: Boolean) {
                                 val want = !gw.wantsReminder(g.id); gw.setReminder(g.id, want)
                                 hub.toast(if (want) "We'll remind you of ${g.title} once it's in your TV guide" else "Reminder cancelled")
                             })
-                            add((if (gw.wantsRecording(g.id)) "✓ Recording" else "Record") to {
+                            // (Sport recordings switched off in the Viewarr plugin: no "record when it's listed".)
+                            if (io.github.petebutty.viewarr.data.sync.ServerSports.available(io.github.petebutty.viewarr.data.sync.ServerSports.F_RECORD)) add((if (gw.wantsRecording(g.id)) "✓ Recording" else "Record") to {
                                 val want = !gw.wantsRecording(g.id); gw.setRecording(g.id, want)
                                 hub.toast(if (want) "${g.title} will be recorded once it's in your TV guide" + io.github.petebutty.viewarr.data.sports.TvGameRecorder.whileRunning else "Won't record ${g.title}")
                             })
                         }
                     }
-                    listOf(g.home, g.away).forEach { team ->
+                    if (io.github.petebutty.viewarr.data.sync.ServerSports.available(io.github.petebutty.viewarr.data.sync.ServerSports.F_RECORD)) listOf(g.home, g.away).forEach { team ->
                         add((if (gw.recordsTeam(team)) "✓ Record all $team" else "Record all $team") to {
                             val want = !gw.recordsTeam(team); gw.setTeam(team, want)
                             hub.toast(if (want) "Recording every $team game once it's in your TV guide" + io.github.petebutty.viewarr.data.sports.TvGameRecorder.whileRunning else "Won't record every $team game")
@@ -177,7 +178,7 @@ internal fun GamePageHost(hub: SportsHub, besidePreview: Boolean) {
                     }
                 }
             }
-            if (g.state == "pre" && ch == null) Text(
+            if (g.state == "pre" && ch == null && io.github.petebutty.viewarr.data.sync.ServerSports.available(io.github.petebutty.viewarr.data.sync.ServerSports.F_RECORD)) Text(
                 "Not in your TV guide yet: a recording asked for here is set as soon as the guide lists it" +
                     (if (io.github.petebutty.viewarr.data.sync.ServerSports.pluginAlive) "." else ", while Viewarr is running on this TV (the Viewarr plugin on Dispatcharr does it with every TV off)."),
                 fontSize = 12.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(top = 6.dp),

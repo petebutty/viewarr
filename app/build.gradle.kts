@@ -25,8 +25,8 @@ android {
         applicationId = "io.github.petebutty.viewarr"
         minSdk = 26
         targetSdk = 34
-        versionCode = 65
-        versionName = "0.29.8"
+        versionCode = 66
+        versionName = "0.29.9"
         // Trakt device login needs a client id from your own Trakt app (trakt.tv/oauth/applications). Blank = no Trakt.
         // Android TV boxes are ARM; leaving out x86 keeps the APK smaller.
         ndk { abiFilters += listOf("armeabi-v7a", "arm64-v8a") }

@@ -36,7 +36,8 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 /** Whether this login can use the Viewarr plugin's backups (its actions are for Dispatcharr admins only). */
-enum class PluginAccess { Checking, Ready, NoPlugin, NotAdmin, NoLogin }
+/** [Off]: the plugin is there but an admin switched its Backups off (hidden then). */
+enum class PluginAccess { Checking, Ready, NoPlugin, NotAdmin, NoLogin, Off }
 
 /**
  * Backups of this TV's whole setup kept by the Viewarr plugin on Dispatcharr: copies made by hand, kept until
@@ -67,6 +68,7 @@ class PluginBackupsViewModel @Inject constructor(
         _access.value = when {
             users.myLevel(s) != 10 -> PluginAccess.NotAdmin
             !house.installed(s) -> PluginAccess.NoPlugin
+            !house.backupsOn(s) -> PluginAccess.Off
             else -> PluginAccess.Ready
         }
     }
@@ -162,6 +164,7 @@ fun PluginBackupsContent(first: FocusRequester, vm: PluginBackupsViewModel = hil
     when {
         access == PluginAccess.NotAdmin || access == PluginAccess.NoLogin -> note("Needs the Viewarr plugin and an admin login.", true)
         access == PluginAccess.NoPlugin -> note("Install the Viewarr plugin in Dispatcharr (Plugins) to keep backups there.", true)
+        access == PluginAccess.Off -> note("Backups are switched off in the Viewarr plugin (Settings → Plugins → Viewarr).", true)
         list == null -> note("Loading…", false)
         list.orEmpty().isEmpty() -> note("No backups yet.", false)
         else -> list.orEmpty().forEach { b ->

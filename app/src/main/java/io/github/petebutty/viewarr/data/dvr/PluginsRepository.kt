@@ -42,6 +42,8 @@ data class PluginField(
     val description: String,
     val default: JsonElement?,
     val options: List<Pair<String, String>>,
+    /** Marked "internal" by the plugin: shown, never edited here. */
+    val internal: Boolean = false,
 )
 
 /** A plugin offered by one of the server's plugin repositories (the store). */
@@ -106,6 +108,7 @@ class PluginsRepository @Inject constructor(private val http: HttpJson, private 
                         description = f.str("description") ?: f.str("help_text").orEmpty(),
                         default = f.child("default"),
                         options = f.array("options").mapNotNull { o -> o.str("value")?.let { it to (o.str("label") ?: it) } },
+                        internal = f.bool("internal"),
                     )
                 },
                 settings = p.child("settings").obj() ?: JsonObject(emptyMap()),

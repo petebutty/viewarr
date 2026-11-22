@@ -53,6 +53,9 @@ class House @Inject constructor(
     /** Whether this Dispatcharr has the plugin on (Away addresses then saves there). */
     suspend fun installed(s: Session) = entry(s)?.let(::enabled) == true
 
+    /** The plugin's Backups switch (its "backups" setting; not there, as in older plugins: on). */
+    suspend fun backupsOn(s: Session) = (entry(s)?.child("settings")?.child("backups") as? JsonPrimitive)?.booleanOrNull != false
+
     /**
      * Saves [away] (home → outside) to the plugin (admins only: Dispatcharr refuses anyone else). The plugin's other
      * settings are kept (Dispatcharr replaces them all on save). False: no plugin, or it wasn't saved.

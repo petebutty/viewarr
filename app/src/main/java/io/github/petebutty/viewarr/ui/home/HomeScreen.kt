@@ -892,7 +892,7 @@ private fun BoxScope.LiveTvLayer(
                             val again = hs.rewindAsk != 0L && System.currentTimeMillis() - hs.rewindAsk < 4_000
                             when {
                                 hs.rewindHeld -> Unit
-                                ch == null || ch.catchupDays <= 0 -> { hs.toast("This channel has no catch-up to rewind") }
+                                ch == null || !playback.canRewind(ch) -> { hs.toast("This channel has no catch-up to rewind") }
                                 again || e.nativeKeyEvent.repeatCount > 0 -> {
                                     hs.rewindAsk = 0L
                                     hs.rewindHeld = e.nativeKeyEvent.repeatCount > 0

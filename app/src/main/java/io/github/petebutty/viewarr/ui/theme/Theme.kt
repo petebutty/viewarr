@@ -98,6 +98,8 @@ data class Palette(val main: Color, val highlight: Color, val transparency: Floa
     val stillWatchingHours get() = intArrayOf(0, 2, 3, 4, 6)[opt(UiOpts.STILL_WATCHING).coerceIn(0, 4)]
     /** Settings → Live TV → Start with the best source (Dispatcharr channels start on their best-ranked stream). */
     val bestSource get() = opt(UiOpts.BEST_SOURCE) == 0
+    /** Settings → Live TV → Live timeshift: the Viewarr plugin's timeshift (ServerTimeshift). */
+    val serverTimeshift get() = opt(UiOpts.SERVER_TIMESHIFT) == 0
     /** Settings → Live TV → Event channels: only with a listing (the plugin's event channels wait for a programme). */
     val eventOnlyListed get() = opt(UiOpts.EVENT_ONLY_LISTED) == 0
     // The sliders' percentages as they look over a TV picture: a straight 1 - t left a dark panel looking all but
@@ -278,6 +280,8 @@ object UiOpts {
     const val GROUP_ALL = "group_all"
     /** Live TV through Dispatcharr: a channel starts on its best-ranked stream (playback/SourceRank), or Dispatcharr's first. */
     const val BEST_SOURCE = "best_source"
+    /** Live TV through Dispatcharr: pause / rewind from the Viewarr plugin's buffer on the server (playback/ServerTimeshift). */
+    const val SERVER_TIMESHIFT = "server_timeshift"
     /** The Viewarr plugin's event channels (TNT events, PPV…): listed only with a programme on now or within 24 hours (GuideRepository). */
     const val EVENT_ONLY_LISTED = "event_only_listed"
     /** Lists following the highlight: instant (no trail when going fast) or a smooth slide. */
@@ -448,6 +452,7 @@ object UiOpts {
         MENU_HIDDEN to listOf("Off", "On"),
         GROUP_ALL to listOf("Shown", "Hidden"),
         BEST_SOURCE to listOf("On", "Off"),
+        SERVER_TIMESHIFT to listOf("On", "Off"),
         EVENT_ONLY_LISTED to listOf("On", "Off"),
         LIST_SCROLL to listOf("Instant", "Smooth"),
         INFOBAR_RECENT to listOf("On", "Off"),

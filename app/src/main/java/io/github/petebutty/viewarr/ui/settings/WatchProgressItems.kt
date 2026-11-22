@@ -94,7 +94,7 @@ private fun traktWatchItems(): List<SettingItem> {
 }
 
 /** Dispatcharr: Sync now, and the Viewarr plugin's server sync (off by itself while Trakt is connected). */
-private fun dispatcharrItems(appearance: AppearanceViewModel): List<SettingItem> = listOf(
+private fun dispatcharrItems(appearance: AppearanceViewModel): List<SettingItem> = listOfNotNull(
     onOffItem(
         "Sync IPTV progress with my Emby / Jellyfin / Plex",
         "For people without Trakt. On: when you finish or stop an IPTV film or episode, the same title is marked in your own Emby, Jellyfin or Plex, and what you watch there carries on here (the newest wins). With the Viewarr plugin on your Dispatcharr, the server does it for the whole house every 5 minutes (it gets your sign-in for those servers, kept in your own Dispatcharr storage). Without it, each TV does it itself while Viewarr is running, every 15 minutes and soon after you stop. Off: nothing more is synced." +
@@ -108,7 +108,8 @@ private fun dispatcharrItems(appearance: AppearanceViewModel): List<SettingItem>
     }.locked(
         if (!WatchSource.hasTrakt) null
         else "Off while Trakt is connected: Trakt already gets your IPTV plays from Viewarr, and copying them into your servers as well would send Trakt the same watch again.",
-    ),
+    // (IPTV progress sync switched off in the Viewarr plugin: off for the house, so not offered.)
+    ).takeIf { io.github.petebutty.viewarr.data.sync.ServerSports.available(io.github.petebutty.viewarr.data.sync.ServerSports.F_WATCH) },
     SettingItem(
         "Sync now",
         "Saves this TV's IPTV watch progress to Dispatcharr and takes in anything newer from your other TVs now, instead of waiting for the next automatic sync (every 5 minutes).",

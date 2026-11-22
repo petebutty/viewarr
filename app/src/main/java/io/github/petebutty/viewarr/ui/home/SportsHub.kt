@@ -86,7 +86,9 @@ internal class SportsHub(
         val remind = gw.wantsReminder(g.id)
         val team = gw.recordsTeam(g.home) || gw.recordsTeam(g.away)
         // Already recording in Dispatcharr (by hand, a series rule, or before): never a second recording.
-        val record = (gw.wantsRecording(g.id) || (team && !gw.done(g.id))) && dvr.recordingFor(ch.first.id, ch.second) == null
+        // (Sport recordings switched off in the Viewarr plugin: none made from wishes or team rules.)
+        val record = !io.github.petebutty.viewarr.data.sync.ServerSports.offInPlugin(io.github.petebutty.viewarr.data.sync.ServerSports.F_RECORD) &&
+            (gw.wantsRecording(g.id) || (team && !gw.done(g.id))) && dvr.recordingFor(ch.first.id, ch.second) == null
         if (!remind && !record) { if (gw.wantsRecording(g.id)) gw.resolved(g.id); return }
         if (remind && dvr.reminderFor(ch.first.id, ch.second) == null) { dvr.remind(ch.first, ch.second); toast("Reminder set: ${g.title} on ${ch.first.name}") }
         if (record) { dvr.record(ch.first, ch.second); toast("Recording ${g.title} on ${ch.first.name}") }

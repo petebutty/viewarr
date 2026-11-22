@@ -256,11 +256,12 @@ fun PlayerOsd(
                         modifier = Modifier.focusRequester(firstFocus).focusRequester(barFocus),
                     )
                 } else if (current != null) {
-                    if (channel.catchupDays > 0) {
+                    if (vm.canRewind(channel)) {
                         var barOn by remember { mutableStateOf(false) }
                         // Left / Right move a marker to where the rewind will jump to; it jumps on OK, or once you stop.
                         var rewindTo by remember { mutableStateOf<Long?>(null) }
-                        val earliest = maxOf(current.startTime, now - channel.catchupDays * 86_400_000L)
+                        val earliest = maxOf(current.startTime, vm.rewindEarliest(channel))
+                        val firstStep = vm.firstStepMs(channel)
                         fun jump() { rewindTo?.let { keepBar = true; vm.rewindLiveTo(it) }; rewindTo = null }
                         LaunchedEffect(rewindTo) { if (rewindTo != null) { delay(2_500); jump() } }
                         Column(
@@ -269,8 +270,8 @@ fun PlayerOsd(
                                 val step = if (e.nativeKeyEvent.repeatCount >= 4) seekStep * 4 else seekStep
                                 when (e.key) {
                                     // The first step back is at least a minute (the archive runs just behind live).
-                                    Key.DirectionLeft -> rewindTo = (minOf(rewindTo ?: now, now - 60_000 + step) - step).coerceAtLeast(earliest)
-                                    Key.DirectionRight -> rewindTo = rewindTo?.let { (it + step).takeIf { t -> t < now - 60_000 } }
+                                    Key.DirectionLeft -> rewindTo = (minOf(rewindTo ?: now, now - firstStep + step) - step).coerceAtLeast(earliest)
+                                    Key.DirectionRight -> rewindTo = rewindTo?.let { (it + step).takeIf { t -> t < now - firstStep } }
                                     Key.DirectionCenter, Key.Enter, Key.NumPadEnter -> if (rewindTo != null) jump() else { keepBar = true; vm.togglePause() }
                                     else -> return@onPreviewKeyEvent false
                                 }

@@ -91,7 +91,72 @@ class PlaybackViewModel @Inject constructor(
         runCatching { guide.programsFor(channel.id, channel.guideKey, time - 1, time + 1) }.getOrNull()
             ?.firstOrNull { it.startTime <= time && it.endTime > time }
 
-    private fun canTimeshift(channel: ChannelListItem) = channel.catchupDays > 0
+    private fun canTimeshift(channel: ChannelListItem) = channel.catchupDays > 0 || serverTs.covers(channel)
+
+    // Timeshift from the Viewarr plugin's buffer on the server (ServerTimeshift.kt): any channel, not only catch-up ones.
+    private val serverTs = ServerTimeshift(http)
+    /** Playing the server's buffer (behind live) rather than the live stream or the provider's catch-up. */
+    private var onBuffer = false
+    private var followJob: Job? = null
+    init { serverTs.attach(viewModelScope) { timeshiftWant() } }
+
+    /** Whether Left / Pause can go back in time on [channel] (catch-up, or the server's buffer). */
+    fun canRewind(channel: ChannelListItem) = canTimeshift(channel)
+    /** How far back [channel] can go: its catch-up days, else the server's buffer. */
+    fun rewindEarliest(channel: ChannelListItem): Long =
+        if (channel.catchupDays > 0) System.currentTimeMillis() - channel.catchupDays * 86_400_000L
+        else serverTs.earliest(channel) ?: System.currentTimeMillis()
+    /** The first step back from live (a minute for catch-up, which runs behind; less on the server's buffer). */
+    fun firstStepMs(channel: ChannelListItem) = serverTs.firstStep(channel)
+
+    private fun timeshiftWant(): ServerTimeshift.Want? {
+        val s = session?.takeIf { !it.isDirect } ?: return null
+        val ch = _channel.value ?: return null
+        if (_catchup.value != null && !onBuffer) return null // the provider's catch-up: the server's copy lets go
+        if (!serverTs.catchupToo && ch.catchupDays > 0) return null // the plugin buffers only channels without catch-up
+        val key = direct?.takeIf { it.first == ch.id }?.second?.substringAfterLast('/') ?: ch.uuid
+        val playing = onBuffer || livePausedAt != null || (_state.value == PlaybackState.Playing && _mpvLive.value == null)
+        return ServerTimeshift.Want(s, ch.id, key, playing)
+    }
+
+    /** The moment on screen in [program]: from the buffer's own clock, or catch-up's offset plus the player's position. */
+    private fun shiftedAt(p: ExoPlayer, program: GuideProgram) =
+        (if (onBuffer) serverTs.playingAt(p) else null) ?: (program.startTime + catchupOffset + p.currentPosition)
+
+    /** On the buffer, playing on into the next programme (or back into an earlier one): the bar follows. */
+    private fun followProgramme(channel: ChannelListItem?, at: Long) {
+        val c = _catchup.value ?: return
+        if (channel == null || at in c.startTime until c.endTime || followJob?.isActive == true) return
+        followJob = viewModelScope.launch {
+            val next = programAt(channel, at) ?: serverTs.standIn(channel, at)
+            if (_channel.value?.id == channel.id && onBuffer) { catchupOffset = at - next.startTime; _catchup.value = next }
+        }
+    }
+
+    /** Catch-up asked for from [at]: from the server's buffer instead when it holds that moment. False: not on it. */
+    private fun shiftToBuffer(channel: ChannelListItem, program: GuideProgram, s: Session, at: Long): Boolean {
+        val target = serverTs.clamp(channel, at) ?: return false
+        seekJob = viewModelScope.launch {
+            val plan = serverTs.plan(target)
+            if (plan == null) {
+                serverTs.markBroken()
+                if (channel.catchupDays > 0) startCatchup(channel, program, s, at - program.startTime) else play(channel, s)
+                return@launch
+            }
+            catchupOffset = target - program.startTime
+            start(channel, program, s, plan.url, plan.item, plan.startPositionMs)
+            followProgramme(channel, target)
+        }
+        return true
+    }
+
+    /** A seek while on the buffer: within it, in the player straight away; past live, live; before it, catch-up. */
+    private fun seekOnBuffer(channel: ChannelListItem, program: GuideProgram, p: ExoPlayer, deltaMs: Long) {
+        val at = shiftedAt(p, program) + deltaMs
+        if (deltaMs > 0 && at >= System.currentTimeMillis() - serverTs.liveGap(channel)) { goLive(); return }
+        if (serverTs.seekTo(p, at)) { _position.value = (at - program.startTime) to (program.endTime - program.startTime); followProgramme(channel, at); return }
+        if (channel.catchupDays > 0) playFrom(channel, at) else serverTs.earliest(channel)?.let { serverTs.seekTo(p, it) }
+    }
 
     /** Plays catch-up from the moment [time] (in whichever programme was on then); live if that's now. */
     private fun playFrom(channel: ChannelListItem, time: Long) {
@@ -99,8 +164,8 @@ class PlaybackViewModel @Inject constructor(
         viewModelScope.launch {
             val now = System.currentTimeMillis()
             // Providers' archives run a little behind: within ~45 s of now, just play live.
-            if (time >= now - 45_000) { play(channel, s); return@launch }
-            val program = programAt(channel, time) ?: run { play(channel, s); return@launch }
+            if (time >= now - serverTs.liveGap(channel)) { play(channel, s); return@launch }
+            val program = programAt(channel, time) ?: serverTs.standIn(channel, time).takeIf { serverTs.covers(channel) } ?: run { play(channel, s); return@launch }
             startCatchup(channel, program, s, time - program.startTime)
         }
     }
@@ -111,7 +176,7 @@ class PlaybackViewModel @Inject constructor(
         livePausedAt?.let { return now - it }
         val program = _catchup.value ?: return null
         if (program.endTime < now - 6 * 3_600_000L) return null
-        val at = program.startTime + catchupOffset + (player?.currentPosition ?: 0)
+        val at = player?.let { shiftedAt(it, program) } ?: (program.startTime + catchupOffset)
         return (now - at).takeIf { it > 0 }
     }
 
@@ -998,6 +1063,7 @@ class PlaybackViewModel @Inject constructor(
 
     private fun startCatchup(channel: ChannelListItem, program: GuideProgram, s: Session, offsetMs: Long) {
         seekJob?.cancel(); seekTarget = null
+        if (serverTs.covers(channel) && shiftToBuffer(channel, program, s, program.startTime + offsetMs)) return
         val length = program.endTime - program.startTime
         val wanted = program.startTime + offsetMs.coerceIn(0, maxOf(0, length - 30_000))
         // Provider (Xtream) catch-up is by the minute; Dispatcharr's by the second.
@@ -1043,7 +1109,11 @@ class PlaybackViewModel @Inject constructor(
                 delay(500)
                 val p = player ?: continue
                 val c = _catchup.value
-                if (c != null && seekTarget == null) _position.value = (catchupOffset + p.currentPosition) to (c.endTime - c.startTime)
+                if (c != null && seekTarget == null) {
+                    val at = shiftedAt(p, c)
+                    _position.value = (at - c.startTime) to (c.endTime - c.startTime)
+                    if (onBuffer) followProgramme(_channel.value, at)
+                }
             }
         }
     }
@@ -1188,6 +1258,8 @@ class PlaybackViewModel @Inject constructor(
                 // During a source switch the switch handles its own errors (retrying Dispatcharr's quick 503s):
                 // a restart from here cut its retries short and put the channel back underneath it.
                 if (switching) return
+                // On the server's buffer: fell behind its window (back to its start), else catch-up / live take over.
+                if (onBuffer && player?.let { serverTs.recover(it, error) } == true) return
                 // The sound couldn't open (a stream changing over, an odd first audio frame, the HDMI link
                 // re-syncing): straight back in, without the wait, a few times; it's nearly always fine on the
                 // next try. (It waited 2 s, then reconnected: a few seconds of black.)
@@ -1412,7 +1484,7 @@ class PlaybackViewModel @Inject constructor(
         startCatchup(channel, program, s, 0)
     }
 
-    private fun start(channel: ChannelListItem, program: GuideProgram?, s: Session, url: String) {
+    private fun start(channel: ChannelListItem, program: GuideProgram?, s: Session, url: String, item: MediaItem? = null, startPos: Long = 0L) {
         // (Any new start is the built-in player's again; a different channel gets all its sources to try again.)
         if (_channel.value?.id != channel.id) failoverTried.clear()
         _mpvLive.value = null
@@ -1423,12 +1495,13 @@ class PlaybackViewModel @Inject constructor(
         if (_channel.value?.id != channel.id || _catchup.value != program) { retried = false; audioRetries = 0; reconnects = 0; playedAt = 0L; _streamSource.value = null; okJob?.cancel() }
         _channel.value = channel
         _catchup.value = program
+        onBuffer = item != null // (the server's buffer: ServerTimeshift)
         if (program == null) catchupOffset = 0
         _position.value = (if (program != null) catchupOffset else 0L) to (program?.let { it.endTime - it.startTime } ?: 0L)
         _paused.value = false
         _state.value = PlaybackState.Buffering
         startedAt = SystemClock.elapsedRealtime()
-        p.setMediaItem(liveItem(s, url), 0L)
+        p.setMediaItem(item ?: liveItem(s, url), startPos)
         p.prepare()
         p.play()
     }
@@ -1455,12 +1528,13 @@ class PlaybackViewModel @Inject constructor(
             livePausedAt = null
             // The archive runs ~45 s behind live, and anything that close just plays live again: so a first step
             // back from live goes at least a minute back (a short seek step used to do nothing).
-            playFrom(channel, minOf(from + deltaMs, now - 60_000))
+            playFrom(channel, minOf(from + deltaMs, now - serverTs.firstStep(channel)))
             return
         }
+        if (onBuffer) { seekOnBuffer(channel, program, p, deltaMs); return }
         val now = System.currentTimeMillis()
         // Repeated presses build on the last one's target; the stream is fetched once they stop.
-        val atMs = (seekTarget ?: (program.startTime + catchupOffset + p.currentPosition)) + deltaMs
+        val atMs = (seekTarget ?: shiftedAt(p, program)) + deltaMs
         // Before this programme: the previous one; past what's been broadcast: back to live.
         if (atMs < program.startTime && deltaMs < 0) { seekJob?.cancel(); seekTarget = null; playFrom(channel, atMs); return }
         if (program.endTime > now - 60_000 && atMs >= now - 45_000) { seekJob?.cancel(); seekTarget = null; goLive(); return }
@@ -1481,7 +1555,7 @@ class PlaybackViewModel @Inject constructor(
         val channel = _channel.value ?: return
         if (!canTimeshift(channel)) return
         livePausedAt = null
-        playFrom(channel, minOf(time, System.currentTimeMillis() - 60_000))
+        playFrom(channel, minOf(time, System.currentTimeMillis() - serverTs.firstStep(channel)))
     }
 
     fun restartProgramme() {
@@ -1544,7 +1618,7 @@ class PlaybackViewModel @Inject constructor(
     fun pause() {
         // (A channel change, catch-up seek or stall check still waiting would start the stream again in the background.)
         cancelAll()
-        player?.let { p -> _catchup.value?.let { c -> _position.value = (catchupOffset + p.currentPosition) to (c.endTime - c.startTime) } }
+        player?.let { p -> _catchup.value?.let { c -> _position.value = (shiftedAt(p, c) - c.startTime) to (c.endTime - c.startTime) } }
         player?.stop()
     }
 

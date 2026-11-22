@@ -195,6 +195,8 @@ fun BackupSyncItem() {
 private fun PluginBackupsItem(onOpen: () -> Unit, vm: PluginBackupsViewModel = hiltViewModel()) {
     val access by vm.access.collectAsStateWithLifecycle()
     LaunchedEffect(Unit) { vm.check() }
+    // (Switched off in the Viewarr plugin: Backups are off for the house, so not offered.)
+    if (access == PluginAccess.Off) return
     val ready = access == PluginAccess.Ready
     MenuItem(
         text = "Backups on the Viewarr plugin",

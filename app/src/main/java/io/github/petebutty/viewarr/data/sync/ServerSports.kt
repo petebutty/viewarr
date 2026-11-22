@@ -43,7 +43,7 @@ class ServerSports @Inject constructor(
         val league: String? = null,
     )
     /** [hash]: the content's own hash, its time stamp left out (the same list written again hashes the same). */
-    class Data(val at: Long, val live: List<Live>, val games: Map<String, Game>, val hash: Int = 0)
+    class Data(val at: Long, val live: List<Live>, val games: Map<String, Game>, val hash: Int = 0, val functions: Map<String, Boolean> = emptyMap())
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var started = false
@@ -102,7 +102,8 @@ class ServerSports @Inject constructor(
             while (true) {
                 // (Score alerts off, or off for every follow: nothing is checked at all.)
                 // (Only the teams / leagues alerts were switched on for, followed or not: none to start.)
-                val wanted = if (io.github.petebutty.viewarr.data.sports.ScoreAlerts.on) io.github.petebutty.viewarr.data.sports.ScoreAlerts.teams() else emptyList()
+                // (Switched off in the plugin: score alerts are off for the house.)
+                val wanted = if (io.github.petebutty.viewarr.data.sports.ScoreAlerts.on && !offInPlugin(F_ALERTS)) io.github.petebutty.viewarr.data.sports.ScoreAlerts.teams() else emptyList()
                 if (wanted.isNotEmpty() && followedLive(wanted)) runCatching { checkAlerts(wanted) } else scoreLines = emptyList()
                 delay(30_000)
             }
@@ -146,7 +147,7 @@ class ServerSports @Inject constructor(
             id to Game(chs, j.int("sure") ?: 0, j.text("why").orEmpty(), j.text("src"),
                 j.text("state"), j.long("start") ?: 0, j.text("home"), j.text("away"), j.text("lp"), j.text("league"))
         }.toMap()
-        return Data(at, live, games, hash = JsonObject(o - "at").hashCode())
+        return Data(at, live, games, hash = JsonObject(o - "at").hashCode(), functions = functionsOf(o))
     }
 
     companion object {
@@ -157,6 +158,29 @@ class ServerSports @Inject constructor(
                 listOfNotNull(home, away).any { it.equals(f.name, ignoreCase = true) || it.contains(f.name, ignoreCase = true) || f.name.contains(it, ignoreCase = true) }
         }
         const val KEY = "viewarr_server"
+
+        // ---- The plugin's functions (its viewarr_server "functions" map: viewarr-plugin server.FUNCTIONS). An admin
+        // can switch each off in the plugin (Settings → Plugins → Viewarr); while the plugin runs, that feature is then
+        // off for the house: Viewarr hides it and does none of it itself. Only with no plugin at all do this TV's own
+        // fallbacks run (tvDoesJobs). A plugin without the map: every function on. (Peter, 2026-11-22.)
+        const val F_LIVE = "live"
+        const val F_GAMES = "games"
+        const val F_RECORD = "recordings"
+        const val F_ALERTS = "alerts"
+        const val F_EVENTS = "event_channels"
+        const val F_JUST = "just_added"
+        const val F_WATCH = "watch_sync"
+        const val F_TIMESHIFT = "timeshift"
+        const val F_BACKUPS = "backups"
+
+        /** [fn] is switched off in the running plugin: hide it, and do none of it on this TV. */
+        fun offInPlugin(fn: String): Boolean = pluginAlive && latest?.functions?.get(fn) == false
+
+        /** [fn] is there on this TV: the plugin runs it, or there's no plugin (this TV's own fallback, where one exists). */
+        fun available(fn: String): Boolean = !offInPlugin(fn)
+
+        private fun functionsOf(o: JsonObject): Map<String, Boolean> =
+            (o["functions"] as? JsonObject).orEmpty().mapNotNull { (k, v) -> (v as? JsonPrimitive)?.booleanOrNull?.let { k to it } }.toMap()
         private const val TAG = "ServerSports"
         /** The newest copy read from the server (null: none, or no plugin). */
         @Volatile var latest: Data? = null

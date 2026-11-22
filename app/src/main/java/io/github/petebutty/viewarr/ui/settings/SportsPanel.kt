@@ -313,12 +313,14 @@ fun SportsSettingsScreen(onBack: () -> Unit, vm: SportsViewModel = hiltViewModel
                     if (results.isEmpty() && !searching && heading.endsWith(": teams")) item(key = "none") {
                         Text("No teams found for this one. Back to try another.", fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(4.dp))
                     }
+                    // (Score alerts switched off in the Viewarr plugin: no "hold OK: alerts".)
+                    val alertsOk = io.github.petebutty.viewarr.data.sync.ServerSports.available(io.github.petebutty.viewarr.data.sync.ServerSports.F_ALERTS)
                     items(results, key = { "r-" + it.shortcutId }) { f ->
                         val following = follows.any { it.shortcutId == f.shortcutId }
                         val league = f.kind == SportFollow.Kind.League && vm.hasTeams(f.league)
                         SportRow(f, trailing = when { league -> if (following) "Following · OK: teams" else "OK: follow or pick a team"; following -> "Following"; else -> "OK: follow" } +
-                            (if (sa.teamOn(f)) " · 🔔" else "") + " · hold OK: alerts",
-                            onLongClick = { alertTeam = f },
+                            (if (alertsOk) ((if (sa.teamOn(f)) " · 🔔" else "") + " · hold OK: alerts") else ""),
+                            onLongClick = if (alertsOk) ({ alertTeam = f }) else null,
                             // Up from the first row: the sport button you came from (not whichever is nearest above).
                             modifier = Modifier.focusRequester(rowReq(f.shortcutId)).onFocusChanged { if (it.isFocused) rowFocused = f.shortcutId else if (rowFocused == f.shortcutId) rowFocused = null }
                                 .then(if (f == results.first()) Modifier.keyTo(androidx.compose.ui.input.key.Key.DirectionUp) { browsed?.let { pillFocus[it] } ?: firstPill } else Modifier)) {
@@ -348,6 +350,8 @@ fun SportsSettingsScreen(onBack: () -> Unit, vm: SportsViewModel = hiltViewModel
                             ),
                             onLongClick = { if (!carry.active) picked = f }) { if (carried) carry.drop() else picked = f }
                     }
+                    // (Switched off in the Viewarr plugin: score alerts are off for the house, so not offered.)
+                    if (io.github.petebutty.viewarr.data.sync.ServerSports.available(io.github.petebutty.viewarr.data.sync.ServerSports.F_ALERTS)) {
                     // Score alerts (the 🔔 banner and the ticker's Live scores) for the games of what you follow.
                     item(key = "h-alerts") { Header("Score alerts") }
                     item(key = "al-on") {
@@ -382,6 +386,7 @@ fun SportsSettingsScreen(onBack: () -> Unit, vm: SportsViewModel = hiltViewModel
                             Text("Add more: hold OK on a team or league in the search results, followed or not. Basketball has no scoring alerts, just the start, half-time and the result.",
                                 fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(start = 4.dp, top = 6.dp, bottom = 12.dp))
                         }
+                    }
                     }
                 }
             }

@@ -173,7 +173,7 @@ A channel that stalls is asked for again by itself.
 
 ## Pause, rewind and catch-up
 
-On channels with catch-up (using Dispatcharr's catch-up):
+On channels with catch-up (using Dispatcharr's catch-up), and on every channel with Live timeshift (below):
 
 - **Pause**, then carry on from that moment.
 - **Rewind** with **Left** ("Rewind?" asks first). **Right** skips ahead.
@@ -181,6 +181,16 @@ On channels with catch-up (using Dispatcharr's catch-up):
 - Fast-forward back to live, press **Go live** (OK then Down lands on it), or **hold Play / pause**.
 
 The seek bar shows where you're playing and how far through the programme live is. **Settings → Remote buttons → Other buttons → Skip size** sets how far each skip goes.
+
+### Live timeshift (with the Viewarr plugin)
+
+With the [Viewarr plugin](https://github.com/petebutty/viewarr-plugin) 0.6.3 or later, every live channel can be paused and rewound, **with or without catch-up**: your server keeps a rolling copy of the channel you're watching (2 hours to start with), from Dispatcharr's own stream, so it needs no extra connection to your provider.
+
+- Pause and Play carry on from the paused moment; Left steps back instantly through what you've watched since tuning in; Right or **Go live** brings you back to live.
+- Further back than the buffer, a channel with catch-up uses the provider's catch-up as before.
+- The copy is deleted as soon as you change channel or stop. Two TVs on the same channel share one copy.
+- **Settings → Live TV → Customise → Live timeshift** switches it off for you. The buffer length, how many channels at once, and the whole feature are in **Settings → Plugins → Viewarr** (admins).
+- Tip: **Settings → Remote buttons → Live TV**: set **Left** to **Skip back** and **Right** to **Skip forward** to rewind and skip with the arrows while watching full screen.
 
 **Catch-up** also lets you replay programmes from the past: press OK on one in the guide, or Right on a channel in the channel list. Search finds them too: a **Catch-up** row lists programmes from the last few days you can replay.
 

@@ -1,5 +1,21 @@
 # Viewarr changelog (built by tools/changelog.py from the GitHub releases; don't edit by hand)
 
+## 0.29.9 · 22 Nov 2026
+
+Live timeshift: pause and rewind any live channel, and every Viewarr plugin feature can now be switched off from the app.
+
+### Live timeshift (needs the Viewarr plugin 0.6.3 or later)
+- **Pause and rewind every live channel**, with or without catch-up: your server keeps a rolling copy of the channel you're watching (2 hours to start with), taken from Dispatcharr's own stream, so no extra connection to your provider.
+- Pause and Play carry on from where you paused; Left steps back instantly; Right or Go live returns to live. Further back than the copy, catch-up channels use the provider's catch-up as before.
+- The copy is deleted as soon as you change channel. Two TVs on one channel share it.
+- **Settings → Live TV → Customise → Live timeshift** to switch it off for yourself.
+- In Settings → Plugins → Viewarr (admins): the buffer length, how many channels at once, where the copies are kept (Dispatcharr's data folder or your TV recordings folder), and whether it covers all channels or only those without catch-up (plugin 0.6.5).
+- Tip: Settings → Remote buttons → Live TV: Left = Skip back, Right = Skip forward, to rewind with the arrows.
+
+### The Viewarr plugin from the app
+- **Settings → Plugins → Viewarr** now has an on/off switch for every plugin feature: Live now, followed games, sport recordings, score alerts, event channels, Just added, IPTV progress sync, best stream first, reports, stream measuring, Live timeshift and backups. Text settings (measuring times, groups) can be edited there too.
+- A feature switched off in the plugin is off for the house: Viewarr hides it rather than doing it on the TV.
+
 ## 0.29.8 · 22 Nov 2026
 
 A faster, lighter Viewarr on smaller boxes, a full Home Assistant remote, and fixes.

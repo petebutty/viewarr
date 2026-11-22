@@ -521,7 +521,7 @@ class HomeState(
                         playback.playCatchup(c, prog, session); vm.selectChannel(c.id); hs.fullscreen = true; showBanner()
                     }
                 }
-            } else if (ch != null && ch.catchupDays > 0) {
+            } else if (ch != null && playback.canRewind(ch)) {
                 GuideViewModel.programAt(programsOf(ch), now)?.takeIf { it.startTime < now }?.let { prog ->
                     playback.playCatchup(ch, prog, session)
                     vm.selectChannel(ch.id)
