@@ -71,7 +71,7 @@ class TvScoreAlerts @Inject constructor(
         // (Wait for the first read of the plugin's data, so it isn't taken for missing while the app starts.)
         if (!ServerSports.checked) return
         val wanted = if (ScoreAlerts.on) ScoreAlerts.teams() else emptyList()
-        if (wanted.isEmpty() || ServerSports.pluginAlive || !onScreen()) { scoreLines = emptyList(); return }
+        if (wanted.isEmpty() || !ServerSports.tvDoesJobs || !onScreen()) { scoreLines = emptyList(); return }
         val now = System.currentTimeMillis()
         known.values.removeAll { now - it.start > 24 * HOUR || !mine(it, wanted) }
         fixtures(wanted, now)

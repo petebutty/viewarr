@@ -154,6 +154,24 @@ object DeepLink {
             "rows" -> pendingCommand.value = Command("rows", uri.getQueryParameter("use")?.trim()?.lowercase())
             "homerows" -> pendingCommand.value = Command("homerows", uri.getQueryParameter("add")?.trim()?.lowercase())
             "refresh" -> pendingCommand.value = Command("refresh", if (uri.getQueryParameter("guide") in setOf("1", "true", "yes")) "guide" else null)
+            // A remote button (Home Assistant's remote, ADB): viewarr://key?name=up|down|left|right|ok|back|menu|info|
+            // ffwd|rewind|record|red|green|yellow|blue|chup|chdown|0-9: pressed as the remote's own.
+            "key" -> {
+                val n = uri.getQueryParameter("name")?.trim()?.lowercase().orEmpty()
+                val code = when (n) {
+                    "up" -> android.view.KeyEvent.KEYCODE_DPAD_UP; "down" -> android.view.KeyEvent.KEYCODE_DPAD_DOWN
+                    "left" -> android.view.KeyEvent.KEYCODE_DPAD_LEFT; "right" -> android.view.KeyEvent.KEYCODE_DPAD_RIGHT
+                    "ok", "select", "enter" -> android.view.KeyEvent.KEYCODE_DPAD_CENTER; "back" -> android.view.KeyEvent.KEYCODE_BACK
+                    "menu" -> android.view.KeyEvent.KEYCODE_MENU; "info" -> android.view.KeyEvent.KEYCODE_INFO
+                    "ffwd", "fast_forward" -> android.view.KeyEvent.KEYCODE_MEDIA_FAST_FORWARD; "rewind" -> android.view.KeyEvent.KEYCODE_MEDIA_REWIND
+                    "record" -> android.view.KeyEvent.KEYCODE_MEDIA_RECORD
+                    "red" -> android.view.KeyEvent.KEYCODE_PROG_RED; "green" -> android.view.KeyEvent.KEYCODE_PROG_GREEN
+                    "yellow" -> android.view.KeyEvent.KEYCODE_PROG_YELLOW; "blue" -> android.view.KeyEvent.KEYCODE_PROG_BLUE
+                    "chup", "channel_up" -> android.view.KeyEvent.KEYCODE_CHANNEL_UP; "chdown", "channel_down" -> android.view.KeyEvent.KEYCODE_CHANNEL_DOWN
+                    else -> n.singleOrNull()?.takeIf { it.isDigit() }?.let { android.view.KeyEvent.KEYCODE_0 + (it - '0') }
+                }
+                if (code != null) keySink?.let { k -> android.os.Handler(android.os.Looper.getMainLooper()).post { k(code) } }
+            }
             // Pause / play: the remote's media keys, so live TV, films and music each do what their own button does.
             "pause", "play", "playpause" -> {
                 val code = when (uri.host) {

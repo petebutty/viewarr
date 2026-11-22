@@ -33,7 +33,8 @@ import java.net.URL
  * - sign-ins, Live TV sources and sessions (other stores, never read here);
  * - guide data: favourites, channel numbers, time offsets (GuideRepository's own prefs, never read here);
  * - the box-specific keys SettingsSync.LOCAL_ONLY keeps on each TV (passthrough, downmix, mpv_decoding, frame_rate,
- *   picture_size, deinterlace, buffer, max_res, audio_delay; the remote's buttons and key codes; opt_zap_delay);
+ *   picture_size, deinterlace, buffer, max_res, audio_delay; the box's search key code; opt_zap_delay). The remote's
+ *   button choices are shared (SHARED_BUTTONS);
  * - remote: last_channel and recent_channels (channel ids on your own Dispatcharr), sports_follow (followed teams,
  *   with logo addresses), live_now_picks and live_now_picks_v1 (your Live now list and its one-off marker);
  * - any value with "http", "://" or an IP address in it, or that the report cleaner would change (a token, an
@@ -59,7 +60,16 @@ object SettingsShare {
         else -> context.remoteStore
     }
 
-    private fun skipped(name: String) = SettingsSync.LOCAL_ONLY[name].orEmpty() + NOT_SHARED[name].orEmpty()
+    /**
+     * The remote's button choices DO go in a settings code (Peter, 2026-11-22: "she needs the same remote controls as
+     * I have"): sharing a code is someone choosing to hand their setup on. Only the box's own search key code stays.
+     * (Backups and the saved copy still keep them per TV: SettingsSync.LOCAL_ONLY.)
+     */
+    private val SHARED_BUTTONS = setOf("guide_left_v2", "guide_back_v2", "channel_keys", "zap_v2", "seek", "player_ok", "row_left",
+        "media_back_v2", "menu_back", "preset_base", "live_sides", "buttons_v1", "bmap_v1")
+
+    private fun skipped(name: String) = (SettingsSync.LOCAL_ONLY[name].orEmpty() - (if (name == "remote") SHARED_BUTTONS else emptySet())) +
+        NOT_SHARED[name].orEmpty()
 
     private fun looksLikeServer(s: String) = s.contains("http", ignoreCase = true) || "://" in s || IP.containsMatchIn(s)
 

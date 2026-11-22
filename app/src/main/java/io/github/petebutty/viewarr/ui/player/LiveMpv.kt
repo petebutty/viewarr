@@ -38,7 +38,10 @@ fun LiveMpvPicture(url: String, apiKey: String?, onStarted: () -> Unit, onFailed
             fun opt(k: String, v: String) { if (setOptionString(k, v) < 0) Log.w(TAG, "option $k rejected") }
             opt("config", "no")
             opt("config-dir", context.filesDir.absolutePath)
-            opt("vo", if (direct) "mediacodec_embed" else "gpu")
+            // (No video output until the picture's surface exists: the surface callbacks below set the real one. Starting
+            // with mediacodec_embed and no surface, a stream that opened first hit mpv's "WinID != 0" assertion and
+            // closed the app; tester log 2026-11-22.)
+            opt("vo", "null")
             opt("gpu-context", "android")
             opt("opengl-es", "yes")
             opt("hwdec", when (settings.mpvDecoding) { MpvDecoding.Hardware -> "mediacodec"; MpvDecoding.Gpu -> "mediacodec,mediacodec-copy"; MpvDecoding.Software -> "no" })

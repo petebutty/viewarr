@@ -42,7 +42,8 @@ class ServerSports @Inject constructor(
         val state: String? = null, val start: Long = 0, val home: String? = null, val away: String? = null, val leaguePath: String? = null,
         val league: String? = null,
     )
-    class Data(val at: Long, val live: List<Live>, val games: Map<String, Game>)
+    /** [hash]: the content's own hash, its time stamp left out (the same list written again hashes the same). */
+    class Data(val at: Long, val live: List<Live>, val games: Map<String, Game>, val hash: Int = 0)
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var started = false
@@ -145,7 +146,7 @@ class ServerSports @Inject constructor(
             id to Game(chs, j.int("sure") ?: 0, j.text("why").orEmpty(), j.text("src"),
                 j.text("state"), j.long("start") ?: 0, j.text("home"), j.text("away"), j.text("lp"), j.text("league"))
         }.toMap()
-        return Data(at, live, games)
+        return Data(at, live, games, hash = JsonObject(o - "at").hashCode())
     }
 
     companion object {
@@ -170,6 +171,11 @@ class ServerSports @Inject constructor(
          * The plugin's service is running for this house: its data was written in the last 10 minutes (it writes every
          * 5). Its score alerts run in the same loop, so while this is true the TV doesn't check scores itself.
          */
+        /**
+         * This TV does the plugin's jobs itself: no plugin running for the house. (A switch for it was tried and taken
+         * out, 2026-11-22: a Shield test showed these jobs weren't what slowed TVs without the plugin.)
+         */
+        val tvDoesJobs: Boolean get() = checked && !pluginAlive
         val pluginAlive: Boolean get() = latest?.let { System.currentTimeMillis() / 1000 - it.at < 10 * 60 } == true
 
         /**

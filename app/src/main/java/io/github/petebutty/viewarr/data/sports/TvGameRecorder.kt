@@ -68,7 +68,7 @@ class TvGameRecorder @Inject constructor(
 
     private suspend fun check(why: String) = lock.withLock {
         // The plugin running (or not asked yet): it records them, so nothing here.
-        if (!ServerSports.checked || ServerSports.pluginAlive) return@withLock
+        if (!ServerSports.tvDoesJobs) return@withLock
         val s = sessions.session.first() ?: return@withLock
         if (s.isDirect) return@withLock
         val ids = gameWatch.recordIds()

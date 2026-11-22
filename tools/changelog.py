@@ -41,6 +41,23 @@ def releases():
     return [r for r in items if not r.get("draft")]
 
 
+def write_whats_new(notes: str):
+    """The once-per-update card (assets/whats_new.txt) from the release's own notes, so it never shows an old version's
+    text again (2026-11-22: 0.29.7 showed 0.29.0's). Heading: the notes' first sentence line; points: its sections
+    ("### …"), else its first bullets, plain text, at most four."""
+    plain = lambda t: re.sub(r"\*\*|__|`|\[([^\]]*)\]\([^)]*\)", lambda m: m.group(1) or "", t).strip()
+    lines = [l.strip() for l in notes.splitlines()]
+    heading = next((plain(l) for l in lines if l and not l.startswith(("#", "-", "*", ">"))), "What's new")
+    points = [plain(l.lstrip("#").strip()) for l in lines if l.startswith("### ")]
+    points = [p for p in points if p.lower() not in ("fixes", "fix")]
+    if not points:
+        points = [plain(l[2:]).split(":")[0] for l in lines if l.startswith(("- ", "* "))]
+    body = ["# Shown once, the first time a new version opens (not on a fresh install). Written by tools/changelog.py",
+            "# from the release notes. Lines starting with \"- \" are the points; the first other line is the heading.",
+            heading] + ["- " + p for p in points[:4]]
+    (OUT.parent / "whats_new.txt").write_text("\n".join(body) + "\n")
+
+
 def main():
     entries = []
     args = sys.argv[1:]
@@ -62,6 +79,8 @@ def main():
     for version, date, text in entries:
         parts.append(f"## {version} · {date.strftime('%-d %b %Y')}\n\n{text or 'Fixes and small improvements.'}\n")
     OUT.write_text("\n".join(parts))
+    if args[:1] == ["--next"]:
+        write_whats_new(entries[0][2] if entries and entries[0][0] == args[1] else tidy(notes))
     print(f"wrote {OUT} ({len(entries)} versions, {OUT.stat().st_size // 1024} KB)")
 
 

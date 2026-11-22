@@ -136,24 +136,52 @@ class GuideViewModel @Inject constructor(
             else -> k in eventGroupNames.orEmpty() || eventWords.containsMatchIn(name)
         }
     }
+    /**
+     * The last Live now worked out from the server's list, and what it was worked out from: used again while none of
+     * that has changed (the list's content, the channels, Settings, the Live now picks, the event groups) and nothing
+     * in it has started or ended since. (It was worked out again every minute, a guide lookup per item, the same answer
+     * each time: ~13% of a core on a Shield with the guide sitting still. 2026-11-22.)
+     */
+    private class ServerLive(
+        val hash: Int, val all: List<ChannelListItem>, val palette: Any, val picks: List<io.github.petebutty.viewarr.data.sports.LiveNowPick>,
+        val groups: Set<String>?, val until: Long, val result: LiveEvents?, val uuids: List<String>?,
+    )
+    @Volatile private var serverLive: ServerLive? = null
+
     /** Live now from the server's list ([ServerSports]): null when none of its channels are here (another source). */
     private suspend fun fromServer(srv: io.github.petebutty.viewarr.data.sync.ServerSports.Data, all: List<ChannelListItem>): LiveEvents? {
-        val byUuid = all.associateBy { it.uuid }
         val now = System.currentTimeMillis()
+        val picks = runCatching { liveNowPicks.current() }.getOrDefault(emptyList())
+        val palette = io.github.petebutty.viewarr.ui.theme.AppColors.palette
+        serverLive?.takeIf {
+            it.hash == srv.hash && it.all === all && it.palette === palette && it.picks == picks && it.groups == eventGroupNames && now < it.until
+        }?.let { cached ->
+            // (Set again in case the TV's own Live now replaced it meanwhile; the same list changes nothing.)
+            cached.uuids?.let { _liveUuids.value = it }
+            return cached.result
+        }
+        val byUuid = all.associateBy { it.uuid }
         val groupOn = HashMap<String, Boolean>()
         // Why each of the server's items was left out here (logged: "Live now from the server"), so a missing game
         // can be explained: its channel isn't on this TV (Choose groups), its group is off, it's over, its sport is off.
         val dropped = HashMap<String, MutableList<String>>()
         fun drop(why: String, what: String) { dropped.getOrPut(why) { mutableListOf() } += what }
-        val picks = runCatching { liveNowPicks.current() }.getOrDefault(emptyList())
         val rankOf = HashMap<String, Int>()
-        val events = srv.live.mapNotNull { l ->
+        // First the items whose channel is here, in a group that's on, and not over…
+        val kept = srv.live.mapNotNull { l ->
             val c = byUuid[l.uuid] ?: run { drop("channel not on this TV", l.title); return@mapNotNull null }
-            val g = l.game?.let { srv.games[it] }
             if (c.groupName?.let { g -> groupOn.getOrPut(g) { liveGroupOn(g) } } == false) { drop("group off (${c.groupName})", l.title); return@mapNotNull null }
             if (l.end in 1..now) { drop("over", l.title); return@mapNotNull null }
+            l to c
+        }
+        // …then the guide's own entries for all of them in one read (one read per item was dozens a minute).
+        val guideRows = if (kept.isEmpty()) emptyMap() else runCatching {
+            repo.programsForChannels(kept.map { it.second.id }.distinct(), kept.minOf { it.first.start }, kept.maxOf { it.first.start } + 60_000)
+        }.getOrNull().orEmpty().groupBy { it.channelId }
+        val events = kept.mapNotNull { (l, c) ->
+            val g = l.game?.let { srv.games[it] }
             // The guide's own entry for it (so the group's rows and the info bar line up), else one made from the list.
-            val p = runCatching { repo.programsForChannels(listOf(c.id), l.start, l.start + 60_000) }.getOrNull().orEmpty()
+            val p = guideRows[c.id].orEmpty()
                 .firstOrNull { it.startTime <= l.start + 60_000 && it.endTime > l.start }
                 ?: GuideProgram(
                     channelId = c.id, rowId = -1L - (l.uuid.hashCode().toLong() and 0x7fffffff), title = l.title, subTitle = null,
@@ -167,7 +195,17 @@ class GuideViewModel @Inject constructor(
             rankOf[c.uuid] = minOf(rankOf[c.uuid] ?: Int.MAX_VALUE, rank)
             LiveEvent(c, p, l.score?.let { "${l.title} ($it)" } ?: l.title, sport, l.picture ?: p.image)
         }
-        if (events.isEmpty() && srv.live.isNotEmpty() && srv.live.none { byUuid.containsKey(it.uuid) }) return null
+        // Good until the next item ends or the next one starts (on now / soon / over change then), and at most ten
+        // minutes, whatever else.
+        val until = minOf(
+            now + 10 * 60_000L,
+            srv.live.minOfOrNull { l -> if (l.end > now) l.end else Long.MAX_VALUE } ?: Long.MAX_VALUE,
+            events.minOfOrNull { e -> if (e.program.startTime > now) e.program.startTime else Long.MAX_VALUE } ?: Long.MAX_VALUE,
+        )
+        if (events.isEmpty() && srv.live.isNotEmpty() && srv.live.none { byUuid.containsKey(it.uuid) }) {
+            serverLive = ServerLive(srv.hash, all, palette, picks, eventGroupNames, until, null, null)
+            return null
+        }
         val wanted = events
         // The server's list stands: it has already worked out what's on and where (Peter, 2026-11-17: "the app knows
         // the games that are on from the plugin"), so this TV's copy of the guide isn't asked (tonight's NBA games were
@@ -180,9 +218,11 @@ class GuideViewModel @Inject constructor(
         val onNow = wanted.filter { it.program.startTime <= now }.take(60)
         val soon = wanted.filter { it.program.startTime > now }.take(30)
         // (In the Live now list's order, then by start time.)
-        _liveUuids.value = (onNow + soon).filter { it.program.rowId >= 0 || it.channel.uuid in guided }
+        // (A StateFlow: the same list as before emits nothing, so the groups and the Live now rows stay as they are.)
+        val uuids = (onNow + soon).filter { it.program.rowId >= 0 || it.channel.uuid in guided }
             .sortedWith(compareBy({ rankOf[it.channel.uuid] ?: 0 }, { it.program.startTime })).map { it.channel.uuid }.distinct()
-        return LiveEvents(onNow, soon)
+        _liveUuids.value = uuids
+        return LiveEvents(onNow, soon).also { serverLive = ServerLive(srv.hash, all, palette, picks, eventGroupNames, until, it, uuids) }
     }
 
     /** The plugin's groups, looked up once (for Settings' Live now groups to show the right starting ticks). */
@@ -348,7 +388,8 @@ class GuideViewModel @Inject constructor(
     // In your order (hold OK on a group in the menu → move); groups not placed yet keep the guide's order after them.
     // (📡 Live now is one of the groups, while anything's on: moved, hidden and shown again like the others, your
     // choice. Peter, 2026-11-17. Out of the box it comes first.)
-    val groups = combine(repo.observeGroups(), repo.groupOrder, _liveUuids) { g0, order, live ->
+    // (The database's group list re-sent with nothing changed, e.g. after another table's write: nothing to redo.)
+    val groups = combine(repo.observeGroups().distinctUntilChanged(), repo.groupOrder, _liveUuids) { g0, order, live ->
         val g = (if (live.isEmpty()) emptyList() else listOf(GroupWithCount(LIVE_NOW, LIVE_NAME, live.size))) + g0
         if (order.isEmpty()) g else g.withIndex().sortedBy { (i, x) ->
             order.indexOf(x.name).let { if (it >= 0) it else if (x.id == LIVE_NOW) -1 else order.size + i }
@@ -408,11 +449,18 @@ class GuideViewModel @Inject constructor(
     private val listGroups = combine(repo.favourites, _liveUuids) { f, l -> f.toList() to l }
     private fun listFor(g: Int?, lists: Pair<List<String>, List<String>>) = when (g) { FAVOURITES -> lists.first; LIVE_NOW -> lists.second; else -> null }
 
-    val channels: StateFlow<List<ChannelListItem>> = combine(_groupId, listGroups) { g, l -> g to l }
+    /**
+     * The group on show and its own list (Favourites, Live now; null for a real group). Live now or Favourites changing
+     * while another group is on show leaves this alone: the channels and programmes queries used to start again for
+     * it all the same.
+     */
+    private val shownGroup = combine(_groupId, listGroups) { g, l -> g to listFor(g, l) }.distinctUntilChanged()
+
+    val channels: StateFlow<List<ChannelListItem>> = shownGroup
         // (Live now in its own order: on now first, then starting soon, soonest first. Favourites: channel order.)
         // (Live now keeps an event channel the plugin or the guide put a game on, listed or not; see GuideRepository's
         // hidden event channels.)
-        .flatMapLatest { (g, l) -> listFor(g, l)?.let { repo.observeChannelsIn(it, ordered = g == LIVE_NOW, everyChannel = g == LIVE_NOW) } ?: repo.observeChannels(g) }
+        .flatMapLatest { (g, inList) -> inList?.let { repo.observeChannelsIn(it, ordered = g == LIVE_NOW, everyChannel = g == LIVE_NOW) } ?: repo.observeChannels(g) }
         // (The channel list built off the main thread: ~1 s of it in 12 s while the guide was being refreshed.)
         .flowOn(kotlinx.coroutines.Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
@@ -424,16 +472,14 @@ class GuideViewModel @Inject constructor(
     val cursor = _cursor.asStateFlow()
 
     val programs: StateFlow<Map<Int, List<GuideProgram>>> = combine(
-        _groupId,
+        shownGroup,
         _cursor.map { it.row / BLOCK }.distinctUntilChanged(),
         _cursor.map { it.windowStart }.distinctUntilChanged(),
-        listGroups,
         // (A longer timeline in Settings: the programmes for the whole of it.)
         snapshotFlow { VISIBLE_MS }.distinctUntilChanged(),
-    ) { g, block, ws, lists, _ -> listOf(g, block, ws, lists) }
-        .flatMapLatest { l ->
-            val g = l[0] as Int?; val block = l[1] as Int; val ws = l[2] as Long
-            @Suppress("UNCHECKED_CAST") val inList = listFor(g, l[3] as Pair<List<String>, List<String>>)
+    ) { shown, block, ws, _ -> Triple(shown, block, ws) }
+        .flatMapLatest { (shown, block, ws) ->
+            val g = shown.first; val inList = shown.second
             (if (inList != null) repo.observeProgramBlockIn(inList, blockOffset(block), BLOCK * 3, ws - BUFFER_MS, ws + VISIBLE_MS + BUFFER_MS, ordered = g == LIVE_NOW, everyChannel = g == LIVE_NOW)
             else repo.observeProgramBlock(
                 groupId = g,

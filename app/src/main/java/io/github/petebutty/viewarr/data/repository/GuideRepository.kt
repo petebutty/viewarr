@@ -286,7 +286,7 @@ class GuideRepository @Inject constructor(
         val tick = flow { while (true) { emit(Unit); delay(EVENT_TICK_MS) } }
         // The TV's own rule's groups while the plugin isn't running (looked at every 30 s, a cheap check); null: the plugin's list.
         val ownRule = combine(
-            flow { while (true) { emit(io.github.petebutty.viewarr.data.sync.ServerSports.checked && !io.github.petebutty.viewarr.data.sync.ServerSports.pluginAlive); delay(30_000) } }.distinctUntilChanged(),
+            flow { while (true) { emit(io.github.petebutty.viewarr.data.sync.ServerSports.tvDoesJobs); delay(30_000) } }.distinctUntilChanged(),
             EventChannelRule.managedGroups,
         ) { own, managed -> if (own) managed else null }
         combine(_db, _quiet, on, tick, ownRule) { db, quiet, isOn, _, own -> EventInputs(db, quiet, isOn, own) }

@@ -1,5 +1,26 @@
 # Viewarr changelog (built by tools/changelog.py from the GitHub releases; don't edit by hand)
 
+## 0.29.8 · 22 Nov 2026
+
+A faster, lighter Viewarr on smaller boxes, a full Home Assistant remote, and fixes.
+
+### Faster and lighter
+- **Scrolling names** (a long programme title in the guide) keep scrolling but draw far less often: on a 2 GB box the still guide went from about half the processor to about 5%.
+- **Movies and Shows:** each row loads the next posters ahead, every poster is decoded once at its card size, and the big background picture no longer pushes posters out of memory, so scrolling, especially on a first run, stutters much less.
+- **With the Viewarr plugin:** Live now is only worked out again when the plugin's data actually changes (it was redone every few seconds).
+- The guide redraws only the rows a move touches.
+
+### Home Assistant
+- **Remote buttons:** Home Assistant can now press any remote button in Viewarr (arrows, OK, Back, Menu, Info, colours, numbers), so a dashboard can be a full remote for each TV. See the Home Assistant guide.
+
+### Also new
+- **Settings codes** (Settings → Troubleshooting → Share my settings) now include your **remote buttons**, so someone can have exactly your remote setup.
+- Finishing an episode puts the **next episode first** in Continue watching straight away.
+
+### Fixes
+- The backup player (mpv) could close Viewarr when a channel or film started before the picture was ready.
+- The "What's new" card showed an old version's notes.
+
 ## 0.29.7 · 21 Nov 2026
 
 Home Assistant, voice channel changes, a new actor page and smoother details.

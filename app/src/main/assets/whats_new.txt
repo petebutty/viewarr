@@ -1,7 +1,6 @@
-# Shown once, the first time a new version opens (not on a fresh install). Keep it to the few things worth knowing.
-# Lines starting with "- " are the points; the first line without "#" or "-" is the heading.
-Browsing styles, a rebuilt Music, and quieter notifications
-- Settings → Appearance → Browsing style: Viewarr, Cinema (big trailer panel) or Lite
-- Music has Your Mix, daily mixes, Because you played… and endless radio
-- Notifications are off until you choose them (Settings → Menu & navigation → Notifications)
-- Faster start-up, and pages open from what's kept on the box
+# Shown once, the first time a new version opens (not on a fresh install). Written by tools/changelog.py
+# from the release notes. Lines starting with "- " are the points; the first other line is the heading.
+A faster, lighter Viewarr on smaller boxes, a full Home Assistant remote, and fixes.
+- Faster and lighter
+- Home Assistant
+- Also new

@@ -9,11 +9,16 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.runtime.SideEffect
-import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.State
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.foundation.lazy.LazyListState
+import io.github.petebutty.viewarr.ui.common.marqueeSteps
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
@@ -144,7 +149,10 @@ fun GuideScreen(
     val remote = LocalRemote.current
     val channels by vm.channels.collectAsStateWithLifecycle()
     val programs by vm.programs.collectAsStateWithLifecycle()
-    val cursor by vm.cursor.collectAsStateWithLifecycle()
+    // The highlight. Held as a state and read only where it's needed (the info panel, the rows' own "highlighted?",
+    // the times along the top), not here: read here, every move of the highlight rebuilt the whole guide, the list
+    // and every row in it, too slow for a frame on a Shield while scrolling (2026-11-22).
+    val cursorState = vm.cursor.collectAsStateWithLifecycle()
     val now by vm.now.collectAsStateWithLifecycle()
     val sync by vm.sync.collectAsStateWithLifecycle()
     // Opens already at the highlighted channel, roughly in the middle (it used to start at the top and then move down
@@ -155,40 +163,14 @@ fun GuideScreen(
     // A hold of Left that began on what's on now (going into catch-up): it steps back one programme only.
     val leftIntoCatchup = remember { mutableStateOf(false) }
 
-    val selectedChannel = channels.getOrNull(cursor.row)
-    val focused = selectedChannel?.let { GuideViewModel.programAt(programs[it.id].orEmpty(), cursor.focusTime) }
+    // The highlighted channel and programme as they are at the moment of a key press (OK: play / options).
+    fun picked(): Pair<ChannelListItem, GuideProgram?>? {
+        val c = vm.cursor.value
+        val ch = vm.channels.value.getOrNull(c.row) ?: return null
+        return ch to GuideViewModel.programAt(vm.programs.value[ch.id].orEmpty(), c.focusTime)
+    }
 
-    // Scrolled in the same frame as the highlight moves: the effect below runs a frame later, which showed the
-    // highlight a row out first, so holding Down flickered between two rows ("ghosting" through the guide fast).
-    // The effect stays for the first open (nothing laid out yet) and is a no-op otherwise.
-    SideEffect {
-        val visible = listState.layoutInfo.visibleItemsInfo
-        if (visible.isNotEmpty()) {
-            val top = maxOf(0, cursor.row - maxOf(visible.size - 1, 1) / 2)
-            // (And whole rows: a part-scroll, the top row half under the times, was never put right as only the
-            // row was compared. Peter, 2026-11-17.)
-            if (top != listState.firstVisibleItemIndex || listState.firstVisibleItemScrollOffset != 0) listState.requestScrollToItem(top)
-        }
-    }
-    LaunchedEffect(cursor.row, channels.size) {
-        val target = cursor.row
-        val visible = listState.layoutInfo.visibleItemsInfo
-        val first = visible.firstOrNull()?.index ?: 0
-        val shown = maxOf(visible.size, 1)
-        // The highlighted channel kept in the middle of the list (as classic IPTV apps), the list moving under it, rather than
-        // only once it reaches the bottom; near the top and the end the list stops and the highlight moves instead.
-        // (The last row is usually only partly on screen, so it isn't counted.)
-        val whole = maxOf(shown - 1, 1)
-        val top = maxOf(0, target - whole / 2)
-        if (visible.isEmpty() || top != first || listState.firstVisibleItemScrollOffset != 0) listState.scrollToItem(top)
-        // First time (nothing laid out yet, so the middle wasn't known): once it is, centre it exactly, still a jump.
-        if (visible.isEmpty()) {
-            awaitFrame()
-            val v = listState.layoutInfo.visibleItemsInfo
-            val t = maxOf(0, target - (maxOf(v.size, 1) - 1).coerceAtLeast(1) / 2)
-            if (v.isNotEmpty() && t != (v.firstOrNull()?.index ?: 0)) listState.scrollToItem(t)
-        }
-    }
+    KeepRowCentred(listState, cursorState, channels)
 
     // Left in the guide: the Viewarr preset carries on back through the programmes into catch-up (tap or hold; it stops
     // at the start); classic IPTV apps' goes back a programme, or on what's on now opens the channel groups, and holding Left
@@ -236,11 +218,11 @@ fun GuideScreen(
                         e.type == KeyEventType.KeyDown && e.nativeKeyEvent.repeatCount == 0 -> okPending.value = true
                         e.type == KeyEventType.KeyDown && okPending.value -> {
                             okPending.value = false
-                            selectedChannel?.let { onLongSelect(it, focused) }
+                            picked()?.let { (ch, p) -> onLongSelect(ch, p) }
                         }
                         e.type == KeyEventType.KeyUp && okPending.value -> {
                             okPending.value = false
-                            selectedChannel?.let { onSelect(it, focused) }
+                            picked()?.let { (ch, p) -> onSelect(ch, p) }
                         }
                     }
                     return@onPreviewKeyEvent true
@@ -266,37 +248,12 @@ fun GuideScreen(
                 true
             },
     ) {
-        // The highlighted programme's picture (looked up once you rest on it a moment), else the channel logo.
-        // (Looked up for the "What's selected" wallpaper too, even with Programme pictures off: that wallpaper is
-        // nothing but this picture. Peter, 2026-11-19: it showed nothing with Programme pictures switched off.)
-        val wallSelected = AppColors.palette.wallpaperMode == 3
-        val art by produceState<String?>(null, focused?.rowId, AppColors.palette.guideArt, wallSelected) {
-            // The guide's own picture first (from Dispatcharr / the guide source), else a lookup by title.
-            // Settings → Appearance → Programme pictures off (or low-memory mode) and no picture wallpaper: none.
-            if (!AppColors.palette.guideArt && !wallSelected) { value = null; return@produceState }
-            focused?.image?.let { value = it; return@produceState }
-            val t = focused?.title ?: run { value = null; return@produceState }
-            delay(350)
-            // Dispatcharr's own picture for it (the grid the guide syncs from leaves pictures out), else TMDB by title.
-            value = focused?.let { vm.pictureFor(it) } ?: vm.artFor(t)
-        }
-        // "What's selected" wallpaper: the highlighted programme's picture.
-        // Banner (Settings → Appearance → Programme picture shows as): a card in the info area, not the background.
-        val banner = AppColors.palette.opt(UiOpts.GUIDE_ART_PLACE) == 1
-        LaunchedEffect(art, banner) { if (banner && AppColors.palette.guideArt) Wallpaper.selected = null else art?.let { Wallpaper.selected = it } }
-        // (Programme pictures off: the top panel shows the channel logo as before; the picture only feeds the wallpaper.)
-        val panelArt = art.takeIf { AppColors.palette.guideArt }
         // Scheduled / in-progress Dispatcharr recordings, per channel: a red dot on the programme, a badge in the panel.
         val recordedByChannel = remember(recordings) {
             recordings.filter { it.state == DvrState.Scheduled || it.state == DvrState.Recording }
                 .groupBy({ it.channelId }, { it.start..it.end })
         }
-        InfoPanel(
-            channel = selectedChannel, program = focused, now = now, serverUrl = serverUrl,
-            channelPrograms = selectedChannel?.let { programs[it.id] }.orEmpty(),
-            recorded = selectedChannel?.let { recordedByChannel[it.id] }.orEmpty(),
-            art = panelArt, banner = banner,
-        )
+        GuideTop(vm, cursorState, channels, programs, now, serverUrl, recordedByChannel)
         Spacer(Modifier.height(10.dp))
 
         if (channels.isEmpty()) {
@@ -315,70 +272,214 @@ fun GuideScreen(
             return@Column
         }
 
-        BoxWithConstraints(Modifier.fillMaxWidth().weight(1f)) {
-            val gridWidth = maxWidth - ChannelColumn
-
-            Column(Modifier.fillMaxSize()) {
-                TimeHeader(now, cursor.windowStart, sync, gridWidth)
-                // The last row is usually only part on screen. It's faded out over its bottom 24 units rather than the
-                // list being cut to whole rows: the centring above counts the visible rows (and leaves the part one out),
-                // so a list of whole rows would have put the highlight a row off centre and needed that code reworked.
-                // A fade touches no layout or scrolling. (Drawn off screen first so the fade is a true alpha, whatever
-                // is behind the guide: a flat colour, a wallpaper or the picture.)
-                LazyColumn(
-                    state = listState, userScrollEnabled = false,
-                    modifier = Modifier.fillMaxSize()
-                        // (No off-screen buffer: inside one, every cell got a buffer of its own from the renderer,
-                        // ~150 MB at 4K once the guide had been open. The soft bottom edge is the cut-off last row
-                        // drawn fainter instead: see the row's wrapper below. Peter, 2026-11-19.)
-                        .clipToBounds(),
-                ) {
-                    // One copy of the channels for the count, the keys and the rows (the list changing size between
-                    // them, e.g. another group, asked for a channel past its end and crashed).
-                    val list = channels
-                    items(list.size, key = { v -> list.getOrNull(v)?.id ?: "x$v" }) { v ->
-                        val channel = list.getOrNull(v) ?: return@items
-                        // The row running off the bottom of the guide: fainter, the more of it is cut off.
-                        Box(Modifier.graphicsLayer {
-                            compositingStrategy = CompositingStrategy.ModulateAlpha
-                            val info = listState.layoutInfo
-                            val me = info.visibleItemsInfo.firstOrNull { it.index == v }
-                            alpha = if (me == null) 1f else {
-                                val over = (me.offset + me.size - info.viewportEndOffset).toFloat()
-                                if (over <= 0f) 1f else (1f - over / me.size * 1.1f).coerceIn(0.15f, 1f)
-                            }
-                        }) {
-                        GuideRow(
-                            channel = channel,
-                            recorded = recordedByChannel[channel.id].orEmpty(),
-                            playingLive = channel.id == playingChannelId && playingCatchupRowId == null,
-                            playingRowId = if (channel.id == playingChannelId) playingCatchupRowId else null,
-                            programs = programs[channel.id].orEmpty(),
-                            selected = v == cursor.row,
-                            focusedRowId = if (v == cursor.row) focused?.rowId else null,
-                            windowStart = cursor.windowStart,
-                            now = now,
-                            serverUrl = serverUrl,
-                            textMeasurer = textMeasurer,
-                            gridWidth = gridWidth,
-                        )
-                        }
-                    }
-                }
-            }
-            if (now >= cursor.windowStart && now < cursor.windowStart + GuideViewModel.VISIBLE_MS) {
-                Box(
-                    Modifier
-                        .offset(x = ChannelColumn + xOf(now, cursor.windowStart, gridWidth))
-                        // The "now" line: a hairline, so it doesn't cover programme names.
-                        .width(1.dp)
-                        .fillMaxHeight()
-                        .background(AppColors.Accent.copy(alpha = 0.8f))
-                )
-            }
-        }
+        GuideGrid(
+            listState = listState, cursorState = cursorState, channels = channels, programs = programs,
+            recordedByChannel = recordedByChannel, playingChannelId = playingChannelId, playingCatchupRowId = playingCatchupRowId,
+            now = now, sync = sync, serverUrl = serverUrl, textMeasurer = textMeasurer,
+            modifier = Modifier.fillMaxWidth().weight(1f),
+        )
         // Settings → Appearance → News ticker → In the TV guide.
         if (Ticker.inGuide) NewsTicker(Modifier.fillMaxWidth().padding(top = 6.dp))
+    }
+}
+
+/** Keeps the highlighted channel in the middle of the list as the highlight moves (its own small part: see GuideScreen). */
+@Composable
+private fun KeepRowCentred(listState: LazyListState, cursorState: State<GuideCursor>, channels: List<ChannelListItem>) {
+    val row = cursorState.value.row
+    val channelCount = channels.size
+    // Scrolled in the same frame as the highlight moves: the effect below runs a frame later, which showed the
+    // highlight a row out first, so holding Down flickered between two rows ("ghosting" through the guide fast).
+    // The effect stays for the first open (nothing laid out yet) and is a no-op otherwise.
+    SideEffect {
+        val visible = listState.layoutInfo.visibleItemsInfo
+        if (visible.isNotEmpty()) {
+            val top = maxOf(0, row - maxOf(visible.size - 1, 1) / 2)
+            // (And whole rows: a part-scroll, the top row half under the times, was never put right as only the
+            // row was compared. Peter, 2026-11-17.)
+            if (top != listState.firstVisibleItemIndex || listState.firstVisibleItemScrollOffset != 0) listState.requestScrollToItem(top)
+        }
+    }
+    LaunchedEffect(row, channelCount) {
+        val target = row
+        val visible = listState.layoutInfo.visibleItemsInfo
+        val first = visible.firstOrNull()?.index ?: 0
+        val shown = maxOf(visible.size, 1)
+        // The highlighted channel kept in the middle of the list (as classic IPTV apps), the list moving under it, rather than
+        // only once it reaches the bottom; near the top and the end the list stops and the highlight moves instead.
+        // (The last row is usually only partly on screen, so it isn't counted.)
+        val whole = maxOf(shown - 1, 1)
+        val top = maxOf(0, target - whole / 2)
+        if (visible.isEmpty() || top != first || listState.firstVisibleItemScrollOffset != 0) listState.scrollToItem(top)
+        // First time (nothing laid out yet, so the middle wasn't known): once it is, centre it exactly, still a jump.
+        if (visible.isEmpty()) {
+            awaitFrame()
+            val v = listState.layoutInfo.visibleItemsInfo
+            val t = maxOf(0, target - (maxOf(v.size, 1) - 1).coerceAtLeast(1) / 2)
+            if (v.isNotEmpty() && t != (v.firstOrNull()?.index ?: 0)) listState.scrollToItem(t)
+        }
+    }
+}
+
+/** The info panel over the grid (the highlighted programme), with its picture and the "What's selected" wallpaper. */
+@Composable
+private fun GuideTop(
+    vm: GuideViewModel,
+    cursorState: State<GuideCursor>,
+    channels: List<ChannelListItem>,
+    programs: Map<Int, List<GuideProgram>>,
+    now: Long,
+    serverUrl: String,
+    recordedByChannel: Map<Int, List<LongRange>>,
+) {
+    val cursor = cursorState.value
+    val selectedChannel = channels.getOrNull(cursor.row)
+    val focused = selectedChannel?.let { GuideViewModel.programAt(programs[it.id].orEmpty(), cursor.focusTime) }
+    // The highlighted programme's picture (looked up once you rest on it a moment), else the channel logo.
+    // (Looked up for the "What's selected" wallpaper too, even with Programme pictures off: that wallpaper is
+    // nothing but this picture. Peter, 2026-11-19: it showed nothing with Programme pictures switched off.)
+    val wallSelected = AppColors.palette.wallpaperMode == 3
+    val art by produceState<String?>(null, focused?.rowId, AppColors.palette.guideArt, wallSelected) {
+        // The guide's own picture first (from Dispatcharr / the guide source), else a lookup by title.
+        // Settings → Appearance → Programme pictures off (or low-memory mode) and no picture wallpaper: none.
+        if (!AppColors.palette.guideArt && !wallSelected) { value = null; return@produceState }
+        focused?.image?.let { value = it; return@produceState }
+        val t = focused?.title ?: run { value = null; return@produceState }
+        delay(350)
+        // Dispatcharr's own picture for it (the grid the guide syncs from leaves pictures out), else TMDB by title.
+        value = focused?.let { vm.pictureFor(it) } ?: vm.artFor(t)
+    }
+    // "What's selected" wallpaper: the highlighted programme's picture.
+    // Banner (Settings → Appearance → Programme picture shows as): a card in the info area, not the background.
+    val banner = AppColors.palette.opt(UiOpts.GUIDE_ART_PLACE) == 1
+    LaunchedEffect(art, banner) { if (banner && AppColors.palette.guideArt) Wallpaper.selected = null else art?.let { Wallpaper.selected = it } }
+    // (Programme pictures off: the top panel shows the channel logo as before; the picture only feeds the wallpaper.)
+    val panelArt = art.takeIf { AppColors.palette.guideArt }
+    InfoPanel(
+        channel = selectedChannel, program = focused, now = now, serverUrl = serverUrl,
+        channelPrograms = selectedChannel?.let { programs[it.id] }.orEmpty(),
+        recorded = selectedChannel?.let { recordedByChannel[it.id] }.orEmpty(),
+        art = panelArt, banner = banner,
+    )
+}
+
+/**
+ * The times along the top, the channel rows and the "now" line. Moving the highlight up and down recomposes only the
+ * two rows it leaves and lands on (each row works out "am I highlighted?" for itself); moving along the timeline
+ * recomposes the rows and the times.
+ */
+@Composable
+private fun GuideGrid(
+    listState: LazyListState,
+    cursorState: State<GuideCursor>,
+    channels: List<ChannelListItem>,
+    programs: Map<Int, List<GuideProgram>>,
+    recordedByChannel: Map<Int, List<LongRange>>,
+    playingChannelId: Int?,
+    playingCatchupRowId: Long?,
+    now: Long,
+    sync: SyncState,
+    serverUrl: String,
+    textMeasurer: TextMeasurer,
+    modifier: Modifier,
+) {
+    // The timeline's start, as its own state: changes only when the guide pages along, not with every Up / Down.
+    val windowStartState = remember(cursorState) { derivedStateOf { cursorState.value.windowStart } }
+    BoxWithConstraints(modifier) {
+        val gridWidth = maxWidth - ChannelColumn
+        val windowStart = windowStartState.value
+
+        Column(Modifier.fillMaxSize()) {
+            TimeHeader(now, windowStart, sync, gridWidth)
+            // The last row is usually only part on screen. It's faded out over its bottom 24 units rather than the
+            // list being cut to whole rows: the centring above counts the visible rows (and leaves the part one out),
+            // so a list of whole rows would have put the highlight a row off centre and needed that code reworked.
+            // A fade touches no layout or scrolling. (Drawn off screen first so the fade is a true alpha, whatever
+            // is behind the guide: a flat colour, a wallpaper or the picture.)
+            LazyColumn(
+                state = listState, userScrollEnabled = false,
+                modifier = Modifier.fillMaxSize()
+                    // (No off-screen buffer: inside one, every cell got a buffer of its own from the renderer,
+                    // ~150 MB at 4K once the guide had been open. The soft bottom edge is the cut-off last row
+                    // drawn fainter instead: see the row's wrapper below. Peter, 2026-11-19.)
+                    .clipToBounds(),
+            ) {
+                // One copy of the channels for the count, the keys and the rows (the list changing size between
+                // them, e.g. another group, asked for a channel past its end and crashed).
+                val list = channels
+                items(list.size, key = { v -> list.getOrNull(v)?.id ?: "x$v" }, contentType = { 0 }) { v ->
+                    val channel = list.getOrNull(v) ?: return@items
+                    GuideListRow(
+                        v = v, channel = channel, listState = listState, cursorState = cursorState,
+                        windowStartState = windowStartState,
+                        programs = programs[channel.id].orEmpty(),
+                        recorded = recordedByChannel[channel.id].orEmpty(),
+                        playingChannelId = playingChannelId, playingCatchupRowId = playingCatchupRowId,
+                        now = now, serverUrl = serverUrl, textMeasurer = textMeasurer, gridWidth = gridWidth,
+                    )
+                }
+            }
+        }
+        if (now >= windowStart && now < windowStart + GuideViewModel.VISIBLE_MS) {
+            Box(
+                Modifier
+                    .offset(x = ChannelColumn + xOf(now, windowStart, gridWidth))
+                    // The "now" line: a hairline, so it doesn't cover programme names.
+                    .width(1.dp)
+                    .fillMaxHeight()
+                    .background(AppColors.Accent.copy(alpha = 0.8f))
+            )
+        }
+    }
+}
+
+/** One channel's row in the list: works out from the highlight whether it's the highlighted row (and which programme). */
+@Composable
+private fun GuideListRow(
+    v: Int,
+    channel: ChannelListItem,
+    listState: LazyListState,
+    cursorState: State<GuideCursor>,
+    windowStartState: State<Long>,
+    programs: List<GuideProgram>,
+    recorded: List<LongRange>,
+    playingChannelId: Int?,
+    playingCatchupRowId: Long?,
+    now: Long,
+    serverUrl: String,
+    textMeasurer: TextMeasurer,
+    gridWidth: Dp,
+) {
+    // Derived: this row is redrawn only when its own answer changes (the highlight arriving or leaving, or moving
+    // along it), not on every move anywhere in the guide.
+    val selected by remember(v, cursorState) { derivedStateOf { cursorState.value.row == v } }
+    val focusedRowId by remember(v, cursorState, programs) {
+        derivedStateOf { cursorState.value.let { c -> if (c.row == v) GuideViewModel.programAt(programs, c.focusTime)?.rowId else null } }
+    }
+    // The row running off the bottom of the guide: fainter, the more of it is cut off.
+    Box(Modifier.graphicsLayer {
+        compositingStrategy = CompositingStrategy.ModulateAlpha
+        val info = listState.layoutInfo
+        val me = info.visibleItemsInfo.firstOrNull { it.index == v }
+        alpha = if (me == null) 1f else {
+            val over = (me.offset + me.size - info.viewportEndOffset).toFloat()
+            if (over <= 0f) 1f else (1f - over / me.size * 1.1f).coerceIn(0.15f, 1f)
+        }
+    }) {
+        GuideRow(
+            channel = channel,
+            recorded = recorded,
+            playingLive = channel.id == playingChannelId && playingCatchupRowId == null,
+            playingRowId = if (channel.id == playingChannelId) playingCatchupRowId else null,
+            programs = programs,
+            selected = selected,
+            focusedRowId = focusedRowId,
+            windowStart = windowStartState.value,
+            now = now,
+            serverUrl = serverUrl,
+            textMeasurer = textMeasurer,
+            gridWidth = gridWidth,
+        )
     }
 }
 
@@ -688,7 +789,11 @@ private fun GuideRow(
     val guideAlpha = AppColors.palette.guideAlpha
     val windowEnd = windowStart + GuideViewModel.VISIBLE_MS
     val cellText = rememberCellText()
-    val cellTextFocused = cellText.copy(fontWeight = FontWeight.SemiBold)
+    // (The cell styles made once per row, not for every programme each time the row is drawn.)
+    val cellTextFocused = remember(cellText) { cellText.copy(fontWeight = FontWeight.SemiBold) }
+    val onAccentNow = AppColors.OnAccent
+    val cellTextOnAccent = remember(cellTextFocused, onAccentNow) { cellTextFocused.copy(color = onAccentNow) }
+    val cellTextGone = remember(cellText) { cellText.copy(color = Color.White.copy(alpha = 0.5f)) }
     Row(Modifier.fillMaxWidth().height(RowHeight).padding(vertical = 1.5.dp)) {
         Row(
             Modifier
@@ -734,7 +839,7 @@ private fun GuideRow(
             if (channel.catchupDays > 0 && AppColors.palette.opt(UiOpts.CATCHUP_ICONS).let { it != 2 && (it != 3 || selected) }) CatchupIcon(Modifier.padding(start = 4.dp).size(14.dp))
         }
         val catchupFrom = if (channel.catchupDays > 0) now - channel.catchupDays * 86_400_000L else null
-        val onAccent = AppColors.OnAccent
+        val onAccent = onAccentNow
         val programmeIcons = AppColors.palette.opt(UiOpts.CATCHUP_ICONS) == 0
         val accent = AppColors.Accent
         val iconColor = AppColors.TextSecondary
@@ -755,20 +860,25 @@ private fun GuideRow(
         // The scrolling name, measured once (not every frame), at a steady speed: a short pause, along, a pause, back.
         // It's drawn on its own layer over the row, so only it redraws as it moves (the whole row's text was measured
         // and drawn again every frame, too much for a frame on some boxes: it juddered).
-        val marqueeText = if (overflows && focusedP != null) remember(focusedP.rowId, focusedP.title, cellTextFocused) {
-            textMeasurer.measure(text = guideTitle(focusedP), style = cellTextFocused.copy(color = AppColors.OnAccent), maxLines = 1, softWrap = false)
+        val marqueeText = if (overflows && focusedP != null) remember(focusedP.rowId, focusedP.title, cellTextOnAccent) {
+            textMeasurer.measure(text = guideTitle(focusedP), style = cellTextOnAccent, maxLines = 1, softWrap = false)
         } else null
         // Where it goes (set while the row draws): its left edge, the room it has, the row's height.
         val marqueeAt = remember { FloatArray(3) }
-        // A clock (ms since the name started scrolling): the layer works out where the name is from its real room, so
-        // every name moves at the same speed (each used to take a time worked out from a guess at its block's width).
+        // Goes up when the row's drawing moves the name's room (the timeline paging along with the same programme
+        // highlighted): the scrolling name is drawn again then even while it's paused, not only as it moves.
+        val marqueeRoom = remember { mutableIntStateOf(0) }
+        // How far along the name is, worked out from its real room (set as the row draws), so every name moves at the
+        // same speed. Moved on about 20 times a second (ui/common/SlowMarquee), and only while it's actually moving:
+        // the pauses at either end draw nothing new. (Every frame, it kept the screen redrawing 60 times a second.)
         val marquee = if (marqueeText != null) {
-            val clock = remember(focusedP?.rowId) { mutableLongStateOf(0L) }
+            val shift = remember(focusedP?.rowId) { mutableFloatStateOf(0f) }
+            val text = rememberUpdatedState(marqueeText)
+            val speed = with(density) { 60.dp.toPx() } / 1000f
             LaunchedEffect(focusedP?.rowId) {
-                val start = withFrameMillis { it }
-                while (true) withFrameMillis { clock.longValue = it - start }
+                marqueeSteps { t -> shift.floatValue = marqueeShift(t, text.value.size.width - marqueeAt[1], speed); true }
             }
-            clock
+            shift
         } else null
         Box(Modifier.weight(1f).fillMaxHeight()) {
         Canvas(Modifier.matchParentSize()) {
@@ -848,12 +958,15 @@ private fun GuideRow(
                 val scrolls = isFocused && marqueeText != null && hasText && marqueeText.size.width > textWidth
                 if (scrolls) {
                     // Too long for its block: drawn by the layer above (only it redraws as it moves).
-                    marqueeAt[0] = textX; marqueeAt[1] = textWidth.toFloat(); marqueeAt[2] = size.height
+                    if (marqueeAt[0] != textX || marqueeAt[1] != textWidth.toFloat() || marqueeAt[2] != size.height) {
+                        marqueeAt[0] = textX; marqueeAt[1] = textWidth.toFloat(); marqueeAt[2] = size.height
+                        marqueeRoom.intValue++
+                    }
                 } else if (hasText) {
                     // Over and gone (no catch-up to replay it): its name steps back, so what you can still watch stands out.
                     val style = when {
-                        isFocused -> cellTextFocused.copy(color = AppColors.OnAccent)
-                        p.endTime <= now && !replayable -> cellText.copy(color = Color.White.copy(alpha = 0.5f))
+                        isFocused -> cellTextOnAccent
+                        p.endTime <= now && !replayable -> cellTextGone
                         else -> cellText
                     }
                     val layout = textMeasurer.measure(
@@ -872,17 +985,12 @@ private fun GuideRow(
                 }
             }
         }
-        // The scrolling name, on its own layer.
-        if (marqueeText != null && marquee != null) Canvas(Modifier.matchParentSize()) {
+        // The scrolling name, on its own layer (so each step redraws only it, not the whole row's programmes).
+        if (marqueeText != null && marquee != null) Canvas(Modifier.matchParentSize().graphicsLayer()) {
+            marqueeRoom.intValue
             val textX = marqueeAt[0]; val textWidth = marqueeAt[1]
             if (textWidth <= 0f) return@Canvas
-            val travel = (marqueeText.size.width - textWidth).coerceAtLeast(0f)
-            // 60 units a second for every name: a 1.2 s pause, along, 1.2 s at the end, back to the start.
-            val speed = 60.dp.toPx() / 1000f
-            val pause = 1_200L
-            val scrollMs = (travel / speed).toLong().coerceAtLeast(1L)
-            val t = marquee.longValue % (pause + scrollMs + pause)
-            val shift = when { t < pause -> 0f; t < pause + scrollMs -> (t - pause) * speed; else -> travel }
+            val shift = marquee.floatValue
             clipRect(left = textX, top = 0f, right = textX + textWidth, bottom = size.height) {
                 drawText(marqueeText, topLeft = Offset(textX - shift, (size.height - marqueeText.size.height) / 2f))
             }
@@ -892,6 +1000,18 @@ private fun GuideRow(
 }
 
 private val RecordRed = Color(0xFFE53935)
+
+/**
+ * Where a scrolling guide name is [t] ms after it started, with [overflow] pixels more than its room: 60 units a
+ * second for every name, a 1.2 s pause, along, 1.2 s at the end, back to the start.
+ */
+private fun marqueeShift(t: Long, overflow: Float, speed: Float): Float {
+    val travel = overflow.coerceAtLeast(0f)
+    val pause = 1_200L
+    val scrollMs = (travel / speed).toLong().coerceAtLeast(1L)
+    val at = t % (pause + scrollMs + pause)
+    return when { at < pause -> 0f; at < pause + scrollMs -> (at - pause) * speed; else -> travel }
+}
 
 /** Rewind-style arrow marking channels and programmes with catch-up. */
 @Composable

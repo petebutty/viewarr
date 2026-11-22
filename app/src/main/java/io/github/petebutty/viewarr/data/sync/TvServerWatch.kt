@@ -111,7 +111,7 @@ class TvServerWatch @Inject constructor(
     }
 
     /** The switch on (and Trakt not connected), the accounts read, and no plugin doing it for the house. */
-    private fun active() = WatchSync.serversOn && WatchSource.known && ServerSports.checked && !ServerSports.pluginAlive
+    private fun active() = WatchSync.serversOn && WatchSource.known && ServerSports.tvDoesJobs
 
     /** One round with each server. */
     suspend fun round() = lock.withLock {

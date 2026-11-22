@@ -131,6 +131,7 @@ object HaEvents {
             "play", "resume" -> "viewarr://play"
             "play_pause", "playpause" -> "viewarr://playpause"
             "refresh" -> "viewarr://refresh"
+            "key", "button" -> d.str("name")?.let { "viewarr://key?name=${q("name")}" }
             "link" -> d.str("link")?.takeIf { it.startsWith("viewarr://") }
             else -> null
         } ?: return

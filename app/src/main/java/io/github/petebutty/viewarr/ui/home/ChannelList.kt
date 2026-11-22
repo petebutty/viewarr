@@ -5,7 +5,7 @@ import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import io.github.petebutty.viewarr.ui.common.followingSetting
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
-import androidx.compose.foundation.basicMarquee
+import io.github.petebutty.viewarr.ui.common.slowMarquee
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -239,7 +239,8 @@ internal fun ChannelListOverlay(
                             // read in full (rows stay one line and the same height); the others end in "…".
                             nowOn?.let {
                                 if (rowFocused) Text(it, fontSize = 12.sp, maxLines = 1, softWrap = false,
-                                    modifier = Modifier.basicMarquee(iterations = Int.MAX_VALUE, initialDelayMillis = 1_200, repeatDelayMillis = 2_000))
+                                    // (About 20 steps a second: see ui/common/SlowMarquee.)
+                                    modifier = Modifier.slowMarquee(initialDelayMillis = 1_200, repeatDelayMillis = 2_000))
                                 else Text(it, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
                             // Settings → Appearance → Live TV → Channel list progress: how far through what's on now.

@@ -475,7 +475,7 @@ fun MediaScreen(
                     }),
                     verticalArrangement = Arrangement.spacedBy(RowGap),
                 ) {
-                    itemsIndexed(rows, key = { _, it -> it.id }) { index, row ->
+                    itemsIndexed(rows, key = { _, it -> it.id }, contentType = { _, _ -> "row" }) { index, row ->
                         // Cinema (big top panel): each row the whole height left, so one row shows at a time, no half
                         // row under it (Peter, 2026-11-18); Down brings the next one up.
                         // (Its posters along the bottom of the screen, the backdrop above them, as Nuvio.)
@@ -517,7 +517,8 @@ fun MediaScreen(
                         }
                     }
                     searchFooter?.let { footer -> item(key = "search-footer") { footer() } }
-                } }
+                }
+                RowsLookAhead(listState, rows) }
             }
         }
         // While a film plays full screen, the title page stays alive under it, set aside: no keys, no Back, and not
@@ -739,7 +740,7 @@ private fun Hero(
         val logoA = async {
             val url = if (logoOf != null && logosOn) runCatching { logoOf(i) }.getOrNull() else null
             // The picture itself, so it's ready when the details show (at the hero logo's size, as TitleLogo asks).
-            if (url != null) runCatching { context.imageLoader.execute(logoRequest(context, density, url, 340, 54)) }
+            if (url != null) runCatching { context.imageLoader.execute(if (cinema) logoRequest(context, density, url, 460, 84) else logoRequest(context, density, url, 340, 54)) }
             url
         }
         val ratingsA = async { if (ratingsWanted) runCatching { ratingsOf!!(i) }.getOrNull().orEmpty() else emptyList() }
@@ -760,7 +761,6 @@ private fun Hero(
     // flash up first), then one fade in once its logo, ratings and library check are in.
     val detailsAnim = remember(item?.key) { androidx.compose.animation.core.Animatable(0f) }
     LaunchedEffect(item?.key, ready) { if (ready) detailsAnim.animateTo(1f, androidx.compose.animation.core.tween(550)) }
-    val detailsAlpha = detailsAnim.value
     val inLibrary = extras?.inLibrary
     // The Movies / Shows background: the highlighted title's backdrop.
     LaunchedEffect(item?.backdrop) { item?.backdrop?.let { Wallpaper.title = it } }
@@ -1243,6 +1243,8 @@ private fun PosterRow(
 ) {
     Column {
         RowTitle(row.title, Modifier.padding(start = RowStart, end = Tokens.Gutter))
+        // The next posters past the right edge, loaded before they slide on.
+        RowLookAhead(state, row.items, rowPosterPx())
         val rowEntry = remember { FocusRequester() }
         // True only while the remembered poster is actually composed. A poster can still be listed as visible while
         // its row is being torn down (e.g. leaving Movies for Shows); aiming focus at it then crashed the app
@@ -1317,7 +1319,7 @@ private fun PosterRow(
             contentPadding = PaddingValues(start = RowStart, end = 48.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            itemsIndexed(row.items, key = { _, it -> it.key }) { index, item ->
+            itemsIndexed(row.items, key = { _, it -> it.key }, contentType = { _, _ -> "poster" }) { index, item ->
                 val id = cardId(row, item)
                 if (index == entryIndex) DisposableEffect(entryIndex) {
                     entryAttached[0] = true
@@ -1378,7 +1380,8 @@ internal fun PosterCard(item: MediaItem, modifier: Modifier, onClick: () -> Unit
     // highlighted poster, which widens to 16:9 once it shows; then it grows into the big panel. This card only starts
     // and stops it and says where it is on screen.
     val inPoster = trailer && !fill && PosterTrailer.on && !item.key.startsWith("person:")
-    val mine = inPoster && PosterTrailer.item?.key == item.key
+    // (Worked out apart, so a trailer moving to another poster rebuilds only the two posters concerned, not the row.)
+    val mine by remember(item.key, inPoster) { androidx.compose.runtime.derivedStateOf { inPoster && PosterTrailer.item?.key == item.key } }
     val playing = mine && PosterTrailer.showing
     LaunchedEffect(inPoster, focused, PosterTrailer.active, item.key) {
         if (!inPoster) return@LaunchedEffect
@@ -1391,7 +1394,8 @@ internal fun PosterCard(item: MediaItem, modifier: Modifier, onClick: () -> Unit
     }
     // The card leaving (its row refreshed, the page closed) takes its trailer with it, else a box floated at its old place.
     DisposableEffect(item.key) { onDispose { if (PosterTrailer.item?.key == item.key) PosterTrailer.close(quiet = true) } }
-    val dimAlpha by androidx.compose.animation.core.animateFloatAsState(if (focused || fill) 1f else AppColors.palette.posterDimAlpha, androidx.compose.animation.core.tween(160), label = "posterDim")
+    // (Read only while drawing the poster's wash: the card isn't rebuilt on every frame of the fade.)
+    val dimAlpha = androidx.compose.animation.core.animateFloatAsState(if (focused || fill) 1f else AppColors.palette.posterDimAlpha, androidx.compose.animation.core.tween(160), label = "posterDim")
     val baseW = AppColors.palette.rowPosterWidth.dp
     val width by androidx.compose.animation.core.animateDpAsState(if (playing) baseW * 1.5f * 16f / 9f else baseW, androidx.compose.animation.core.tween(320), label = "posterTrailer")
     val bring = remember { androidx.compose.foundation.relocation.BringIntoViewRequester() }
@@ -1400,7 +1404,9 @@ internal fun PosterCard(item: MediaItem, modifier: Modifier, onClick: () -> Unit
     val cardFocus = remember { FocusRequester() }
     var hadPanel by remember { mutableStateOf(false) }
     if (mine && PosterTrailer.panel) hadPanel = true
-    LaunchedEffect(PosterTrailer.closedAt) { if (hadPanel && PosterTrailer.item == null) { hadPanel = false; if (!focused) { kotlinx.coroutines.delay(60); runCatching { cardFocus.requestFocus() } } } }
+    // (Only the poster that had the panel watches for it closing.)
+    // (Cleared last: clearing it ends this watch, which would have cut the focus move short.)
+    if (hadPanel) LaunchedEffect(PosterTrailer.closedAt) { if (hadPanel && PosterTrailer.item == null) { if (!focused) { kotlinx.coroutines.delay(60); runCatching { cardFocus.requestFocus() } }; hadPanel = false } }
     // The shared card (FocusCard: 3 dp accent ring, no growing).
     FocusCard(
         // OK while its trailer plays in the card: the big panel with sound (Peter, 2026-11-18); otherwise the title
@@ -1433,11 +1439,11 @@ internal fun PosterCard(item: MediaItem, modifier: Modifier, onClick: () -> Unit
     ) {
         Box(Modifier.fillMaxSize()) {
             if (playing) item.backdrop?.let { PosterImage(it, item.title, Modifier.fillMaxSize()) }
-            Text(
-                item.title, fontSize = 13.sp, color = AppColors.TextSecondary, textAlign = TextAlign.Center,
-                modifier = Modifier.align(Alignment.Center).padding(8.dp), maxLines = 4, overflow = TextOverflow.Ellipsis,
-            )
-            if (!playing) (item.poster ?: item.backdrop)?.let { PosterImage(it, item.title, Modifier.fillMaxSize(), tint = if (dimAlpha < 0.999f) AppColors.palette.main.copy(alpha = 1f - dimAlpha) else null) }
+            val picture = if (playing) null else cardPicture(item)
+            // The name, under the picture until it loads (or always, with no picture).
+            if (picture == null) CardName(item.title)
+            else PosterImage(picture, item.title, Modifier.fillMaxSize(), tintOf = posterWash(dimAlpha),
+                sizePx = if (fill) null else rowPosterPx(), placeholder = { CardName(item.title) })
             // (No poster, only a wide picture: the name over its foot. UI review, 2026-11-18.)
             if (!playing && item.poster == null && item.backdrop != null) Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth()
                 .background(Brush.verticalGradient(0f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.8f))).padding(horizontal = 8.dp, vertical = 8.dp)) {
@@ -1466,6 +1472,19 @@ internal fun PosterCard(item: MediaItem, modifier: Modifier, onClick: () -> Unit
             }
         }
     }
+}
+
+/** A poster card's name, in the middle of its space (no picture, or until the picture loads). */
+@Composable
+private fun androidx.compose.foundation.layout.BoxScope.CardName(title: String) = Text(
+    title, fontSize = 13.sp, color = AppColors.TextSecondary, textAlign = TextAlign.Center,
+    modifier = Modifier.align(Alignment.Center).padding(8.dp), maxLines = 4, overflow = TextOverflow.Ellipsis,
+)
+
+/** The "Other posters faded" wash for a poster at [dim] (1 = none), worked out while drawing. */
+@Composable
+private fun posterWash(dim: androidx.compose.runtime.State<Float>): () -> Color? = remember(dim) {
+    { val a = dim.value; if (a < 0.999f) AppColors.palette.main.copy(alpha = 1f - a) else null }
 }
 
 @Composable

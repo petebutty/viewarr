@@ -195,7 +195,7 @@ Optional. Your Home Assistant's **Address** and an **Access token**, **Test conn
 
 **Settings codes** copy your settings from one TV to another:
 
-- **Share my settings**: gives you a code like `VS-ab12cd`, valid for 3 days. It holds your look (Appearance), Playback and remote settings. Sign-ins, Live TV sources, home rows, libraries, favourites, channel numbers and followed teams aren't in it, nor this box's own settings (surround sound, decoding, frame rate, picture size, buffer, the remote's buttons).
+- **Share my settings**: gives you a code like `VS-ab12cd`, valid for 3 days. It holds your look (Appearance), Playback and remote settings, including what each remote button does (0.29.8 and later). Sign-ins, Live TV sources, home rows, libraries, favourites, channel numbers and followed teams aren't in it, nor this box's own settings (surround sound, decoding, frame rate, picture size, buffer, its search key).
 - **Use someone's settings**: type a code, then **Replace**. Your sign-ins, sources, home rows and libraries stay as they are, and so do this box's own settings.
 - **Undo the last settings code**: shows after you've used a code, and puts back the settings you had before.
 

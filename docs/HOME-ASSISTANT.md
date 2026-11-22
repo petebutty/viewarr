@@ -114,6 +114,7 @@ the remote:
 | `record` | `number` or `uuid` (else the channel playing) | Records what's on now |
 | `search` | `query` | Opens search with those words |
 | `refresh` | | Fetches the channel list again |
+| `key` | `name`: `up`, `down`, `left`, `right`, `ok`, `back`, `menu`, `info`, `rewind`, `ffwd`, `record`, `red`, `green`, `yellow`, `blue`, `chup`, `chdown`, `0`–`9` | Presses that remote button *(0.29.8 and later)*: build a full remote on a dashboard |
 | `link` | `link`: any `viewarr://` link | |
 
 Add `tv` to send it to one TV only. A script per command makes dashboard buttons and voice commands easy:

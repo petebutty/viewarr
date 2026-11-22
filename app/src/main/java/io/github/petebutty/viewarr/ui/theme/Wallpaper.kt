@@ -17,6 +17,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.platform.LocalContext
@@ -195,16 +196,35 @@ object Wallpaper {
 @Composable
 fun WallpaperLoader() {
     val context = LocalContext.current
+    // The Movies / Shows artwork's finished pictures, drawn into again for the next title (each new one was two fresh
+    // 3.6 MB bitmaps, the decoded one and the shaded one, so moving along a row kept the memory cleaner busy).
+    val spare = androidx.compose.runtime.remember { ArrayList<android.graphics.Bitmap>(3) }
     suspend fun show(layer: PictureLayer, url: String?) {
         if (url == null) return
+        val titleArt = layer === Wallpaper.titleArt
         val result = runCatching {
-            context.imageLoader.execute(ImageRequest.Builder(context).data(url).size(1280, 720).allowHardware(false).build())
+            context.imageLoader.execute(ImageRequest.Builder(context).data(url).size(1280, 720).allowHardware(false)
+                // (The artwork's decoded copy is only an ingredient of the shaded one: kept out of the picture cache, where
+                // each 3.6 MB copy pushed out a dozen posters that then had to load again.)
+                .apply { if (titleArt) memoryCachePolicy(coil.request.CachePolicy.DISABLED) }
+                .build())
         }.getOrNull() as? SuccessResult ?: return
         val raw = runCatching { result.drawable.toBitmap() }.getOrNull() ?: return
         // The Movies / Shows artwork comes ready-shaded (one picture, drawn once a frame): at 4K the backdrop plus its
         // background colour and two shading gradients were four full-screen passes on every frame of a row's slide,
         // and the graphics chip ran at ~45 ms a frame (Peter, 2026-11-19: Cinema's slide looked jerky).
-        val baked: android.graphics.Bitmap? = if (layer === Wallpaper.titleArt) runCatching { bakeTitleArt(raw, AppColors.palette.main, AppColors.palette.shade) }.getOrNull() else null
+        // (Shaded away from the main thread, into a spare picture not on screen: neither showing nor fading out.)
+        val baked: android.graphics.Bitmap? = if (titleArt) {
+            val main = AppColors.palette.main; val shade = AppColors.palette.shade
+            val inUse = listOfNotNull(layer.image?.asAndroidBitmap(), layer.previous?.asAndroidBitmap())
+            val into = spare.firstOrNull { b -> inUse.none { it === b } }
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                runCatching { bakeTitleArt(raw, main, shade, into) }.getOrNull()
+            }?.also { out ->
+                if (spare.none { it === out } && spare.size < 3) spare += out
+                if (out !== raw) raw.recycle()
+            }
+        } else null
         val bmp = (baked ?: raw).asImageBitmap()
         // A soft cross-fade from the last picture (it only runs once the highlight has rested, so it doesn't cost
         // frames while moving through the guide; a newer pick cancels it and fades on from where it was).
@@ -236,7 +256,7 @@ fun WallpaperLoader() {
     LaunchedEffect(Unit) {
         // Low-memory mode: no full-screen artwork behind title pages.
         snapshotFlow { (Wallpaper.titlePages > 0 && AppColors.palette.heavyExtras && Wallpaper.titleArtOn) to Wallpaper.title }.collectLatest { (open, url) ->
-            if (!open) { Wallpaper.titleArt.clear(); return@collectLatest }
+            if (!open) { Wallpaper.titleArt.clear(); spare.clear(); return@collectLatest }
             delay(300)
             show(Wallpaper.titleArt, url)
         }
@@ -311,11 +331,13 @@ private fun DrawScope.drawLayer(layer: PictureLayer) {
  * colour, darkened on the left (behind the text) and toward the bottom (behind the rows), clearer to the right.
  * The same look the page used to paint with two gradients on every frame.
  */
-private fun bakeTitleArt(src: android.graphics.Bitmap, main: Color, shade: Color): android.graphics.Bitmap {
+private fun bakeTitleArt(src: android.graphics.Bitmap, main: Color, shade: Color, reuse: android.graphics.Bitmap? = null): android.graphics.Bitmap {
     val w = 1280; val h = 720
-    val out = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888)
+    // (A spare one of the right kind is painted over whole: the background colour first covers what it held.)
+    val out = reuse?.takeIf { it.isMutable && !it.isRecycled && it.width == w && it.height == h && it.config == android.graphics.Bitmap.Config.ARGB_8888 }
+        ?: android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888)
     val c = android.graphics.Canvas(out)
-    c.drawColor(main.toArgbInt())
+    c.drawColor(main.toArgbInt(), android.graphics.PorterDuff.Mode.SRC)
     val scale = max(w.toFloat() / src.width, h.toFloat() / src.height)
     val sw = (w / scale).roundToInt().coerceAtMost(src.width); val sh = (h / scale).roundToInt().coerceAtMost(src.height)
     val sx = (src.width - sw) / 2; val sy = (src.height - sh) / 2

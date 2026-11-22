@@ -588,7 +588,7 @@ class CatalogRepository @Inject constructor(
         val s = sessions.session.first()?.takeIf { !it.isDirect }
         val r = s?.let { runCatching { http.get(it.serverUrl.trimEnd('/') + "/api/accounts/users/me/app-data/viewarr_just_added/", mapOf("X-API-Key" to it.apiKey)) }.getOrNull() }
         val o = (r?.body as? JsonObject)?.takeIf { r.ok && (it["at"] as? kotlinx.serialization.json.JsonPrimitive)?.content?.toLongOrNull()?.let { at -> System.currentTimeMillis() / 1000 - at < 3 * 86_400 } == true }
-            ?: JustAddedLocal.lists(appContext, http) ?: return emptyList()
+            ?: (if (io.github.petebutty.viewarr.data.sync.ServerSports.tvDoesJobs) JustAddedLocal.lists(appContext, http) else null) ?: return emptyList()
         if (o.int("v") != 1) return emptyList()
         val field = if (type == MediaType.Movie) "movies" else "shows"
         val day = java.time.format.DateTimeFormatter.ofPattern("d MMM", java.util.Locale.UK)

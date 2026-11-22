@@ -55,6 +55,7 @@ Quote the link, as shown, so the shell doesn't split it at `?` or `&`.
 | `viewarr://search?q=<words>` | Opens search with those words filled in (encode spaces as `%20`). |
 | `viewarr://title?tmdb=<id>&type=movie` | Opens a film's page from its TMDB id (`type=show` for a TV show). |
 | `viewarr://pause`, `viewarr://play`, `viewarr://playpause` | As the remote's pause / play buttons, for whatever is playing. *(0.29.7 and later.)* |
+| `viewarr://key?name=<button>` | Presses a remote button: `up`, `down`, `left`, `right`, `ok`, `back`, `menu`, `info`, `rewind`, `ffwd`, `record`, `red`, `green`, `yellow`, `blue`, `chup`, `chdown` or `0`–`9`. *(0.29.8 and later.)* |
 
 ### Play, pause, skip
 

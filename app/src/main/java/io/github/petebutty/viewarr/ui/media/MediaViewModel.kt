@@ -2086,8 +2086,10 @@ class MediaViewModel @Inject constructor(
                     repo.scrobbleTrakt("start", target, pct)
                 }
             }
-            // Stopped partway: first in Continue watching now (the servers' lists catch up when next fetched).
-            if (state == "stopped" && !nearEnd) {
+            // Stopped partway, or an episode finished (its next one): first in Continue watching now (the servers'
+            // lists catch up when next fetched). (Peter, 2026-11-22: the next episode after one he finished was
+            // somewhere further along the row.)
+            if (state == "stopped" && (!nearEnd || target.type == MediaType.Show)) {
                 val keys = filmKeys(target.tmdbId, target.imdbId)
                 if (keys.isNotEmpty()) stoppedHere.value = stoppedHere.value + keys.associateWith { now }
             }

@@ -485,7 +485,9 @@ private fun configure(mpv: MpvHandle, context: android.content.Context, stream: 
     opt("config", "no")
     opt("config-dir", dir)
     opt("gpu-shader-cache-dir", context.cacheDir.absolutePath)
-    opt("vo", videoOut(s))
+    // (No video output until the surface exists; the surface callbacks set videoOut(). With mediacodec_embed set before
+    // a surface, a stream that opened first aborted on mpv's "WinID != 0" assertion and closed the app.)
+    opt("vo", "null")
     opt("gpu-context", "android")
     opt("opengl-es", "yes")
     // Hardware: the decoder draws straight onto the screen surface (no copy back, no GPU pass). mpv then can't
