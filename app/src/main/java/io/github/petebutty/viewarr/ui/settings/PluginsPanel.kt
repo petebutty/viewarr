@@ -62,7 +62,10 @@ import javax.inject.Inject
 import io.github.petebutty.viewarr.data.dvr.PluginResult
 
 @HiltViewModel
-class PluginsViewModel @Inject constructor(private val repo: PluginsRepository) : ViewModel() {
+class PluginsViewModel @Inject constructor(
+    private val repo: PluginsRepository,
+    private val activity: io.github.petebutty.viewarr.data.sync.PluginActivity,
+) : ViewModel() {
     data class Ui(
         val loading: Boolean = true,
         val installed: List<InstalledPlugin> = emptyList(),
@@ -72,6 +75,8 @@ class PluginsViewModel @Inject constructor(private val repo: PluginsRepository) 
         val busy: Boolean = false,
         /** Counts reloads, so the screen can put focus back after one. */
         val reloads: Int = 0,
+        /** What the Viewarr plugin did last (admins only; empty without it). */
+        val activity: List<io.github.petebutty.viewarr.data.sync.ActivityItem> = emptyList(),
     )
     private val _ui = MutableStateFlow(Ui())
     val ui = _ui.asStateFlow()
@@ -83,7 +88,8 @@ class PluginsViewModel @Inject constructor(private val repo: PluginsRepository) 
             _ui.value = r.fold(
                 { (inst, store) ->
                     if (inst == null) Ui(loading = false, problem = "Plugins live on a Dispatcharr server; sign in to one first.")
-                    else Ui(loading = false, installed = inst, store = store, message = message, reloads = n)
+                    else Ui(loading = false, installed = inst, store = store, message = message, reloads = n,
+                        activity = if (inst.any { it.key == "viewarr" }) activity.load() else emptyList())
                 },
                 { e ->
                     Ui(loading = false, problem = if (e is SecurityException) "Dispatcharr only lets admin users manage plugins." else "Couldn't reach Dispatcharr.")
@@ -106,6 +112,10 @@ class PluginsViewModel @Inject constructor(private val repo: PluginsRepository) 
     fun run(p: InstalledPlugin, actionId: String) = act({ repo.run(p.key, actionId) }, reload = false)
     fun setting(p: InstalledPlugin, f: PluginField, value: kotlinx.serialization.json.JsonElement) = act({ repo.saveSetting(p, f.id, value) })
     fun install(p: StorePlugin) = act({ repo.install(p) })
+    /** Reads the Viewarr plugin's "What it did last" again. */
+    fun refreshActivity() {
+        viewModelScope.launch { _ui.value = _ui.value.copy(activity = activity.load()) }
+    }
     /** A short word on the panel (a value refused before it's sent). */
     fun say(message: String) { _ui.value = _ui.value.copy(message = message) }
 }
@@ -178,7 +188,8 @@ fun PluginsSettingsScreen(onBack: () -> Unit, vm: PluginsViewModel = hiltViewMod
                     ?: Spacer(Modifier.padding(top = 26.dp))
                 val plugin = ui.installed.firstOrNull { it.key == selected }
                 when {
-                    plugin != null -> PluginDetail(plugin, ui.store.firstOrNull { it.slug == plugin.key || it.slug.replace('-', '_') == plugin.key }, vm)
+                    plugin != null -> PluginDetail(plugin, ui.store.firstOrNull { it.slug == plugin.key || it.slug.replace('-', '_') == plugin.key }, vm,
+                        if (plugin.key == "viewarr") ui.activity else emptyList())
                     selected == STORE -> StoreList(ui.store, vm)
                 }
             }
@@ -199,7 +210,7 @@ private class FocusMemory {
 private val LocalFocusMemory = androidx.compose.runtime.staticCompositionLocalOf { FocusMemory() }
 
 @Composable
-private fun PluginDetail(p: InstalledPlugin, storeEntry: StorePlugin?, vm: PluginsViewModel) {
+private fun PluginDetail(p: InstalledPlugin, storeEntry: StorePlugin?, vm: PluginsViewModel, activity: List<io.github.petebutty.viewarr.data.sync.ActivityItem> = emptyList()) {
     LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp), contentPadding = PaddingValues(bottom = 40.dp)) {
         item(key = "head") {
             Column(Modifier.padding(start = 4.dp, bottom = 8.dp)) {
@@ -212,6 +223,7 @@ private fun PluginDetail(p: InstalledPlugin, storeEntry: StorePlugin?, vm: Plugi
         if (p.updateAvailable && storeEntry != null) item(key = "update") {
             ConfirmRow("update:${p.key}", "Update to v${storeEntry.version}", "From ${storeEntry.repoName}.", "Update", "Press OK again to update") { vm.install(storeEntry) }
         }
+        pluginActivity(activity) { vm.refreshActivity() }
         if (p.actions.isNotEmpty()) item(key = "ah") { Header("Actions" + if (!p.enabled) " (turn the plugin on first)" else "") }
         items(p.actions, key = { "a:" + it.id }) { a ->
             if (a.confirm != null) ConfirmRow("a:${p.key}:${a.id}", a.label, a.description, a.button, "OK again: ${a.confirm}") { vm.run(p, a.id) }
@@ -325,6 +337,10 @@ private fun StoreList(store: List<StorePlugin>, vm: PluginsViewModel) {
     }
 }
 
+/** The section heading of the plugins page (also used by PluginActivitySection.kt). */
+@Composable
+internal fun PluginsHeader(text: String) = Header(text)
+
 @Composable
 private fun Header(text: String) =
     Text(text, fontSize = 13.sp, color = AppColors.Accent, modifier = Modifier.padding(start = 4.dp, top = 10.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -339,7 +355,7 @@ private fun ConfirmRow(key: String, title: String, description: String, button: 
 }
 
 @Composable
-private fun Row2(
+internal fun Row2(
     key: String,
     title: String,
     description: String,

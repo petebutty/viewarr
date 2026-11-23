@@ -136,7 +136,7 @@ fun TextEntryDialog(title: String, subtitle: String, placeholder: String, initia
         Row(verticalAlignment = Alignment.CenterVertically) {
             SearchField(
                 value = text, onValueChange = { text = it.take(200) }, placeholder = placeholder, compact = true,
-                readOnly = !editing, listening = voice.listening,
+                readOnly = !editing, listening = voice.listening, search = false,
                 // (The on-screen keyboard's own Done / Search key: finishes too. It did nothing, so "Done" seemed broken.)
                 keyboardActions = androidx.compose.foundation.text.KeyboardActions(onAny = {
                     editing = false; keyboard?.hide()

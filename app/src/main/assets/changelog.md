@@ -1,5 +1,23 @@
 # Viewarr changelog (built by tools/changelog.py from the GitHub releases; don't edit by hand)
 
+## 0.29.9.2 · 23 Nov 2026
+
+What the Viewarr plugin did last, sports found in Schedules Direct guides, and what's coming for the plugin.
+
+### Viewarr plugin (admins)
+- **Settings → Plugins → Viewarr → What it did last:** one line for each plugin job, with when it last ran and what it did (for example "Best stream first · 15:06 · 2 channels reordered"). Anything that failed says **Needs a look**. Press OK on a line to read it again. Needs the Viewarr plugin 0.6.8.
+
+### Fixes
+- **Sports:** games a guide lists as "Live: NHL Hockey" with the teams underneath (the episode title, as Schedules Direct does) are now found on the right channel.
+- Boxes where you type a value (plugin settings, reports) are now plain text boxes with **Done** on the keyboard, not search boxes.
+
+### Coming next: Viewarr with and without the plugin
+- **Viewarr will always work fully without the Viewarr plugin.**
+- The jobs the plugin does better (sport recordings with every TV off, score alerts, Just added, IPTV progress sync) will be **off by default on servers without the plugin**. Each can be switched on to run on the TV itself, with a note that it works better with the plugin.
+- **If you already use them without the plugin, your settings stay as they are.**
+- Why: without the plugin every TV does the same work on its own. Done once on the server it's quicker, above all on smaller boxes, and keeps going with the TVs off.
+- Later: install and set up the plugin from inside Viewarr, once it's in Dispatcharr's official plugin store.
+
 ## 0.29.9.1 · 23 Nov 2026
 
 Every remote press counts again, pause and rewind buttons on the info bar, and TV guide sources from the app.

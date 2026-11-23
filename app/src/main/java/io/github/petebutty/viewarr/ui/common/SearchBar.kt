@@ -117,6 +117,8 @@ fun SearchField(
     litWhenFocused: Boolean = false,
     keyboardActions: KeyboardActions = KeyboardActions.Default,
     onFocusChanged: (Boolean) -> Unit = {},
+    /** False: a plain text box (no magnifying glass, Done on the keyboard), for typing a value rather than searching. */
+    search: Boolean = true,
 ) {
     var focused by remember { mutableStateOf(false) }
     val font = if (compact) 14.sp else 15.sp
@@ -128,7 +130,7 @@ fun SearchField(
         readOnly = readOnly,
         cursorBrush = SolidColor(AppColors.Accent),
         textStyle = TextStyle(fontSize = font, color = AppColors.TextPrimary),
-        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+        keyboardOptions = KeyboardOptions(imeAction = if (search) ImeAction.Search else ImeAction.Done),
         keyboardActions = keyboardActions,
         modifier = modifier.onFocusChanged { focused = it.isFocused; onFocusChanged(it.isFocused) },
         decorationBox = { inner ->
@@ -143,11 +145,13 @@ fun SearchField(
                     .padding(horizontal = if (compact) 12.dp else 16.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                androidx.compose.material3.Icon(
-                    AppIcons.Search, contentDescription = null, tint = if (lit) AppColors.OnAccent else AppColors.TextSecondary,
-                    modifier = Modifier.size(if (compact) 16.dp else 20.dp),
-                )
-                Spacer(Modifier.width(if (compact) 8.dp else 10.dp))
+                if (search) {
+                    androidx.compose.material3.Icon(
+                        AppIcons.Search, contentDescription = null, tint = if (lit) AppColors.OnAccent else AppColors.TextSecondary,
+                        modifier = Modifier.size(if (compact) 16.dp else 20.dp),
+                    )
+                    Spacer(Modifier.width(if (compact) 8.dp else 10.dp))
+                }
                 Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
                     if (listening) Text(listeningText, fontSize = font, color = if (lit) AppColors.OnAccent else AppColors.Accent, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     else if (value.isEmpty()) Text(

@@ -257,15 +257,17 @@ interface GuideDao {
     suspend fun programsForChannels(channelIds: List<Int>, from: Long, to: Long): List<GuideProgram>
 
     /**
-     * Programmes whose title contains [q] and that end between [endFrom] and [endTo] (a game's kick-off: the shows
-     * around it), read through the end-time index rather than the whole guide.
+     * Programmes whose title or episode title contains [q] and that end between [endFrom] and [endTo] (a game's
+     * kick-off: the shows around it), read through the end-time index rather than the whole guide. (Schedules Direct
+     * lists a game as "Live: NHL Hockey" with the teams in the episode title.)
      */
     @Query(
         """
         SELECT c.id AS channelId, p.rowId, p.title, p.subTitle, p.description, p.startTime, p.endTime,
                p.season, p.episode, p.isNew, p.isLive, p.isPremiere, p.image
         FROM programs p JOIN channels c ON c.guideKey = p.tvgId
-        WHERE p.endTime BETWEEN :endFrom AND :endTo AND p.title LIKE '%' || :q || '%'
+        WHERE p.endTime BETWEEN :endFrom AND :endTo
+          AND (p.title LIKE '%' || :q || '%' OR p.subTitle LIKE '%' || :q || '%')
         ORDER BY p.startTime, c.number IS NULL, c.number
         LIMIT 60
         """

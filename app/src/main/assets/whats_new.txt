@@ -1,5 +1,5 @@
 # Shown once, the first time a new version opens (not on a fresh install). Written by tools/changelog.py
 # from the release notes. Lines starting with "- " are the points; the first other line is the heading.
-Every remote press counts again, pause and rewind buttons on the info bar, and TV guide sources from the app.
-- Live TV
-- TV guide sources (admins)
+What the Viewarr plugin did last, sports found in Schedules Direct guides, and what's coming for the plugin.
+- Viewarr plugin (admins)
+- Coming next: Viewarr with and without the plugin
