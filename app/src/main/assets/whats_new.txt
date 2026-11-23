@@ -1,5 +1,5 @@
 # Shown once, the first time a new version opens (not on a fresh install). Written by tools/changelog.py
 # from the release notes. Lines starting with "- " are the points; the first other line is the heading.
-Live timeshift: pause and rewind any live channel, and every Viewarr plugin feature can now be switched off from the app.
-- Live timeshift (needs the Viewarr plugin 0.6.3 or later)
-- The Viewarr plugin from the app
+Every remote press counts again, pause and rewind buttons on the info bar, and TV guide sources from the app.
+- Live TV
+- TV guide sources (admins)

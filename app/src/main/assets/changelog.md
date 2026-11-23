@@ -1,5 +1,19 @@
 # Viewarr changelog (built by tools/changelog.py from the GitHub releases; don't edit by hand)
 
+## 0.29.9.1 · 23 Nov 2026
+
+Every remote press counts again, pause and rewind buttons on the info bar, and TV guide sources from the app.
+
+### Fixes
+- **Remote presses were being ignored:** a filter added for one stuttering remote also threw away quick real presses on other remotes (Fire TV, Shield…), so the guide could feel like it wasn't responding. It's gone: every press counts.
+- Addons whose link carries a personal key after the address (`manifest.json?token=…`) now keep it on every request, so they load and play.
+
+### Live TV
+- **Rewind, Pause / Play and Fast forward** on the live info bar (press OK while watching) whenever the channel can go back: catch-up, or Live timeshift with the Viewarr plugin. Fast forward and Go live appear once you're behind live.
+
+### TV guide sources (admins)
+- **Settings → Live TV → TV guide sources:** every guide source on your Dispatcharr with its status (last updated, updating, or the problem), an on/off switch, Update now, rename, change address, how often it updates, delete, and **Add a guide source** (an XMLTV link or Schedules Direct account). **Update all now** too.
+
 ## 0.29.9 · 22 Nov 2026
 
 Live timeshift: pause and rewind any live channel, and every Viewarr plugin feature can now be switched off from the app.

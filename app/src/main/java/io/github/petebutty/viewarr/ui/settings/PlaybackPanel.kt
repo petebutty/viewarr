@@ -193,6 +193,8 @@ fun playbackCategories(vm: PlaybackSettingsViewModel = hiltViewModel(), opts: Ui
                 // Reports (hold OK on a channel → Report a problem): the plugin's changes with Undo, guides to pick, this TV's own.
                 SettingItem("Reports", "Problems reported from the TVs in the house (hold OK on a channel → Report a problem): what the Viewarr plugin on Dispatcharr changed from them (admins can undo each one), channels that still need the right guide picked, and this TV's own reports. Without the plugin, reports are kept on this TV.",
                     emptyList(), PlainChoice("OK: open"), action = { SettingsJump.reports = true }, onSelect = {}),
+                // Dispatcharr's TV guide sources (admins only: ui/settings/GuideSourcesPanel.kt).
+                guideSourcesItem(),
             ),
         ),
         // Tidy group names: which marks are left out.

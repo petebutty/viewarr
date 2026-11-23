@@ -327,6 +327,13 @@ fun PlayerOsd(
             },
             verticalAlignment = Alignment.Top,
         ) {
+            // Pause and rewind controls whenever the channel can go back (catch-up, or Live timeshift's server buffer):
+            // Rewind and Play / Pause always, Fast forward once behind live (Peter, 2026-11-22).
+            if (catchup != null || paused || vm.canRewind(channel)) {
+                BarButton(AppIcons.Rewind, "Rewind") { onActivity(); vm.seekBy(-seekStep) }
+                BarButton(if (paused) AppIcons.Play else AppIcons.Pause, if (paused) "Play" else "Pause") { onActivity(); vm.togglePause() }
+                if (catchup != null || paused) BarButton(AppIcons.FastForward, "Fast forward") { onActivity(); vm.seekBy(seekStep) }
+            }
             if (catchup != null || paused) {
                 if (catchup != null) BarButton(AppIcons.Replay, "Start over") { vm.restartProgramme() }
                 BarButton(AppIcons.SkipNext, "Go live",

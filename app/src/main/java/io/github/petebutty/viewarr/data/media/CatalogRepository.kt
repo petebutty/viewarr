@@ -529,7 +529,7 @@ class CatalogRepository @Inject constructor(
     }
 
     private suspend fun stremioSearch(addon: AddonInfo, q: String): List<MediaRow> {
-        val manifest = http.get("${addon.baseUrl}/manifest.json").takeIf { it.ok }?.body ?: return emptyList()
+        val manifest = http.get("${addon.url("/manifest.json")}").takeIf { it.ok }?.body ?: return emptyList()
         val catalogs = manifest.array("catalogs").filter { c ->
             (c.str("type") == "movie" || c.str("type") == "series" || c.str("type") == "anime" || c.str("type") in ADDON_SINGLE_TYPES) &&
                 (c.array("extra").any { it.str("name") == "search" } || c.array("extraSupported").any { (it as? JsonPrimitive)?.content == "search" })
@@ -540,7 +540,7 @@ class CatalogRepository @Inject constructor(
                     val id = c.str("id") ?: return@async null
                     val st = c.str("type")!!
                     val type = if (st == "series" || st == "anime") MediaType.Show else MediaType.Movie // single-play kinds: like films
-                    val r = runCatching { http.get("${addon.baseUrl}/catalog/$st/${enc(id)}/search=${enc(q)}.json") }.getOrNull()?.takeIf { it.ok } ?: return@async null
+                    val r = runCatching { http.get("${addon.url("/catalog/$st/${enc(id)}/search=${enc(q)}.json")}") }.getOrNull()?.takeIf { it.ok } ?: return@async null
                     val items = r.body.array("metas").take(30).mapNotNull { m -> stremioMeta(addon, m, type, st) }
                     MediaRow("search-stremio-${addon.id}-$id-$st", "${addon.name}: ${c.str("name") ?: id}", items)
                 }
@@ -1732,7 +1732,7 @@ class CatalogRepository @Inject constructor(
         // Shows also take "anime" catalogues (e.g. One Pace Premium); Movies take the single-play kinds sports and
         // live-event addons use ("tv", "channel", "events"…): normal Stremio types, each asked for under its own name.
         val wanted = if (type == MediaType.Movie) ADDON_SINGLE_TYPES + "movie" else setOf("series", "anime")
-        val manifest = http.get("${addon.baseUrl}/manifest.json").takeIf { it.ok }?.body ?: return emptyList()
+        val manifest = http.get("${addon.url("/manifest.json")}").takeIf { it.ok }?.body ?: return emptyList()
         val usable = manifest.array("catalogs").filter { c ->
             c.str("type") in wanted &&
                 c.array("extra").none { e -> e.str("isRequired") == "true" } &&
@@ -1758,7 +1758,7 @@ class CatalogRepository @Inject constructor(
                     val id = c.str("id")
                     val catType = c.str("type") ?: stremioType
                     val r = if (id == null) null else gate.withPermit {
-                        withTimeoutOrNull(10_000) { runCatching { http.get("${addon.baseUrl}/catalog/$catType/${enc(id)}.json") }.getOrNull() }
+                        withTimeoutOrNull(10_000) { runCatching { http.get("${addon.url("/catalog/$catType/${enc(id)}.json")}") }.getOrNull() }
                     }?.takeIf { it.ok }
                     if (r != null && id != null) {
                         val take = if (setName(c) in grouped) 20 else 40
@@ -3011,7 +3011,7 @@ class CatalogRepository @Inject constructor(
 
     /** One addon's streams for one id (direct http(s) links only: what the players can open). */
     private suspend fun streamsFrom(addon: AddonInfo, type: String, id: String): List<StreamOption> {
-                    val r = runCatching { withTimeoutOrNull(30_000) { http.get("${addon.baseUrl}/stream/$type/${enc(id)}.json") } }.getOrNull()
+                    val r = runCatching { withTimeoutOrNull(30_000) { http.get("${addon.url("/stream/$type/${enc(id)}.json")}") } }.getOrNull()
                     if (r?.ok != true) return emptyList()
                     return r.body.array("streams").mapNotNull { st ->
                         val url = st.str("url")?.takeIf { it.startsWith("http") } ?: return@mapNotNull null
@@ -3051,7 +3051,7 @@ class CatalogRepository @Inject constructor(
         addonMetaCache[item.key]?.let { return it }
         val (addon, id) = ownAddonTitle(item) ?: return null
         val type = item.addonType ?: if (item.type == MediaType.Movie) "movie" else "series"
-        val m = runCatching { http.get("${addon.baseUrl}/meta/$type/${enc(id)}.json") }.getOrNull()?.takeIf { it.ok }?.body.child("meta") ?: return null
+        val m = runCatching { http.get("${addon.url("/meta/$type/${enc(id)}.json")}") }.getOrNull()?.takeIf { it.ok }?.body.child("meta") ?: return null
         var next = 0
         val videos = m.array("videos").mapNotNull { v ->
             val vid = v.str("id") ?: return@mapNotNull null

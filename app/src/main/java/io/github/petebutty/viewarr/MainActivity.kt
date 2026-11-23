@@ -25,8 +25,6 @@ class MainActivity : ComponentActivity() {
     private var okHoldEndedAt = 0L
 
     override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
-        // A stuttering Bluetooth remote's extra presses (KeyBounce): dropped before anything sees them.
-        if (io.github.petebutty.viewarr.ui.common.KeyBounce.drop(event)) return true
         // Holding OK on some boxes (Ugoos: the remote repeats the hold over infrared, and the box's remote service turns
         // an infrared OK hold into a Search key) opened voice search over the hold-OK menu (Peter, 2026-11-19). A Search /
         // Assist key that arrives while OK is down, or just after a hold, is the hold, not a search.
@@ -38,7 +36,7 @@ class MainActivity : ComponentActivity() {
         }
         if (event.keyCode == android.view.KeyEvent.KEYCODE_SEARCH || event.keyCode == android.view.KeyEvent.KEYCODE_ASSIST || event.keyCode == android.view.KeyEvent.KEYCODE_VOICE_ASSIST) {
             if (okDown || android.os.SystemClock.uptimeMillis() - okHoldEndedAt < 1_500) {
-                if (event.action == android.view.KeyEvent.ACTION_DOWN) android.util.Log.i("KeyBounce", "dropped a ${android.view.KeyEvent.keyCodeToString(event.keyCode)} that came with an OK hold")
+                if (event.action == android.view.KeyEvent.ACTION_DOWN) android.util.Log.i("RemoteKeys", "dropped a ${android.view.KeyEvent.keyCodeToString(event.keyCode)} that came with an OK hold")
                 return true
             }
         }

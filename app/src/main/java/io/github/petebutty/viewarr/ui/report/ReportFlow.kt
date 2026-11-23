@@ -51,6 +51,7 @@ fun ReportHost() {
         })
     }
     if (SettingsJump.reports) ReportsScreen(vm) { SettingsJump.reports = false }
+    io.github.petebutty.viewarr.ui.settings.GuideSourcesPage.Host()
     HouseNotice.Host()
 }
 

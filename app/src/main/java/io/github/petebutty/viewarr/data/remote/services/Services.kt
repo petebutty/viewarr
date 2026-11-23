@@ -351,8 +351,10 @@ class StremioService @Inject constructor(private val http: HttpJson) {
         val trimmed = input.trim()
         if (trimmed.isEmpty()) return null
         val url = trimmed.replaceFirst(Regex("^stremio://"), "https://")
-        val base = url.removeSuffix("/manifest.json").trimEnd('/')
-        val r = runCatching { http.get("$base/manifest.json") }.getOrNull() ?: return null
+        // (A "?…" after manifest.json, e.g. a personal token, is kept and sent on every request: AddonInfo.url.)
+        val query = url.substringAfter('?', "").let { if (it.isEmpty()) "" else "?$it" }
+        val base = url.substringBefore('?').removeSuffix("/manifest.json").trimEnd('/') + query
+        val r = runCatching { http.get(AddonInfo(base, "", "").url("/manifest.json")) }.getOrNull() ?: return null
         if (!r.ok) return null
         val id = r.body.str("id") ?: return null
         return AddonInfo(baseUrl = base, id = id, name = r.body.str("name") ?: id)

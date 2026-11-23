@@ -104,6 +104,20 @@ The guide is fetched again from your server while Viewarr is open, and when it s
 
 To refresh now, use **Settings → Refresh channels & guide**.
 
+### TV guide sources
+
+*(Dispatcharr admin users only.)*
+
+**Settings → Live TV → TV guide sources** lists the guide (EPG) sources on your Dispatcharr server: each one's name, type (XMLTV, Schedules Direct or Dummy), when it was last updated (or "Updating…", or what went wrong) and an On / Off switch. OK on a source:
+
+- **Switch on** / **Switch off**,
+- **Update now**: Dispatcharr fetches it again (the list shows how it's going),
+- **Rename** and **Change address** (the XMLTV link),
+- **Refresh interval**: every 6, 12 or 24 hours, every 2 days, or never,
+- **Delete** (asks first).
+
+At the bottom, **Add a guide source** takes an XMLTV link or a Schedules Direct account (choose its lineups on Dispatcharr's web page), then offers **Update now**; **Update all now** fetches every source that's on. Sources filled in by a Dispatcharr plugin can be switched, renamed or deleted, but the plugin updates them. Changes are for everyone on the server.
+
 ### How far ahead
 
 The guide shows **3 days** ahead by default. Change it in **Settings → Advanced → TV guide data → TV guide days ahead**: 1, 3, 5 or 7 days (most guides list 4 to 7). More days take a little longer to fetch and a little more room on the box. A change applies at the next guide refresh. *(0.28.0 and later; before that it was 36 hours.)*

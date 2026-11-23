@@ -42,7 +42,16 @@ data class AddonInfo(
     val name: String,
     /** Off = kept but unused: no rows, search results or streams from it (Settings → Addons). */
     val enabled: Boolean = true,
-)
+) {
+    /**
+     * An address in the addon: [path] ("/manifest.json", "/stream/movie/tt1.json") after the base, keeping anything
+     * after "?" in the installed link (e.g. Scene FTP's ?nuvio_token=…) on every request (2026-11-23: it was lost).
+     */
+    fun url(path: String): String {
+        val q = baseUrl.indexOf('?')
+        return if (q < 0) baseUrl + path else baseUrl.substring(0, q).trimEnd('/') + path + baseUrl.substring(q)
+    }
+}
 
 /** Every optional source. Stored as one Keystore-encrypted JSON blob; none of it is ever logged. */
 @Serializable

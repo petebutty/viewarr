@@ -111,7 +111,7 @@ Every kind of pop-up is **off** until you turn it on. First switch on **Notifica
 
 ### Live TV
 
-The page opens on the main choices: **Up / Down while watching**, **Start with the best source**, the **"All channels" group** and **Reports**. Everything finer is under **Customise** on the left.
+The page opens on the main choices: **Up / Down while watching**, **Start with the best source**, the **"All channels" group**, **Reports** and (admins) **TV guide sources**. Everything finer is under **Customise** on the left.
 
 | Setting or section | What it covers |
 |---|---|
@@ -119,6 +119,7 @@ The page opens on the main choices: **Up / Down while watching**, **Start with t
 | **Start with the best source** | On to start with: a Dispatcharr channel starts on its best-ranked stream (quality, then whether it has failed lately, then Dispatcharr's order), and a stream that fails is remembered and moved down. Off: Dispatcharr's own first stream. See [Live TV](LIVE-TV.md#source-switching-and-stream-info). |
 | **"All channels" group** | Shown or hidden. |
 | **Reports** | Problems reported from the TVs (hold OK on a channel → **Report a problem…**): **Needs your pick** (channels whose right guide the plugin couldn't find: OK chooses one), **Changes made from reports** (what the Viewarr plugin changed, newest first; admins: OK → **Undo**) and **Your reports**. Without the plugin, reports are kept on the TV. See [Live TV](LIVE-TV.md#report-a-problem). |
+| **TV guide sources** *(admins only)* | Your Dispatcharr server's TV guide (EPG) sources: each one's type, how it last went and an On / Off switch. OK on one: **Switch on / off**, **Update now**, **Rename**, **Change address**, **Refresh interval** and **Delete**. **Add a guide source** (an XMLTV link or a Schedules Direct account) and **Update all now** are at the bottom. See [Live TV](LIVE-TV.md#tv-guide-sources). |
 | **Watching** *(Customise)* | **Browsing channels**, **Highlight the corner picture**, **Still watching?** |
 | **TV guide** *(Customise)* | **EPG offset** (the whole source's guide moved earlier or later) and **End of a list**. |
 | **Channel groups** *(Customise)* | **Tidy group names** (leaves out the marks providers add, so "UK\| SKY SPORTS FHD" shows as "SKY SPORTS"), and **Group name clean-up**: which marks are left out. |

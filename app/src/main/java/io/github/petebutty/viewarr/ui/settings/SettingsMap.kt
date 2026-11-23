@@ -76,7 +76,7 @@ object SettingsMap {
         Page(LIVE, "Live TV", listOf(
             // The few big choices first; everything finer is under "Customise" (more = true), closed until opened.
             Section("Live TV", "The main choices for live TV, and the reports from your TVs. Everything finer is under Customise, on the left.",
-                r(P, "Live TV", "Up / Down while watching", "Start with the best source", "\"All channels\" group", "Reports")),
+                r(P, "Live TV", "Up / Down while watching", "Start with the best source", "\"All channels\" group", "Reports", "TV guide sources")),
             Section("Watching", "Full-screen live TV: browsing channels, the picture in the corner, and pausing live TV.",
                 r(P, "Live TV", "Browsing channels", "Highlight the corner picture", "Still watching?", "Live timeshift"), more = true),
             Section("TV guide", "The guide's time offset, and what happens at the end of a list.",
