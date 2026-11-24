@@ -8,6 +8,8 @@ data class MediaItem(
     val type: MediaType,
     val title: String,
     val year: Int? = null,
+    /** A film's release date ("2026-12-18"), where the source gives it: shown in full beside the title. */
+    val releaseDate: String? = null,
     val poster: String? = null,
     val backdrop: String? = null,
     val overview: String? = null,
@@ -108,6 +110,8 @@ data class CopyVersion(
     val hdr: String? = null,
     /** Dolby Vision with nothing to fall back on (profile 5): wrong colours where the TV / box can't do Dolby Vision. */
     val dvOnly: Boolean = false,
+    /** Dolby Vision's picture underneath, shown on a TV without it: "HDR10", "HLG", "SDR"; null: not known. */
+    val dvBase: String? = null,
     val videoCodec: String? = null,
     val container: String? = null,
     /** e.g. "Atmos 7.1", "DTS-HD MA 5.1", "Stereo". */
@@ -124,7 +128,10 @@ data class CopyVersion(
 
     /** "4K · Dolby Vision · Atmos 7.1 · 58 GB". */
     fun label(): String = listOfNotNull(
-        edition, resolution, hdr, audio,
+        edition, resolution,
+        // (Dolby Vision says what's underneath where the server tells: what a TV without it shows. 2026-11-24.)
+        if (hdr == "Dolby Vision") when { dvOnly -> "Dolby Vision only"; dvBase != null -> "Dolby Vision + $dvBase"; else -> hdr } else hdr,
+        audio,
         sizeBytes?.takeIf { it > 0 }?.let { b -> if (b >= 1_000_000_000L) "%.1f GB".format(b / 1e9) else "${b / 1_000_000} MB" },
     ).joinToString(" · ")
 }

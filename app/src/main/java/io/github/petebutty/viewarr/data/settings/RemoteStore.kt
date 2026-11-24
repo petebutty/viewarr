@@ -369,7 +369,7 @@ object Presets {
      * button stays.
      */
     private val classic: Map<Pair<BtnScreen, BtnPress>, BtnAction> = mapOf(
-        (BtnScreen.Guide to BtnPress.OkHold) to BtnAction.RecordOptions, // (Peter, 2026-11-15: record options, as Viewarr)
+        (BtnScreen.Guide to BtnPress.OkHold) to BtnAction.RecordOptions, // (2026-11-15: record options, as Viewarr)
         (BtnScreen.Guide to BtnPress.BackHold) to BtnAction.FullScreen,
         (BtnScreen.Guide to BtnPress.Menu) to BtnAction.MainMenu,
         (BtnScreen.Guide to BtnPress.MenuHold) to BtnAction.Search,

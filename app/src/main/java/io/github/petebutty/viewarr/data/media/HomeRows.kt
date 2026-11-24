@@ -22,7 +22,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Viewarr's rows on the TV's home screen (Peter, 2026-11-20: "add TV channels to Projectivy home", then "catalogues,
+ * Viewarr's rows on the TV's home screen (2026-11-20: "add TV channels to Projectivy home", then "catalogues,
  * libraries, IPTV: then we can choose what to have"). Switched on one by one in Settings → Live TV → Home screen rows:
  * a channel group (a card per channel: its logo, what's on now, opening that channel), or any row of the Movies or
  * Shows page (a catalogue, a library's row, an IPTV row: a card per title, opening its page). These are Android TV's own home-screen rows, which
@@ -30,7 +30,7 @@ import javax.inject.Singleton
  *
  * A group that's on is kept as "homerow:<group, lower case>" among the appearance parts (present = on, as the
  * notification switches are). Refreshed when Viewarr starts and every 15 minutes, whether Viewarr is open or not: a
- * small background job ([HomeRowsJob]) wakes for a few seconds to do it (Peter, 2026-11-20: rather than keeping the
+ * small background job ([HomeRowsJob]) wakes for a few seconds to do it (2026-11-20: rather than keeping the
  * whole app running, which would hold its memory all the time and be closed by Android anyway).
  */
 @Singleton
@@ -73,7 +73,7 @@ class HomeRows @Inject constructor(
         if (groups.isNotEmpty()) cards += publishChannels(cr, groups, rows)
         Log.i(TAG, "home rows: channel rows written ($cards cards)")
         // Films and shows change slowly (the catalogues' "New" moves on over days) and cost requests to your servers and
-        // addons: once a day (Peter, 2026-11-20; it was every 6 hours), or straight away
+        // addons: once a day (2026-11-20; it was every 6 hours), or straight away
         // when a row has just been switched on (it has no row on the home screen yet).
         val prefs = context.getSharedPreferences("home_rows", Context.MODE_PRIVATE)
         // (Also straight away when the cards' look has changed: [CARD_STYLE].)

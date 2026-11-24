@@ -9,7 +9,7 @@ import io.github.petebutty.viewarr.data.sync.WatchSync
 import io.github.petebutty.viewarr.ui.theme.UiOpts
 
 /**
- * Settings → Playback → Watch progress: what's connected and what each one does (nothing to choose: Peter,
+ * Settings → Playback → Watch progress: what's connected and what each one does (nothing to choose:
  * 2026-11-19, "it should all just work"), then the two optional switches and the sync buttons.
  */
 @Composable

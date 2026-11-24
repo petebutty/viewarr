@@ -1,5 +1,53 @@
 # Viewarr changelog (built by tools/changelog.py from the GitHub releases; don't edit by hand)
 
+## 0.29.9.3 · 24 Nov 2026
+
+Trending and What's new pages, your own Play order, following shows for new episodes, icons in the menu, and a long list of fixes.
+
+### New pages and menu
+- **Trending** and **What's new** in the menu: films and shows together, there with or without live TV. Trending's first row moves along by itself until you go into the rows.
+- **Movies and Shows keep their 8 main rows** (Continue watching, Recently added, your watchlist, Recommended…). Settings → Home page & menu → **Main rows only on Movies / Shows** to see every row again.
+- **Icons in the main menu** for every entry; streaming services show their own logo.
+
+### Playing
+- **Play order is yours:** Settings → Playback → **Play order** lists six places: Plex in your house, Jellyfin / Emby in your house, Plex outside it, Jellyfin / Emby outside it, IPTV and addons. Put them in any order, switch any off. Films, episodes and the Play from list all follow it.
+- **Internet copies:** the biggest file Viewarr picks from a server outside your house. Automatic goes by this box's own speed.
+- **Dolby Vision** copies say what a TV without it will see ("Dolby Vision + HDR10"), and the TV's own answer is checked where the box can ask it.
+- **Picture and sound badges on the info bar:** Dolby Vision, HDR10, HLG, Dolby Atmos, Dolby Digital+, TrueHD, DTS and more, read from the file playing.
+- **Picture-in-picture:** press Home while something plays and it carries on in a small window over the Android home screen.
+
+### Shows
+- **Follow a show:** the bell on its page. Shows you're watching are followed by themselves (switch that off if you like). Settings → Menu & navigation → Notifications → **New episodes**: a card when a new episode of one is in your library, and the episode on the home screen's Play next row.
+- **Drop show** from Upcoming episodes too (hold OK on it): out of Upcoming and Continue watching, and no longer followed.
+- **Right on a season's last episode** goes on to the next season.
+
+### Films
+- **Release dates in full** for films: "18 Dec 2026", or "Coming 18 Dec 2026" when it isn't out yet.
+
+### Your servers
+- **Jellyfin-style servers that list folders** (Titles, Genres, Years…) open them like collections.
+- A Jellyfin library called Music that isn't marked as music is picked up for Music.
+
+### Downloads (optional)
+- Settings → Playback → Streams → **Tell the server about internet films**: off to start. On, the box tells your Dispatcharr server once a minute while a film plays from outside your house, for a server script that slows downloads meanwhile. It says only that one is playing and the box's speed.
+
+### Viewarr plugin
+- **Just added works behind a VPN:** JustWatch refuses servers behind a VPN, so a TV now asks it from your own connection, and an admin's TV hands the lists to the plugin for everyone. Needs the Viewarr plugin 0.6.9. Without the plugin each TV asks for itself, as before.
+
+### Fixes
+- **"Not in your library"** for titles from addon rows ranked "#5 …" or with "(2026)" after the name, and for titles with only an IMDb id. Same-name shows are matched more carefully ("Doctor Who" 2005 isn't the 1963 series).
+- **Resolution badge:** a film cropped wide (1920×960) now says 1080p, not 720p.
+- **Play** tries your other servers and IPTV when the first copy won't open, a file this box can't play goes last, and quick play waits for the title's details before trying addons.
+- **Picture edges** on Trending's banner and the wallpaper fade out instead of ending in a hard line.
+- **Trending films / Trending shows** rows show again.
+- **Main rows only** takes effect straight away.
+- **Menu:** Left from a library opened from My Library goes back to your libraries; Left on My Library opens its list; Left on Trending, What's new, Sports or a service no longer jumps into another list.
+- **Left on the first episode or season** opens the menu, and episode 1 can be reached when it's scrolled off the left.
+- **Episodes** pressed before every server has answered no longer skip your other servers.
+- **Play from:** the ★ marks the copy Play will actually choose.
+- **Appearance → Reset** no longer switches Play order places back on.
+- **Picture-in-picture** no longer starts when Viewarr opens one of Android's own screens.
+
 ## 0.29.9.2 · 23 Nov 2026
 
 What the Viewarr plugin did last, sports found in Schedules Direct guides, and what's coming for the plugin.

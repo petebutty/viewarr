@@ -21,7 +21,7 @@ import androidx.compose.ui.unit.dp
  *     of the picture. The background still runs to the screen's edges, and so does video ([videoBleed]).
  *  3. Text size changes only the words, on top. It's the one setting a page has to cope with (line limits, "…").
  *
- * (Peter, 2026-11-20: "scaling should keep all pages correct and prevent things coming out of the picture". The old
+ * (2026-11-20: "scaling should keep all pages correct and prevent things coming out of the picture". The old
  * settings changed how many units the screen held, so pages tuned at one setting overflowed at another.)
  */
 

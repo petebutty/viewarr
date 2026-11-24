@@ -76,7 +76,7 @@ fun ReportScreen(onClose: () -> Unit) {
     LaunchedEffect(Unit) { report = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { ReportSender.build(context, kinds, null, names) } }
     LaunchedEffect(report != null, code) { kotlinx.coroutines.android.awaitFrame(); runCatching { if (noteMode && code == null) noteField.requestFocus() else first.requestFocus() } }
     // Its own window, so the Settings page behind (which pulls the highlight back to itself) lets go while it's up.
-    // (ViewarrPopup, the shared pop-up window, and its radius: was a raw Dialog. Peter, 2026-11-17.)
+    // (ViewarrPopup, the shared pop-up window, and its radius: was a raw Dialog. 2026-11-17.)
     io.github.petebutty.viewarr.ui.common.ViewarrPopup(onClose = onClose) {
     Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.5f)), contentAlignment = androidx.compose.ui.Alignment.Center) {
         Column(Modifier.width(820.dp).background(AppColors.MenuPanel, RoundedCornerShape(io.github.petebutty.viewarr.ui.theme.Tokens.PopupRadius)).padding(28.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {

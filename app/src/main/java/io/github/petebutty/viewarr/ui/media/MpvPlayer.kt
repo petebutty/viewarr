@@ -441,10 +441,19 @@ fun MpvPlayer(
             osdVisible = osdVisible,
             // The badges: the film's own picture, frame rate and sound, as mpv reads them.
             quality = runCatching {
-                StreamQuality(
+                StreamQuality.of(
+                    mpv.getPropertyInt("width") ?: 0,
                     mpv.getPropertyInt("height") ?: 0,
                     (mpv.getPropertyDouble("container-fps") ?: 0.0).toFloat(),
                     mpv.getPropertyInt("audio-params/channel-count") ?: 0,
+                    // (mpv: Dolby Vision by its profile, else HDR10 / HLG by the picture's gamma.)
+                    hdr = when {
+                        (mpv.getPropertyString("current-tracks/video/dolby-vision-profile") ?: "").isNotBlank() -> "Dolby Vision"
+                        mpv.getPropertyString("video-params/gamma") == "pq" -> "HDR10"
+                        mpv.getPropertyString("video-params/gamma") == "hlg" -> "HLG"
+                        else -> null
+                    },
+                    audio = StreamQuality.audioName(mpv.getPropertyString("current-tracks/audio/codec"), mpv.getPropertyString("current-tracks/audio/codec-profile")),
                 )
             }.getOrNull())
         FilmOverlays(stream, art, state, mini, panels, menu, scrub, skip, buttons, thumbs, "the built-in player", error, focus,

@@ -328,7 +328,7 @@ fun PlayerOsd(
             verticalAlignment = Alignment.Top,
         ) {
             // Pause and rewind controls whenever the channel can go back (catch-up, or Live timeshift's server buffer):
-            // Rewind and Play / Pause always, Fast forward once behind live (Peter, 2026-11-22).
+            // Rewind and Play / Pause always, Fast forward once behind live (2026-11-22).
             if (catchup != null || paused || vm.canRewind(channel)) {
                 BarButton(AppIcons.Rewind, "Rewind") { onActivity(); vm.seekBy(-seekStep) }
                 BarButton(if (paused) AppIcons.Play else AppIcons.Pause, if (paused) "Play" else "Pause") { onActivity(); vm.togglePause() }
@@ -475,7 +475,7 @@ private fun PosterRows(rows: List<OsdRow>, current: Int, onRow: (Int) -> Unit) {
             // Room round the cards (the highlight grew and was cut off at the row's left edge; kept since cards stopped growing),
             // pulled back by the same amount so the first card still lines up with the row's name.
             // The cards move as the poster rows do: the highlight stays in the first place, the cards slide under it
-            // (Peter, 2026-11-20: "the same animation for all preview panels under the play controls").
+            // (2026-11-20: "the same animation for all preview panels under the play controls").
             val rowState = androidx.compose.foundation.lazy.rememberLazyListState()
             val slide = io.github.petebutty.viewarr.ui.media.rememberRowSlide(rowState) { row.items.size }
             androidx.compose.runtime.CompositionLocalProvider(

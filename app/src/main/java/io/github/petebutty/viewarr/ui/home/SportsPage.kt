@@ -84,7 +84,7 @@ import java.time.format.DateTimeFormatter
 
 /**
  * The Sports page (Sports in the menu): what you follow (Settings → Sports) as a fixture guide: live now, then a
- * section per day, then the latest results, one slim line per game (Peter, 2026-11-16: the picture-sized panels showed
+ * section per day, then the latest results, one slim line per game (2026-11-16: the picture-sized panels showed
  * two rows a screen). Along the top, All or one team / league. OK on a game goes to the channel showing it (GamePlacer:
  * the one in your guide, else the one the listings name, an event channel or a team's own; or its page: Settings →
  * Sports → Game page). The top-left window stays clear for live TV, with the highlighted game's details beside it.
@@ -117,7 +117,7 @@ internal fun SportsPage(
     // (The game page keeps clear of the live window by itself: HomeScreen works it out where the page is drawn, so a
     // game page opened from the info bar never gets a stale value from here. UI review, 2026-11-17.)
     // The panel a game page or a game's options were opened from: focus goes back to it when they close (it was lost,
-    // then landed on the menu's Music entry: Peter, 2026-11-16).
+    // then landed on the menu's Music entry: 2026-11-16).
     val panelFocus = remember { HashMap<String, FocusRequester>() }
     var returnTo by remember { mutableStateOf<String?>(null) }
     // Hold OK on a pill: its options (Move, Stop following), in the shared options pop-up (it was a raw Dialog that
@@ -187,12 +187,12 @@ internal fun SportsPage(
             .onFailure { runCatching { focusRequester.requestFocus() } }
     }
     // Its own wallpaper, drawn whole: Sports opens over another page (Shows…), which showed through when it had no
-    // background (Peter, 2026-11-17). The same wallpaper as the app's, so it still runs on under the menu.
-    // (Readable: the wallpaper dimmed well down behind the fixture list, as Settings. Peter, 2026-11-17: too see-through.)
+    // background (2026-11-17). The same wallpaper as the app's, so it still runs on under the menu.
+    // (Readable: the wallpaper dimmed well down behind the fixture list, as Settings. 2026-11-17: too see-through.)
     // (The same background as the other pages, with a light shade for the list: the "readable" Settings style fell
-    // back to a flat colour when there's no picture wallpaper, so Sports looked solid. Peter, 2026-11-18.)
+    // back to a flat colour when there's no picture wallpaper, so Sports looked solid. 2026-11-18.)
     // (Drawn at full-screen size and shifted back by where the page starts, so it lines up with the menu's copy of
-    // the same wallpaper: drawn from the page's own edge it left a seam where the menu ends. Peter, 2026-11-18.)
+    // the same wallpaper: drawn from the page's own edge it left a seam where the menu ends. 2026-11-18.)
     var pageX by remember { mutableStateOf(0) }
     val screenW = io.github.petebutty.viewarr.ui.common.LocalCanvas.current.width
     Box(Modifier.fillMaxSize().clipToBounds().onGloballyPositioned { pageX = it.positionInRoot().x.toInt() }) {
@@ -209,7 +209,7 @@ internal fun SportsPage(
         )
         // All, then each team / league you follow: OK shows just its games. Fixed above the list (they were its first
         // item and scrolled away with it: UI review, 2026-11-17).
-        // (Always there now: the last pill is ＋ Follow. Peter, 2026-11-18.)
+        // (Always there now: the last pill is ＋ Follow. 2026-11-18.)
         SportsPills(
             follows = follows, filter = filter, carry = carry, panelFocus = panelFocus, onOpenMenu = onOpenMenu, onFollow = onFollow,
             onMove = { f, by -> hub.sportsVm.move(f, by) },
@@ -271,7 +271,7 @@ internal fun SportsPage(
  * The header: the top-left window's place (live TV or a film in the corner) and the highlighted game [c] beside it.
  * (Beside the window: tall enough that its picture never covers the pills below. 188 left the "All" pill under it,
  * more so with the menu open. Without it: room for every line, "OK: watch on …" too; 112 hid it under the pills.
- * Peter, 2026-11-17.)
+ * 2026-11-17.)
  */
 @Composable
 private fun SportsHeader(c: GameCard?, besidePreview: Boolean) {
@@ -336,7 +336,7 @@ private fun SportsPills(
                             axis = ReorderAxis.Horizontal,
                         )
                         .leftOpens(enabled = i == 0 && !carry.active, onMenu = onOpenMenu),
-                    // Hold OK: Move, Stop following (Peter, 2026-11-17: remove from here too).
+                    // Hold OK: Move, Stop following (2026-11-17: remove from here too).
                     onLongClick = if (id != null) ({ onOptions(id) }) else null,
                     onClick = { onPick(id) },
                 )
@@ -399,7 +399,7 @@ private fun FixtureLine(c: GameCard, modifier: Modifier, reminded: Boolean = fal
             }
             val main = if (focused) on else Color.White
             val dim = if (focused) on else AppColors.TextSecondary
-            // (🔔: a reminder is set for it. Peter, 2026-11-18: Remind me showed nothing.)
+            // (🔔: a reminder is set for it. 2026-11-18: Remind me showed nothing.)
             Text(if (reminded) "🔔" else "", fontSize = 12.sp, maxLines = 1, modifier = Modifier.width(18.dp))
             Text(time, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = if (focused) on else timeColour, maxLines = 1, modifier = Modifier.width(56.dp))
             Row(Modifier.weight(1f), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {

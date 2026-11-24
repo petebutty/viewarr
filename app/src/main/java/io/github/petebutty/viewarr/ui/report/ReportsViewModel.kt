@@ -28,7 +28,7 @@ data class EpgRow(val id: Int, val name: String, val tvgId: String, val source: 
 /**
  * Report a problem (hold OK on a channel) and Settings → Live TV → Reports: the reports kept on this box
  * (data/report/ChannelReports), the plugin's house data (HouseSync), the guide search for "Wrong programme guide", and
- * an admin's direct fixes on Dispatcharr. (Peter, 2026-11-19.)
+ * an admin's direct fixes on Dispatcharr. (2026-11-19.)
  */
 @HiltViewModel
 class ReportsViewModel @Inject constructor(

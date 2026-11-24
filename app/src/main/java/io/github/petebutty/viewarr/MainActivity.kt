@@ -26,7 +26,7 @@ class MainActivity : ComponentActivity() {
 
     override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
         // Holding OK on some boxes (Ugoos: the remote repeats the hold over infrared, and the box's remote service turns
-        // an infrared OK hold into a Search key) opened voice search over the hold-OK menu (Peter, 2026-11-19). A Search /
+        // an infrared OK hold into a Search key) opened voice search over the hold-OK menu (2026-11-19). A Search /
         // Assist key that arrives while OK is down, or just after a hold, is the hold, not a search.
         val isOk = event.keyCode == android.view.KeyEvent.KEYCODE_DPAD_CENTER || event.keyCode == android.view.KeyEvent.KEYCODE_ENTER ||
             event.keyCode == android.view.KeyEvent.KEYCODE_NUMPAD_ENTER
@@ -96,6 +96,31 @@ class MainActivity : ComponentActivity() {
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus) A11yTrim.refresh(this)
+    }
+
+    /** Viewarr opening one of Android's screens itself isn't leaving: no small window for it (AndroidPip.ownLaunch). */
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION")
+    override fun startActivityForResult(intent: android.content.Intent, requestCode: Int, options: Bundle?) {
+        io.github.petebutty.viewarr.ui.home.AndroidPip.ownLaunch(this)
+        super.startActivityForResult(intent, requestCode, options)
+    }
+
+    /** Back from one of Android's screens (or anywhere): the small window allowed again if something plays. */
+    override fun onResume() {
+        super.onResume()
+        io.github.petebutty.viewarr.ui.home.AndroidPip.update(this)
+    }
+
+    /** Home pressed while something plays: it carries on in Android's small window (AndroidPip). */
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        io.github.petebutty.viewarr.ui.home.AndroidPip.enter(this)
+    }
+
+    override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: android.content.res.Configuration) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        android.util.Log.i("AndroidPip", "in the window: $isInPictureInPictureMode")
+        io.github.petebutty.viewarr.ui.home.AndroidPip.active = isInPictureInPictureMode
     }
 
     /** Already running: a Watch Next card opens its title here; a viewarr://channel link changes channel. */

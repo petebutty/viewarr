@@ -89,7 +89,7 @@ fun rememberVoiceSearch(onResult: (String) -> Unit, onKeyboard: () -> Unit): Voi
         if (granted) voice.begin()
         else Toast.makeText(context, "Voice search needs the microphone. You can use the keyboard's mic instead.", Toast.LENGTH_LONG).show()
     }
-    voice.askPermission = { permission.launch(Manifest.permission.RECORD_AUDIO) }
+    voice.askPermission = { io.github.petebutty.viewarr.ui.home.AndroidPip.ownLaunch(context as? android.app.Activity); permission.launch(Manifest.permission.RECORD_AUDIO) }
     voice.onKeyboard = {
         Toast.makeText(context, "Press Up to the keyboard's mic, then OK and speak", Toast.LENGTH_LONG).show()
         keyboard()

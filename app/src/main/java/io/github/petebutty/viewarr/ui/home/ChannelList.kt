@@ -310,7 +310,7 @@ internal fun ChannelPrograms(
     val today = java.time.LocalDate.now(zone)
     val catchupFrom = if (ch.catchupDays > 0) now - ch.catchupDays * 86_400_000L else Long.MAX_VALUE
     Box(
-        Modifier.fillMaxHeight().width(360.dp)  // (was 440: Peter, 2026-11-20, "narrow the live screen EPG list also")
+        Modifier.fillMaxHeight().width(360.dp)  // (was 440: 2026-11-20, "narrow the live screen EPG list also")
             // The glass as Settings → Appearance → Transparency → Glass has it (and its colour).
             .then(if (embedded) Modifier else Modifier.background(AppColors.MenuPanel))
             .padding(start = 16.dp, top = 24.dp, bottom = 24.dp, end = 20.dp),

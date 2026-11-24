@@ -66,6 +66,7 @@ import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.foundation.lazy.LazyListState
@@ -165,7 +166,7 @@ fun MediaScreen(
     val listState = rememberLazyListState()
     // The page's name over the title: My Library's and a network's pages draw on this screen too (UI review, 2026-11-18).
     val setNow = vm.currentRowSet.collectAsStateWithLifecycle().value
-    val heroLabel = when { setNow == io.github.petebutty.viewarr.ui.media.MyLibrary.SET -> "My Library"; setNow != null && setNow.startsWith("name:") -> setNow.removePrefix("name:"); else -> null }
+    val heroLabel = when { setNow == io.github.petebutty.viewarr.ui.media.MyLibrary.SET -> "My Library"; Discover.isSet(setNow) -> Discover.entryOf(setNow); setNow != null && setNow.startsWith("name:") -> setNow.removePrefix("name:"); else -> null }
     val scope = rememberCoroutineScope()
     val detail by vm.detail.collectAsStateWithLifecycle()
     val playingStream by vm.playing.collectAsStateWithLifecycle()
@@ -182,14 +183,14 @@ fun MediaScreen(
     var hasFocus by remember { mutableStateOf(false) }
     // Waiting a moment before swapping the hero keeps fast scrolling smooth on the weak box.
     // (Followed through snapshotFlow, not read here: reading it rebuilt the whole page on every move.)
-    // (Peter, 2026-11-19: the title, details and background arrive once you stop on a poster, not on every press:
+    // (2026-11-19: the title, details and background arrive once you stop on a poster, not on every press:
     // 900 ms after the last press, so going along a row nothing above it is rebuilt.)
     val hero by produceState<MediaItem?>(null) {
         androidx.compose.runtime.snapshotFlow { focused }.collectLatest { delay(HERO_SETTLE_MS); value = it }
     }
     // Still on the poster the top panel shows (false from the first press of a scroll until you stop again): its
     // trailer plays only then. It used to carry on for the last poster you'd stopped on while you scrolled past others
-    // (Peter, 2026-11-20). (A yes / no, so the page is rebuilt twice a scroll, not on every press.)
+    // (2026-11-20). (A yes / no, so the page is rebuilt twice a scroll, not on every press.)
     val onHero by remember { androidx.compose.runtime.derivedStateOf { focused?.key == hero?.key } }
 
     LaunchedEffect(type) { if (searchHeader == null) vm.load(type) }
@@ -228,7 +229,7 @@ fun MediaScreen(
     // Scrolling the list to a row by hand: lined up as the page turns are (a pair's first row, the title's room
     // above it), or the next page turn started from a half-turned page.
     val scrollRow: suspend (Int) -> Unit = { i ->
-        // (Every row turns on its own now: the highlighted row always at the top. Peter, 2026-11-19.)
+        // (Every row turns on its own now: the highlighted row always at the top. 2026-11-19.)
         runCatching { listState.scrollToItem(i, 0) }
     }
     // Where focus is in the rows, for Back (Netflix): first back to the top row's first poster, then leave.
@@ -349,7 +350,7 @@ fun MediaScreen(
         overLive -> Modifier.background(AppColors.palette.main.copy(alpha = maxOf(0.12f, AppColors.palette.menuAlpha)))
         // The app's own background already shows the artwork full screen, under the menu too (Wallpaper.titleBehind):
         // nothing of its own, so the picture runs on unbroken across the menu (a second copy, cropped to the page's
-        // smaller size, met it in a visible join at the menu's edge. Peter, 2026-11-17).
+        // smaller size, met it in a visible join at the menu's edge. 2026-11-17).
         Wallpaper.titleBehind -> Modifier
         else -> Modifier.appBackground(titleArt = true)
     })) {
@@ -384,25 +385,28 @@ fun MediaScreen(
             val pi = personInfo?.takeIf { personShown != null }
             SideEffect { PosterTrailer.repo = vm.trailers }
             PublishPosterTrailerActive(focusEnabled && !covered && hasFocus && detail == null && playing == null && quiet)
+            // Trending: its first row carousels while the highlight is off the page; the header shows its title.
+            val spot = RowCarousel(setNow == Discover.TRENDING && pi == null && searchHeader == null && !hasFocus && detail == null,
+                rows.firstOrNull(), rows.firstOrNull()?.let { rowStates.getOrPut(it.id) { LazyListState() } })
             PageHeader(
                 person = pi, searchHeader = searchHeader, type = type, heroLabel = heroLabel,
-                item = hero ?: rows.firstOrNull()?.items?.firstOrNull(),
+                item = spot ?: hero ?: rows.firstOrNull()?.items?.firstOrNull(),
                 // Only the poster you've stopped on plays: not the first-row fallback, nor while anything covers the rows.
                 trailerItem = hero,
-                trailerOk = onHero && focusEnabled && !covered && hasFocus && detail == null && playing == null && quiet,
+                trailerOk = spot == null && onHero && focusEnabled && !covered && hasFocus && detail == null && playing == null && quiet,
                 vm = vm,
             )
             // Cinema: one page-tall row at a time, the posters along the bottom. Moving to another row turns the
             // page: the list glides so that row's top is at the top (its posters at the bottom), eased over a third of
-            // a second; nothing else ever scrolls it (Left / Right along a row pulled the rows up, Peter, 2026-11-18).
-            // Viewarr style: two rows a page (Peter, 2026-11-18: the next row's title peeked out at the bottom). Rows go
+            // a second; nothing else ever scrolls it (Left / Right along a row pulled the rows up, 2026-11-18).
+            // Viewarr style: two rows a page (2026-11-18: the next row's title peeked out at the bottom). Rows go
             // in pairs: a gap after every second row so the next pair starts a page down, and Down / Up move a pair
             // at a time; the list never scrolls on its own otherwise. (cinemaRows / pairRows are set above the rows.)
             var listHeightPx by remember { mutableStateOf(0) }
             val glideScope = rememberCoroutineScope()
             val glideJob = remember { arrayOfNulls<kotlinx.coroutines.Job>(1) }
             // The jump to the newly highlighted row, in the same instant as the highlight moves (a frame later, the
-            // ring showed on the lower row for a moment: Peter, 2026-11-19), then the eased slide drawn over it.
+            // ring showed on the lower row for a moment: 2026-11-19), then the eased slide drawn over it.
             val jumpToRow: (Int) -> Boolean = jump@{ target ->
                 val info = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == target } ?: return@jump false
                 val moved = info.offset.toFloat()
@@ -422,7 +426,7 @@ fun MediaScreen(
             }
             val rowHeightsPx = remember { mutableStateMapOf<Int, Int>() }
             val gapPx = with(LocalDensity.current) { RowGap.roundToPx() }
-            // The highlighted row always in the first row's place (Peter, 2026-11-19: "the focus poster should always be
+            // The highlighted row always in the first row's place (2026-11-19: "the focus poster should always be
             // there; only the posters move"): the list jumps there in the same frame as the highlight moves, then the
             // rows are eased up (or down) into place, the highlighted poster's ring going with its row. Rows above the highlighted one are off the
             // top of the list, so none peeks out under the top panel.
@@ -477,7 +481,7 @@ fun MediaScreen(
                 ) {
                     itemsIndexed(rows, key = { _, it -> it.id }, contentType = { _, _ -> "row" }) { index, row ->
                         // Cinema (big top panel): each row the whole height left, so one row shows at a time, no half
-                        // row under it (Peter, 2026-11-18); Down brings the next one up.
+                        // row under it (2026-11-18); Down brings the next one up.
                         // (Its posters along the bottom of the screen, the backdrop above them, as Nuvio.)
                         // (Pairs: the room under an odd row that puts the next pair exactly a page down.)
                         // (No pairs any more: every row turns on its own. Kept at 0.)
@@ -523,7 +527,7 @@ fun MediaScreen(
         }
         // While a film plays full screen, the title page stays alive under it, set aside: no keys, no Back, and not
         // drawn once the player covers it. It used to be removed the moment the film grew (the library flashed up
-        // under the growing picture) and rebuilt from nothing when it went small again (the stutter). Peter, 2026-11-18.
+        // under the growing picture) and rebuilt from nothing when it went small again (the stutter). 2026-11-18.
         var titleDrawn by remember { mutableStateOf(true) }
         LaunchedEffect(playing != null) { if (playing != null) { delay(600); titleDrawn = false } else titleDrawn = true }
         detail?.let { d -> Box(Modifier.fillMaxSize()
@@ -623,11 +627,11 @@ private fun LibraryPage(
             logoOf = vm::logoFor,
             ratingsOf = vm::ratingsFor,
             // (One height for every style, and shorter than the home pages' 206: the library's rows sat too far down.
-            // The corner trailer window shrinks to fit it. Peter, 2026-11-19.)
+            // The corner trailer window shrinks to fit it. 2026-11-19.)
             // (With live TV in the guide's preview place at the top left, the header is as tall as that window, so
-            // the library's own heading and toolbar sit under it, not hidden behind it. Peter, 2026-11-19.)
+            // the library's own heading and toolbar sit under it, not hidden behind it. 2026-11-19.)
             // (205: the window ends at 200, so the toolbar sits just under it; 250 left a gap and cut the grid's second row
-            // off. Peter, 2026-11-20: "needs to come up a bit".)
+            // off. 2026-11-20: "needs to come up a bit".)
             height = if (LiveBehind.preview) 205.dp else 180.dp,
             compact = true,
         )
@@ -664,6 +668,7 @@ private fun TitlePageLayer(ui: DetailUi, vm: MediaViewModel, active: Boolean, on
             onPickStream = vm::playStream,
             onCloseStreams = vm::closeStreams,
             onWatchlist = vm::toggleWatchlist,
+            onFollow = vm::toggleFollow,
             onLeftEdge = onLeftEdge,
             onClose = {
                 vm.close()
@@ -721,7 +726,7 @@ private fun Hero(
      *  off); library pages a little shorter still. The preview window (20 + 180) fits in either. */
     height: androidx.compose.ui.unit.Dp = 212.dp,
     /** Library pages: the ordinary logo and two-line synopsis even in the Cinema style, so the grid starts higher
-     *  (Peter, 2026-11-19: the library's rows sat too far down). */
+     *  (2026-11-19: the library's rows sat too far down). */
     compact: Boolean = false,
 ) {
     val cinema = AppColors.palette.heroStyle == 1 && !compact
@@ -776,35 +781,41 @@ private fun Hero(
                 model = url,
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
-                modifier = Modifier.align(Alignment.TopEnd).fillMaxHeight().fillMaxWidth(0.68f),
+                // The picture itself fades out to its left and bottom edges (see-through there), so it melts into the
+                // page behind whatever its colour. (2026-11-24: a dark shade over the whole header ended in a
+                // hard line against the page's background below it and at its left.)
+                modifier = Modifier.align(Alignment.TopEnd).fillMaxHeight().fillMaxWidth(0.68f)
+                    .graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen }
+                    .drawWithContent {
+                        drawContent()
+                        drawRect(Color.Black.copy(alpha = 0.15f))
+                        drawRect(Brush.horizontalGradient(0f to Color.Transparent, 0.45f to Color.Black.copy(alpha = 0.75f), 0.8f to Color.Black),
+                            blendMode = androidx.compose.ui.graphics.BlendMode.DstIn)
+                        drawRect(Brush.verticalGradient(0.45f to Color.Black, 1f to Color.Transparent),
+                            blendMode = androidx.compose.ui.graphics.BlendMode.DstIn)
+                    },
             )
-        }
-        // Over a wallpaper the hero blends into it (see-through) rather than into a solid colour.
-        val bg = AppColors.Scrim
-        if (!pageArt) {
-            Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(0.3f to bg, 0.55f to bg.copy(alpha = bg.alpha * 0.55f), 1f to Color.Transparent)))
-            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.6f to Color.Transparent, 1f to bg)))
         }
         // The top-left window, always in the same place (the guide's preview place): live TV when a channel's on
         // (drawn by the home screen), otherwise the highlighted title's picture with its trailer playing over it.
-        // (Trailers in the poster: no corner window, so the details start at the left edge. Peter, 2026-11-18.)
+        // (Trailers in the poster: no corner window, so the details start at the left edge. 2026-11-18.)
         val besidePreview = !LiveBehind.on && !PosterTrailer.on
         // The trailer's window: nothing there until a trailer plays (it fades in), the page's background picture
-        // showing through instead of a second copy of it in a box (Peter, 2026-11-18).
-        // The trailer window at the top right (Peter, 2026-11-18: the title logo and description belong at the left,
+        // showing through instead of a second copy of it in a box (2026-11-18).
+        // The trailer window at the top right (2026-11-18: the title logo and description belong at the left,
         // where the live TV window used to push them from): a dimmed still of the title until its trailer fades in.
         // (A shorter header, the library pages: a smaller window that still fits.)
         val winH = if (height < 206.dp) (height - 24.dp) else 180.dp
         if (besidePreview && !LiveBehind.preview) Box(
             Modifier.align(Alignment.TopEnd).padding(end = Tokens.Gutter, top = if (height < 206.dp) 12.dp else 20.dp).size(width = winH * 16 / 9, height = winH).clip(RoundedCornerShape(8.dp)),
         ) {
-            // (No still picture first: the window stays empty until the trailer itself fades in. Peter, 2026-11-19.)
+            // (No still picture first: the window stays empty until the trailer itself fades in. 2026-11-19.)
             if (trailers != null) TrailerPreview(item = trailerItem, active = trailerActive, trailers = trailers, modifier = Modifier.fillMaxSize(), onShowing = { HeroTrailer.showing = it })
             // While it plays: how to see it full screen (hold OK on the poster → Trailer does the same).
             if (HeroTrailer.showing) Text("⏯  Full screen", fontSize = 11.sp, color = Color.White, maxLines = 1,
                 modifier = Modifier.align(Alignment.BottomEnd).padding(6.dp).background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(6.dp)).padding(horizontal = 6.dp, vertical = 2.dp))
         }
-        // From the left edge; with the live TV window up at the top left, over at the right, right-aligned (Peter, 2026-11-18).
+        // From the left edge; with the live TV window up at the top left, over at the right, right-aligned (2026-11-18).
         val endSide = LiveBehind.preview
         val align = if (endSide) androidx.compose.ui.text.style.TextAlign.End else null
         val colAlign = if (endSide) Alignment.End else Alignment.Start
@@ -813,8 +824,8 @@ private fun Hero(
                 .padding(start = Tokens.Gutter, top = if (endSide) 14.dp else 26.dp, end = if (endSide) 0.dp else Tokens.Gutter)
                 .fillMaxWidth(if (endSide) 0.6f else if (besidePreview) 0.6f else 0.5f)
                 // Over at the right it sits on the artwork: a shade behind it, fading in from the left, so the details
-                // and description stay readable on a bright picture (Peter, 2026-11-20).
-                // (Its full height from the start: sized by the details, it grew when they came in. Peter, 2026-11-21.)
+                // and description stay readable on a bright picture (2026-11-20).
+                // (Its full height from the start: sized by the details, it grew when they came in. 2026-11-21.)
                 .then(if (endSide) Modifier.padding(bottom = 10.dp).fillMaxHeight().background(androidx.compose.ui.graphics.Brush.horizontalGradient(
                     0f to Color.Transparent, 0.3f to AppColors.palette.main.copy(alpha = 0.7f), 1f to AppColors.palette.main.copy(alpha = 0.85f)),
                     RoundedCornerShape(topStart = 16.dp, bottomStart = 16.dp)).padding(start = 24.dp, top = 12.dp, bottom = 14.dp, end = Tokens.Gutter)
@@ -825,7 +836,7 @@ private fun Hero(
             Spacer(Modifier.height(8.dp))
             val ex = extras
             // (Cinema: the details rise a little as they fade in, eased, for a cleaner change between titles.)
-            // (Then it slides in from off the screen once it's ready, from the side it sits on, easing to a stop. Peter,
+            // (Then it slides in from off the screen once it's ready, from the side it sits on, easing to a stop.
             // 2026-11-21: it popped up. Read in the layer only, so the slide never lays the page out again.)
             if (item != null) Column(Modifier.graphicsLayer {
                 val t = detailsAnim.value
@@ -847,8 +858,8 @@ private fun Hero(
                 // IMDb / Rotten Tomatoes / Trakt for the highlighted title (fetched with the rest, above).
                 val heroRatings = ex?.takeIf { it.key == item.key }?.ratings.orEmpty()
                 // (One line of ratings here, the ones that don't fit left off: wrapping onto a second line pushed the
-                // description out of the hero's height, cut off mid-line. Peter, 2026-11-17.)
-                // (Cinema: no ratings; the title as its logo, its details and the description. Peter, 2026-11-18.)
+                // description out of the hero's height, cut off mid-line. 2026-11-17.)
+                // (Cinema: no ratings; the title as its logo, its details and the description. 2026-11-18.)
                 val cinemaHero = cinema
                 if (heroRatings.isNotEmpty() && !cinemaHero) {
                     Spacer(Modifier.height(6.dp))
@@ -866,12 +877,14 @@ private fun Hero(
                 item.overview?.let {
                     Spacer(Modifier.height(10.dp))
                     // (Right-aligned text that doesn't fit lost its "…" and was cut mid-word (Android's end-aligned ellipsis):
-                    // a description too long for its lines is laid out from the left instead. Peter, 2026-11-21.)
+                    // a description too long for its lines is laid out from the left instead. 2026-11-21.)
                     var tooLong by remember(it) { mutableStateOf(false) }
                     Text(it, fontSize = if (cinemaHero) 15.sp else 14.sp, lineHeight = if (cinemaHero) 22.sp else 20.sp, color = AppColors.TextPrimary,
-                        // (Over at the right: two shorter lines, not one very long one. Peter, 2026-11-21.)
+                        // (Over at the right: two shorter lines, not one very long one. 2026-11-21.)
+                        // (On the left: kept clear of the picture, cut off with "…" rather than running across it.
+                        // 2026-11-24: the description ran right over the Trending picture.)
                         maxLines = if (cinemaHero) 3 else if (roomy || endSide) 2 else 1, overflow = TextOverflow.Ellipsis,
-                        modifier = if (endSide) Modifier.widthIn(max = 420.dp) else Modifier,
+                        modifier = Modifier.widthIn(max = if (endSide) 420.dp else 440.dp),
                         textAlign = if (tooLong) androidx.compose.ui.text.style.TextAlign.Start else align,
                         onTextLayout = { r -> if (align != null && !tooLong && (r.hasVisualOverflow || r.isLineEllipsized(r.lineCount - 1))) tooLong = true })
                 }
@@ -1011,7 +1024,7 @@ private fun LibraryGrid(
                 // Down / Up move the grid a row from the key press, in the same instant as the highlight, and the
                 // posters are then drawn where they were and eased into place: one layer moved, nothing laid out again
                 // per frame (Android's own scroll re-laid the grid every frame while new posters loaded: slow and
-                // jerky; Peter, 2026-11-20). Anything left to bring into view snaps.
+                // jerky; 2026-11-20). Anything left to bring into view snaps.
                 val gridSpec = remember(rowTop) { insetSpec(rowTop).snapped() }
                 val gridGlide = remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
                 val gridGlideJob = remember { arrayOfNulls<kotlinx.coroutines.Job>(1) }
@@ -1185,7 +1198,7 @@ internal fun LibrarySearchBox(query: String, onQuery: (String) -> Unit, onFocus:
             voiceScope.launch { kotlinx.coroutines.android.awaitFrame(); keyboard?.show() }
         },
     )
-    // The shared mic and search box (common/SearchBar.kt), at the library's 36 dp size. (Peter, 2026-11-17: was its
+    // The shared mic and search box (common/SearchBar.kt), at the library's 36 dp size. (2026-11-17: was its
     // own copy of both.)
     VoiceButton(
         onClick = { voice.toggle() },
@@ -1251,7 +1264,7 @@ private fun PosterRow(
         // ("FocusRequester is not initialized").
         val entryAttached = remember { booleanArrayOf(false) }
         val scope = rememberCoroutineScope()
-        // Fixed highlight, sliding posters (Peter, 2026-11-19: "the focus poster should stay where it is, only the
+        // Fixed highlight, sliding posters (2026-11-19: "the focus poster should stay where it is, only the
         // posters move"): the row jumps to its new place in the same frame as the highlight (no slide of its own, so
         // the highlight never runs one poster ahead and comes back), and the posters are then drawn where they were
         // and eased into place (one layer moved, nothing laid out again per frame). The ring is drawn over the row
@@ -1263,7 +1276,7 @@ private fun PosterRow(
         // The row moved by the poster-to-poster step in the same instant as the highlight (a frame later, the posters
         // showed in their new place for a moment, then slid back from the old one), then eased from there.
         // (Done from the key press, not from the focus change: moving the row while Compose was applying a focus
-        // change crashed the app, "Unprocessed FocusProperties nodes". Peter, 2026-11-19.)
+        // change crashed the app, "Unprocessed FocusProperties nodes". 2026-11-19.)
         val slideTo: (Int) -> Unit = slide@{ newIdx ->
             if (!pinned || !rowFocused || focusedIdx < 0) return@slide
             val items = state.layoutInfo.visibleItemsInfo
@@ -1274,7 +1287,7 @@ private fun PosterRow(
             val used = state.dispatchRawDelta((to.offset - from.offset).toFloat())
             if (used == 0f) return@slide
             // Never more than one poster behind: a held or fast-pressed button used to add a step per press (up to 1500
-            // px), so the whole row was drawn far to one side and its near side showed empty (Peter, 2026-11-20).
+            // px), so the whole row was drawn far to one side and its near side showed empty (2026-11-20).
             val step = kotlin.math.abs(used)
             glide.floatValue = (glide.floatValue + used).coerceIn(-step, step)
             glideJob[0]?.cancel()
@@ -1286,7 +1299,7 @@ private fun PosterRow(
         Box {
         // (Pinned: only slideTo moves the row. The focus system's own bring-into-view, worked out from where the
         // poster was before slideTo's move, scrolled it a second step: Right from the second poster then took two
-        // presses. Peter, 2026-11-19.)
+        // presses. 2026-11-19.)
         CompositionLocalProvider(LocalBringIntoViewSpec provides remember(rowSpec, pinned) { if (pinned) NoRowScroll else rowSpec.snapped() }) { LazyRow(
             state = state,
             // Moving onto this row from above or below lands on its remembered poster, not the nearest one on screen.
@@ -1302,7 +1315,7 @@ private fun PosterRow(
                     if (resetOnLeave && !it.hasFocus && state.firstVisibleItemIndex != 0) scope.launch { state.scrollToItem(0) }
                 }
                 // (Nothing shows left of the highlighted poster's place: the poster before it was peeking in at the
-                // screen's edge. A little room is kept for the highlighted poster's zoom. Peter, 2026-11-19.)
+                // screen's edge. A little room is kept for the highlighted poster's zoom. 2026-11-19.)
                 .drawWithContent {
                     val left = (RowStart - 8.dp).toPx()
                     clipRect(left = left, top = -size.height, right = size.width * 2, bottom = size.height * 2) { this@drawWithContent.drawContent() }
@@ -1344,7 +1357,7 @@ private fun PosterRow(
             }
         } }
         // (The ring is the poster's own again, as on the Android TV home screen: it goes with the poster being
-        // highlighted as that poster slides into the first place, and the poster grows as it arrives. Peter,
+        // highlighted as that poster slides into the first place, and the poster grows as it arrives.
         // 2026-11-19.)
         }
     }
@@ -1409,7 +1422,7 @@ internal fun PosterCard(item: MediaItem, modifier: Modifier, onClick: () -> Unit
     if (hadPanel) LaunchedEffect(PosterTrailer.closedAt) { if (hadPanel && PosterTrailer.item == null) { if (!focused) { kotlinx.coroutines.delay(60); runCatching { cardFocus.requestFocus() } }; hadPanel = false } }
     // The shared card (FocusCard: 3 dp accent ring, no growing).
     FocusCard(
-        // OK while its trailer plays in the card: the big panel with sound (Peter, 2026-11-18); otherwise the title
+        // OK while its trailer plays in the card: the big panel with sound (2026-11-18); otherwise the title
         // page as always. (In the panel the poster keeps the highlight: its keys, via panelKey below, work the panel.)
         onClick = { if (playing) PosterTrailer.panel = true else onClick() },
         onLongClick = onLongClick,
@@ -1423,13 +1436,13 @@ internal fun PosterCard(item: MediaItem, modifier: Modifier, onClick: () -> Unit
         ).focusRequester(cardFocus).onFocusChanged { focused = it.isFocused }
             // One accessibility element per poster (its title), not its image, badges and texts: with any
             // accessibility service on (Projectivy's, for its remote buttons) Android re-describes every element on
-            // screen after each move, and that cost ~15% of the main thread while sliding (Peter, 2026-11-19).
+            // screen after each move, and that cost ~15% of the main thread while sliding (2026-11-19).
             .clearAndSetSemantics { contentDescription = item.title }
             // Posters that aren't highlighted fade a little (Settings → Appearance → Posters → Other posters faded;
-            // Peter, 2026-11-18), the highlighted one is solid.
+            // 2026-11-18), the highlighted one is solid.
             // (The fade is a colour wash in the picture's own drawing (PosterImage tint), not a see-through layer or
             // a shade drawn over the card: each of those made Android's renderer keep an off-screen buffer, a
-            // full-screen one at start and one per poster as you moved; ~75 MB at 4K. Peter, 2026-11-19.)
+            // full-screen one at start and one per poster as you moved; ~75 MB at 4K. 2026-11-19.)
             .then(if (mine) Modifier.onGloballyPositioned { PosterTrailer.cardRect = it.boundsInRoot() } else Modifier),
         aspect = if (inPoster) null else CardAspect.Poster,
         ring = ring && !(mine && PosterTrailer.panel),
@@ -1498,6 +1511,7 @@ private fun DetailScreen(
     onPickStream: (StreamOption) -> Unit,
     onCloseStreams: () -> Unit,
     onWatchlist: () -> Unit,
+    onFollow: () -> Unit = {},
     onClose: () -> Unit,
     /** Left on the first button (Play): the menu, as Left at the edge of any page. */
     onLeftEdge: () -> Unit = {},
@@ -1682,6 +1696,11 @@ private fun DetailScreen(
                     if (ui.canWatchlist) {
                         IconAction(if (ui.watchlisted) AppIcons.BookmarkFilled else AppIcons.Bookmark, if (ui.watchlisted) "Remove from watchlist" else "Add to watchlist", onWatchlist, Modifier.free(), on = ui.watchlisted)
                     }
+                    // Shows: follow it, for a card when a new episode is in your library (FollowedShows).
+                    if (show) {
+                        val following = io.github.petebutty.viewarr.data.media.FollowedShows.isFollowed(ui.detail.item)
+                        IconAction(if (following) AppIcons.Bell else AppIcons.BellOutline, if (following) "Following (OK: stop)" else "Follow: new episodes", onFollow, Modifier.free(), on = following)
+                    }
                     SeerrAction(ui, vm)
                 }
                 }
@@ -1692,13 +1711,13 @@ private fun DetailScreen(
             }
         }
         // Cinema (films and shows without the episode rows here): the tabs and their row along the bottom of the
-        // screen, the backdrop clear between the buttons and them (Peter, 2026-11-18). Otherwise they follow the header.
+        // screen, the backdrop clear between the buttons and them (2026-11-18). Otherwise they follow the header.
         val cinemaPage = AppColors.palette.heroStyle == 1 && !inlineEpisodes
         Column(
             if (cinemaPage) Modifier.weight(1f).fillMaxWidth() else Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()),
             verticalArrangement = if (cinemaPage) Arrangement.Bottom else Arrangement.Top,
         ) {
-        if (inlineEpisodes) InlineEpisodes(ui, vm, free = sectionsFree && ui.episode == null, entry = episodesEntry, up = playFocus, down = tabFocus, onHover = { ep -> hover = "S${ep.season} E${ep.number} · ${ep.name}" to ep.overview })
+        if (inlineEpisodes) InlineEpisodes(ui, vm, free = sectionsFree && ui.episode == null, entry = episodesEntry, up = playFocus, down = tabFocus, onHover = { ep -> hover = "S${ep.season} E${ep.number} · ${ep.name}" to ep.overview }, onLeftEdge = onLeftEdge)
         // "Episodes" (hold OK on a show, the guide's Go to show…): onto this page's episode row, once the season's in.
         // (Once per request: changing season afterwards mustn't pull focus down to the episodes again.)
         var focusedFor by remember { mutableStateOf(0L) }
@@ -1892,7 +1911,7 @@ private fun TracksDialog(
     // What the server would pick by itself, when you haven't picked.
     val a = audio ?: t.audio.firstOrNull { it.default }?.ordinal ?: 0
     val sub = subtitle ?: t.subtitles.firstOrNull { it.default }?.ordinal
-    // (Was a solid panel of its own; now the one pop-up style, which scrolls with the highlight. Peter, 2026-11-17.)
+    // (Was a solid panel of its own; now the one pop-up style, which scrolls with the highlight. 2026-11-17.)
     PopupPanel(onClose = onDone, width = Tokens.PopupWide) {
         PopupTitle("Audio & subtitles", "For this play, from ${t.source}.")
         if (t.audio.isNotEmpty()) PopupSection("Audio")
@@ -1966,7 +1985,7 @@ private fun EpisodeActionsFor(ui: DetailUi, vm: MediaViewModel) {
  */
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-private fun InlineEpisodes(ui: DetailUi, vm: MediaViewModel, free: Boolean, entry: FocusRequester, up: FocusRequester, down: FocusRequester, onHover: (EpisodeInfo) -> Unit = {}) {
+private fun InlineEpisodes(ui: DetailUi, vm: MediaViewModel, free: Boolean, entry: FocusRequester, up: FocusRequester, down: FocusRequester, onHover: (EpisodeInfo) -> Unit = {}, onLeftEdge: () -> Unit = {}) {
     val item = ui.detail.item
     // Watched anywhere: Trakt, your servers or Viewarr's own record (WatchState.kt).
     val localEntries by vm.localWatch.entries.collectAsState()
@@ -1998,15 +2017,28 @@ private fun InlineEpisodes(ui: DetailUi, vm: MediaViewModel, free: Boolean, entr
             else ui.upTo()?.let { up -> if (up.first == ui.season) eps.indexOfFirst { it.number == up.second } else -1 } ?: -1
         if (next >= 0) next else eps.indexOfFirst { e -> !watched(e.season, e.number) }.coerceAtLeast(0)
     } ?: -1
+    // Right past a season's last episode: the next season, on its first episode (2026-11-24). The highlight waits on
+    // that season's pill while its episodes load, then goes down to episode 1.
+    var startAtFirst by remember { mutableStateOf(false) }
+    val nextScope = androidx.compose.runtime.rememberCoroutineScope()
+    LaunchedEffect(ui.season, ui.episodes) {
+        val eps = ui.episodes
+        if (!startAtFirst || eps.isNullOrEmpty() || eps.first().season != ui.season) return@LaunchedEffect
+        awaitFrame()
+        runCatching { episodeRow.scrollToItem(0) }
+        awaitFrame()
+        runCatching { entry.requestFocus() }
+        startAtFirst = false
+    }
     // The row starts at the episode you're up to.
     LaunchedEffect(ui.season, ui.episodes != null) {
         // (In the first place, where the highlight stays: the row moves as the poster rows do.)
-        if (target > 0) runCatching { episodeRow.scrollToItem(target) }
+        if (target > 0 && !startAtFirst) runCatching { episodeRow.scrollToItem(target) }
     }
     // The episode last highlighted this season: coming back to the row (an episode's actions closed with Cancel /
     // Back, Down from the buttons) lands on it, not on the one you're up to.
     var lastEp by remember(ui.season) { androidx.compose.runtime.mutableIntStateOf(-1) }
-    val entryEp = lastEp.takeIf { it >= 0 } ?: target.coerceAtLeast(0)
+    val entryEp = if (startAtFirst) 0 else lastEp.takeIf { it >= 0 } ?: target.coerceAtLeast(0)
     LaunchedEffect(ui.season, ui.seasons.size) {
         if (onSeasons) return@LaunchedEffect
         val idx = ui.seasons.indexOfFirst { it.number == ui.season }
@@ -2016,7 +2048,16 @@ private fun InlineEpisodes(ui: DetailUi, vm: MediaViewModel, free: Boolean, entr
     // The episode cards move as the poster rows do: the highlight stays in the first place, the cards slide under it.
     val episodeCount = (ui.episodes ?: lastEpisodes)?.size ?: 0
     val episodeSlide = rememberRowSlide(episodeRow) { episodeCount }
-    Column(Modifier.padding(top = 10.dp)) {
+    // Left on the first season or episode: the menu, as Left at the edge of the tabs and buttons (it did nothing,
+    // 2026-11-24, most noticed with a film in the mini player). After the row's own handling (onKeyEvent, not preview:
+    // as preview it took Left before the row could slide back to an episode scrolled off the left, so episode 1 couldn't
+    // be reached).
+    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+    Column(Modifier.padding(top = 10.dp).onKeyEvent { e ->
+        if (e.key != Key.DirectionLeft || e.type != KeyEventType.KeyDown) return@onKeyEvent false
+        if (!focusManager.moveFocus(androidx.compose.ui.focus.FocusDirection.Left) && e.nativeKeyEvent.repeatCount == 0) onLeftEdge()
+        true
+    }) {
         SeasonPills(
             ui, seasonRow, free = free, selectedFocus = seasonFocus,
             onSeasons = { onSeasons = it }, onPending = { pendingSeason = it },
@@ -2046,6 +2087,19 @@ private fun InlineEpisodes(ui: DetailUi, vm: MediaViewModel, free: Boolean, entr
                             modifier = (if (i == entryEp) Modifier.focusRequester(entry) else Modifier)
                                 .focusProperties { canFocus = free && !loading }
                                 .safeMove(Key.DirectionUp) { seasonFocus }.safeMove(Key.DirectionDown) { down }
+                                // The last episode: Right goes on to the next season (once per press; nothing after the last).
+                                .onPreviewKeyEvent { e ->
+                                    if (e.key != Key.DirectionRight || i != eps.lastIndex || loading) return@onPreviewKeyEvent false
+                                    if (e.type == KeyEventType.KeyDown && e.nativeKeyEvent.repeatCount == 0) {
+                                        val next = ui.seasons.map { it.number }.sorted().firstOrNull { it > (ui.season ?: ep.season) }
+                                        if (next != null) {
+                                            startAtFirst = true
+                                            vm.selectSeason(next)
+                                            nextScope.launch { awaitFrame(); awaitFrame(); runCatching { seasonFocus.requestFocus() } }
+                                        }
+                                    }
+                                    true
+                                }
                                 .onFocusChanged { focused = it.isFocused; if (it.isFocused) { lastEp = i; episodeSlide.focused = i; onHover(ep) } }
                                 .width(EpisodeCardW),
                             aspect = CardAspect.Wide,
@@ -2081,7 +2135,7 @@ private fun InlineEpisodes(ui: DetailUi, vm: MediaViewModel, free: Boolean, entr
  * A show's seasons as pills: the one season selector, shared by the title page's episodes and the Episodes panel
  * (they were two copies). The season being viewed stays tinted even when you're down in its episodes. Moving onto a
  * pill asks for that season ([onPending], loaded once you pause there); OK picks it now ([onPick]). Only a real move
- * changes it ([free] false: behind a pop-up, the pills can't take focus). (Peter, 2026-11-17.)
+ * changes it ([free] false: behind a pop-up, the pills can't take focus). (2026-11-17.)
  */
 @Composable
 private fun SeasonPills(
@@ -2139,7 +2193,7 @@ private fun EpisodeActions(
         if (addonStreams?.isNotEmpty() == true && noneAbove && !moved) { awaitFrame(); runCatching { first.requestFocus() } }
     }
     // The shared pop-up (its own window; the held OK that opened it is ignored, so letting go doesn't pick the
-    // first source). Cancel last, as every options pop-up. (Peter, 2026-11-17: was a solid panel with "Close".)
+    // first source). Cancel last, as every options pop-up. (2026-11-17: was a solid panel with "Close".)
     PopupPanel(onClose = onClose, width = Tokens.PopupWide) {
         PopupTitle(title)
         var n = 0
@@ -2161,7 +2215,7 @@ private fun EpisodeActions(
 
 /**
  * The streams the addons found (Find a source / an episode's search): the shared pop-up, each stream one row as in
- * Play from (a short summary, where it's from beside it). (Peter, 2026-11-17: was a solid side panel with two-line
+ * Play from (a short summary, where it's from beside it). (2026-11-17: was a solid side panel with two-line
  * rows of its own.)
  */
 @Composable
@@ -2329,9 +2383,9 @@ private fun DetailTabs(
         }
     }
     TabRow(tab)
-    // A second row under it, so the page isn't half empty below one short row (Peter, 2026-11-17): More like this, or
+    // A second row under it, so the page isn't half empty below one short row (2026-11-17): More like this, or
     // the cast when More like this is the tab chosen. Down from the first row goes into it.
-    // (Cinema: just the chosen tab's row along the bottom, the backdrop above it. Peter, 2026-11-18.)
+    // (Cinema: just the chosen tab's row along the bottom, the backdrop above it. 2026-11-18.)
     val second = if (AppColors.palette.heroStyle == 1) null else when {
         tab != DetailTab.Similar && DetailTab.Similar in tabs -> DetailTab.Similar
         tab == DetailTab.Similar && DetailTab.Cast in tabs -> DetailTab.Cast
@@ -2357,7 +2411,7 @@ private fun Modifier.safeMove(key: Key, target: () -> FocusRequester?): Modifier
 }
 
 /**
- * Where a poster row starts: nearer the screen's edge than the page's text (Peter, 2026-11-19), so once the row has
+ * Where a poster row starts: nearer the screen's edge than the page's text (2026-11-19), so once the row has
  * moved on, the poster before the highlighted one is off screen rather than peeking in.
  */
 private val RowStart = 20.dp

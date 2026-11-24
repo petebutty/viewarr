@@ -30,7 +30,7 @@ import io.github.petebutty.viewarr.ui.theme.AppColors
  * A quiet card in the top corner from the Viewarr plugin's house data (data/report/HouseSync): a channel changed from
  * someone's report (admins: OK undoes it), or a wrong-guide report that needs someone to pick the right guide (OK
  * opens the picker). Takes no focus: the home screen's root key handler asks [onKey] first, as it does for a reminder.
- * Governed by Settings → Notifications → Reports from the house (off by default). (Peter, 2026-11-19.)
+ * Governed by Settings → Notifications → Reports from the house (off by default). (2026-11-19.)
  */
 object HouseNotice {
     class Notice(val text: String, val hint: String, val action: (() -> Unit)?)

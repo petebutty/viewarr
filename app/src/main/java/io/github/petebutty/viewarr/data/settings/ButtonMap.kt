@@ -11,7 +11,7 @@ import io.github.petebutty.viewarr.ui.common.RemoteKeys
  */
 enum class BtnScreen(val label: String) {
     Guide("TV guide"),
-    // (Labels only, the names Settings → Remote buttons uses: the constants are stored. Peter, 2026-11-17.)
+    // (Labels only, the names Settings → Remote buttons uses: the constants are stored. 2026-11-17.)
     Live("On live TV"),
     Film("In films & shows"),
     Pages("In menus & pages"),

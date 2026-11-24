@@ -365,7 +365,7 @@ private fun ServiceOptions(item: SetupItem, status: String, onChange: () -> Unit
     var confirm by remember { mutableStateOf(false) }
     androidx.activity.compose.BackHandler(onBack = onClose)
     LaunchedEffect(Unit) { kotlinx.coroutines.android.awaitFrame(); runCatching { first.requestFocus() } }
-    // (The shared pop-up: was a raw Dialog. Peter, 2026-11-17.)
+    // (The shared pop-up: was a raw Dialog. 2026-11-17.)
     io.github.petebutty.viewarr.ui.common.PopupPanel(onClose = onClose, width = io.github.petebutty.viewarr.ui.theme.Tokens.PopupStandard) {
         io.github.petebutty.viewarr.ui.common.PopupTitle(item.label, status)
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -375,7 +375,7 @@ private fun ServiceOptions(item: SetupItem, status: String, onChange: () -> Unit
             // The on/off switches that belong with the service: each Plex server, each Stremio addon.
             if (item == SetupItem.Plex) PlexServersItems()
             if (item == SetupItem.Stremio) AddonSwitches()
-            // (Trakt's Sync now and Copy watched to Plex: Settings → Playback → Watch progress. Peter, 2026-11-18.)
+            // (Trakt's Sync now and Copy watched to Plex: Settings → Playback → Watch progress. 2026-11-18.)
             // Live TV: sources are removed one by one in the list above.
             if (item != SetupItem.LiveTv) MenuItem(
                 text = if (confirm) "Press OK again to disconnect" else "Disconnect",

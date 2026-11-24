@@ -32,7 +32,7 @@ class TvApp : Application(), ImageLoaderFactory {
     /**
      * Gone to the background (the Home button, another app): let go of what can be fetched again, so Android keeps
      * Viewarr when memory is short instead of killing it, and it opens where you left it rather than starting again
-     * (Peter, 2026-11-15: on the 2 GB Shield it was killed two seconds after Projectivy came back). Pictures are kept
+     * (2026-11-15: on the 2 GB Shield it was killed two seconds after Projectivy came back). Pictures are kept
      * on disk, so they come straight back.
      */
     override fun onTrimMemory(level: Int) {
@@ -57,7 +57,7 @@ class TvApp : Application(), ImageLoaderFactory {
 }
 
 /**
- * The memory caches are sized from (Peter, 2026-11-18): Android's NORMAL allowance for an app on this box. Viewarr
+ * The memory caches are sized from (2026-11-18): Android's NORMAL allowance for an app on this box. Viewarr
  * asks for the large one (largeHeap), but only as a margin against running out: the picture cache and the film buffer
  * stay as big as they were, so a box uses no more memory day to day; the extra is only there before a crash would be.
  */

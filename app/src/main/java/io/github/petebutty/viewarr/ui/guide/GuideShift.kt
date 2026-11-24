@@ -56,7 +56,7 @@ fun shiftLabel(min: Int): String {
 /** Settings → Live TV → Guide time offset: −10 h to +10 h in half hours. */
 class ShiftChoice(val min: Int) : RemoteChoice {
     override val label = shiftLabel(min)
-    // (−10 to +10 hours, half an hour at a time: a slider in Settings. Peter, 2026-11-17.)
+    // (−10 to +10 hours, half an hour at a time: a slider in Settings. 2026-11-17.)
     companion object { val all = (-20..20).map { ShiftChoice(it * 30) } }
 }
 
@@ -86,7 +86,7 @@ fun GuideShiftDialog(channel: ChannelListItem, vm: GuideViewModel, onToast: (Str
             "Move this channel's programmes later (+) or earlier (−) when its guide is hours out." +
                 (if (source != 0) "  Whole source: ${shiftLabel(source)} (Settings → Live TV)." else ""),
         )
-        // The slider: Left / Right half an hour at a time, −10 to +10 hours; OK: done. (Peter, 2026-11-17: it was four
+        // The slider: Left / Right half an hour at a time, −10 to +10 hours; OK: done. (2026-11-17: it was four
         // +/− buttons.)
         // Each step slides this channel's listings in the guide behind straight away (and is saved).
         fun set(v: Int) { min = v.coerceIn(-600, 600); vm.setChannelShiftMin(channel, min) }
@@ -150,7 +150,7 @@ private fun ShiftSlider(min: Int, onChange: (Int) -> Unit, modifier: Modifier, o
 }
 /**
  * Hold OK in the guide → Timeline: how much time the guide shows across the screen (Settings → Appearance → TV guide →
- * Timeline), picked from the guide itself. (Peter, 2026-11-17.)
+ * Timeline), picked from the guide itself. (2026-11-17.)
  */
 @Composable
 fun GuideTimelineDialog(onClose: () -> Unit) {

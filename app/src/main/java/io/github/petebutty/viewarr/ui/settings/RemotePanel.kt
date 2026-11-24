@@ -232,7 +232,7 @@ private fun TeachButtonDialog(
     onRemove: () -> Unit,
     onCancel: () -> Unit,
 ) {
-    // (Through ViewarrPopup, the shared pop-up window, with its glass and radius: was a raw Dialog. Peter, 2026-11-17.)
+    // (Through ViewarrPopup, the shared pop-up window, with its glass and radius: was a raw Dialog. 2026-11-17.)
     io.github.petebutty.viewarr.ui.common.ViewarrPopup(onClose = onCancel) {
         androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.5f)))
         val f = androidx.compose.runtime.remember { androidx.compose.ui.focus.FocusRequester() }
@@ -278,7 +278,7 @@ private fun TeachButtonDialog(
 /** "Press the button you want for search": any button except OK, the arrows, Back and Home. */
 @androidx.compose.runtime.Composable
 private fun LearnButtonDialog(onKey: (Int) -> Unit, onCancel: () -> Unit) {
-    // (Through ViewarrPopup, the shared pop-up window, with its glass and radius: was a raw Dialog. Peter, 2026-11-17.)
+    // (Through ViewarrPopup, the shared pop-up window, with its glass and radius: was a raw Dialog. 2026-11-17.)
     io.github.petebutty.viewarr.ui.common.ViewarrPopup(onClose = onCancel) {
         androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.5f)))
         val f = androidx.compose.runtime.remember { androidx.compose.ui.focus.FocusRequester() }

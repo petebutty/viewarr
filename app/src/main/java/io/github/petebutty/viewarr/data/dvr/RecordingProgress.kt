@@ -5,7 +5,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 
 /**
  * How far you've watched each recording, kept on the box (Dispatcharr doesn't keep a place in a recording): a bar on
- * the Recordings page, a tick once watched, and the next play carries on where you stopped (Peter, 2026-11-20).
+ * the Recordings page, a tick once watched, and the next play carries on where you stopped (2026-11-20).
  * By recording id: "position|length|when", in ms.
  */
 object RecordingProgress {

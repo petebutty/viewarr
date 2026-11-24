@@ -113,7 +113,7 @@ fun pressFilmButton(
         PlayerButton.SwitchPlayer -> switchPlayer?.invoke()
         PlayerButton.Stop -> { onClose(); return false }
         // Settings over the film, which carries on full screen behind it (it went to the corner, showing whatever page
-        // was underneath, the TV guide if it was started from live TV; Peter, 2026-11-16). Closing Settings: the film.
+        // was underneath, the TV guide if it was started from live TV; 2026-11-16). Closing Settings: the film.
         PlayerButton.Settings -> { menu.open = false; VodHost.behind = true; PlayerBridge.openSettings(); return false }
         // TV guide: the film carries on in the mini player while the guide opens (Back on it: full screen again).
         PlayerButton.Guide -> { openGuideOverFilm(menu); return false }
@@ -128,7 +128,7 @@ fun pressFilmButton(
 fun minimiseToLiveTv(onClose: () -> Unit) {
     VodHost.minimise()
     if (!VodHost.active) { onClose(); return }
-    // Settings → Playback → Back from a film: its own page (standard since 0.28.5, Gtunney / Peter) leaves the mini
+    // Settings → Playback → Back from a film: its own page (standard since 0.28.5) leaves the mini
     // player over the page it was started from (its title page, usually); "The TV guide and menu" opens those.
     if (AppColors.palette.opt(UiOpts.FILM_BACK) != 1) return
     PlayerBridge.openMenuOnLiveTv()
@@ -179,7 +179,7 @@ fun filmHooks(
     // The Episodes row opens on the episode playing; the other rows on their first card.
     menu.rowStart = { r -> if (r == FilmShortcuts.nextIndex(menu.withNext)) NextUp.startAt else 0 }
     // Hold OK on a button: the Info bar buttons list (FilmBarEditor), as on live TV. (It replaced editing the bar in
-    // place, (VodHooks' old toggleButton / moveButton went with it): Peter, 2026-11-17 UI review. [barAppearance] is kept
+    // place, (VodHooks' old toggleButton / moveButton went with it): 2026-11-17 UI review. [barAppearance] is kept
     // for the callers; the list saves through its own.)
     menu.editBar = { panels.barOpen = true }
     return VodHooks(

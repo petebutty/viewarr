@@ -64,7 +64,7 @@ data class HouseData(
  * "changes" is the Undo list in Settings → Live TV → Reports, and a new one shows admins a quiet card (HouseNotice);
  * "needs_pick" lists channels where someone reported a wrong guide and the plugin couldn't find a match: the reporter
  * and admins are asked to pick one. The last copy is kept, so the offsets are there before the first read.
- * (Peter, 2026-11-19.)
+ * (2026-11-19.)
  */
 @Singleton
 class HouseSync @Inject constructor(
@@ -163,7 +163,7 @@ class HouseSync @Inject constructor(
         prefs.edit().putStringSet(key, ids).apply()
         // A guide, name or logo changed on the server (applied or undone) since this box last looked: the channel list
         // and guide are read again now, so the change shows without waiting for the next scheduled sync (Fox News's
-        // new guide looked empty on the box until it was refreshed; Peter, 2026-11-19).
+        // new guide looked empty on the box until it was refreshed; 2026-11-19).
         val guideChanged = seen != null && d.changes.any { c -> ("c:" + c.id) !in seen && (c.what.startsWith("Guide changed") || c.what.startsWith("Renamed") || c.what.startsWith("Logo")) }
         val undoneChanged = seen != null && d.changes.any { it.undone && ("c:" + it.id + ":undone") !in seen }
         if (guideChanged || undoneChanged) {

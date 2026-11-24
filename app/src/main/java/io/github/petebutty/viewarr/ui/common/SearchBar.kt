@@ -167,7 +167,7 @@ fun SearchField(
 
 /**
  * A round icon button in the search bar's style (the mic's: a dark disc, lit with the accent when highlighted): the
- * menu's Settings gear beside the mic and Search. (Peter, 2026-11-17: the gear was a small dim "⚙".)
+ * menu's Settings gear beside the mic and Search. (2026-11-17: the gear was a small dim "⚙".)
  */
 @Composable
 fun RoundBarButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit, modifier: Modifier = Modifier, size: Dp = 44.dp) {

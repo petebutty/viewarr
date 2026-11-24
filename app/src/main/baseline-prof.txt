@@ -1,5 +1,5 @@
 # Viewarr Baseline Profile: the code used when it starts and while browsing, compiled ahead of time when it's
-# installed (Peter, 2026-11-18: an APK install runs interpreted at first, which froze the opening on the AM9).
+# installed (2026-11-18: an APK install runs interpreted at first, which froze the opening on the AM9).
 # Made from the AM9's recorded profile (cmd package dump-profiles), names mapped back with R8's mapping.txt.
 # Refresh it now and then as the app grows (tools/baseline-profile.md).
 HSPLLandroidx/compose/foundation/text/CoreTextFieldKt$CoreTextField$2$1$2;->**(**)**

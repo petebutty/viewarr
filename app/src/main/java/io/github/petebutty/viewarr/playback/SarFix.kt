@@ -16,7 +16,7 @@ import androidx.media3.exoplayer.video.VideoRendererEventListener
 /**
  * The picture's shape from the stream itself when the box's decoder gets it wrong. Media3 takes the decoder's pixel
  * shape ("sar-width/height") over the stream's; some decoders (Amlogic, Ugoos AM9 Pro) always say square, so
- * widescreen SD (720×576 marked 16:9) came out 5:4, narrow, with black bars (Peter, TRex BBC One Scotland,
+ * widescreen SD (720×576 marked 16:9) came out 5:4, narrow, with black bars (TRex BBC One Scotland,
  * 2026-11-16). A square answer is ignored when the stream says otherwise.
  */
 @OptIn(UnstableApi::class)

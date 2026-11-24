@@ -187,7 +187,7 @@ class WatchSync @Inject constructor(
         // Names and posters for titles shared without them (a companion plugin writes only ids and progress), and for
         // entries already saved as "Unknown": looked up on TMDB first (a few dozen at most per sync).
         // (Also those with a name but no poster: the plugin's Plex / Emby / Jellyfin sync sends names only, and their
-        // cards were blank in Continue watching. Peter, 2026-11-18. One lookup per show, not per episode.)
+        // cards were blank in Continue watching. 2026-11-18. One lookup per show, not per episode.)
         val posterless = store.entries.value.filter { it.poster == null && it.tmdbId != null }.map { Ref(it.type, it.tmdbId, null, null, null, null) }
         val unnamed = (merged.mapNotNull { (k, v) -> parseKey(k)?.takeIf { (v.text("title") == null || v.text("poster") == null) && it.tmdb != null } } +
             localByKey.values.filter { it.title == UNKNOWN && it.tmdbId != null }.map { Ref(it.type, it.tmdbId, null, null, null, null) } + posterless)
@@ -200,7 +200,7 @@ class WatchSync @Inject constructor(
             val out = list.toMutableList()
             // Taken from a server by the plugin (Plex / Emby / Jellyfin: "src"), never played in Viewarr: only kept for
             // shows already watched here. Others are that server's own watching, shown in its own rows; they were
-            // added as blank IPTV cards (Peter, 2026-11-18) and go again here, without telling the server anything.
+            // added as blank IPTV cards (2026-11-18) and go again here, without telling the server anything.
             fun fromServerOnly(v: JsonObject) = v.text("src") != null && v.text("key") == null
             val showsHere = out.filter { it.key != it.id && it.tmdbId != null }.map { it.type + ":" + it.tmdbId }.toSet()
             val gone = out.filter { e -> e.key == e.id && merged[keyOf(e)]?.let(::fromServerOnly) == true && (e.type + ":" + e.tmdbId) !in showsHere }

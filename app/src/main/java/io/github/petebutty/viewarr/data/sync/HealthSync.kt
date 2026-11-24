@@ -24,7 +24,7 @@ import javax.inject.Singleton
 /**
  * This box's record of how each Live TV stream has behaved (playback/SourceRank: fails this week, last good play),
  * shared with the Viewarr plugin on Dispatcharr through this user's own app data, key [KEY], so the plugin can put
- * the house's streams in a better order for everyone (Peter, 2026-11-19):
+ * the house's streams in a better order for everyone (2026-11-19):
  *
  *   {"updated_at": 1794800000, "server": "http://192.168.0.10:9191",
  *    "streams": {"412": {"f": [1794790000, 1794795000], "ok": 0}, "413": {"f": [], "ok": 1794799000}}}
@@ -49,8 +49,8 @@ class HealthSync @Inject constructor(
 
     /**
      * A fail or a good play was saved: a push follows, once 10 minutes have passed since the last one. A fail
-     * ([soon]) goes within 30 s instead, so the plugin's next round already knows a source didn't start (Peter,
-     * 2026-11-19: failed channels reported automatically).
+     * ([soon]) goes within 30 s instead, so the plugin's next round already knows a source didn't start
+     * (2026-11-19: failed channels reported automatically).
      */
     fun changed(soon: Boolean = false) {
         val gap = if (soon) SOON_GAP else MIN_GAP

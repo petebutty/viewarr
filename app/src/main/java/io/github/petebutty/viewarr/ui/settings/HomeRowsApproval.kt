@@ -15,7 +15,7 @@ import androidx.tvprovider.media.tv.TvContractCompat
  * app's extra rows only once each is approved, and only the app itself can ask (nothing from outside can switch them
  * on). This asks for each of Viewarr's rows not shown yet, one after another, in the order they were made (the order
  * they then sit in on the home screen): OK on each prompt shows it. Launchers that show apps' rows by themselves
- * (Projectivy) never need it. (Peter, 2026-11-20: the Shield.)
+ * (Projectivy) never need it. (2026-11-20: the Shield.)
  */
 @Composable
 internal fun androidHomeApprovalItem(): SettingItem {

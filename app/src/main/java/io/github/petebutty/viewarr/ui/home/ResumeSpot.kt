@@ -10,7 +10,7 @@ import io.github.petebutty.viewarr.ui.media.VodHost
 
 /**
  * Where you were when Viewarr went to the background (the Home button, another app), so that if Android clears it
- * while it's away (a 2 GB box short of memory) it opens there again, not afresh (Peter, 2026-11-15: standard).
+ * while it's away (a 2 GB box short of memory) it opens there again, not afresh (2026-11-15: standard).
  * Saved each time it goes to the background; forgotten when you leave on purpose (Back to exit, or Exit) or once
  * it's been a while. Read once, at a cold start.
  */
@@ -93,4 +93,5 @@ internal fun ResumeEffects(hs: HomeState, remote: RemoteSettings, session: Sessi
         playback.pause(); VodHost.remote?.pause()
     }
     androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_START) { playback.resume(); if (ResumeSpot.checked) ResumeSpot.clear(ctx) }
+    AndroidPipEffects(hs, playing)
 }

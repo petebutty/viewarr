@@ -107,6 +107,7 @@ class AppViewModel @Inject constructor(
     accessLoader: AccessLoader,
     house: House,
     houseSync: io.github.petebutty.viewarr.data.report.HouseSync,
+    private val followedShows: io.github.petebutty.viewarr.data.media.FollowedShows,
 ) : ViewModel() {
     /** Setup was shown in this run of the app (so the tour follows it). */
     var sawSetup by androidx.compose.runtime.mutableStateOf(false)
@@ -129,6 +130,9 @@ class AppViewModel @Inject constructor(
             gameWatch.startSharing()
             // Without the plugin, this TV records them itself while Viewarr is running (every 15 minutes, and after a guide update).
             tvGameRecorder.start()
+            io.github.petebutty.viewarr.ui.common.AppStart.after(30_000)
+            // New episodes of the shows you follow (Settings → Notifications → New episodes), every 3 hours.
+            followedShows.start(viewModelScope)
         }
         // What the signed-in person may do (an admin's locks on their Dispatcharr user).
         accessLoader.start(viewModelScope)
@@ -241,7 +245,7 @@ fun AppRoot(vm: AppViewModel = hiltViewModel()) {
     // No screen reader running (the usual case): the whole app is one plain accessibility element. An accessibility
     // service of another kind (Projectivy's, for its remote buttons and Home) makes Android re-describe every element
     // on screen after each change, and that was the biggest single cost on the main thread while browsing (~1.3 s of
-    // 15 s; Peter, 2026-11-19). With TalkBack (touch exploration) on, everything is described as normal.
+    // 15 s; 2026-11-19). With TalkBack (touch exploration) on, everything is described as normal.
     val screenReader = rememberScreenReader()
     Box(
         Modifier

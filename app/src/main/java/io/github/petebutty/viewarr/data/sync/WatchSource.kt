@@ -9,7 +9,7 @@ import io.github.petebutty.viewarr.ui.theme.UiOpts
 
 /**
  * What's connected for "what you've watched", and the few rules that follow from it. There's no choosing one place
- * any more (Peter, 2026-11-19: "it should all just work"): every play is reported everywhere it belongs (the server it
+ * any more (2026-11-19: "it should all just work"): every play is reported everywhere it belongs (the server it
  * plays from, Trakt when connected, this box's own record for IPTV), Mark as watched goes everywhere the title is,
  * and ticks, bars, Continue watching and Up next read all of them together (ui/media/WatchState.kt).
  */

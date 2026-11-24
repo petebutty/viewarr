@@ -9,7 +9,7 @@ import java.util.Collections
  * controls, so the two stay the same. Each bar shows the buttons it has, in that order: live TV's extras (Aspect,
  * Source, Record, Multi-view) and the film's own (Play / Pause, Details, Switch player) keep their places in it.
  * Edited by holding OK on a button of either bar: the Info bar buttons list for that bar (BarButtonsEditor, the same
- * as Settings → Appearance → Info bar buttons). (The film bar was edited in place until Peter, 2026-11-17 UI review.)
+ * as Settings → Appearance → Info bar buttons). (The film bar was edited in place until 2026-11-17 UI review.)
  * Kept with the appearance settings: the order as ids, hidden ones as "bar:all:<id>".
  */
 object BarLayout {
@@ -37,7 +37,7 @@ object BarLayout {
     /**
      * Each bar's main buttons: always on it (they can be moved, not removed). Live TV: TV guide, Stop, Audio, Subtitles
      * and Source (switching source rescues a stream that won't play); films: Play / Pause, Stop, Audio, Subtitles.
-     * (Peter, 2026-11-17: "main player functions must be tied to the info bar". TV guide and Play / Pause were the only
+     * (2026-11-17: "main player functions must be tied to the info bar". TV guide and Play / Pause were the only
      * ones, for both bars, and a bar could lose Stop, Audio and Subtitles.)
      */
     val liveFixed = setOf("guide", "stop", "audio", "subtitles", "source")
@@ -103,7 +103,7 @@ object BarLayout {
         val o = order()
         val sorted = all.withIndex().sortedBy { (i, t) -> o.indexOf(id(t)).let { if (it < 0) o.size + i else it } }.map { it.value }
         // The bar's locked buttons first, then a divider (drawn after [lastLocked]), then the rest; each group in your
-        // order. (Peter, 2026-11-17: "locked buttons can have a line separating them".)
+        // order. (2026-11-17: "locked buttons can have a line separating them".)
         val (lk, rest) = (if (editing) sorted else sorted.filter { shown(id(it), bar) }).partition { locked(id(it), bar) }
         return lk + rest
     }

@@ -20,7 +20,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 /**
- * A row that moves the way the poster rows do (Peter, 2026-11-20: "episode panels should animate the same as posters"):
+ * A row that moves the way the poster rows do (2026-11-20: "episode panels should animate the same as posters"):
  * the highlight keeps its place at the start of the row and the cards slide under it. On Left / Right the row jumps so
  * the card being moved to sits in the first place, in the same instant as the highlight, and is then drawn where it was
  * and eased into place (one layer moved, nothing laid out again per frame).

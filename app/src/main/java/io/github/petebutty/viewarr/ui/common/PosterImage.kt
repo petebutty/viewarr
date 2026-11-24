@@ -36,7 +36,7 @@ fun PosterImage(
     /**
      * A colour washed over the picture (the "Other posters faded" shade): one plain rectangle drawn on top, with no
      * see-through layer (those cost graphics memory per poster). It was a colour filter on the picture, which on some
-     * boxes did nothing at all (Peter, 2026-11-20: "Other posters faded doesn't seem to work").
+     * boxes did nothing at all (2026-11-20: "Other posters faded doesn't seem to work").
      */
     tint: Color? = null,
     /**

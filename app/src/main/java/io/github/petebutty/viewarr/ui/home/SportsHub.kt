@@ -68,7 +68,7 @@ internal class SportsHub(
     var restoreFocus: (() -> Unit)? = null
     /**
      * Closes the game page with focus moved back to its game first: closing it with the focus still inside left a
-     * moment with none, the menu's Music entry took it and the page switched to Music (Peter, 2026-11-16).
+     * moment with none, the menu's Music entry took it and the page switched to Music (2026-11-16).
      */
     fun closeGame() {
         val r = runCatching { restoreFocus?.invoke() }
@@ -218,7 +218,7 @@ internal class SportsHub(
             kotlin.math.abs(r.start - g.start) <= 60 * 60_000L && r.end > g.start &&
                 // On a known channel: a reminder on that channel. With no channel (a 3pm game not on UK TV), only a
                 // reminder naming one of its teams: any reminder near kick-off lit the bell on every such game
-                // (Peter, 2026-11-19: "random notifications I didn't add").
+                // (2026-11-19: "random notifications I didn't add").
                 (if (channel != null) r.channelId == channel.id
                  else listOf(g.home, g.away).filter { it.length >= 4 }.any { t -> r.title.contains(t, ignoreCase = true) })
         }
@@ -248,7 +248,7 @@ internal class SportsHub(
             if (pagesOn) CardOption("Game info") { openGame = g to ch } else null,
             // Not in the guide yet: kept, and done once the guide lists it.
             // A channel known without the guide: a reminder at kick-off on it, now. (Waiting for the guide never came for
-            // games it doesn't list that way: club streams, listings channels. Peter, 2026-11-16.)
+            // games it doesn't list that way: club streams, listings channels. 2026-11-16.)
             if (ch == null && g.state == "pre" && known != null) CardOption(if (dvr.reminderAt(known.id, g.start) != null) "Cancel reminder" else "Remind me at kick-off") {
                 toggleKickOffReminder(g, known)
             } else null,
@@ -260,7 +260,7 @@ internal class SportsHub(
                 val want = !gw.wantsRecording(g.id); gw.setRecording(g.id, want)
                 toast(if (want) "${g.title} will be recorded once it's in your TV guide" + io.github.petebutty.viewarr.data.sports.TvGameRecorder.whileRunning else "Won't record ${g.title}")
             } else null,
-            // (Shows whether it's set, and takes it off again: Remind me said nothing it had done. Peter, 2026-11-18.)
+            // (Shows whether it's set, and takes it off again: Remind me said nothing it had done. 2026-11-18.)
             if (ch != null && !started) CardOption(if (dvr.reminderFor(ch.first.id, ch.second) != null) "✓ Reminder set: cancel it" else "Remind me") {
                 val r = dvr.reminderFor(ch.first.id, ch.second)
                 if (r != null) { dvr.forget(r.id); toast("Reminder cancelled: ${g.title}") }

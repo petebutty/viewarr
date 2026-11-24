@@ -6,7 +6,7 @@ import kotlinx.coroutines.delay
 
 /**
  * How long ago this run of the app started, so background work can wait until the first screen has settled instead
- * of all landing at once (Peter, 2026-11-18: the opening on the AM9 did everything together).
+ * of all landing at once (2026-11-18: the opening on the AM9 did everything together).
  */
 object AppStart {
     fun sinceMs(): Long = SystemClock.elapsedRealtime() - Process.getStartElapsedRealtime()

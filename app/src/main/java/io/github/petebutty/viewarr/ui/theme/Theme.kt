@@ -27,7 +27,7 @@ data class Palette(val main: Color, val highlight: Color, val transparency: Floa
     fun shows(part: String) = part !in titleHidden
     fun opt(name: String) = opts[name] ?: UiOpts.defaults[name] ?: 0
     /** What darkens a wallpaper / artwork: the background colour (a wash of the theme over the picture), or plain
-     *  black so the picture keeps its own colours (Settings → Appearance → Wallpaper shade; Peter, 2026-11-17: the
+     *  black so the picture keeps its own colours (Settings → Appearance → Wallpaper shade; 2026-11-17: the
      *  theme and the wallpaper were fighting). */
     val shade get() = if (opt(UiOpts.WALL_SHADE) == 1) androidx.compose.ui.graphics.Color(0xFF080808) else main
     /**
@@ -58,7 +58,7 @@ data class Palette(val main: Color, val highlight: Color, val transparency: Floa
     val libraryPosterDp get() = floatArrayOf(100f, 116f, 88f, 136f)[opt(UiOpts.LIBRARY_POSTERS).coerceIn(0, 3)]
     val infoBarWidth get() = floatArrayOf(1f, 0.9f, 0.8f, 0.7f, 0.6f)[opt(UiOpts.INFOBAR_WIDTH).coerceIn(0, 4)]
     /** Row posters' width (Settings → Appearance → Browsing style). */
-    // Normal: two whole rows fit under the top panel (Peter, 2026-11-19; 118 left the second row cut off), about 8½ across;
+    // Normal: two whole rows fit under the top panel (2026-11-19; 118 left the second row cut off), about 8½ across;
     // Large and Small in the same proportion as before. Sized from the screen's width (1280 units wide here), so a
     // box laid out narrower still shows 8.
     val rowPosterWidth get() = floatArrayOf(108f, 140f, 93f)[opt(UiOpts.ROW_POSTERS).coerceIn(0, 2)] * ScreenWidth.factor
@@ -76,8 +76,8 @@ data class Palette(val main: Color, val highlight: Color, val transparency: Floa
     /** Settings → Playback → Next episode countdown: 0–180 s in 5 s steps (the older four-choice setting carries over). */
     val upNextSeconds get() = (opts[UiOpts.UP_NEXT_S] ?: opts[UiOpts.UP_NEXT]?.let { intArrayOf(20, 10, 30, 60)[it.coerceIn(0, 3)] / 5 } ?: 4).coerceIn(0, 36) * 5
     // Text size (Settings → Appearance), text only: the layout, posters and spacing stay as designed (see AppRoot).
-    // "Normal" is 90% of the old size, for everyone to start with (Peter, 2026-11-19: at full size a tester's guide panel
-    // lost its synopsis; "make current small, normal"). Small and Large step about 10% either side (no Extra large: Peter, 2026-11-19).
+    // "Normal" is 90% of the old size, for everyone to start with (2026-11-19: at full size a tester's guide panel
+    // lost its synopsis; "make current small, normal"). Small and Large step about 10% either side (no Extra large: 2026-11-19).
     // A new key, so the old whole-app setting's choices don't carry over.
     // Picture size (Settings → Appearance): the finished picture shrunk, centred, for a TV that cuts off the edges. The
     // layout itself never changes (see ui/common/PictureScale.kt).
@@ -115,7 +115,10 @@ data class Palette(val main: Color, val highlight: Color, val transparency: Floa
     val cellFuture = lerp(main, Color.White, 0.08f)
     val cellCurrent = lerp(main, Color.White, 0.15f)
     val previewBox = lerp(main, Color.Black, 0.35f)
-    val onHighlight = if (highlight.luminance() > 0.5f) Color(0xFF0B1220) else Color.White
+    /** The highlight as shown: toned down towards the background by Settings → Appearance → Tone down highlight
+     *  (2026-11-23: the highlights were too bright on the TV). */
+    val accent: Color = lerp(highlight, main, opt(UiOpts.HIGHLIGHT_STRENGTH).coerceIn(0, 8) * 0.1f)
+    val onHighlight = if (accent.luminance() > 0.5f) Color(0xFF0B1220) else Color.White
 }
 
 data class ThemePreset(val name: String, val main: Color, val highlight: Color)
@@ -173,7 +176,7 @@ object AppColors {
     val Scrim get() = if (palette.wallpaperMode != 0) palette.shade.copy(alpha = palette.wallpaperDim) else palette.main
     val Panel get() = palette.panel
     val PanelAlt get() = palette.panelAlt
-    val Accent get() = palette.highlight
+    val Accent get() = palette.accent
     val OnAccent get() = palette.onHighlight
     val CellFuture get() = palette.cellFuture
     val CellPast get() = palette.cellPast
@@ -192,7 +195,7 @@ fun ViewarrTheme(content: @Composable () -> Unit) {
     val p = AppColors.palette
     M3Theme(
         colorScheme = m3DarkColorScheme(
-            primary = p.highlight,
+            primary = p.accent,
             onPrimary = p.onHighlight,
             background = p.main,
             surface = p.panel,
@@ -203,7 +206,7 @@ fun ViewarrTheme(content: @Composable () -> Unit) {
     ) {
         MaterialTheme(
             colorScheme = darkColorScheme(
-                primary = p.highlight,
+                primary = p.accent,
                 onPrimary = p.onHighlight,
                 background = p.main,
                 surface = p.panel,
@@ -338,14 +341,14 @@ object UiOpts {
     /** Where trailer previews play while browsing: the corner window, or in the poster, which widens to 16:9. */
     const val TRAILER_STYLE = "trailer_style"
     /** In the poster: how long the trailer plays in the card before it grows into the big panel with sound. */
-    // (A new key: the choices became 1–5 seconds. Peter, 2026-11-18.)
+    // (A new key: the choices became 1–5 seconds. 2026-11-18.)
     const val TRAILER_GROW = "trailer_grow_s"
     /** Movies / Shows: the details panel at the top (hero): normal, big (Cinema), or off (Lite). */
     const val HERO_STYLE = "hero_style"
     /** The posters in rows: normal, large or small. */
     const val ROW_POSTERS = "row_posters"
     /** Where the guide's programme picture goes: the background ("What's selected" wallpaper), or a banner card in
-     *  the info area with the background left alone (Peter, 2026-11-17). */
+     *  the info area with the background left alone (2026-11-17). */
     const val GUIDE_ART_PLACE = "guide_art_place"
     /** The guide's top panel: the "Next" and "Then" lines on the right (a tester, 2026-11-19: a way to hide them). */
     const val GUIDE_NEXT = "guide_next"
@@ -353,11 +356,11 @@ object UiOpts {
     const val SNOW = "snow"
     /** Movies / Shows background: the highlighted title's artwork, or the wallpaper (a tester, 2026-11-19). */
     const val TITLE_BG = "title_bg"
-    /** The wallpaper behind the TV guide too, or a plain background there (Peter, 2026-11-19: a clean guide). */
+    /** The wallpaper behind the TV guide too, or a plain background there (2026-11-19: a clean guide). */
     const val GUIDE_WALL = "guide_wall"
     /** The guide's top panel: the "S2026 E1119" badge under Next / Then (a tester, 2026-11-19). */
     const val GUIDE_EPISODE_BADGE = "guide_episode_badge"
-    /** The guide's top panel: the "Catch-up" badge (Peter, 2026-11-19). */
+    /** The guide's top panel: the "Catch-up" badge (2026-11-19). */
     const val GUIDE_CATCHUP_BADGE = "guide_catchup_badge"
     const val CHANNEL_LOGOS = "channel_logos"
     const val MINI_CORNER = "mini_corner"
@@ -395,6 +398,15 @@ object UiOpts {
     const val CHLIST_PROGRESS = "chlist_progress"
     /** The channel list: the highlighted channel's progress bar colour (on the highlight). */
     const val CHLIST_PROGRESS_COLOUR = "chlist_progress_colour"
+    /** How much the highlight colour is toned down towards the background, 0–80% in tens (Palette.accent). */
+    const val HIGHLIGHT_STRENGTH = "highlight_strength"
+    /** Movies / Shows pages: the main rows only (8; Discover.homeRows), or every row as before. */
+    const val CURATED_HOME = "curated_home"
+    /** Films: the highest bitrate for a copy over the internet (VersionPick.Screen.maxKbpsAway). */
+    const val AWAY_MAX_MBPS = "away_max_mbps"
+    /** Tell the server while a film comes in over the internet (StreamSignal), for a server script that slows
+     *  downloads meanwhile. Off unless switched on: it only means something with such a script. */
+    const val STREAM_SIGNAL = "stream_signal"
     /** The channel list over live TV: how wide it is. */
     const val CHLIST_WIDTH = "chlist_width"
     /** Live TV info bar: the stream's provider (Dispatcharr's account for the stream playing, e.g. a backup). */
@@ -424,8 +436,8 @@ object UiOpts {
     const val TIME_FORMAT = "time_format"
     /** Defaults other than the first choice (anyone who never chose). Stored choices are kept as they are. */
     val defaults = mapOf(
-        EVENT_ONLY_LISTED to 1, // off until switched on (Peter, 2026-11-19: app-side hiding is opt-in)
-        POSTER_DIM to 2, // (20% faded to start: Peter, 2026-11-18)
+        EVENT_ONLY_LISTED to 1, // off until switched on (2026-11-19: app-side hiding is opt-in)
+        POSTER_DIM to 2, // (20% faded to start: 2026-11-18)
         // (The Viewarr look: light glass, as "Info bar: glass" Light was.)
         POPUP_GLASS to 2,
         UP_NEXT_S to 4,
@@ -506,7 +518,7 @@ object UiOpts {
         AFTER_FILM to listOf("Stay where you were", "Back to live TV"),
         FILM_BACK to listOf("Its own page", "The TV guide and menu"),
         ANIM_FILM to listOf("On", "Off"),
-        PLAY_ORDER to PlayOrder.orders.map(PlayOrder::label),
+        PLAY_ORDER to PlayOrder.oldLabels,
         GUIDE_SPAN to listOf("2½ hours", "1½ hours", "2 hours", "3 hours", "4 hours", "6 hours"),
         SET_ROWS_HOME to listOf("Only through their shortcuts", "On the home page too"),
         CATCHUP_ICONS to listOf("Programmes and channels", "Channel names only", "Off", "Highlighted channel only"),
@@ -519,6 +531,10 @@ object UiOpts {
         BANNER_FPS to listOf("On", "Off"),
         CHLIST_PROGRESS to listOf("Every channel", "Off", "Highlighted channel only"),
         CHLIST_WIDTH to listOf("Medium", "Narrow", "Wide"),
+        AWAY_MAX_MBPS to listOf("Automatic (this box's speed)", "No limit", "60 Mb/s (4K remux)", "40 Mb/s (4K)", "25 Mb/s (good 1080p / light 4K)", "15 Mb/s (1080p)", "8 Mb/s (720p / light 1080p)"),
+        CURATED_HOME to listOf("Main rows only (8)", "Every row"),
+        STREAM_SIGNAL to listOf("Off", "On"),
+        HIGHLIGHT_STRENGTH to listOf("Off") + (10..80 step 10).map { "$it%" },
         CHLIST_PROGRESS_COLOUR to listOf("White", "Black", "Grey", "Your highlight colour", "Dark highlight"),
         BANNER_SOURCE to listOf("On", "Off"),
         BUTTON_HINTS to listOf("First few times", "Always", "Off"),

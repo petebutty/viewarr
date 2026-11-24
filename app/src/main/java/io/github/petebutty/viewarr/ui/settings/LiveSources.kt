@@ -123,7 +123,7 @@ private fun RenameSourceDialog(current: String, fallback: String, onDone: (Strin
     var name by remember { mutableStateOf(current) }
     val first = remember { FocusRequester() }
     LaunchedEffect(Unit) { awaitFrame(); runCatching { first.requestFocus() } }
-    // (The shared pop-up: was a raw Dialog. Peter, 2026-11-17.)
+    // (The shared pop-up: was a raw Dialog. 2026-11-17.)
     io.github.petebutty.viewarr.ui.common.PopupPanel(onClose = onCancel, width = io.github.petebutty.viewarr.ui.theme.Tokens.PopupWide) {
         io.github.petebutty.viewarr.ui.common.PopupTitle("Name this source", "For example \"Living room\" or \"Backup provider\". Leave it empty for \"$fallback\".")
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -151,7 +151,7 @@ private fun GroupsDialog(vm: LiveSourcesViewModel, onClose: () -> Unit) {
     var hidden by remember { mutableStateOf(vm.hidden()) }
     val first = remember { FocusRequester() }
     LaunchedEffect(Unit) { awaitFrame(); runCatching { first.requestFocus() } }
-    // (The shared pop-up: was a raw Dialog. Peter, 2026-11-17.)
+    // (The shared pop-up: was a raw Dialog. 2026-11-17.)
     io.github.petebutty.viewarr.ui.common.PopupPanel(onClose = onClose, width = io.github.petebutty.viewarr.ui.theme.Tokens.PopupWide) {
         io.github.petebutty.viewarr.ui.common.PopupTitle("Choose groups")
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {

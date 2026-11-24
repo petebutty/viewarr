@@ -61,7 +61,7 @@ object SettingsShare {
     }
 
     /**
-     * The remote's button choices DO go in a settings code (Peter, 2026-11-22: "she needs the same remote controls as
+     * The remote's button choices DO go in a settings code (2026-11-22: "she needs the same remote controls as
      * I have"): sharing a code is someone choosing to hand their setup on. Only the box's own search key code stays.
      * (Backups and the saved copy still keep them per TV: SettingsSync.LOCAL_ONLY.)
      */

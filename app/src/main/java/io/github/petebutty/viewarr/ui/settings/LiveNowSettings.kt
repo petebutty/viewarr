@@ -85,7 +85,7 @@ fun liveNowPicksState(): List<LiveNowPick> {
 }
 
 /**
- * Settings → Live TV → Live now (Peter, 2026-11-19: "search for any team or sport … once added then should be possible
+ * Settings → Live TV → Live now (2026-11-19: "search for any team or sport … once added then should be possible
  * to be removed again"): Add, then one row per team, league or sport (OK: remove). Took over from the Live now sports
  * and Live now leagues switches.
  */

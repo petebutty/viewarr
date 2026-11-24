@@ -15,7 +15,7 @@ import kotlinx.serialization.json.put
 import java.io.File
 
 /**
- * The Movies / Shows rows as last loaded, kept on the box (Peter, 2026-11-18: the first opening asked every addon for
+ * The Movies / Shows rows as last loaded, kept on the box (2026-11-18: the first opening asked every addon for
  * every catalogue again, which weaker boxes feel). Shown straight away on the next opening while the fresh rows load
  * behind them. One file per page and per set of sign-ins ([profile]), so another profile's rows never show. Lists only
  * (names, ids, picture addresses; descriptions cut short), about 1–2 MB in all; the pictures stay in the image cache.

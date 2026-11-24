@@ -95,7 +95,7 @@ import io.github.petebutty.viewarr.ui.setup.WizardField
 object ProfileUi {
     /**
      * Profiles (Who's watching?, Users & profiles, PINs, friends in another house, invites) are switched off for now:
-     * Settings shows "Profiles · Coming soon" instead. Peter (2026-11-15), until the sharing page is made safe
+     * Settings shows "Profiles · Coming soon" instead (2026-11-15), until the sharing page is made safe
      * (it served a friend's API key as plain text on the home Wi-Fi). Set true to bring it all back.
      */
     const val ENABLED = false
@@ -634,7 +634,7 @@ fun WhoIsWatching(onDone: () -> Unit, vm: ProfilesViewModel = hiltViewModel()) {
                     val on = p.id == active
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         // The one card highlight (FocusCard: the 3 dp accent ring, no growing; was a 4 dp white ring
-                        // that grew. Peter, 2026-11-17).
+                        // that grew. 2026-11-17).
                         io.github.petebutty.viewarr.ui.common.FocusCard(
                             onClick = { if (!busy) { if (p.pin != null && !on) askPin = p else vm.switchTo(p) { onDone() } } },
                             modifier = (if (on || (active == null && i == 0)) Modifier.focusRequester(first) else Modifier).size(120.dp),

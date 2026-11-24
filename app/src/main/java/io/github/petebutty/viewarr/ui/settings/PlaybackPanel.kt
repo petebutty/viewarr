@@ -137,13 +137,27 @@ fun playbackCategories(vm: PlaybackSettingsViewModel = hiltViewModel(), opts: Ui
                 item("Background", "A dark box makes subtitles easier to read on bright scenes.", k.SUB_BACKGROUND, choices<SubtitleBackground>(), s.subtitleBackground),
             ),
         ),
+        // Where Play looks, in turn: every place in your order, each on or off (2026-11-24: entirely the user's choice).
+        // Hold OK → Move (or Right) picks one up, Up / Down move it; OK switches it on / off (one always stays on).
+        SettingCategory(
+            "Play order", "Where Play looks for a film or episode, in this order, playing the first that works. Within each, the copy that suits this TV best goes first. Switched off: Play skips it, but holding OK on Play (or on an episode) still lists it. One always stays on.",
+            io.github.petebutty.viewarr.ui.media.PlayOrder.let { po ->
+                val ordered = po.ordered()
+                ordered.mapIndexed { i, src ->
+                    onOffItem(src.label, "${i + 1} of ${ordered.size}  ·  ${src.about}  ·  Hold OK: move", po.on(src),
+                        reorder = { delta -> po.moved(src, delta)?.let { appearance.setBarOrder(po.KEY, it) } },
+                    ) { on -> if (on || po.current().any { it != src }) appearance.setTitlePart("play:${src.id}", on) }
+                }
+            },
+        ),
         SettingCategory(
             "Streams", "Quality, Plex and addon streams.",
             listOf(
-                optItem(opts, "Play order", "Where Play looks for a film or episode, in turn, playing the first that works. Hold OK on Play (or on an episode) to pick from every source yourself.", UiOpts.PLAY_ORDER),
                 item("Addon streams", "Choose from the list yourself, or let Viewarr start the best cached stream within your quality limit.", k.STREAM_PICK, choices<StreamPick>(), s.streamPick),
                 item("Cached only", "Leave out Usenet and torrent streams that aren't instant (marked ⚡ by your addon), in the lists and when Viewarr picks. Plain web streams always stay.", k.CACHED_ONLY, choices<CachedOnly>(), s.cachedOnly),
                 item("Try the next stream", "If the addon stream Viewarr picked fails, or hasn't started after 20 seconds, the next one plays instead (up to 3 more). The built-in player only.", k.STREAM_FALLBACK, choices<StreamFallback>(), s.streamFallback),
+                optItem(opts, "Internet copies", "The biggest film or episode file Viewarr picks from a server outside your house (a friend's Plex, Jellyfin over the internet). Automatic: what this box's own connection plays smoothly, learned from what you watch. A bigger copy is only picked when there's nothing smaller, and Play from marks it. A copy on a server in your house always comes first and is never limited. (Automatic: until a film from outside has been played, Viewarr times a short download from Cloudflare's speed test, at most once a day and only when it has an outside copy to choose.)", UiOpts.AWAY_MAX_MBPS),
+                optItem(opts, "Tell the server about internet films", "While a film plays from outside your house (an addon or a server elsewhere), this box tells your Dispatcharr server once a minute, for a script there that slows downloads meanwhile. It says only that one is playing and this box's speed, never what. Off: nothing is sent. Only useful if you have such a script.", UiOpts.STREAM_SIGNAL),
                 item("Best quality allowed", "Streams above this are listed last and never auto-picked. Match the TV works out 4K or 1080p for you.", k.MAX_RES, choices<MaxResolution>(), s.maxResolution),
                 item("Plex quality", "Original plays the file itself and converts only if the TV can't. Lower settings always convert, for slow Wi-Fi.", k.PLEX_QUALITY, choices<PlexQuality>(), s.plexQuality),
                 item("Buffer", "How much video is loaded ahead. Large helps on patchy internet; small helps boxes with little memory.", k.BUFFER, choices<BufferSize>(), s.buffer),
@@ -217,7 +231,7 @@ fun playbackCategories(vm: PlaybackSettingsViewModel = hiltViewModel(), opts: Ui
                 listOf(PlainChoice("OK: add")), PlainChoice("OK: add"), action = { guideVm.addJustAddedRows() }, onSelect = {}).takeIf { io.github.petebutty.viewarr.data.sync.ServerSports.available(io.github.petebutty.viewarr.data.sync.ServerSports.F_JUST) }) +
                 homeScreenMediaRows(appearance) { guideVm.refreshHomeRows() },
         ),
-        // Live now: which channel groups it searches (Peter, 2026-11-17: the user picks them). Starting ticks: the event
+        // Live now: which channel groups it searches (2026-11-17: the user picks them). Starting ticks: the event
         // feeds' groups and sporty-named ones.
         SettingCategory(
             "Live now groups", "The channel groups Live now looks through for live sport. To start with: your event channels' groups and any group whose name sounds like sport. Switch on a group it missed, or off one you don't want.",
@@ -230,7 +244,7 @@ fun playbackCategories(vm: PlaybackSettingsViewModel = hiltViewModel(), opts: Ui
             },
         ).takeIf { io.github.petebutty.viewarr.data.sync.ServerSports.available(io.github.petebutty.viewarr.data.sync.ServerSports.F_LIVE) },
         // Live now: the teams, leagues and sports it's limited to, searched for and added (the old per-sport and
-        // per-league switches are gone; Peter, 2026-11-19).
+        // per-league switches are gone; 2026-11-19).
         liveNowCategory(liveNowList).takeIf { io.github.petebutty.viewarr.data.sync.ServerSports.available(io.github.petebutty.viewarr.data.sync.ServerSports.F_LIVE) },
         // Notifications: everything Viewarr pops up by itself, all off with one switch, or each kind.
         SettingCategory(
@@ -250,6 +264,15 @@ fun playbackCategories(vm: PlaybackSettingsViewModel = hiltViewModel(), opts: Ui
                     add(onOffItem("Update available", "A card when a new Viewarr is out, checked when the app opens. Settings → About → Check for updates still works.", !AppColors.palette.shows(n.UPDATES)) { on -> appearance.setTitlePart(n.UPDATES, !on) })
                     add(onOffItem("What's new", "A card once after an update with what changed. Settings → About → Changelog still has it.", !AppColors.palette.shows(n.WHATS_NEW)) { on -> appearance.setTitlePart(n.WHATS_NEW, !on) })
                     add(onOffItem("Reports from the house", "A quiet card when the Viewarr plugin changes a channel from someone's report (admins: OK undoes it), or a wrong-guide report needs someone to pick the right guide (the person who reported it, and admins).", !AppColors.palette.shows(n.REPORTS)) { on -> appearance.setTitlePart(n.REPORTS, !on) })
+                    // New episodes of the shows you follow (data/media/FollowedShows), and the shows followed.
+                    val fs = io.github.petebutty.viewarr.data.media.FollowedShows
+                    add(onOffItem("New episodes", "A card when a new episode of a show you follow is in your library (checked when Viewarr opens and every 3 hours), and the episode on the Android home screen's Play next row for a week. Follow a show with the bell on its page.", !AppColors.palette.shows(n.NEW_EPISODES)) { on -> appearance.setTitlePart(n.NEW_EPISODES, !on) })
+                    if (!AppColors.palette.shows(n.NEW_EPISODES)) {
+                        add(onOffItem("Follow shows you're watching", "Shows in your Continue watching in the last two months are followed without you asking. Off: only the shows you follow yourself.", fs.autoOn()) { on -> appearance.setTitlePart(fs.AUTO_OFF, on) })
+                        fs.followed().forEach { show ->
+                            add(onOffItem(show.title, "Followed. OK: stop following (the bell on its page follows it again).", true) { on -> if (!on) fs.unfollowParts(show.key).forEach { (part, v) -> appearance.setTitlePart(part, v) } })
+                        }
+                    }
                 }
             },
         ),
@@ -257,7 +280,7 @@ fun playbackCategories(vm: PlaybackSettingsViewModel = hiltViewModel(), opts: Ui
         SettingCategory(
             "Trailers", "YouTube trailers for films and shows.",
             listOf(
-                // (In the order you'd set them: on, where, when, then the big panel. Peter, 2026-11-18: they were muddled.)
+                // (In the order you'd set them: on, where, when, then the big panel. 2026-11-18: they were muddled.)
                 item("Trailer previews", "When you rest on a poster in Movies or Shows, its trailer plays.", k.TRAILER_PREVIEW, choices<TrailerPreview>(), s.trailerPreview),
                 optItem(opts, "Trailer previews play", "In the window at the top of the page, or in the poster itself (it widens to a 16:9 picture and shrinks back when you move on).", io.github.petebutty.viewarr.ui.theme.UiOpts.TRAILER_STYLE),
                 item("Start after", "How long to rest on a poster before its trailer starts.", k.TRAILER_DELAY, choices<TrailerDelay>(), s.trailerDelay),
@@ -312,9 +335,13 @@ private val PlaybackOpts = UiOpts.run {
 }
 
 /** The Playback page's Reset: what it lists back to how a fresh install has it. */
-fun playbackReset(vm: PlaybackSettingsViewModel, opts: UiOptsViewModel) {
+fun playbackReset(vm: PlaybackSettingsViewModel, opts: UiOptsViewModel, appearance: AppearanceViewModel) {
     vm.resetKeys(PlaybackKeys)
     opts.reset(PlaybackOpts)
+    // Play order: the standard order, every place on.
+    val po = io.github.petebutty.viewarr.ui.media.PlayOrder
+    appearance.setBarOrder(po.KEY, io.github.petebutty.viewarr.ui.media.PlayOrder.Source.entries.map { it.id })
+    io.github.petebutty.viewarr.ui.media.PlayOrder.Source.entries.forEach { appearance.setTitlePart("play:${it.id}", true) }
 }
 
 /**

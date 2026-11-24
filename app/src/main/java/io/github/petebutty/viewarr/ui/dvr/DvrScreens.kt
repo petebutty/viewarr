@@ -150,7 +150,7 @@ private fun episodeTag(season: Int?, episode: Int?) = if (season != null && epis
 
 /**
  * Small centred panel of choices, used for the record options and the programme details. On the shared pop-up
- * (PopupPanel: glass, one radius, its own window, the held OK ignored). (Peter, 2026-11-17: was its own copy of it.)
+ * (PopupPanel: glass, one radius, its own window, the held OK ignored). (2026-11-17: was its own copy of it.)
  */
 @Composable
 internal fun ChoicePanel(
@@ -399,15 +399,15 @@ fun RecordingsScreen(
     LaunchedEffect(Unit) { vm.refresh() }
     BackHandler(enabled = focusEnabled && picked == null) { onBack() }
 
-    // Three lists, one at a time (Peter, 2026-11-20): Scheduled (recording now at its top), Recorded and Series
+    // Three lists, one at a time (2026-11-20): Scheduled (recording now at its top), Recorded and Series
     // recordings, each sorted by date either way. The list and each one's order are remembered on the box.
     val context = androidx.compose.ui.platform.LocalContext.current
     val prefs = remember { context.getSharedPreferences("recordings_page", android.content.Context.MODE_PRIVATE) }
-    // (Recorded is the first tab and where the page opens; Peter, 2026-11-21. Tab numbers stay 0 Scheduled, 1 Recorded,
+    // (Recorded is the first tab and where the page opens; 2026-11-21. Tab numbers stay 0 Scheduled, 1 Recorded,
     // 2 Series recordings; only the order they're shown in changed.)
     var tab by remember { androidx.compose.runtime.mutableIntStateOf(prefs.getInt("tab_v2", 1).coerceIn(0, 2)) }
     // The highlight on the tabs or the order switch: a list changing under it (moving along the tabs) mustn't pull it
-    // back down into the list (it did: Recorded and Series recordings couldn't be reached. Peter, 2026-11-20).
+    // back down into the list (it did: Recorded and Series recordings couldn't be reached. 2026-11-20).
     var onTabs by remember { mutableStateOf(false) }
     // Which of the tabs / order switch has the highlight (-1: none). Left only opens the menu from the first tab or the
     // list: from the others it moves along (Left anywhere opened the menu, so the tabs left of the order switch, where Up
@@ -416,7 +416,7 @@ fun RecordingsScreen(
     val tabFocus = remember { List(4) { FocusRequester() } }
     // The list back at its top when its order or the list changes. (It kept its place by the row that was at the top,
     // so after "Newest first" ↔ "Oldest first" the same recording stayed in view, now at the far end of a long list:
-    // the button seemed to do nothing. Peter, 2026-11-21.)
+    // the button seemed to do nothing. 2026-11-21.)
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
     // Newest / latest first: on by default for Recorded only (Scheduled starts with the soonest).
     val latestFirst = remember { androidx.compose.runtime.mutableStateMapOf(0 to prefs.getBoolean("latest_0", false), 1 to prefs.getBoolean("latest_1", true), 2 to prefs.getBoolean("latest_2", false)) }
@@ -506,7 +506,7 @@ fun RecordingsScreen(
         focusBack()
     }
 
-    // (The app's wallpaper shows through, as under the menu beside it: one background across both. Peter, 2026-11-17.)
+    // (The app's wallpaper shows through, as under the menu beside it: one background across both. 2026-11-17.)
     Box(Modifier.fillMaxSize()) {
         Column(
             Modifier
@@ -536,7 +536,7 @@ fun RecordingsScreen(
                 modifier = Modifier.onFocusChanged { onTabs = it.hasFocus }) {
                 val names = listOf("Scheduled (${scheduled.size + nowRecs.size})", "Recorded (${done.size})", "Series recordings (${rules.size})")
                 TAB_ORDER.forEach { i -> val n = names[i]
-                    // Each list's own order beside its name; OK on its tab turns it round (Peter, 2026-11-21: one shared
+                    // Each list's own order beside its name; OK on its tab turns it round (2026-11-21: one shared
                     // order button didn't work). Done from the key press itself, so nothing on the page can swallow it.
                     val desc = latestFirst[i] == true
                     val order = when (i) {
@@ -634,7 +634,7 @@ fun RecordingsScreen(
 /**
  * Hold OK (or OK on anything not ready to play) on the Recordings page: the shared options pop-up (start on the
  * first, Cancel last; Delete asks first with "Keep it" highlighted). Stop / cancel / delete stay open to show
- * "Working…" and the answer, then close. (Peter, 2026-11-17: was ChoicePanel with "Close" and its own confirm step.)
+ * "Working…" and the answer, then close. (2026-11-17: was ChoicePanel with "Close" and its own confirm step.)
  */
 @Composable
 private fun RecordingOptions(

@@ -36,7 +36,7 @@ object Tokens {
     val FocusBorder = 3.dp
 
     /** A selected (chosen, not highlighted) pill or tab: one tint everywhere. Highlighted is always the accent fill. */
-    // (On a dark backing of the theme colour, so the text reads over any wallpaper or artwork. Peter, 2026-11-18:
+    // (On a dark backing of the theme colour, so the text reads over any wallpaper or artwork. 2026-11-18:
     // the Sports pills were hard to read over the new background.)
     val SelectedTint: Color get() = AppColors.Accent.copy(alpha = 0.45f).compositeOver(AppColors.palette.shade.copy(alpha = 0.7f))
     /** A pill that's neither selected nor highlighted. */

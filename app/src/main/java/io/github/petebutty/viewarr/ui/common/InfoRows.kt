@@ -62,7 +62,7 @@ object InfoRows {
     }
 
     /**
-     * The order with [kind] switched on or off: on, it joins the end of the rows switched on (it jumps up the list, Peter);
+     * The order with [kind] switched on or off: on, it joins the end of the rows switched on (it jumps up the list);
      * off, it goes to the top of the rest (the same place either way). Save it with saveBarOrder("rows_<player>"). Its
      * new place is the number of other rows switched on.
      */

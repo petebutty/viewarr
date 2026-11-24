@@ -87,7 +87,7 @@ private fun trailerPlayer(context: android.content.Context, small: Boolean): Exo
         .build()
         // Never the TV's refresh rate for a trailer (a preview on a poster or title page, or the full-screen one): the
         // player's own frame-rate hint switched some TVs' mode, a blank screen and a flicker each time. Frame rate
-        // matching is for films and live TV only (Settings → Video). (Peter, 2026-11-17.)
+        // matching is for films and live TV only (Settings → Video). (2026-11-17.)
         .also { it.videoChangeFrameRateStrategy = C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_OFF }
 
 /**
@@ -242,7 +242,7 @@ object HeroTrailer {
 
 /**
  * Trailer previews in the poster (Settings → Playback → Trailers → Trailer previews play: In the poster; ideas from
- * Nuvio KE, Peter, 2026-11-18). One trailer for the whole app, drawn over everything ([PosterTrailerHost]): it sits on
+ * Nuvio KE, 2026-11-18). One trailer for the whole app, drawn over everything ([PosterTrailerHost]): it sits on
  * the highlighted poster (which widens to 16:9, stage 1, muted), then grows from there into a big panel in the middle
  * with sound (stage 2), the same trailer playing on throughout. OK in the panel opens the title page, Back / a D-pad
  * key closes it (not again until you move off that poster).
@@ -318,7 +318,7 @@ fun PosterTrailerHost() {
         val density = androidx.compose.ui.platform.LocalDensity.current
         val grow by animateFloatAsState(if (PosterTrailer.panel) 1f else 0f, tween(480, easing = androidx.compose.animation.core.FastOutSlowInEasing), label = "trailerPanel")
         val w = constraints.maxWidth.toFloat(); val h = constraints.maxHeight.toFloat()
-        // (Most of the screen, Peter, 2026-11-18: 78% wide, its title and hints in the room left under it.)
+        // (Most of the screen, 2026-11-18: 78% wide, its title and hints in the room left under it.)
         val pw = w * 0.78f; val ph = pw * 9f / 16f
         // (Up a little more: its title and hints under it were on the very edge of the screen.)
         val panelRect = androidx.compose.ui.geometry.Rect(androidx.compose.ui.geometry.Offset((w - pw) / 2f, (h - ph) / 2f - h * 0.08f), androidx.compose.ui.geometry.Size(pw, ph))
@@ -336,7 +336,7 @@ fun PosterTrailerHost() {
         ) {
             TrailerPreview(
                 item = item, active = PosterTrailer.active || PosterTrailer.panel, trailers = repo, modifier = Modifier.fillMaxSize(),
-                // Sound from the start when Preview sound is on (Peter, 2026-11-18: it used to stay muted in the poster).
+                // Sound from the start when Preview sound is on (2026-11-18: it used to stay muted in the poster).
                 onShowing = { PosterTrailer.showing = it }, audio = PosterTrailer.panel || LocalPlayback.current.trailerSound == TrailerSound.On,
             )
             // The highlight ring, on the trailer as it grows (the poster's own goes while the panel is open).
@@ -361,7 +361,7 @@ fun PosterTrailerHost() {
             listOfNotNull(item.year?.toString(), item.origin.takeIf { it.isNotBlank() }).joinToString("  ·  ").takeIf { it.isNotEmpty() }?.let {
                 androidx.tv.material3.Text(it, fontSize = 14.sp, color = Color.White.copy(alpha = 0.75f), modifier = Modifier.padding(top = 2.dp), maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
             }
-            // What the buttons do, as key prompts (Peter, 2026-11-18: the faint line went unseen). OK opens the title page,
+            // What the buttons do, as key prompts (2026-11-18: the faint line went unseen). OK opens the title page,
             // films and shows alike: that's where Play, Up next and the episodes are.
             androidx.compose.foundation.layout.Row(Modifier.padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                 KeyPrompt("OK", "Details and play")

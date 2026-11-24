@@ -3,7 +3,7 @@ package io.github.petebutty.viewarr.data.sports
 import io.github.petebutty.viewarr.ui.theme.AppColors
 
 /**
- * Score alerts' switches (Settings → Sports → Score alerts; Peter, 2026-11-18: "we need to be able to turn them off").
+ * Score alerts' switches (Settings → Sports → Score alerts; 2026-11-18: "we need to be able to turn them off").
  * Kept as palette title parts, all on to start: "alerts:on" (any at all), "alerts:kind:<goal|kickoff|ht|ft>" (which
  * kinds), "alerts:banner" / "alerts:ticker" (where), "alerts:t:…" (the teams and leagues, off until chosen).
  */
@@ -14,7 +14,7 @@ object ScoreAlerts {
     val kinds = listOf("goal" to "Goals and scores", "kickoff" to "Kick-off / tip-off", "ht" to "Half-time", "ft" to "Full time / final")
     fun kindKey(k: String) = "alerts:kind:$k"
 
-    // Which teams / leagues: none to start, each one switched on by hand, followed or not (Peter, 2026-11-18: "should
+    // Which teams / leagues: none to start, each one switched on by hand, followed or not (2026-11-18: "should
     // be auto off for everything… people will get flooded"). Kept as a title part that's present while ON (the
     // opposite way round from the others, so nothing is on by default): "alerts:t:<kind>|<league>|<id>|<name>".
     private const val TEAM = "alerts:t:"

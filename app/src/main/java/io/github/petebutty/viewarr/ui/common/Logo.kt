@@ -27,7 +27,7 @@ import androidx.tv.material3.Text
 import io.github.petebutty.viewarr.R
 
 /**
- * The Viewarr logo (2026-11-17, Peter's pick of the logo concepts: "Play Stack"): three rounded play buttons one behind
+ * The Viewarr logo (2026-11-17, picked from the logo concepts: "Play Stack"): three rounded play buttons one behind
  * the other (back to front at 30 %, 60 %, full), emerald to cyan (the colours of Dispatcharr's logo), beside a lowercase
  * "viewarr" in Plus Jakarta Sans ExtraBold. Drawn here rather than as pictures, so the splash can move each part.
  */

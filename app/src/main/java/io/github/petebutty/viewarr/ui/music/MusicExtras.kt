@@ -72,7 +72,7 @@ object UserActivity {
 
 /**
  * The hold-OK options for a song or a card: play next, add to the queue, radio, favourite. The shared options pop-up
- * (Cancel last, the held OK ignored). (Peter, 2026-11-17: was its own raw Dialog.)
+ * (Cancel last, the held OK ignored). (2026-11-17: was its own raw Dialog.)
  */
 @Composable
 fun MusicOptionsHost(vm: MusicViewModel) {
@@ -138,7 +138,7 @@ fun LyricsPanel(lyrics: Lyrics, position: Long, duration: Long, modifier: Modifi
 /**
  * The queue (Now Playing → Queue): every song in order, the one playing marked. OK plays from there; hold OK for its
  * options: Move (▲ ▼ to place it, OK to put it down, as every list), Play next, Remove from queue.
- * (Peter, 2026-11-17: "Move up" / "Move down" one step at a time gave way to the shared Move.)
+ * (2026-11-17: "Move up" / "Move down" one step at a time gave way to the shared Move.)
  */
 @Composable
 fun QueuePanel(onClose: () -> Unit) {
@@ -242,7 +242,7 @@ private fun queueKeys(queue: List<Song>): List<String> {
     return queue.map { s -> val n = (seen[s.id] ?: 0) + 1; seen[s.id] = n; "${s.id}#$n" }
 }
 
-/** Sleep timer choices: off, a number of minutes, or the end of this song / album. (Peter, 2026-11-17: shared pop-up.) */
+/** Sleep timer choices: off, a number of minutes, or the end of this song / album. (2026-11-17: shared pop-up.) */
 @Composable
 fun SleepDialog(onClose: () -> Unit) {
     val left = MusicPlayer.sleepMinutesLeft()

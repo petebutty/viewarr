@@ -6,7 +6,7 @@ import io.github.petebutty.viewarr.ui.theme.AppColors
  * Channel group names tidied for show (Settings → Playback → Live TV → Tidy group names): the country and quality marks
  * providers add ("UK| SKY SPORTS FHD" → "SKY SPORTS") left out, each one your choice (Settings → Playback → Group name
  * clean-up). Only how a name is shown changes: the group itself, its order, hiding and everything keyed by its name stay
- * as they are. (Peter, 2026-11-17.)
+ * as they are. (2026-11-17.)
  */
 object GroupNames {
     /** What can be left out, in the order Settings lists them. */

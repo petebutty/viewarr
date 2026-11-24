@@ -54,7 +54,7 @@ data class DvrRecording(
 data class SeriesRule(val tvgId: String, val title: String, val mode: String, val titleMode: String, val epgSourceId: Int?) {
     /**
      * Its name for people. A plain title as it is; a pattern (the Viewarr plugin's "Record all <team>" rules, written as
-     * a search like ((\mvs?\M|@).*\mCeltic\M|…)) as the names in it: "Celtic games" (Peter, 2026-11-21: the raw
+     * a search like ((\mvs?\M|@).*\mCeltic\M|…)) as the names in it: "Celtic games" (2026-11-21: the raw
      * pattern was shown). An empty one: "Any programme".
      */
     val label: String get() {

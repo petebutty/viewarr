@@ -32,7 +32,7 @@ import kotlin.math.abs
  * No duplicates: a game already done is skipped (GameWatch.done / recorded), and Dispatcharr's recordings are read
  * again just before recording, so a recording already there for the same channel and time (by hand, a series rule,
  * another TV) is used instead of making another. A recording that fails is tried again at most 3 times.
- * (Peter, 2026-11-21: "All features should be available to people also not using the Viewarr plugin.")
+ * (2026-11-21: "All features should be available to people also not using the Viewarr plugin.")
  */
 @Singleton
 class TvGameRecorder @Inject constructor(

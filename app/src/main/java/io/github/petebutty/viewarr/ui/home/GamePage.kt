@@ -103,7 +103,7 @@ internal fun GamePageHost(hub: SportsHub, besidePreview: Boolean) {
     ) {
         Column(Modifier.fillMaxWidth(0.9f).fillMaxHeight(0.92f).background(AppColors.Panel, RoundedCornerShape(Tokens.PopupRadius)).padding(28.dp)) {
             // The header and buttons clear of the live window in the top-left corner (it covered the first buttons:
-            // Watch, Remind me. Peter, 2026-11-16); the details below use the whole width. ([besidePreview]: worked out
+            // Watch, Remind me. 2026-11-16); the details below use the whole width. ([besidePreview]: worked out
             // where the page is drawn, live TV or a film in the corner; it was set only by the Sports page and never
             // reset, so a page opened from the info bar could get a stale one. UI review, 2026-11-17.)
             Column(Modifier.padding(start = if (besidePreview) 272.dp else 0.dp)) {
@@ -148,7 +148,7 @@ internal fun GamePageHost(hub: SportsHub, besidePreview: Boolean) {
                         } else {
                             // A channel known without the guide (listings, club stream): reminded at kick-off on it. Else
                             // set once the guide lists the game. (It only saved a wish, with no word, and for games the
-                            // guide never lists that way nothing came. Peter, 2026-11-16.)
+                            // guide never lists that way nothing came. 2026-11-16.)
                             if (watchCh != null) {
                                 val set = reminders.any { it.channelId == watchCh.id && it.start == g.start }
                                 add((if (set) "✓ Reminder" else "Remind me") to { hub.toggleKickOffReminder(g, watchCh) })

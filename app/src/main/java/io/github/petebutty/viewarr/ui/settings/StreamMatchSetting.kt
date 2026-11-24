@@ -60,7 +60,7 @@ fun streamRuleItems(saved: String, onSave: (String) -> Unit): List<SettingItem> 
             },
         ) { c ->
             // Switched on: to the top, to be sorted from there; switched off: just below the ones still on, so the
-            // rules in use stay together at the top (Peter, 2026-11-15).
+            // rules in use stay together at the top (2026-11-15).
             val rest = rules.filterIndexed { k, _ -> k != i }
             onSave(StreamMatch.save(when (c) {
                 remove -> rest

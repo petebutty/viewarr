@@ -20,7 +20,7 @@ import io.github.petebutty.viewarr.ui.settings.SettingsJump
 /**
  * Hold OK on a channel → Report a problem (the guide, the channel list, the player's menu and the Live TV hub's channel
  * cards all come here). What's asked for is shown by [ReportHost], over everything, so no screen has to host it.
- * (Peter, 2026-11-19.)
+ * (2026-11-19.)
  */
 object ReportFlow {
     class Target(val channel: ChannelListItem, val streamId: Int?)

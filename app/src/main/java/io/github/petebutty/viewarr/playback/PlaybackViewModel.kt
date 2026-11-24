@@ -270,7 +270,7 @@ class PlaybackViewModel @Inject constructor(
     }
 
     /**
-     * Source switching (rewritten 2026-11-16; Peter: "Viewarr should keep memory of how many streams each provider
+     * Source switching (rewritten 2026-11-16: "Viewarr should keep memory of how many streams each provider
      * allows"). Decided before switching, from Dispatcharr's own count of each provider's connections (its limit and
      * how many are in use), lowered by what this TV has learned about providers that allow fewer than they claim:
      * - a line free at the new source's provider: gap-free. The new source opens alongside, silently, and swaps in
@@ -418,7 +418,7 @@ class PlaybackViewModel @Inject constructor(
         Log.i("Playback", "source ${src.streamId}: let go first, playing${if (free) "" else " (line not shown free in 5 s)"}")
         // A picture within 10 s (sound only for a radio channel), else back to the channel with the reason. A quick
         // refusal (HTTP 503: Dispatcharr still tearing down that stream's last run, "teardown or pending shutdown",
-        // Peter's AM9 17:38) is asked again a moment later, up to 5 times, rather than taken as final.
+        // an AM9 at 17:38) is asked again a moment later, up to 5 times, rather than taken as final.
         var retries = 0
         val started = withTimeoutOrNull(16_000) {
             while (true) {
@@ -577,7 +577,7 @@ class PlaybackViewModel @Inject constructor(
         }
     }
 
-    // ------------------------------------------------------------------ Best source first (Peter, 2026-11-19)
+    // ------------------------------------------------------------------ Best source first (2026-11-19)
     /** Each source's record on this box (fails, last good play) and the best order: see SourceRank. */
     // (A fail reaches the plugin within 30 s; a good play waits for the 10-minute push.)
     private val sourceRank by lazy { val sync = healthSync; SourceRank(context).also { it.onChange = { fail -> sync.changed(soon = fail) } } }
@@ -831,7 +831,7 @@ class PlaybackViewModel @Inject constructor(
     /** "1080p · 25 fps · H264" from Dispatcharr's stream_stats (its last check of the stream). */
     private fun qualityOf(stats: JsonElement?): String? {
         if (stats !is JsonObject) return null
-        val res = stats.str("resolution")?.substringAfter('x', "")?.toIntOrNull()?.let { h -> when { h >= 2000 -> "4K"; h >= 1000 -> "1080p"; h >= 700 -> "720p"; else -> "${h}p" } }
+        val res = stats.str("resolution")?.let { r -> val w = r.substringBefore('x').toIntOrNull() ?: 0; r.substringAfter('x', "").toIntOrNull()?.let { maxOf(it, (w * 9 + 8) / 16) } }?.let { h -> when { h >= 2000 -> "4K"; h >= 1000 -> "1080p"; h >= 700 -> "720p"; else -> "${h}p" } }
         val fps = stats.str("source_fps")?.toDoubleOrNull()?.let { "${kotlin.math.round(it).toInt()} fps" }
         val codec = stats.str("video_codec")?.uppercase()?.replace("HEVC", "H265")
         return listOfNotNull(res, fps, codec).joinToString(" · ").ifEmpty { null }
@@ -923,7 +923,7 @@ class PlaybackViewModel @Inject constructor(
 
     /**
      * Where the channel's stream comes from, for the info bar, shown all the time (Settings → Appearance → Info bar:
-     * source; Peter, 2026-11-15): through Dispatcharr with an admin login, the provider account of the stream
+     * source; 2026-11-15): through Dispatcharr with an admin login, the provider account of the stream
      * playing right now ("Happy TV", "TRex (backup)"), checked again every 30 s so Dispatcharr's own switch to a backup
      * shows too; otherwise the Live TV source itself (its name, else its address).
      */
@@ -1335,7 +1335,7 @@ class PlaybackViewModel @Inject constructor(
             if (t - reconnectWindow > 60_000) { reconnectWindow = t; reconnects = 0 }
             if (reconnects >= 4) {
                 val keepsStopping = { _state.value = PlaybackState.Error("The stream keeps stopping. Try another channel or source.") }
-                // Through Dispatcharr: the channel's next source instead (Peter, 2026-11-19); the error only with none left.
+                // Through Dispatcharr: the channel's next source instead (2026-11-19); the error only with none left.
                 if (dispatcharrLive) autoFailover("kept stopping", orElse = keepsStopping) else keepsStopping()
                 return@launch
             }
@@ -1407,9 +1407,9 @@ class PlaybackViewModel @Inject constructor(
             // Long enough for a slow provider (some take 6–7 s to start on Dispatcharr): asking again sooner threw
             // away a start that was nearly there. Only when nothing at all has arrived.
             // Checked again after asking again (the retry didn't set up a second check, so mpv never came: Sky
-            // Witness sat loading, Peter 2026-11-16). Nothing at all twice running (a stream it waits on for ever:
+            // Witness sat loading, 2026-11-16). Nothing at all twice running (a stream it waits on for ever:
             // empty sound tracks, say): mpv instead.
-            // (Peter: "waiting 27 seconds is pointless if you have a backup source": after 10 s with nothing at all,
+            // ("waiting 27 seconds is pointless if you have a backup source": after 10 s with nothing at all,
             // the channel's next source; mpv only when there's no other source left. IPTV logins: asked again once.)
             for (attempt in 0..1) {
                 delay(if (attempt == 0) 10_000L else 12_000L)

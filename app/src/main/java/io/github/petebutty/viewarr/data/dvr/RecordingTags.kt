@@ -6,7 +6,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import org.json.JSONObject
 
 /**
- * Recordings tagged from TMDB (Peter, 2026-11-21: "use TMDB to tag recordings and organise them"): each recording's
+ * Recordings tagged from TMDB (2026-11-21: "use TMDB to tag recordings and organise them"): each recording's
  * show or film there, its poster and backdrop, and an episode's own name, by the same close name match as the guide's
  * pictures. Kept on the box by recording id (looked up once); a recording with no match is a "Sport & other" one.
  */

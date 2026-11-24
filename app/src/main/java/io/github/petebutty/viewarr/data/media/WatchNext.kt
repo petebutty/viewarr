@@ -23,13 +23,17 @@ import javax.inject.Singleton
 class WatchNext @Inject constructor(
     @ApplicationContext private val context: Context,
     private val catalog: CatalogRepository,
+    private val followed: FollowedShows,
 ) {
     private val lock = Mutex()
 
     suspend fun refresh() = lock.withLock {
         runCatching {
             val items = MediaType.entries.flatMap { t -> runCatching { catalog.continueWatching(t) }.getOrDefault(emptyList()) }
-            publish(items)
+            // New episodes of shows you follow (FollowedShows), after what you're part way through; not a show that's
+            // already there.
+            val fresh = followed.playNextCards().filter { n -> items.none { it.key == n.key } }
+            publish(items + fresh)
         }.onFailure { Log.w(TAG, "watch next refresh failed: $it") }
     }
 

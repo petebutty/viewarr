@@ -120,6 +120,8 @@ fun VodPlayer(
     // Shrunk to the corner (picture-in-picture): just the picture; the page has the remote.
     // (The menu over it counts too: the player lets go of the remote and its controls.)
     val mini = VodHost.mini || VodHost.behind
+    // How fast the film comes in: this box's internet speed, learned from films off internet servers (BoxSpeed).
+    val speedMeter = remember(stream) { androidx.media3.exoplayer.upstream.DefaultBandwidthMeter.Builder(context).build() }
     val player = remember(stream) {
         val http = DefaultHttpDataSource.Factory()
             .setUserAgent("Viewarr/0.7")
@@ -155,6 +157,7 @@ fun VodPlayer(
                     .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON),
             )
             .setMediaSourceFactory(DefaultMediaSourceFactory(io.github.petebutty.viewarr.data.net.reachOf(http)))
+            .setBandwidthMeter(speedMeter)
             // Settings → Playback → Buffer. Capped in bytes too, by the app's memory: with no cap ExoPlayer saves up
             // to ~140 MB of a film in the app's own memory, and a high-bitrate Plex file filled the AM9's 256 MB in
             // three seconds and crashed it (out of memory, 2026-11-18).
@@ -237,7 +240,7 @@ fun VodPlayer(
         playNext(player, chain, startAt, context, "didn't start")
     }
     // Any stream that hasn't shown a picture after 25 seconds of trying (and has no next stream to fall back to):
-    // give up and say so, letting the connection go. (Peter, 2026-11-19: a 4K file on a slow line sat on the loading
+    // give up and say so, letting the connection go. (2026-11-19: a 4K file on a slow line sat on the loading
     // screen for good, holding the provider's only connection.) Not while paused, and not a stream that has started.
     // (Only when nothing at all has come: a slow provider that takes a minute to start sending is left to it, since
     // some IPTV files only start once the player has read their index from the end of the file.)
@@ -372,6 +375,9 @@ fun VodPlayer(
             if (player.playbackState != Player.STATE_ENDED && player.currentPosition > 0) {
                 onProgress("stopped", player.currentPosition, player.duration.coerceAtLeast(0))
             }
+            // (After a minute's playing, so the measure is the file's real speed, not a first guess.)
+            if (player.currentPosition > 60_000 && io.github.petebutty.viewarr.data.net.BoxSpeed.isInternet(stream.url))
+                io.github.petebutty.viewarr.data.net.BoxSpeed.record(context, speedMeter.bitrateEstimate / 1000)
             player.removeListener(listener)
             player.release()
         }
@@ -462,7 +468,7 @@ fun VodPlayer(
         if (!buffering && durationMs > 0) started = true
         val state = FilmState({ positionMs }, durationMs, { bufferedMs }, paused, buffering, started,
             osdVisible = osdVisible,
-            quality = player.videoFormat?.let { v -> StreamQuality(v.height, v.frameRate.takeIf { it > 0 } ?: countedFps ?: 0f, player.audioFormat?.channelCount ?: 0) })
+            quality = player.videoFormat?.let { v -> StreamQuality.of(v.width, v.height, v.frameRate.takeIf { it > 0 } ?: countedFps ?: 0f, player.audioFormat?.channelCount ?: 0, StreamQuality.hdrOf(v), StreamQuality.audioOf(player.audioFormat)) })
         FilmOverlays(stream, art, state, mini, panels, menu, scrub, skip, buttons, thumbs, "mpv", error, focus,
             holdOsd = { show -> osdUntil = if (show) Long.MAX_VALUE else 0L }) {
             TrackPicker(player, subtitlesFirst = tracksSubs, onSwitchPlayer = switchPlayer, onClose = { tracksOpen = false; takeFilmFocus(focus) }, modifier = Modifier.align(Alignment.CenterEnd))

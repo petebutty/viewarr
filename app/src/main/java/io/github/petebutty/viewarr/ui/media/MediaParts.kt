@@ -120,7 +120,7 @@ internal fun FocusBackWhenClosed(open: Boolean, target: FocusRequester) {
 
 /** The title page's one-line facts: year, age rating (when it isn't a badge), runtime, seasons, genres. */
 internal fun detailMeta(item: MediaItem, d: MediaDetail): String = listOfNotNull(
-    item.year?.toString(),
+    releaseLabel(item) ?: item.year?.toString(),
     // The age rating is a badge below (Settings → Appearance → Title pages: Badges); in the line when they're off.
     if (AppColors.palette.shows(TitleParts.BADGES)) null else ageRating(d),
     d.runtimeMin?.takeIf { it > 0 }?.let { if (it >= 60) "${it / 60}h ${it % 60}m" else "${it}m" },
@@ -225,8 +225,18 @@ internal fun TitleBadges(item: MediaItem, d: MediaDetail, media: TitleTracks?) {
     }
 }
 
+/**
+ * A film's release date in full ("18 Dec 2026"; not out yet: "Coming 18 Dec 2026"), so a new film in cinemas shows
+ * when it came out (2026-11-24); null without one (the year is shown instead).
+ */
+internal fun releaseLabel(item: MediaItem): String? {
+    val d = item.releaseDate?.let { runCatching { java.time.LocalDate.parse(it) }.getOrNull() } ?: return null
+    val text = d.format(java.time.format.DateTimeFormatter.ofPattern("d MMM yyyy", java.util.Locale.UK))
+    return if (d.isAfter(java.time.LocalDate.now())) "Coming $text" else text
+}
+
 internal fun metaLine(item: MediaItem) = listOfNotNull(
-    item.year?.toString(),
+    releaseLabel(item) ?: item.year?.toString(),
     // Library titles carry their server's own score (Plex's is the audience score, already a badge): only TMDB's,
     // labelled, so it isn't mistaken for the others.
     item.rating?.takeIf { item.origin !in LIBRARY_ORIGINS }?.let { "TMDB %.1f".format(it) },
@@ -264,7 +274,7 @@ internal fun UpNextOverlay(ep: EpisodeInfo, onPlay: () -> Unit, onCancel: () -> 
 
 /**
  * Hold OK on a poster: play, details, trailer and watchlist without opening the title page first. The shared options
- * pop-up (first option highlighted, Cancel last). (Peter, 2026-11-17: the collection card's menu wasn't in its own
+ * pop-up (first option highlighted, Cancel last). (2026-11-17: the collection card's menu wasn't in its own
  * window at all, and "Close" is now "Cancel".)
  */
 @Composable
@@ -306,9 +316,9 @@ internal fun QuickOptions(item: MediaItem, vm: MediaViewModel, onTrailer: () -> 
             add(PopupOption(if (done) "Mark as not watched" else "Mark as watched") { vm.markIptvWatched(item, !done) })
             if (item.origin == "IPTV" && item.progress != null) add(PopupOption("Remove from Continue watching") { vm.hideIptv(item) })
         }
-        // A show you're done with: out of Continue watching (and Upcoming episodes) for good, and dropped on Trakt.
-        // Watching any episode of it again brings it back.
-        if (show && vm.inContinue(item)) add(PopupOption("Drop show") { vm.dropShow(item) })
+        // A show you're done with (or never watched: Trakt's calendar has every show in your history): out of Continue
+        // watching and Upcoming episodes for good, and dropped on Trakt. Watching any episode of it again brings it back.
+        if (show && vm.canDrop(item)) add(PopupOption("Drop show") { vm.dropShow(item) })
     }
     OptionsPopup(
         title = item.title,
@@ -431,7 +441,7 @@ internal fun CastCard(c: CastMember, free: Boolean, onClick: () -> Unit) {
         // The shared card, round (no growing: one card rule everywhere).
         FocusCard(
             onClick = onClick,
-            // (64, was 76: with the smaller buttons, More like this fits below. Peter, 2026-11-18.)
+            // (64, was 76: with the smaller buttons, More like this fits below. 2026-11-18.)
             modifier = Modifier.size(64.dp).onFocusChanged { focused = it.isFocused }.focusProperties { canFocus = free },
             shape = Tokens.RoundShape,
         ) {
@@ -518,20 +528,29 @@ internal fun SourcesDialog(ui: DetailUi, vm: MediaViewModel, onDone: () -> Unit)
         if (addonStreams?.isNotEmpty() == true && ranked.isNullOrEmpty()) { awaitFrame(); runCatching { first.requestFocus() } }
     }
     // The shared pop-up (its own window; the held OK that opened it is ignored, so letting go doesn't pick the first
-    // source). (Peter, 2026-11-17: was a raw Dialog with a solid panel.)
+    // source). (2026-11-17: was a raw Dialog with a solid panel.)
     PopupPanel(onClose = onDone, width = Tokens.PopupWide + 80.dp) {
         PopupTitle("Play from")
         var firstUsed = false
         fun mod(): Modifier = if (!firstUsed) { firstUsed = true; Modifier.focusRequester(first) } else Modifier
         if (ranked == null) Text("Checking your copies…", fontSize = 14.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(bottom = 6.dp))
-        ranked.orEmpty().forEach { r ->
+        // In Play order (Settings → Playback), as Play tries them: each place in turn (Plex in your house, IPTV, addons…;
+        // 2026-11-24), the places switched off too, where you put them (here you choose). (Recordings go with IPTV.)
+        val (iptv, servers) = ranked.orEmpty().partition { it.copy.source == io.github.petebutty.viewarr.data.media.PROVIDER || it.copy.source == "Recording" }
+        @Composable fun copies(list: List<MediaViewModel.RankedCopy>) = list.forEach { r ->
             MenuItem(
                 text = (if (r.best) "★ " else "") + vm.copyLabel(r.copy), selected = false,
                 trailing = if (r.best) "Best for this TV" else r.note, dim = r.note != null && !r.best,
                 onClick = { onDone(); vm.playCopy(r.copy) }, modifier = mod(),
             )
         }
-        AddonStreamItems(ui.hasAddons, addonStreams, ::mod) { opt -> onDone(); vm.playStream(opt) }
+        PlayOrder.ordered().forEach { src ->
+            when (src) {
+                PlayOrder.Source.Iptv -> copies(iptv)
+                PlayOrder.Source.Addons -> AddonStreamItems(ui.hasAddons, addonStreams, ::mod) { opt -> onDone(); vm.playStream(opt) }
+                else -> copies(servers.filter { it.place == src })
+            }
+        }
         MenuItem(text = "Cancel", selected = false, onClick = onDone, modifier = mod())
     }
 }
@@ -559,7 +578,7 @@ internal fun AddonStreamItems(hasAddons: Boolean, streams: List<StreamOption>?, 
 /**
  * A person's films and shows: who they are at the top (photo, born / died, where, biography). Beside the corner
  * window (live TV, or a film made small): no photo, the text from x 356 as the Movies hero, and a shorter header that
- * ends under the window (it sat under the window, photo and name hidden). (Peter, 2026-11-17.)
+ * ends under the window (it sat under the window, photo and name hidden). (2026-11-17.)
  */
 @Composable
 internal fun PersonHeader(p: PersonInfo) {
@@ -594,13 +613,13 @@ internal fun PersonHeader(p: PersonInfo) {
 /**
  * A title page action as an icon in a circle (like the player's controls), its name underneath while it's
  * highlighted. [on]: a state that's set (watched, on your watchlist, tracks chosen) shows filled in. The shared
- * RoundIconButton with the title page's look (thin white ring, dark fill). (Peter, 2026-11-17: was its own copy.)
+ * RoundIconButton with the title page's look (thin white ring, dark fill). (2026-11-17: was its own copy.)
  */
 @Composable
 internal fun IconAction(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit, modifier: Modifier = Modifier, on: Boolean = false) {
     RoundIconButton(
         icon = icon, label = label, onClick = onClick, modifier = modifier, on = on, outlined = true,
-        // (A size down: Peter, 2026-11-18. Was 44 wide, icon 22.)
+        // (A size down: 2026-11-18. Was 44 wide, icon 22.)
         width = 38.dp, columnWidth = 42.dp, iconSize = 19.dp, focusedScale = 1.08f, containerColor = Color.Black.copy(alpha = 0.25f),
     )
 }

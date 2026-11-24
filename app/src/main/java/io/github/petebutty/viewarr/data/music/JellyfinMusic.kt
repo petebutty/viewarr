@@ -42,12 +42,20 @@ class JellyfinMusicSource private constructor(
             val h = servers.headers(emby, deviceId, s.token)
             val r = http.get("${s.serverUrl}/Users/${s.userId}/Views", h)
             if (!r.ok) error("Server didn't answer")
-            val music = r.body.array("Items").filter { it.str("CollectionType") == "music" }
+            // Libraries marked as music; and, on servers that don't mark them (Scene FTP's Jellyfin-style server shows
+            // its "/music-browse" as a plain folder), an unmarked or plain-folder library whose name says music.
+            val music = r.body.array("Items").filter {
+                val type = it.str("CollectionType")
+                type == "music" || ((type == null || type == "folders" || type == "mixed") &&
+                    MUSIC_NAME.containsMatchIn(it.str("Name").orEmpty()))
+            }
             return music.mapIndexedNotNull { i, v ->
                 val lib = v.str("Id") ?: return@mapIndexedNotNull null
                 JellyfinMusicSource(http, h, s, emby, lib, v.str("Name").takeIf { music.size > 1 }, first = i == 0)
             }
         }
+
+        private val MUSIC_NAME = Regex("(?i)\\bmusic\\b|\\bmusik\\b|\\bmusique\\b|\\bmúsica\\b")
     }
 
     private val u get() = "${s.serverUrl}/Users/${s.userId}"

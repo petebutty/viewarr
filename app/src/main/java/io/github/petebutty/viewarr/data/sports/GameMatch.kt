@@ -8,7 +8,7 @@ import java.util.concurrent.ConcurrentHashMap
  * place the Sports page looks, using every name ESPN gives each team (full, short, the club's own: "Manchester
  * United", "Man United") plus the names British TV uses ("Man Utd", "Spurs", "Hibs"). Whole words only, both teams
  * needed to be sure. (Before: a word in common was enough, so "Manchester City v Fulham" took a "Manchester United
- * U18" listing and Feyenoord v Porto took Port Vale. Peter, 2026-11-16.)
+ * U18" listing and Feyenoord v Porto took Port Vale. 2026-11-16.)
  *
  * Team scores: 2 = one of its names, as whole words; 1 = a telling word of its name (5+ letters, not "United"…); 0.
  * A game is [SURE] with both teams found and 3+ between them; [POSSIBLE] with one team by name and nothing against.
@@ -62,7 +62,7 @@ object GameMatch {
 
     /**
      * A game's names and words, worked out once per game (not again for each of thousands of channels and programmes
-     * it's checked against: that froze a Shield opening Sports. Peter, 2026-11-17).
+     * it's checked against: that froze a Shield opening Sports. 2026-11-17).
      */
     private class Prepared(
         val home: Set<String>, val away: Set<String>, val homeTelling: Set<String>, val awayTelling: Set<String>,

@@ -16,7 +16,7 @@ import android.os.ParcelFileDescriptor
 import java.io.File
 
 /**
- * Pictures for Viewarr's home-screen rows, drawn on the box (Peter, 2026-11-20: "right now you can't tell what each
+ * Pictures for Viewarr's home-screen rows, drawn on the box (2026-11-20: "right now you can't tell what each
  * row is"; the launcher cut channel logos to fill its wide cards).
  *  - A row's own icon: its name on a coloured tile (the launcher shows it beside the row).
  *  - A channel card: the channel's logo whole, on a dark 16:9 card, its name underneath when there's no logo.

@@ -74,7 +74,7 @@ fun infoRowsItem(): SettingItem {
  * Choose the rows under each player's info bar: Live TV or Films & shows along the top, the rows below (OK: on / off;
  * hold OK: options, Move / Show or Hide; Right picks it up too, as in Settings lists; Up / Down move it, OK, Back, Left
  * or Right put it down) and, beside them, how they'll stack under the bar.
- * (UI review, Peter, 2026-11-17: fits the 960 × 540 screen (it was 1060 wide and ~684 high, the bottom rows and hints
+ * (UI review, 2026-11-17: fits the 960 × 540 screen (it was 1060 wide and ~684 high, the bottom rows and hints
  * off screen); the shared pop-up window, pill look and options pop-up; hold OK no longer picks up straight away.)
  */
 @Composable

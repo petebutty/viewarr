@@ -6,7 +6,7 @@ import io.github.petebutty.viewarr.data.media.StreamOption
 import io.github.petebutty.viewarr.data.media.VodStream
 
 /**
- * Settings → Playback → Auto-play match: which addon stream Play starts by itself (Peter, 2026-11-15).
+ * Settings → Playback → Auto-play match: which addon stream Play starts by itself (2026-11-15).
  *
  * - **Rules**, one thing each (4K, 1080p, HEVC, Atmos…), switched on as you like and sorted by importance: the
  *   streams matching the top rule first, among those the ones matching the next, and so on; the usual order (instant

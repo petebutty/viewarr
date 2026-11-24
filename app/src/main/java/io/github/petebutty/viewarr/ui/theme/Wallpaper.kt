@@ -175,7 +175,7 @@ object Wallpaper {
     /**
      * Movies or Shows is the page on screen: the app's own background (behind the menu's glass) shows its artwork too,
      * not the guide's programme picture (it kept that behind the menu while the page beside it showed the film's.
-     * Peter, 2026-11-17). Set by the home screen.
+     * 2026-11-17). Set by the home screen.
      */
     var titleBehind by mutableStateOf(false)
 
@@ -212,7 +212,7 @@ fun WallpaperLoader() {
         val raw = runCatching { result.drawable.toBitmap() }.getOrNull() ?: return
         // The Movies / Shows artwork comes ready-shaded (one picture, drawn once a frame): at 4K the backdrop plus its
         // background colour and two shading gradients were four full-screen passes on every frame of a row's slide,
-        // and the graphics chip ran at ~45 ms a frame (Peter, 2026-11-19: Cinema's slide looked jerky).
+        // and the graphics chip ran at ~45 ms a frame (2026-11-19: Cinema's slide looked jerky).
         // (Shaded away from the main thread, into a spare picture not on screen: neither showing nor fading out.)
         val baked: android.graphics.Bitmap? = if (titleArt) {
             val main = AppColors.palette.main; val shade = AppColors.palette.shade
@@ -289,8 +289,8 @@ fun Modifier.appBackground(titleArt: Boolean = false, readable: Boolean = false)
         // The title's artwork, already shaded (bakeTitleArt): darker on the left behind the text and toward the rows
         // below, clearer to the right. One picture over the background colour; just the picture once it's there.
         // Only the top right of the page (about half the width, 60% of the height), fading into the plain
-        // background on its left and lower edges; the rest of the page is just the background colour (Peter,
-        // 2026-11-19: as WuPlay, far less to paint than full-screen artwork at 4K).
+        // background on its left and lower edges; the rest of the page is just the background colour
+        // (2026-11-19: as WuPlay, far less to paint than full-screen artwork at 4K).
         val layer = Wallpaper.titleArt
         drawRect(p.main)
         val img = layer.image
@@ -305,7 +305,7 @@ fun Modifier.appBackground(titleArt: Boolean = false, readable: Boolean = false)
     }
     when (p.wallpaperMode) {
         1 -> {
-            WallpaperStyles.getOrElse(p.wallpaperStyle) { WallpaperStyles[0] }.draw(this, p.highlight)
+            WallpaperStyles.getOrElse(p.wallpaperStyle) { WallpaperStyles[0] }.draw(this, p.accent)
             drawRect(sh.copy(alpha = p.wallpaperDim))
             // (Christmas: the falling snow, read from its clock here, so only this background is drawn again.)
             if (Snow.running) drawSnow()
@@ -337,22 +337,26 @@ private fun bakeTitleArt(src: android.graphics.Bitmap, main: Color, shade: Color
     val out = reuse?.takeIf { it.isMutable && !it.isRecycled && it.width == w && it.height == h && it.config == android.graphics.Bitmap.Config.ARGB_8888 }
         ?: android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888)
     val c = android.graphics.Canvas(out)
-    c.drawColor(main.toArgbInt(), android.graphics.PorterDuff.Mode.SRC)
+    c.drawColor(0, android.graphics.PorterDuff.Mode.CLEAR)
     val scale = max(w.toFloat() / src.width, h.toFloat() / src.height)
     val sw = (w / scale).roundToInt().coerceAtMost(src.width); val sh = (h / scale).roundToInt().coerceAtMost(src.height)
     val sx = (src.width - sw) / 2; val sy = (src.height - sh) / 2
     c.drawBitmap(src, android.graphics.Rect(sx, sy, sx + sw, sy + sh), android.graphics.Rect(0, 0, w, h), android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG))
-    // Melting into the page's own colour at the left and bottom edges (so the picture has no visible border), with a
-    // touch of shade over the rest.
-    fun m(f: Float) = main.copy(alpha = f).toArgbInt()
+    // A touch of shade over it, then melting away to nothing at the left and bottom edges: see-through there, so it
+    // fades into whatever the page shows behind it. (2026-11-24: it melted into a fixed colour baked in here,
+    // which left a hard-edged dark block wherever the page behind was another colour, e.g. a see-through background.)
     fun a(f: Float) = shade.copy(alpha = f).toArgbInt()
+    fun k(f: Float) = android.graphics.Color.argb((f * 255).roundToInt(), 0, 0, 0)
     c.drawColor(a(0.15f))
+    val keep = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.DST_IN)
     val across = android.graphics.Paint().apply {
-        shader = android.graphics.LinearGradient(0f, 0f, w.toFloat(), 0f, intArrayOf(m(1f), m(0.75f), m(0.2f), m(0f)), floatArrayOf(0f, 0.18f, 0.45f, 0.7f), android.graphics.Shader.TileMode.CLAMP)
+        shader = android.graphics.LinearGradient(0f, 0f, w.toFloat(), 0f, intArrayOf(k(0f), k(0.25f), k(0.8f), k(1f)), floatArrayOf(0f, 0.18f, 0.45f, 0.7f), android.graphics.Shader.TileMode.CLAMP)
+        xfermode = keep
     }
     c.drawRect(0f, 0f, w.toFloat(), h.toFloat(), across)
     val down = android.graphics.Paint().apply {
-        shader = android.graphics.LinearGradient(0f, 0f, 0f, h.toFloat(), intArrayOf(m(0f), m(0f), m(0.7f), m(1f)), floatArrayOf(0f, 0.5f, 0.82f, 1f), android.graphics.Shader.TileMode.CLAMP)
+        shader = android.graphics.LinearGradient(0f, 0f, 0f, h.toFloat(), intArrayOf(k(1f), k(1f), k(0.3f), k(0f)), floatArrayOf(0f, 0.5f, 0.82f, 1f), android.graphics.Shader.TileMode.CLAMP)
+        xfermode = keep
     }
     c.drawRect(0f, 0f, w.toFloat(), h.toFloat(), down)
     return out
@@ -379,7 +383,7 @@ private fun DrawScope.drawCover(img: ImageBitmap, alpha: Float) {
 
 /**
  * Falling snow, part of the Christmas wallpaper itself: every page that paints the wallpaper (the guide, Settings,
- * Movies…) draws it behind its own content, so it falls everywhere and never over text (Peter, 2026-11-21: it only
+ * Movies…) draws it behind its own content, so it falls everywhere and never over text (2026-11-21: it only
  * showed on the TV guide, as every other page covered it with its own copy of the wallpaper). One clock for the app
  * ([ChristmasSnow] runs it, 30 frames a second); each page only draws, nothing is laid out again. It stops while a film
  * or live TV is full screen and when Viewarr is in the background, and isn't there with Low-memory mode.

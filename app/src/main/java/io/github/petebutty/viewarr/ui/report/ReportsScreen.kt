@@ -43,7 +43,7 @@ import kotlinx.coroutines.android.awaitFrame
 /**
  * Settings → Live TV → Reports, over everything (as Send a report is): channels that need the right guide picked
  * ("Needs your pick", OK opens the picker), the changes the Viewarr plugin made from everyone's reports (admins: OK →
- * Undo), and this TV's own reports. Without the plugin, one line says so and the reports stay here. (Peter, 2026-11-19.)
+ * Undo), and this TV's own reports. Without the plugin, one line says so and the reports stay here. (2026-11-19.)
  */
 @Composable
 fun ReportsScreen(vm: ReportsViewModel, onClose: () -> Unit) {

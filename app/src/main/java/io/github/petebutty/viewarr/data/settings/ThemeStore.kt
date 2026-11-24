@@ -143,8 +143,8 @@ class ThemeStore @Inject constructor(@ApplicationContext private val context: Co
     }
 
     suspend fun resetTitleParts() {
-        // (The main menu's, the info bars' and the hold-OK pop-up's choices, kept in the same list, stay.)
-        context.appearanceStore.edit { p -> p[TITLE_HIDDEN] = (p[TITLE_HIDDEN] ?: emptySet()).filter { it.startsWith("menu:") || it.startsWith("bar:") || it.startsWith("hold:") }.toSet() }
+        // (The main menu's, the info bars', the hold-OK pop-up's and Play order's choices, kept in the same list, stay.)
+        context.appearanceStore.edit { p -> p[TITLE_HIDDEN] = (p[TITLE_HIDDEN] ?: emptySet()).filter { it.startsWith("menu:") || it.startsWith("bar:") || it.startsWith("hold:") || it.startsWith("play:") }.toSet() }
     }
 
     suspend fun saveShowNumbers(on: Boolean) {

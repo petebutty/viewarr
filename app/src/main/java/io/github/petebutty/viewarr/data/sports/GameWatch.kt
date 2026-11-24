@@ -24,7 +24,7 @@ class GameWatch @Inject constructor(
     private val prefs = context.getSharedPreferences("game_watch", Context.MODE_PRIVATE)
 
     // ---- Shared with Dispatcharr (key [SHARED_KEY] in this user's app data): the Viewarr plugin 0.4.1+ makes the
-    // recordings itself every few minutes, so a TV needn't be on once the game is listed (Peter, 2026-11-17). Written
+    // recordings itself every few minutes, so a TV needn't be on once the game is listed (2026-11-17). Written
     // after each change here; read on start and every few minutes (the server marks games done and drops them from
     // "record"). Without the plugin it's just a copy: the Sports page still does it, as before.
     private val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO)

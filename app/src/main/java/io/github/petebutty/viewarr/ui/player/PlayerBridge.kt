@@ -95,7 +95,7 @@ object RowSets {
     fun rowTitle(row: MediaRow): String = if (name(row) != null) row.title.substringAfter(SEP) else row.title
     /**
      * A service's rows always in one order, films and shows together: Just added first (what really arrived lately,
-     * from the Viewarr plugin: the rest change slowly; Peter, 2026-11-20), then New (shows, then films), Originals,
+     * from the Viewarr plugin: the rest change slowly; 2026-11-20), then New (shows, then films), Originals,
      * Popular, Top rated, then anything else.
      */
     fun kindRank(row: MediaRow): Int = when (rowTitle(row).trim().lowercase()) {

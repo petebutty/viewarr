@@ -8,7 +8,7 @@ import io.github.petebutty.viewarr.data.sync.TraktPos
 
 /*
  * Watched ticks, progress bars, Continue watching and "where you're up to", read from everything connected at once
- * (Peter, 2026-11-19: "it should all just work"): Trakt, Plex / Jellyfin / Emby, and Viewarr's own record of IPTV
+ * (2026-11-19: "it should all just work"): Trakt, Plex / Jellyfin / Emby, and Viewarr's own record of IPTV
  * plays (shared between TVs through Dispatcharr). Watched anywhere → ticked. Part-way → the newest saved place wins.
  */
 

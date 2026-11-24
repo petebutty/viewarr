@@ -171,7 +171,7 @@ class HomeState(
     /** A channel number typed on the remote's number keys. */
     var digits by mutableStateOf("")
     private var channelListOpenState by mutableStateOf(false)
-    /** The channel list over full-screen live TV. Opening it closes the info bar and the controls (Peter, 2026-11-16). */
+    /** The channel list over full-screen live TV. Opening it closes the info bar and the controls (2026-11-16). */
     var channelListOpen: Boolean
         get() = channelListOpenState
         set(v) {
@@ -366,7 +366,7 @@ class HomeState(
         val list = vm.channels.value
         if (list.isEmpty()) return
         // The first press with no info bar up: the channel you're watching in it first (what's on now and next); the
-        // next press browses from there. (Peter, 2026-11-17: the first press jumped straight to the next channel.)
+        // next press browses from there. (2026-11-17: the first press jumped straight to the next channel.)
         if (hs.browseChannel == null && !hs.bannerVisible) { showBanner(); return }
         val from = hs.browseChannel ?: playing
         val index = list.indexOfFirst { it.id == from?.id }
@@ -744,7 +744,7 @@ class HomeState(
 
     /**
      * The menu's My Library, highlighted (or its "My Library home"): your own servers' rows, films and shows, on the
-     * Movies page (MyLibrary). It used to leave the TV guide behind. (Peter, 2026-11-17.)
+     * Movies page (MyLibrary). It used to leave the TV guide behind. (2026-11-17.)
      */
     fun openMyLibrary(closeMenu: Boolean, keepLive: Boolean = false) {
         val mine = io.github.petebutty.viewarr.ui.media.MyLibrary.SET
@@ -768,6 +768,20 @@ class HomeState(
      * The menu's Sports: its own page of game panels (live TV carries on in the top-left window). Moving onto it shows
      * it behind the menu; Right / OK goes into it. (Live now is a group in the TV guide now, not a menu entry.)
      */
+    /**
+     * A main-menu entry after Live TV: Sports (its page), or Trending / What's new (Discover's pages, films and shows
+     * together on the Movies page, like My Library). [into] false: shown behind the menu.
+     */
+    fun openLiveEntry(id: String, into: Boolean, keepLive: Boolean) {
+        val set = io.github.petebutty.viewarr.ui.media.Discover.setOf(id) ?: return openSportsPage(closeMenu = into)
+        hs.sportsOpen = false
+        if (moviesVm.currentRowSet.value != set) { moviesVm.openLibrary(null, MediaType.Movie); moviesVm.jumpTo(null) }
+        moviesVm.closeTitlePages()
+        moviesVm.load(MediaType.Movie); showsVm.load(MediaType.Show)
+        moviesVm.showRowSet(set)
+        hs.openPage(Page.Movies, keepLive = keepLive, closeMenu = into)
+    }
+
     fun openSportsPage(closeMenu: Boolean) {
         if (hs.fullscreen) { hs.fullscreen = false; hs.osdVisible = false }
         hs.sportsOpen = true

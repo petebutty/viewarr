@@ -17,7 +17,7 @@ fun Button(
     modifier: Modifier = Modifier,
     onLongClick: (() -> Unit)? = null,
     enabled: Boolean = true,
-    /** A little smaller (the title page's Play / Resume, beside its round buttons: Peter, 2026-11-18). */
+    /** A little smaller (the title page's Play / Resume, beside its round buttons: 2026-11-18). */
     compact: Boolean = false,
     content: @Composable RowScope.() -> Unit,
 ) = androidx.tv.material3.Button(

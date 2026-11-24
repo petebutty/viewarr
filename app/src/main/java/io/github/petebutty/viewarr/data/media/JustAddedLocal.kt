@@ -20,7 +20,7 @@ import kotlinx.serialization.json.put
 import java.time.LocalDate
 
 /**
- * "Just added" without the Viewarr plugin (Peter, 2026-11-21: "all features should be available to people not using
+ * "Just added" without the Viewarr plugin (2026-11-21: "all features should be available to people not using
  * the plugin"): the TV asks JustWatch itself, as the plugin does for the house (justadded.py), once a day, and keeps
  * the answer on the box in the plugin's own shape ({"v":1,"services":[{"name","movies","shows"}]}), so the rows are
  * made the same way. Light: one request per day looked back over the last week, a page of up to 100 each, once a

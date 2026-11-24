@@ -41,7 +41,7 @@ internal class GamePlacer(private val channels: List<ChannelListItem>) {
      * then a channel whose name holds it ("UK| SKY SPORTS MAIN EVENT FHD", "SPFL - CELTIC TV"), the shortest (most
      * exactly that channel; not a "+1", not a numbered event channel). "TBC" (not announced yet) isn't guessed at.
      * ("Sky Sports TBC" and "Ultra HDR" used to land on Sky Sports+, and club channels on nothing: only names starting
-     * the same way matched. Peter, 2026-11-16.)
+     * the same way matched. 2026-11-16.)
      */
     fun byName(name: String): ChannelListItem? {
         if (TBC.containsMatchIn(name)) return null

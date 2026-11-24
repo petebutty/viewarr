@@ -41,7 +41,7 @@ object SettingsMap {
         Page(APPEARANCE, "Appearance", listOf(
             // The few big choices first; everything finer is under "Customise" (more = true), closed until opened.
             Section("Look", "The main choices for how Viewarr looks. Everything finer is under Customise, on the left.",
-                r(A, "Browsing style", "Browsing style") + r(A, "Colours & text", "Background colour", "Highlight colour") +
+                r(A, "Browsing style", "Browsing style") + r(A, "Colours & text", "Background colour", "Highlight colour", "Tone down highlight") +
                     r(A, "Wallpaper", "Wallpaper") + r(A, "Colours & text", "Text size", "Clock")),
             Section("Text & dates", "The lettering, and how dates and times show.",
                 r(A, "Colours & text", "Font", "Date format", "Time format"), more = true),
@@ -54,7 +54,7 @@ object SettingsMap {
             Section("Info bar & controls", "The bar over live TV and films (when you change channel or press OK / Info), and the film controls.",
                 r(A, "Live TV", "Info bar style", "Clock on the info bar", "Info bar: channel number", "Info bar: episode numbers", "Info bar: picture quality", "Info bar: source", "Info bar: frame rate", "Rows under the info bar"), more = true),
             Section("Menu", "How the menu on the left looks: headings, colours, hints and marks.",
-                // (Button hints live in one place, Menu & navigation → Menu: it was in both. Peter, 2026-11-17.)
+                // (Button hints live in one place, Menu & navigation → Menu: it was in both. 2026-11-17.)
                 r(A, "Main menu", "List headings", "Source in the Live TV heading", "Colour edge", "Colour tint", "Left / Right hints", "TV mark on channel groups", "LIVE mark"), more = true),
             Section("Info bar buttons", "Which buttons are on the info bar, and in what order. Each bar's main buttons are always there; you can move them.",
                 all(A, "Info bar buttons"), more = true),
@@ -96,8 +96,10 @@ object SettingsMap {
             // The few big choices first; everything finer is under "Customise" (more = true), closed until opened.
             Section("Watching", "The main choices for films and shows. Everything finer is under Customise, on the left.",
                 r(P, "Video", "Match frame rate") + r(P, "Audio", "Language") + r(P, "Subtitles", "Show subtitles") +
-                    r(P, "Streams", "Addon streams") + r(P, "Episodes", "Play next episode automatically", "Skip intros") +
+                    r(P, "Streams", "Addon streams", "Internet copies", "Tell the server about internet films") + r(P, "Episodes", "Play next episode automatically", "Skip intros") +
                     r(P, "Trailers", "Trailer previews")),
+            Section("Play order", "Where Play looks for a film or episode, in your order: Plex and your other servers, in your house and outside it, IPTV and addons. Switch any off; hold OK to move one.",
+                all(P, "Play order")),
             Section("Player", "How the player behaves.",
                 r(P, "Player", "Resume", "Time on the right", "Controls stay up for", "Seek-bar previews"), more = true),
             Section("Watch progress", "What's connected for your watch history (Trakt, your servers, Dispatcharr), sending plays to Trakt and sharing IPTV progress between TVs.",
@@ -105,7 +107,7 @@ object SettingsMap {
             Section("Video", "Smoothness.", all(P, "Video"), more = true),
             Section("Audio", "Volume and clearer speech.", all(P, "Audio"), more = true),
             Section("Subtitles", "Which language subtitles use.", r(P, "Subtitles", "Language"), more = true),
-            Section("Streams", "Where Play looks, and addon streams.", all(P, "Streams"), more = true),
+            Section("Streams", "Addon streams and copies from outside your house.", all(P, "Streams"), more = true),
             Section("Auto-play match", "Which addon stream plays when Viewarr picks: rules sorted by importance.", all(P, "Auto-play match"), more = true),
             Section("Episodes", "Skipping credits, and what happens after an episode.", all(P, "Episodes"), more = true),
             Section("Trailers", "YouTube trailers for films and shows.", all(P, "Trailers"), more = true),
@@ -120,7 +122,7 @@ object SettingsMap {
             Section("Notifications", "Everything Viewarr pops up by itself: switch it all off, or choose each kind.", all(P, "Notifications")),
         )),
         // Settings most people never need: how the player works inside, sizes that every page was tuned around, and how
-        // the guide is fetched. Kept together behind a warning so they aren't changed by accident (Peter, 2026-11-20,
+        // the guide is fetched. Kept together behind a warning so they aren't changed by accident (2026-11-20,
         // after a tester's layout broke from one of them). Each is listed here by name, so it leaves its old page.
         Page(ADVANCED, "Advanced", listOf(
             Section("Player", "$CARE Which player plays films and how it draws the picture.",
@@ -219,7 +221,7 @@ fun MappedSettingsScreen(pageId: String, onBack: () -> Unit, startSection: Strin
     val page = SettingsMap.page(pageId)
     val reset: (() -> Unit)? = when (pageId) {
         SettingsMap.APPEARANCE -> ({ appearanceReset(appearance, opts, playback, news.feeds.all().map { it.id }) })
-        SettingsMap.PLAYBACK -> ({ playbackReset(playback, opts) })
+        SettingsMap.PLAYBACK -> ({ playbackReset(playback, opts, appearance) })
         SettingsMap.ADVANCED -> ({ advancedReset(playback, opts) })
         else -> null
     }

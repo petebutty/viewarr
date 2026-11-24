@@ -16,7 +16,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * One thing picked for Live now (Settings → Live TV → Live now; Peter, 2026-11-19: "search for any team or sport"):
+ * One thing picked for Live now (Settings → Live TV → Live now; 2026-11-19: "search for any team or sport"):
  * a team, a league or a sport. [id]: the team's ESPN id, the league's path ("soccer/eng.1") or the sport's name as
  * [LiveSports.names] has it ("Darts"). [league]: a team's league path (blank for the others). [detail]: a team's
  * league name, for the settings row.
@@ -71,7 +71,7 @@ class LiveNowPicks @Inject constructor(
 
     /**
      * Once per profile, quietly: the old switches (Live now sports, Live now leagues, Only what I follow) into the list.
-     * Only what the user really changed counts (Peter, 2026-11-19: nothing is filled in for anyone by default):
+     * Only what the user really changed counts (2026-11-19: nothing is filled in for anyone by default):
      * Only what I follow on → their follows; else sports or leagues switched off → the ones left on (the sports by
      * name; for leagues, the followed teams and leagues whose league wasn't switched off: the leagues listed there were
      * the ones followed); else nothing. The old switches are then never read again.
@@ -122,7 +122,7 @@ class LiveNowPicks @Inject constructor(
             picks.isEmpty() || rank(picks, leaguePath, home, away, text, sport) < picks.size
 
         /**
-         * Where an item sits by the list's order (Peter, 2026-11-21: "put them in the order the user wants"): the place of
+         * Where an item sits by the list's order (2026-11-21: "put them in the order the user wants"): the place of
          * the first pick it matches, [picks].size when none does. Live now shows games in this order, then by start time.
          */
         fun rank(picks: List<LiveNowPick>, leaguePath: String?, home: String?, away: String?, text: String, sport: String?): Int {

@@ -28,7 +28,7 @@ import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Text
 
 /**
- * Opening splash, the "Play Stack" logo animated (Peter, 2026-11-18: "Play press, more glow", from the splash options
+ * Opening splash, the "Play Stack" logo animated (2026-11-18: "Play press, more glow", from the splash options
  * page): the mark is there at once; the front play button presses in and springs back with a wide two-tone glow
  * (emerald, then cyan) that lingers; the two layers behind ripple outward from it; "viewarr" slides in beside it.
  * While the app is still getting ready (the splash can stay up to ~11 s on a slow box), the button gives a smaller

@@ -64,7 +64,7 @@ import io.github.petebutty.viewarr.ui.common.AppPill
 
 /**
  * Sort / Filter on a library's toolbar: the shared pill. [active] (filters on): shown as selected (the shared tint).
- * (Peter, 2026-11-17: was its own pill, active = white.)
+ * (2026-11-17: was its own pill, active = white.)
  */
 @Composable
 internal fun ToolButton(text: String, active: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {

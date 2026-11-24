@@ -10,7 +10,7 @@ import kotlinx.coroutines.flow.update
 /**
  * My Library's page: the menu's My Library, highlighted, shows your own servers' rows (Plex, Jellyfin, Emby, IPTV:
  * Continue watching, Recently added, each library's Recently added, your collections) from Movies and Shows together
- * on one page, as Movies shows its rows. (Peter, 2026-11-17: it used to leave the TV guide behind.)
+ * on one page, as Movies shows its rows. (2026-11-17: it used to leave the TV guide behind.)
  *
  * Each page's view model publishes its own servers' rows here ([publish]) and the saved choices ([setLayout], from
  * Settings → Home page & menu → My Library); the Movies page draws them while its row set is [SET].

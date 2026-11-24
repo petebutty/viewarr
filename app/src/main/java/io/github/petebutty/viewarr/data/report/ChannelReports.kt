@@ -72,7 +72,7 @@ data class ChannelReport(
  *      "offset_min": null, "name": null, "note": null, "stream_id": null} ]}
  *
  * The last 50 are kept, and nothing older than 14 days. Without the plugin the reports stay here (Settings → Live TV →
- * Reports lists them) and a push that failed is tried again on the next start. (Peter, 2026-11-19.)
+ * Reports lists them) and a push that failed is tried again on the next start. (2026-11-19.)
  */
 @Singleton
 class ChannelReports @Inject constructor(

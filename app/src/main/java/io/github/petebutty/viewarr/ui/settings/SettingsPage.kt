@@ -128,7 +128,7 @@ class SettingCategory(
 )
 
 /**
- * Settings pages start with a few big choices; the rest sits under "Customise", closed until opened (Peter, 2026-11-20:
+ * Settings pages start with a few big choices; the rest sits under "Customise", closed until opened (2026-11-20:
  * "the settings pages are very big lists of things that can drastically change the app's look and use"). Which pages
  * have it open, for this run of the app (by page title).
  */
@@ -236,7 +236,7 @@ fun SettingsPage(
     }
     // A row moved (Right, then Up / Down): the list holds still and the row moves in it. (The list keeps its place by
     // the row at the top; when that was the row being moved, the whole list scrolled with it, so the highlight always
-    // sat at the top and it was hard to see where it had got to. Peter, 2026-11-15.) It scrolls only when the moved
+    // sat at the top and it was hard to see where it had got to. 2026-11-15.) It scrolls only when the moved
     // row would go off screen, keeping a row's margin.
     var moveAnchor by remember { mutableStateOf<Pair<Int, Int>?>(null) }
     var movedTitle by remember { mutableStateOf<String?>(null) }
@@ -444,7 +444,7 @@ private fun SettingRow(
         onClick = onClick,
         onLongClick = onLongClick,
         modifier = Modifier.fillMaxWidth().focusRequester(focus).focusProperties { canFocus = enabled }.onFocusChanged { rowFocused = it.isFocused; if (it.isFocused) onFocused() }
-            // The shared way to move a row (UI review Tier 4, Peter, 2026-11-17): picked up by hold OK → Move or Right
+            // The shared way to move a row (UI review Tier 4, 2026-11-17): picked up by hold OK → Move or Right
             // (the Settings lists' shortcut); ▲ ▼ move it; OK, Back, Left or Right put it down.
             // (Not a locked row: another setting decides it, so it can't be moved either.)
             .then(if (item.reorder == null || item.locked != null) Modifier else Modifier.reorderable(

@@ -189,7 +189,7 @@ enum class TrailerPreview(override val label: String) : RemoteChoice {
 }
 
 enum class TrailerDelay(override val label: String, val ms: Long) : RemoteChoice {
-    // (1 to 5 seconds, in order; 3 to start. The old 8 and 12 read as 5. Peter, 2026-11-18.)
+    // (1 to 5 seconds, in order; 3 to start. The old 8 and 12 read as 5. 2026-11-18.)
     S1("1 second", 1_000),
     S2("2 seconds", 2_000),
     S3("3 seconds", 3_000),

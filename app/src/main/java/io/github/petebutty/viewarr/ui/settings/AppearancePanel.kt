@@ -135,6 +135,7 @@ fun appearanceCategories(vm: AppearanceViewModel = hiltViewModel(), opts: UiOpts
                     highs.firstOrNull { it.value == palette.highlight } ?: Choice("Custom", palette.highlight)) { c ->
                     vm.apply(palette.main, (c as Choice).value as Color)
                 },
+                optSlider(opts, "Tone down highlight", "Left / Right: blends the highlight colour into the background if it looks too bright on your TV, from off (full colour) to 80%. Whatever is selected, the guide's highlighted programme and channel, buttons and progress bars all follow it.", UiOpts.HIGHLIGHT_STRENGTH, palette.opt(UiOpts.HIGHLIGHT_STRENGTH)),
                 optItem(opts, "App scaling", "Shrinks the whole picture a little, for a TV that cuts off the edges of the screen. Pages keep exactly the same layout; video still fills the screen.", UiOpts.PICTURE_SIZE),
                 optItem(opts, "Text size", "How big the words are. Only the text changes; pages, posters and the guide keep their layout. Larger text can crowd the guide's top panel.", UiOpts.TEXT_SIZE_V2),
                 optItem(opts, "Font", "The lettering for all text, from the fonts built into your box (a box without one shows the standard font).", UiOpts.FONT),
@@ -219,7 +220,7 @@ fun appearanceCategories(vm: AppearanceViewModel = hiltViewModel(), opts: UiOpts
         ),
         newsTickerCategory(opts),
     ) + listOf(
-        // Browsing style (Peter, 2026-11-18): one choice setting the Movies / Shows look, each part still its own
+        // Browsing style (2026-11-18): one choice setting the Movies / Shows look, each part still its own
         // setting below it. Viewarr: as before. Cinema (Nuvio style): a big top panel, trailers in the poster, larger
         // posters. Lite (weaker boxes): no top panel, no trailers, smaller posters, no title logos.
         run {
@@ -297,7 +298,7 @@ fun appearanceCategories(vm: AppearanceViewModel = hiltViewModel(), opts: UiOpts
             },
         ),
         // The info bars' buttons (live TV's and the film / episode player's share one list): ticked ones are on the bar, in
-        // this order. The main player buttons are always on, and can only be moved. (Peter, 2026-11-17: a setting like the
+        // this order. The main player buttons are always on, and can only be moved. (2026-11-17: a setting like the
         // others, not a ⋯ More menu.)
         SettingCategory(
             "Info bar buttons", "The buttons on the info bar (OK while watching) and their order; each bar's main buttons always stay. Hold OK on a button on either bar (live TV or films) to open this list.",
@@ -384,7 +385,7 @@ private fun AddNewsFeedDialog(feeds: NewsFeeds, onClose: () -> Unit) {
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     val first = remember { FocusRequester() }
     LaunchedEffect(Unit) { kotlinx.coroutines.delay(100); runCatching { first.requestFocus() } }
-    // (The shared pop-up: was a raw Dialog. Peter, 2026-11-17.)
+    // (The shared pop-up: was a raw Dialog. 2026-11-17.)
     io.github.petebutty.viewarr.ui.common.PopupPanel(onClose = onClose, width = io.github.petebutty.viewarr.ui.theme.Tokens.PopupWide) {
         Column {
             io.github.petebutty.viewarr.ui.common.PopupTitle("Add a news feed")

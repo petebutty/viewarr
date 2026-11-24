@@ -71,10 +71,10 @@ import io.github.petebutty.viewarr.ui.theme.Tokens
 @Composable
 fun HomeRowsSettingsScreen(onBack: () -> Unit, startMine: Boolean = false) {
     var type by remember { mutableStateOf(MediaType.Movie) }
-    // The third list: My Library's page (your servers' rows from both). (Peter, 2026-11-17.) [startMine]: opened on it.
+    // The third list: My Library's page (your servers' rows from both). (2026-11-17.) [startMine]: opened on it.
     var mine by remember { mutableStateOf(startMine) }
     val tabFocus = remember { List(3) { FocusRequester() } }
-    // The entry being moved (shared ui/common/Reorder.kt; was hold OK = rename, Right only to move. Peter, 2026-11-17).
+    // The entry being moved (shared ui/common/Reorder.kt; was hold OK = rename, Right only to move. 2026-11-17).
     val carry = rememberCarry()
     // (Back while carrying puts it down: Modifier.reorderable takes that press, so this never leaves the page then.)
     BackHandler { if (carry.active) carry.drop() else onBack() }
@@ -127,6 +127,14 @@ fun HomeRowsSettingsScreen(onBack: () -> Unit, startMine: Boolean = false) {
                 // page in the menu. (Its switch was in the old live TV shortcut lists, 2026-11-18.)
                 val optsNet: UiOptsViewModel = hiltViewModel()
                 val netOn = AppColors.palette.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.SET_ROWS_HOME) == 1
+                // Movies / Shows: the 8 main rows only (Discover), or every row (2026-11-23).
+                val mainOnly = AppColors.palette.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.CURATED_HOME) == 0
+                Spacer(Modifier.height(18.dp))
+                OnOffRow("Main rows only on Movies / Shows", mainOnly, carry, onBack) { optsNet.set(io.github.petebutty.viewarr.ui.theme.UiOpts.CURATED_HOME, if (mainOnly) 1 else 0) }
+                Text(
+                    "Movies and Shows keep their 8 main rows: Continue watching, Recently added (every library as one), your watchlist, Recommended and the like. Trending and popular rows are on the Trending page, Just added on What's new and each service's page, every library in My Library. Off: every row, as before.",
+                    fontSize = 12.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(horizontal = 12.dp),
+                )
                 Spacer(Modifier.height(18.dp))
                 OnOffRow("Network rows on Movies / Shows", netOn, carry, onBack) { optsNet.set(io.github.petebutty.viewarr.ui.theme.UiOpts.SET_ROWS_HOME, if (netOn) 0 else 1) }
                 Text(
@@ -436,7 +444,7 @@ private fun RenameLibraryDialog(current: String, onDone: (String?) -> Unit, onCa
     var name by remember { mutableStateOf(current) }
     val first = remember { FocusRequester() }
     LaunchedEffect(Unit) { awaitFrame(); runCatching { first.requestFocus() } }
-    // (The shared pop-up: was a raw Dialog. Peter, 2026-11-17.)
+    // (The shared pop-up: was a raw Dialog. 2026-11-17.)
     PopupPanel(onClose = onCancel, width = Tokens.PopupWide) {
         PopupTitle("Rename library", "Leave it empty to use the server's own name.")
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {

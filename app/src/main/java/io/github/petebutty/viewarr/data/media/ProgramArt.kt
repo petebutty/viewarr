@@ -29,7 +29,7 @@ class ProgramArt @Inject constructor(
     private val store: AccountStore,
     @dagger.hilt.android.qualifiers.ApplicationContext private val appContext: android.content.Context,
 ) {
-    // The answers kept on the box too (Peter, 2026-11-18: the guide's pictures and title logos were looked up again
+    // The answers kept on the box too (2026-11-18: the guide's pictures and title logos were looked up again
     // after every start): "guide_art.json" {"p|<title>" or "l|<title>": [url or "" (none), day]}, 14 days (none: 3).
     private val kept = java.util.concurrent.ConcurrentHashMap<String, Pair<String, Long>>()
     @Volatile private var keptLoaded = false

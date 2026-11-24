@@ -327,13 +327,18 @@ internal fun MenuOverlay(
         awaitFrame()
         // A service's page (NOW, Netflix…) or Sports open behind: back on that entry in the main list. (Not when the
         // channel groups were asked for: the "Channel groups menu" button, or Left from the live channel list.)
-        val entry = openEntry?.takeIf { !onSettings && !onGroups && channelsPanel == null }
+        val entry = openEntry?.takeIf { !onSettings && !onGroups && !onLibrary && channelsPanel == null }
         if (entry != null) {
             // (The main list first, so its entries exist to be focused.)
             showMain = true; forceMain = true
             awaitFrame(); awaitFrame()
             val f = if (entry.startsWith("svc:")) serviceFocus[entry.removePrefix("svc:")] else if (entry == "section:Library") navFocus[Section.Library] else mainFocus[entry]
-            if (f != null && runCatching { f.requestFocus() }.isSuccess) { serviceOn = entry.removePrefix("svc:"); return@LaunchedEffect }
+            // (Only a service or Sports / Trending / What's new counts as "on a service": My Library set as one had no
+            // list, so Left on it opened nothing.)
+            if (f != null && runCatching { f.requestFocus() }.isSuccess) {
+                serviceOn = if (entry.startsWith("svc:")) entry.removePrefix("svc:") else entry.takeIf { it in liveEntries }
+                return@LaunchedEffect
+            }
         }
         runCatching {
             when {
@@ -364,7 +369,7 @@ internal fun MenuOverlay(
             Section.Movies -> { moviesMedia.openLibrary(null, MediaType.Movie); moviesMedia.jumpTo(null); onOpenPage(Page.Movies) }
             Section.Shows -> { showsMedia.openLibrary(null, MediaType.Show); showsMedia.jumpTo(null); onOpenPage(Page.Shows) }
             // My Library: its page, into its rows, as Movies / Shows (it tried its side list, which isn't on screen with
-            // the one-panel menu, so OK did nothing. Peter, 2026-11-18). Left still opens its list of libraries.
+            // the one-panel menu, so OK did nothing. 2026-11-18). Left still opens its list of libraries.
             Section.Library -> onMyLibrary(true)
             Section.Recordings -> onOpenPage(Page.Recordings)
             Section.Music -> onOpenPage(Page.Music)
@@ -456,14 +461,14 @@ internal fun MenuOverlay(
     // channels, side by side on one background (drawn once, the same colour and see-through for every column), with
     // a thin line between them. Each Left pushes the next column in from the left; Right / OK goes into it.
     // Over a page: no panel of its own, the page's background carrying on under it (the wallpaper, the film's picture
-    // on Movies / Shows), so the menu is the same colour as the rest of the page (Peter, 2026-11-17; it was a lighter
+    // on Movies / Shows), so the menu is the same colour as the rest of the page (2026-11-17; it was a lighter
     // panel). Over full-screen video: the see-through glass, so its text stays readable.
     val stripColour = if (seeThrough) AppColors.MenuPanel else Color.Transparent
     val divider = AppColors.TextSecondary.copy(alpha = 0.15f)
     // Channel groups previewed in the channel column while you move through them (a short pause keeps it smooth).
     var previewJob by fi.previewJob
     val serviceRowsFocus = remember { FocusRequester() }
-    // Only once you've stopped on an entry (Peter, 2026-11-18: flying through the menu loaded every page's rows as it
+    // Only once you've stopped on an entry (2026-11-18: flying through the menu loaded every page's rows as it
     // passed, which stuttered): no Up / Down for 0.6 s, then its page behind.
     suspend fun settled() {
         delay(600)
@@ -476,7 +481,7 @@ internal fun MenuOverlay(
     fun hoverPage(s: Section, fresh: Boolean = false) {
         val p = when (s) { Section.Tv -> Page.Tv; Section.Movies -> Page.Movies; Section.Shows -> Page.Shows; Section.Music -> Page.Music; Section.Recordings -> Page.Recordings; else -> null }
         hoverJob?.cancel()
-        // My Library: its own page behind (your servers' rows from Movies and Shows). (Peter, 2026-11-17: the guide stayed.)
+        // My Library: its own page behind (your servers' rows from Movies and Shows). (2026-11-17: the guide stayed.)
         if (s == Section.Library) hoverJob = menuScope.launch { settled(); onMyLibrary(false) }
         if (p != null) hoverJob = menuScope.launch {
             settled()
@@ -523,8 +528,8 @@ internal fun MenuOverlay(
         val single = !editingMain && channelsPanel == null
         val mainShown = showMain && (forceMain || !(subListFocused && single))
         // The menu's top: the Viewarr logo, the hint, and ⚙ / 🎤 / Search. Drawn over an entry's own list too when the
-        // main list folds away (channel groups…), so they stay put and only the list under them changes. (Peter,
-        // 2026-11-17: they went with the main list.) [folded]: the hint is the way back to the main list.
+        // main list folds away (channel groups…), so they stay put and only the list under them changes.
+        // (2026-11-17: they went with the main list.) [folded]: the hint is the way back to the main list.
         val menuHeader: @Composable androidx.compose.foundation.layout.ColumnScope.(Boolean, String?) -> Unit = { folded, foldedHeading ->
             // The Viewarr logo: aperture mark plus the glossy wordmark (the splash's, tools/brand/wordmark.py; its
             // picture has room round it for the shadow, hence the negative gap).
@@ -557,7 +562,7 @@ internal fun MenuOverlay(
                     else Text("Hold OK: move or hide", fontSize = 12.sp, color = AppColors.TextSecondary, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                 }
             // ⚙ / 🎤 / Search stay at the top, fixed: the list scrolls under them (they scrolled away with it, cut off at
-            // the top. Peter, 2026-11-17).
+            // the top. 2026-11-17).
             // Search from the menu: typed or said here, the search page opens on it straight away (results fill in there).
             fun runMenuSearch(raw: String) = onSearchFor(raw.trim().ifEmpty { null })
             val menuVoice = io.github.petebutty.viewarr.ui.common.rememberVoiceSearch(
@@ -570,7 +575,7 @@ internal fun MenuOverlay(
                     // Where the main list's entries start (under this row): an entry's own list starts there too.
                     .onGloballyPositioned { c -> mainListTop = with(density) { (c.positionInRoot().y + c.size.height).toDp() } + 8.dp }
                     // Up from the list lands on the gear first, then Right to the mic and Search (it landed on the
-                    // nearest, Search). (Peter, 2026-11-17.)
+                    // nearest, Search). (2026-11-17.)
                     .focusProperties { @Suppress("DEPRECATION") enter = { if (!editingMain) gearFocus else FocusRequester.Default } }
                     .focusGroup()
                     .padding(bottom = 6.dp),
@@ -578,7 +583,7 @@ internal fun MenuOverlay(
             ) {
                 // Settings: only here, at the top (it used to be last in the list too), left of Edit menus,
                 // which takes the rest of the row.
-                // (A round button like the mic beside it: it was a small dim "⚙". Peter, 2026-11-17.)
+                // (A round button like the mic beside it: it was a small dim "⚙". 2026-11-17.)
                 if (!editingMain) io.github.petebutty.viewarr.ui.common.RoundBarButton(
                     icon = io.github.petebutty.viewarr.ui.common.AppIcons.Settings, label = "Settings", size = 30.dp,
                     onClick = {
@@ -602,7 +607,7 @@ internal fun MenuOverlay(
                     VoiceButton(
                         onClick = { menuVoice.toggle() },
                         // Left: the gear, always (over a folded list Left otherwise brought the main list back, so the
-                        // gear couldn't be reached. Peter, 2026-11-17).
+                        // gear couldn't be reached. 2026-11-17).
                         modifier = Modifier.padding(start = 2.dp).focusRequester(micFocus).then(searchKeys).onPreviewKeyEvent { e ->
                             if (e.key != Key.DirectionLeft) return@onPreviewKeyEvent false
                             if (e.type == KeyEventType.KeyDown) runCatching { gearFocus.requestFocus() }
@@ -672,7 +677,7 @@ internal fun MenuOverlay(
         ) {
             menuHeader(false, null)
             // (Faded at its top / bottom edge while there's more list that way: a row scrolled half under the edge left a
-            // sliver of itself under the Search row. Peter, 2026-11-18.)
+            // sliver of itself under the Search row. 2026-11-18.)
             val clearOfFade = with(androidx.compose.ui.platform.LocalDensity.current) { remember(this) { clearOfEdges(32.dp.toPx()) } }
             androidx.compose.runtime.CompositionLocalProvider(androidx.compose.foundation.gestures.LocalBringIntoViewSpec provides clearOfFade) {
             Column(Modifier.weight(1f).scrollEdgeFade(MenuScrolls.main).verticalScroll(MenuScrolls.main), verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -681,7 +686,8 @@ internal fun MenuOverlay(
             // (Settings → Appearance → Main menu switches entries on and off too.)
             val appearanceVm: AppearanceViewModel = androidx.hilt.navigation.compose.hiltViewModel()
             val movable = buildList {
-                if (liveOn) addAll(liveEntries)
+                // (Trending / What's new are films and shows: there without live TV too.)
+                addAll(liveEntries.filter { liveOn || it != "Sports" })
                 if (!AppColors.palette.hideMedia || !liveOn) { add(Section.Movies.name); add(Section.Shows.name); add(Section.Library.name) }
                 services.forEach { add("svc:" + it.first) }
                 if (musicMenuOn) add(Section.Music.name)
@@ -730,6 +736,7 @@ internal fun MenuOverlay(
             val sectionItem: @Composable (Section) -> Unit = { s ->
                     MenuItem(
                         text = s.label,
+                        leading = { MenuIcons.Entry(s.name, moviesMedia) },
                         selected = s == section,
                         onClick = {
                             section = s
@@ -775,6 +782,7 @@ internal fun MenuOverlay(
                         // Editing: every entry, On / Off; the one picked up says so.
                         editingMain -> MenuItem(
                             text = (if (mainCarry.isCarried(id)) "↕  " else "") + labelOf(id),
+                            leading = { MenuIcons.Entry(id, moviesMedia) },
                             trailing = if (mainCarry.isCarried(id)) "Moving" else if (visible(id)) "On" else "Off",
                             dim = !visible(id) && !mainCarry.isCarried(id),
                             selected = mainCarry.isCarried(id),
@@ -814,13 +822,22 @@ internal fun MenuOverlay(
                         // Sports: its page of games (moving onto it shows it behind; OK / Right: into it).
                         id in liveEntries -> MenuItem(
                             text = id,
+                            leading = { MenuIcons.Entry(id, moviesMedia) },
                             selected = serviceOn == id,
                             onClick = { hoverJob?.cancel(); onLiveEntry(id, true) },
                             onLongClick = { entryMenu = id },
                             modifier = Modifier
                                 .focusRequester(mainFocus.getOrPut(id) { FocusRequester() })
                                 .onFocusChanged { if (it.isFocused && returnTo == null) { serviceOn = id; hoverJob?.cancel(); hoverJob = menuScope.launch { settled(); onLiveEntry(id, false) } } }
-                                .onPreviewKeyEvent { e -> if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionRight) { hoverJob?.cancel(); onLiveEntry(id, true); true } else false },
+                                .onPreviewKeyEvent { e ->
+                                    when {
+                                        e.type == KeyEventType.KeyDown && e.key == Key.DirectionRight -> { hoverJob?.cancel(); onLiveEntry(id, true); true }
+                                        // Left: nothing (they have no list of their own; Android's own move went on to
+                                        // whichever list was nearest: the channel groups, Music's).
+                                        e.key == Key.DirectionLeft -> true
+                                        else -> false
+                                    }
+                                },
                         )
                         // A service: its page behind as you move onto it; OK straight in; Right onto its rows (to reorder them).
                         id.startsWith("svc:") -> {
@@ -828,6 +845,7 @@ internal fun MenuOverlay(
                             val rows = services.firstOrNull { it.first == name }?.second.orEmpty()
                             MenuItem(
                                 text = name,
+                                leading = { MenuIcons.Entry(id, moviesMedia) },
                                 selected = serviceOn == name,
                                 onClick = { hoverJob?.cancel(); onService(name, null, true) },
                                 onLongClick = { entryMenu = id },
@@ -835,6 +853,8 @@ internal fun MenuOverlay(
                                     .focusRequester(serviceFocus.getOrPut(name) { FocusRequester() })
                                     .onFocusChanged { if (it.isFocused && returnTo == null) { serviceOn = name; hoverService(name) } }
                                     .onPreviewKeyEvent { e ->
+                                        // Left: nothing (no list of its own; Android's own move went on to another list).
+                                        if (e.key == Key.DirectionLeft) return@onPreviewKeyEvent true
                                         if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionRight) {
                                             // Out of edit mode a service has no list beside it: Right goes straight into its page.
                                             if (!editingMain || rows.isEmpty() || runCatching { serviceRowsFocus.requestFocus() }.isFailure) { hoverJob?.cancel(); onService(name, null, true) }
@@ -847,7 +867,7 @@ internal fun MenuOverlay(
                     }
                 }
             }
-            // (No Settings entry at the bottom: the ⚙ at the top opens it, Peter.)
+            // (No Settings entry at the bottom: the ⚙ at the top opens it.)
             if (editingMain) MenuItem(text = "✓  Done", selected = false, onClick = { endEditMain() }, modifier = Modifier.padding(top = 8.dp))
             if (mainCarry.active) Text(movingHint(), fontSize = 12.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(start = 12.dp, top = 8.dp))
                     } } // (LocalBringIntoViewSpec: the highlighted row kept clear of the faded edges)
@@ -862,7 +882,7 @@ internal fun MenuOverlay(
         val subHint = single && !mainShown && !fullPage && AppColors.palette.opt(UiOpts.MENU_HINTS) == 0
         // Room at the top for the hint (and the heading under it, in the padding as before). On its own (the main list
         // folded away): its first entry level with the main list's first, so stepping between them (channel groups ⇄
-        // Live TV) doesn't jump up and down. (Peter, 2026-11-17: the groups started well above the main list.)
+        // Live TV) doesn't jump up and down. (2026-11-17: the groups started well above the main list.)
         // (Beside the live channel list too: the groups had no header there, so Up from the first group went nowhere.
         // Not while that list's programme panel has folded the groups away to nothing.)
         val aligned = (single || (channelsPanel != null && !ChannelPanelState.programmesOpen)) && !mainShown && !fullPage
@@ -1133,7 +1153,7 @@ internal fun MenuOverlay(
                 .onPreviewKeyEvent { e ->
                     if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                     // On the menu's top drawn over this list (⚙ / 🎤 / Search): its own keys (Left along the row to the
-                    // mic and the gear); this caught Left first and brought the main list back. (Peter, 2026-11-17.)
+                    // mic and the gear); this caught Left first and brought the main list back. (2026-11-17.)
                     if (foldedHeaderFocused) return@onPreviewKeyEvent false
                     // A row or group being moved: Left puts it down there (its reorderable), nothing here.
                     if (rowCarry.active || groupCarry.active) return@onPreviewKeyEvent false
@@ -1159,7 +1179,7 @@ internal fun MenuOverlay(
         }
     }
         // The rest of the screen: dimmed only over full-screen video (the menu sits over the picture there). Over a
-        // page (the guide) the page is pushed along beside the menu, not under it: no shade (Peter, 2026-11-17: a dark
+        // page (the guide) the page is pushed along beside the menu, not under it: no shade (2026-11-17: a dark
         // band slid over the guide as the menu opened, its edge showing mid-slide).
         if (seeThrough) Box(Modifier.weight(1f).fillMaxHeight().background(Color.Black.copy(alpha = 0.4f * AppColors.palette.menuAlpha)))
         else Spacer(Modifier.weight(1f))
@@ -1587,10 +1607,10 @@ internal fun sectionIcon(s: Section): String = when (s) {
 /** A soft fade at the top / bottom edge of a scrolling list, only on the side where more of it is hidden. */
 internal fun Modifier.scrollEdgeFade(state: androidx.compose.foundation.ScrollState, edge: androidx.compose.ui.unit.Dp = 28.dp): Modifier =
     // (No fade any more, just the clip: the off-screen buffer it needed made the renderer give every menu entry a
-    // buffer of its own, kept afterwards; ~15 MB at 4K each time the menu had been open. Peter, 2026-11-19.)
+    // buffer of its own, kept afterwards; ~15 MB at 4K each time the menu had been open. 2026-11-19.)
     this
 
-/** The menu columns' width: 200 (was 230; Peter, 2026-11-19: "the menus can be shortened a bit"), its top icons smaller to fit. */
+/** The menu columns' width: 200 (was 230; 2026-11-19: "the menus can be shortened a bit"), its top icons smaller to fit. */
 internal val MenuW = 200.dp
 
 internal object MenuScrolls {
@@ -1603,7 +1623,7 @@ internal object MenuScrolls {
 internal const val FAV_HIDDEN = "★ favourites (hidden)"
 /** optionsFor's stand-in for All channels (real groups have positive ids; Favourites is GuideViewModel.FAVOURITES). */
 /** The "All channels" entry in the groups list (its own number: -3 was Live now's too, so hiding Live now hid All
- * channels. Gtunney, 2026-11-17). */
+ * channels. 2026-11-17). */
 private const val ALL_ID = -10
 
 /**

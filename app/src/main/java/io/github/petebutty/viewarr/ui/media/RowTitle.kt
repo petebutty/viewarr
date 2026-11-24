@@ -13,7 +13,7 @@ import io.github.petebutty.viewarr.ui.theme.AppColors
 /**
  * The one row title (Movies / Shows rows, Music rows, Recordings' headings): same size, weight and gap to the row
  * under it everywhere (UI review Tier 3: Movies were 16 sp / 6 dp, Music 15 sp / 8 dp, Recordings 14 sp accent).
- * Put the row's own start padding in [modifier]. (Peter, 2026-11-17.)
+ * Put the row's own start padding in [modifier]. (2026-11-17.)
  */
 @Composable
 internal fun RowTitle(text: String, modifier: Modifier = Modifier) {

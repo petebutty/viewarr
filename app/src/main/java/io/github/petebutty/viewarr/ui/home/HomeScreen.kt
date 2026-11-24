@@ -334,7 +334,7 @@ fun HomeScreen(
         if (!hs.osdVisible) return@LaunchedEffect
         while (true) {
             val left = 8_000 - (System.currentTimeMillis() - hs.osdUsedAt[0])
-            // (Not while its Info bar buttons editor is open: that stays until you've finished. Peter, 2026-11-17.)
+            // (Not while its Info bar buttons editor is open: that stays until you've finished. 2026-11-17.)
             if (left <= 0 && !BarEditorOpen.value) { hs.osdVisible = false; break }
             if (left <= 0) { delay(1_000); continue }
             delay(left)
@@ -425,10 +425,10 @@ fun HomeScreen(
     BackHandler(enabled = hs.page == Page.Tv && !hs.menuOpen && !hs.fullscreen && !hs.showAccounts && !hs.quickSearch) {
         when {
             // "Back jumps to now first" (on as standard): away from now, Back comes back to now, the next Back does the
-            // rest (full screen with something playing; Peter, 2026-11-15). Off: it acts at once.
+            // rest (full screen with something playing; 2026-11-15). Off: it acts at once.
             !vm.isAtNow() && remote.guideBackNow == GuideBackNow.On -> vm.goToNow()
-            // A channel playing in the guide's window: Back brings it full screen (Peter,
-            // 2026-11-15; a film in the mini player likewise, at the root). Back there shrinks it here again; hold Back
+            // A channel playing in the guide's window: Back brings it full screen
+            // (2026-11-15; a film in the mini player likewise, at the root). Back there shrinks it here again; hold Back
             // closes it.
             playing != null -> { if (!vm.isAtNow()) vm.goToNow(); hs.fullscreen = true; hs.showBanner() }
             // "Press Back again to exit" is up: this Back exits.
@@ -524,7 +524,7 @@ fun HomeScreen(
     val sportsHub = remember {
         SportsHub(sportsVm, vm, dvr,
             // (The same as watching any channel: Live TV's page too. It only went full screen, leaving the page under
-            // Sports, Shows, on top with the game behind it. Peter, 2026-11-17.)
+            // Sports, Shows, on top with the game behind it. 2026-11-17.)
             watch = { ch -> hs.sportsOpen = false; hs.osdVisible = false; hs.watchChannel(ch, s = sessionRef.value) },
             toast = { hs.toast(it) })
     }
@@ -555,7 +555,7 @@ fun HomeScreen(
         PlayerBridge.openSettings = { hs.settingsFromFilm = true; hs.menuOnSettings = true; hs.menuOpen = true }
         PlayerBridge.openPage = { name -> hs.buttonRequest = when (name) { "Movies" -> BtnAction.Movies; "Shows" -> BtnAction.Shows; else -> BtnAction.Recordings } }
         PlayerBridge.openGuide = { hs.menuOpen = false; hs.quickSearch = false; if (hs.page != Page.Tv) hs.openPage(Page.Tv) else hs.fullscreen = false }
-        // A film minimised (Back's last step): the guide behind, the menu open on Live TV (Peter's rule: the same
+        // A film minimised (Back's last step): the guide behind, the menu open on Live TV (the rule: the same
         // starting point every time, ready to browse; live TV's own Back goes to the guide instead).
         PlayerBridge.openMenuOnLiveTv = {
             hs.quickSearch = false
@@ -1184,7 +1184,7 @@ private fun BoxScope.SearchLayer(hs: HomeState) {
         BackHandler { hs.quickSearch = false; hs.searchStart = null }
         // Solid: the screen underneath showing through between results (guide text, times) looked like a glitch.
         // The remote stays inside search until it closes.
-        // Over full-screen live TV: see-through, so the programme carries on showing behind (Peter, 2026-11-21);
+        // Over full-screen live TV: see-through, so the programme carries on showing behind (2026-11-21);
         // darkest on the left where the box and results are.
         val overLive = hs.fullscreen && hs.playback.channel.value != null
         Box(Modifier.fillMaxSize().then(if (overLive) Modifier.background(androidx.compose.ui.graphics.Brush.horizontalGradient(
@@ -1274,7 +1274,7 @@ private fun BoxScope.MenuLayer(
             // (Moving through the menu changes the page behind it, except over full-screen video. A film in the mini
             // player doesn't count: it keeps playing in the corner while the page changes, as when browsing.)
             onHoverPage = { p ->
-                // (Over full-screen live TV too, Peter: the channel moves to the top-left window and keeps playing while
+                // (Over full-screen live TV too: the channel moves to the top-left window and keeps playing while
                 // the page shows; it used to stay full screen with nothing changing behind the menu.)
                 if (!hs.liveBehind && !filmFullScreen()) {
                     hs.sportsOpen = false
@@ -1291,16 +1291,17 @@ private fun BoxScope.MenuLayer(
                 }
             },
             services = menuServices,
-            // (Live now is a group in the TV guide now: 📡 Live now heads the group list. Peter, 2026-11-17.)
-            liveEntries = listOf("Sports"),
+            // (Live now is a group in the TV guide now: 📡 Live now heads the group list. 2026-11-17.)
+            liveEntries = listOf("Sports", io.github.petebutty.viewarr.ui.media.Discover.TRENDING_ENTRY, io.github.petebutty.viewarr.ui.media.Discover.NEW_ENTRY),
             openEntry = when {
                 hs.sportsOpen -> "Sports"
                 hs.page == Page.Shows -> showsVm.currentRowSet.value?.takeIf { it.startsWith("name:") }?.let { "svc:" + it.removePrefix("name:") }
                 hs.page == Page.Movies && moviesVm.currentRowSet.value == io.github.petebutty.viewarr.ui.media.MyLibrary.SET -> "section:Library"
+                hs.page == Page.Movies && io.github.petebutty.viewarr.ui.media.Discover.isSet(moviesVm.currentRowSet.value) -> io.github.petebutty.viewarr.ui.media.Discover.entryOf(moviesVm.currentRowSet.value)
                 hs.page == Page.Movies -> moviesVm.currentRowSet.value?.takeIf { it.startsWith("name:") }?.let { "svc:" + it.removePrefix("name:") }
                 else -> null
             },
-            onLiveEntry = { _, into -> if (into || (!hs.fullscreen && !hs.liveBehind && !filmFullScreen())) hs.openSportsPage(closeMenu = into) },
+            onLiveEntry = { id, into -> if (into || (!hs.fullscreen && !hs.liveBehind && !filmFullScreen())) hs.openLiveEntry(id, into, keepLive = !into && hs.fullscreen) },
             // Moving onto a service: its page behind (not over full-screen video); Right / OK: into it.
             onService = { name, rowId, into -> if (into || (!hs.liveBehind && !filmFullScreen())) { hs.sportsOpen = false; hs.openService(name, closeMenu = into, rowId = rowId, keepLive = !into && hs.fullscreen) } },
             // My Library highlighted: its page behind (your own servers' rows); its "My Library home": into it.
@@ -1361,8 +1362,10 @@ private fun BoxScope.PagesLayer(
                 onOpenMenu = {
                     val mvm = if (hs.page == Page.Movies) moviesVm else showsVm
                     when {
-                        mvm.currentRowSet.value != null -> Unit
+                        // (A library open first: one opened from My Library still has My Library's rows set behind it,
+                        // and Left went to the main list instead of My Library's list of libraries.)
                         mvm.browse.value != null -> { hs.menuOnLibrary = true; hs.menuOnMain = true }
+                        mvm.currentRowSet.value != null -> Unit
                         else -> hs.menuOnMain = true
                     }
                     hs.menuOpen = true
@@ -1418,7 +1421,7 @@ private fun BoxScope.PagesLayer(
                 onLongSelect = { channel, program ->
                     ButtonMap.changed(remote, BtnScreen.Guide, BtnPress.OkHold)?.let { hs.doButton(BtnScreen.Guide, it); return@GuideScreen }
                     // No programme listed: the channel's menu all the same (favourites, EPG offset, Report a problem:
-                    // a channel with no guide is the one to report; Peter, 2026-11-19), without the record options.
+                    // a channel with no guide is the one to report; 2026-11-19), without the record options.
                     hs.recordTarget = channel to (program ?: io.github.petebutty.viewarr.data.local.GuideProgram.noGuide(channel.id))
                 },
             )
@@ -1438,7 +1441,7 @@ private fun BoxScope.PagesLayer(
             onOpenMenu = { hs.menuOpen = true },
             // Back: the video it came from first (a film in the corner full screen…), else the menu on Sports (still
             // showing behind it), as Back on Music and Recordings (UI review, 2026-11-17). (It closed Sports, showing
-            // whatever page was under it: Music, the last one visited. Peter, 2026-11-16.)
+            // whatever page was under it: Music, the last one visited. 2026-11-16.)
             onBack = hs::backFromPage,
         )
     }

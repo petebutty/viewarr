@@ -198,7 +198,7 @@ fun PlayerLayer(
                 // The frame rate is the certain one from above (blank until then, not a first-second guess).
                 while (true) {
                     val p = vm.player
-                    quality = p?.videoFormat?.let { v -> StreamQuality(v.height, liveFps ?: 0f, p.audioFormat?.channelCount ?: 0) }
+                    quality = p?.videoFormat?.let { v -> StreamQuality.of(v.width, v.height, liveFps ?: 0f, p.audioFormat?.channelCount ?: 0, StreamQuality.hdrOf(v), StreamQuality.audioOf(p.audioFormat)) }
                     LiveQuality.now = quality
                     kotlinx.coroutines.delay(1_000)
                 }
@@ -236,7 +236,51 @@ private object KnownFps {
 }
 
 /** What the live stream is: picture height, frames per second, sound channels (the info bar's badges). */
-data class StreamQuality(val height: Int, val fps: Float, val channels: Int)
+data class StreamQuality(val height: Int, val fps: Float, val channels: Int,
+    /** The picture's dynamic range as playing: "Dolby Vision", "HDR10", "HLG" (null: SDR or not known). */
+    val hdr: String? = null,
+    /** The sound's format as playing: "Dolby Atmos", "Dolby Digital+", "TrueHD", "DTS-HD"… (null: plain or not known). */
+    val audio: String? = null,
+) {
+    companion object {
+        /**
+         * The picture's class by its width as well as its height: a film cropped to a wide picture (1920×960, 3840×1600)
+         * is still 1080p / 4K, not 720p (2026-11-24: Carrie's 1080p episodes showed "720p").
+         */
+        fun of(width: Int, height: Int, fps: Float, channels: Int, hdr: String? = null, audio: String? = null) =
+            StreamQuality(maxOf(height, if (width > 0) (width * 9 + 8) / 16 else 0), fps, channels, hdr, audio)
+
+        /** The built-in player's video track: Dolby Vision by its codec, HDR10 / HLG by its transfer (2026-11-24). */
+        fun hdrOf(v: androidx.media3.common.Format?): String? {
+            v ?: return null
+            val codecs = v.codecs.orEmpty().lowercase()
+            return when {
+                v.sampleMimeType == androidx.media3.common.MimeTypes.VIDEO_DOLBY_VISION || codecs.startsWith("dvh") || codecs.startsWith("dva") -> "Dolby Vision"
+                v.colorInfo?.colorTransfer == androidx.media3.common.C.COLOR_TRANSFER_ST2084 -> "HDR10"
+                v.colorInfo?.colorTransfer == androidx.media3.common.C.COLOR_TRANSFER_HLG -> "HLG"
+                else -> null
+            }
+        }
+
+        /** The built-in player's sound track's format. */
+        fun audioOf(a: androidx.media3.common.Format?): String? = audioName(a?.sampleMimeType?.removePrefix("audio/"))
+
+        /** A codec name (the built-in player's mime type, or mpv's codec) as a badge: "eac3-joc" → "Dolby Atmos". */
+        fun audioName(codec: String?, profile: String? = null): String? {
+            val c = codec.orEmpty().lowercase(); val pr = profile.orEmpty().lowercase()
+            return when {
+                c == "eac3-joc" || c == "ac4" -> "Dolby Atmos"
+                c == "true-hd" || c == "truehd" -> if ("atmos" in pr) "Dolby Atmos" else "TrueHD"
+                c == "eac3" -> "Dolby Digital+"
+                c == "ac3" -> "Dolby Digital"
+                c == "vnd.dts.uhd" || "dts:x" in pr || "dts-x" in pr -> "DTS:X"
+                c == "vnd.dts.hd" || (c == "dts" && ("ma" in pr || "hd" in pr)) -> "DTS-HD"
+                c == "vnd.dts" || c == "dts" -> "DTS"
+                else -> null
+            }
+        }
+    }
+}
 
 /** The live stream's picture / sound / frame rate, last measured (the controls show the same badges). */
 internal object LiveQuality {
@@ -262,7 +306,7 @@ internal fun InfoBarPanel(modifier: Modifier, content: @Composable androidx.comp
     // from 0 to 30%, and Outline could never be solid).
     val see = 1f - glassAlpha
     // (Lighter styles bend the other way: alpha = (1 − see)^(1/k). The first way, 1 − see^k, made them jump to about
-    // half see-through at the slider's first step and barely change after; Peter, 2026-11-16.)
+    // half see-through at the slider's first step and barely change after; 2026-11-16.)
     fun more(k: Float) = (if (k >= 1f) 1f - Math.pow(see.toDouble(), k.toDouble()).toFloat()
         else Math.pow(glassAlpha.toDouble(), 1.0 / k).toFloat()).coerceIn(0f, 1f)
     val outer = when (p.opt(UiOpts.INFOBAR_STYLE)) {
@@ -388,7 +432,7 @@ internal fun InfoBarTop(
         )
         Box(Modifier.size(width = 110.dp, height = 62.dp), contentAlignment = Alignment.Center, content = logo)
         Column(Modifier.weight(1f).padding(start = 24.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            // The same size from one channel to the next (Peter, 2026-11-16: it grew and shrank while changing channel):
+            // The same size from one channel to the next (2026-11-16: it grew and shrank while changing channel):
             // the badge line keeps room for its badges (they arrive a moment after the channel starts, and are a little
             // taller than its text), and the "Next" line keeps its place when a channel has none.
             Row(Modifier.heightIn(min = 20.dp), verticalAlignment = Alignment.CenterVertically, content = smallLine)
@@ -435,7 +479,10 @@ internal fun QualityBadges(q: StreamQuality?) {
     }
     val sound = if (badgeStyle != 2 && q.channels >= 6) (if (q.channels >= 8) "7.1" else "5.1") else null
     val fps = if (showFps && q.fps > 0) (if (kotlin.math.abs(q.fps - kotlin.math.round(q.fps)) > 0.01f) "%.2f".format(q.fps).trimEnd('0') else "${kotlin.math.round(q.fps).toInt()}") + " fps" else null
-    listOfNotNull(res, sound, fps).forEach { b ->
+    // The picture's range and the sound's format (Dolby Vision, HDR10, Dolby Atmos…; 2026-11-24), with the others.
+    val hdr = q.hdr?.takeIf { badgeStyle != 2 }
+    val audio = q.audio?.takeIf { badgeStyle != 2 }
+    listOfNotNull(res, hdr, audio, sound, fps).forEach { b ->
         Spacer(Modifier.width(8.dp))
         Text(b, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1, softWrap = false,
             modifier = Modifier.border(1.dp, Color.White.copy(alpha = 0.6f), RoundedCornerShape(3.dp)).padding(horizontal = 5.dp, vertical = 1.dp))

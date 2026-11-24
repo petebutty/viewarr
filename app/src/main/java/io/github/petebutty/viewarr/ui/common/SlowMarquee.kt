@@ -30,7 +30,7 @@ import kotlinx.coroutines.launch
  * Scrolling names (a long programme name on the highlighted guide cell or channel list row), moved on about 20 times
  * a second rather than every frame. They still scroll all the time at the same speed; only the steps are coarser.
  * (A name scrolling at the full 60 frames a second redrew the screen that often while it sat there: about half a core
- * on a Shield. Peter, 2026-11-22: keep it scrolling, but at about 20 frames a second.)
+ * on a Shield. 2026-11-22: keep it scrolling, but at about 20 frames a second.)
  */
 
 /** How often a scrolling name moves on: about every 50 ms (20 steps a second). */

@@ -18,7 +18,7 @@ import javax.inject.Singleton
 /**
  * Which UK channel shows a game, from Sky's own TV guide (the public schedule behind sky.com's TV guide): Sky Sports,
  * TNT Sports, Premier Sports, BBC, ITV, Channel 4 / 5, S4C, BBC Alba, about a week ahead. Viewarr's own source, so
- * nobody needs a plugin for it (Peter, 2026-11-16: "Viewarr should do most of the work"). Programmes like "Live EFL:
+ * nobody needs a plugin for it (2026-11-16: "Viewarr should do most of the work"). Programmes like "Live EFL:
  * Barnsley v Sheff Weds" are matched to a game by [GameMatch] (both teams, around kick-off). Only channel numbers and
  * dates are sent; each day's answer is kept 6 hours.
  */

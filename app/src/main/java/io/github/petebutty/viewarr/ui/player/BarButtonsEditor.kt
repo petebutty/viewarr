@@ -41,7 +41,7 @@ import kotlinx.coroutines.delay
 /**
  * Whether a pop-up of the info bar is open (the Info bar buttons editor, a card's options, Choose
  * rows): the info bar doesn't close on its own meanwhile. Counted, as one can open over another (the editor's own
- * hold-OK options over the editor). (A plain flag before: Peter, 2026-11-17 UI review.)
+ * hold-OK options over the editor). (A plain flag before: 2026-11-17 UI review.)
  */
 internal object BarEditorOpen {
     private var count by mutableIntStateOf(0)
@@ -66,7 +66,7 @@ internal data class BarItem(val id: String, val icon: ImageVector, val label: St
  * Move / Take off; while moving, ▲ ▼ place it and OK, Back or Left put it down (Right picks up and puts down too, as in
  * Settings lists).
  * (It replaced editing on the bar itself: ~28 look-alike round buttons in one row. A "⋯ More" menu tried after it was
- * dropped: Peter, 2026-11-17. The film bar was still edited in place until the UI review the same day: now both bars
+ * dropped: 2026-11-17. The film bar was still edited in place until the UI review the same day: now both bars
  * use this list.)
  */
 @Composable

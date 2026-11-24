@@ -14,7 +14,7 @@ object SmallerImages : Interceptor {
     @Volatile var weak = false
     /**
      * On a 4K screen pictures are decoded at two thirds of their shown size (1080p-like detail, which is all a TV
-     * across a room shows): about half the graphics memory and texture traffic per frame (Peter, 2026-11-19: the AM9
+     * across a room shows): about half the graphics memory and texture traffic per frame (2026-11-19: the AM9
      * at 4K spent ~45 ms a frame on the graphics chip scrolling Cinema's posters). Set at start from the screen width.
      */
     @Volatile var screenScale = 1f

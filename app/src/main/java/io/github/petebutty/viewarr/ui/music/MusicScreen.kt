@@ -683,13 +683,13 @@ fun MusicScreen(
     // Live TV in the guide's preview place (top left): the highlighted album, artist or playlist beside it, the
     // music below.
     val besidePreview = LiveBehind.preview
-    // (The app's wallpaper shows through, as under the menu beside it: one background across both. Peter, 2026-11-17.)
+    // (The app's wallpaper shows through, as under the menu beside it: one background across both. 2026-11-17.)
     Column(Modifier.fillMaxSize()) {
     if (besidePreview) Row(Modifier.fillMaxWidth().height(200.dp)) {
         Spacer(Modifier.width(Tokens.BesideWindowStart))
         Column(Modifier.padding(top = 26.dp, end = Tokens.Gutter)) {
             // An album / artist / playlist open: its name and details here (the page below then leaves them out, so
-            // they aren't shown twice); otherwise the highlighted card's. (Peter, 2026-11-17.)
+            // they aren't shown twice); otherwise the highlighted card's. (2026-11-17.)
             val d = detail
             val c = MusicHover.card
             Text("Music", fontSize = 14.sp, color = AppColors.Accent, maxLines = 1, overflow = TextOverflow.Ellipsis)

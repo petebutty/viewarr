@@ -66,7 +66,7 @@ object ReportSender {
             appendLine("Box: ${Build.MANUFACTURER} ${Build.MODEL} (${Build.DEVICE}), Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})")
             appendLine("Memory: ${mem.totalMem / 1_048_576} MB total, ${mem.availMem / 1_048_576} MB free${if (am?.isLowRamDevice == true) ", low-RAM device" else ""}")
             appendLine("Screen: ${dm.widthPixels}x${dm.heightPixels} at ${dm.densityDpi} dpi, TV font size ${(context.resources.configuration.fontScale * 100).toInt()}%")
-            // Every Viewarr setting changed from its default, by name (Peter, 2026-11-19: "the log should have all his
+            // Every Viewarr setting changed from its default, by name (2026-11-19: "the log should have all his
             // settings"; a tester's guide panel lost its synopsis to a 12-hour clock). Only display and behaviour
             // choices: sign-ins, addresses and keys aren't settings here and never go in.
             runCatching { append(settingsBlock(context)) }

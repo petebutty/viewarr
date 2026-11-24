@@ -15,7 +15,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Live score alerts worked out on this TV, for houses without the Viewarr plugin (Peter, 2026-11-21: "All features
+ * Live score alerts worked out on this TV, for houses without the Viewarr plugin (2026-11-21: "All features
  * should be available to people also not using the Viewarr plugin"). The same alerts as the plugin's alerts.py
  * (kick-off, goal / score, half-time, full time) with the same wording, for the teams and leagues score alerts are on
  * for, shown the same way (ServerSports.showAlert: the banner or the ticker).

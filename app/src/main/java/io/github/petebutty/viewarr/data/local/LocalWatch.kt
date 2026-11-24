@@ -232,7 +232,7 @@ class LocalWatchStore @Inject constructor(
     )
 
     companion object {
-        // (0.8, as Trakt and the servers count it, so one stop means the same everywhere. Peter, 2026-11-19.)
+        // (0.8, as Trakt and the servers count it, so one stop means the same everywhere. 2026-11-19.)
         const val WATCHED = 0.8
         private const val TAG = "LocalWatch"
         private const val MAX = 400

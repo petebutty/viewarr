@@ -1,5 +1,7 @@
 # Shown once, the first time a new version opens (not on a fresh install). Written by tools/changelog.py
 # from the release notes. Lines starting with "- " are the points; the first other line is the heading.
-What the Viewarr plugin did last, sports found in Schedules Direct guides, and what's coming for the plugin.
-- Viewarr plugin (admins)
-- Coming next: Viewarr with and without the plugin
+Trending and What's new pages, your own Play order, following shows for new episodes, icons in the menu, and a long list of fixes.
+- New pages and menu
+- Playing
+- Shows
+- Films

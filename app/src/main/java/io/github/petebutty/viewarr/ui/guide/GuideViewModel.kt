@@ -123,7 +123,7 @@ class GuideViewModel @Inject constructor(
     // it (or for users Dispatcharr doesn't show plugins to), groups whose names look like sport or events.
     private var eventGroupNames: Set<String>? = null
     /**
-     * Settings → Live TV → Live now groups (Peter, 2026-11-17: the user picks the groups searched): a group switched on
+     * Settings → Live TV → Live now groups (2026-11-17: the user picks the groups searched): a group switched on
      * or off there; untouched, the event feeds' groups (Event Channel Managarr's) and sporty-named ones are searched.
      * Kept as palette title parts: "lngrp:+<name>" switched on, "lngrp:-<name>" switched off.
      */
@@ -207,7 +207,7 @@ class GuideViewModel @Inject constructor(
             return null
         }
         val wanted = events
-        // The server's list stands: it has already worked out what's on and where (Peter, 2026-11-17: "the app knows
+        // The server's list stands: it has already worked out what's on and where (2026-11-17: "the app knows
         // the games that are on from the plugin"), so this TV's copy of the guide isn't asked (tonight's NBA games were
         // left out because it hadn't caught up). Only a team's own channel with no listing anywhere stays cards only
         // (an empty row, as asked before); guide entries the server found, Sky / UK listings and event channels all go in.
@@ -243,14 +243,14 @@ class GuideViewModel @Inject constructor(
     /**
      * A guide entry that only repeats its channel's name ("NBA B 09:", "UEFA 05: 14:45 Belgium vs Italy" all day long:
      * a filler source such as EPG & Sports Editor's "Fill") or an empty slot's label ("F1 TV 70:"): not an event on now.
-     * (2,120 of 2,238 event channels "on now" were these, mostly empty or long finished. Peter, 2026-11-17.)
+     * (2,120 of 2,238 event channels "on now" were these, mostly empty or long finished. 2026-11-17.)
      */
     private fun fillerFor(channelBare: String, p: GuideProgram): Boolean {
         val t = p.title.trim()
         if (t.endsWith(":") || bare(t) == channelBare) return true
         // A stream's own name standing in for a programme ("US NFL GAME (UHD/4K)" all afternoon: a filler source copies
         // the provider's stream names, not the channel's): its quality mark gives it away, as does an all-capitals name
-        // spanning 5 hours or more ("FORMULA 1 ALB-ALBON-WILLIAMS", 6 h; not "WWE RAW", 3 h). Real listings are mixed case. (Peter, 2026-11-17.)
+        // spanning 5 hours or more ("FORMULA 1 ALB-ALBON-WILLIAMS", 6 h; not "WWE RAW", 3 h). Real listings are mixed case. (2026-11-17.)
         if (QUALITY_MARK.containsMatchIn(t)) return true
         val letters = t.filter { it.isLetter() }
         return letters.length >= 4 && letters == letters.uppercase() && p.endTime - p.startTime >= 5 * 3_600_000L
@@ -278,11 +278,11 @@ class GuideViewModel @Inject constructor(
      * [games]: your Sports schedule's games on now or within three hours, each on its channel (shown first, with the
      * score); [known]: every game it knows, finished ones too (a guide entry for a finished game is a dead channel, and
      * one for a game in [games] is already shown). (Live now trusted the guide alone and filled with finished events and
-     * empty slots. Peter, 2026-11-17.)
+     * empty slots. 2026-11-17.)
      */
     suspend fun liveEvents(games: List<LiveGame> = emptyList(), known: List<SportGame> = emptyList()): LiveEvents =
         // Off the screen's thread: thousands of guide entries sorted and matched (on it, the remote stalled while Live
-        // now filled. Peter, 2026-11-17).
+        // now filled. 2026-11-17).
         withContext(Dispatchers.Default) { liveEventsNow(games, known) }
 
     private suspend fun liveEventsNow(games: List<LiveGame>, known: List<SportGame>): LiveEvents {
@@ -294,7 +294,7 @@ class GuideViewModel @Inject constructor(
         // only applies its own choices (Live now groups, sports), with no guide scanning of its own.
         io.github.petebutty.viewarr.data.sync.ServerSports.fresh?.let { srv -> fromServer(srv, all)?.let { return it } }
         // Every event channel (not the first 400 by number: a "4K / UHD" group early in the numbers filled the list, and
-        // the groups after it, UEFA, NFL, UFC…, were never looked at. Peter, 2026-11-17).
+        // the groups after it, UEFA, NFL, UFC…, were never looked at. 2026-11-17).
         // The groups chosen in Settings → Live TV → Live now groups (untouched: the event feeds' groups and every
         // sports-looking one; Sky Sports' Grand Slam of Darts was missed while only the plugin's were searched).
         val groupOn = HashMap<String, Boolean>()
@@ -313,7 +313,7 @@ class GuideViewModel @Inject constructor(
             // sport by its title (a match, a race, a fight), not its everyday shows.
             val feed = EVENT_FEED.containsMatchIn(c.name)
             val channelBare = bare(c.name)
-            // Real guide data that says it's live (Peter, 2026-11-17: "look in the EPG for live and actual EPG data"):
+            // Real guide data that says it's live (2026-11-17: "look in the EPG for live and actual EPG data"):
             // the live flag, or "Live" in its title / subtitle / synopsis ("Live PL: …", "MNF … ᴸᶦᵛᵉ"). A feed's or
             // channel's name standing in, placeholders ("No Fixtures Today") and all-day blocks never count. Games your
             // Sports schedule knows come in from it on their own (below).
@@ -321,7 +321,7 @@ class GuideViewModel @Inject constructor(
             ps.firstOrNull { it.startTime <= now && it.endTime > now }?.let { onNow += c to it }
             // An event feed only at its event's time: from 30 minutes before its live entry (by the guide: the time in a
             // feed's name can be another time zone, "14:45" for a 19:45 kick-off, and showed them all afternoon). Other
-            // channels: anything live in the next three hours. (Peter, 2026-11-17.)
+            // channels: anything live in the next three hours. (2026-11-17.)
             ps.firstOrNull { it.startTime > now && (!feed || it.startTime - now <= 30 * 60_000L) }?.let { soon += c to it }
         }
         // The same event on several channels (feeds, backups): once, on the first. A game your Sports schedule knows: left
@@ -361,8 +361,8 @@ class GuideViewModel @Inject constructor(
         val onNowList = (fromSchedule(pickedGames(games.filter { it.game.state == "in" })) + wanted(events(nowPairs))).take(60)
         val soonList = (fromSchedule(pickedGames(games.filter { it.game.state == "pre" && it.game.start in now..now + 3 * 3_600_000L }.sortedBy { it.game.start })) + wanted(events(soonPairs))).take(30)
         // The Live now group in the guide: only channels whose guide has the event (a team or event channel found from
-        // the schedule often has no guide at all, an empty row there. Peter, 2026-11-17).
-        // In time order (Peter, 2026-11-17): what started first at the top, then what's coming up, soonest first.
+        // the schedule often has no guide at all, an empty row there. 2026-11-17).
+        // In time order (2026-11-17): what started first at the top, then what's coming up, soonest first.
         // (In the Live now list's order, then by start time.)
         _liveUuids.value = (onNowList + soonList).filter { it.program.rowId >= 0 }
             .sortedWith(compareBy({ if (picks.isEmpty()) 0 else LiveNowPicks.rank(picks, null, null, null, it.title, it.sport?.name) }, { it.program.startTime }))
@@ -384,12 +384,12 @@ class GuideViewModel @Inject constructor(
     /**
      * The Live now group ([LIVE_NOW]): the channels with something live or starting soon (uuids, from [liveEvents]: the
      * Sports schedule, ESPN and the real guide events; filler and finished ones left out). The menu's Live now opens the
-     * guide on it. (It opened a whole channel group, empty event slots and all. Peter, 2026-11-17.)
+     * guide on it. (It opened a whole channel group, empty event slots and all. 2026-11-17.)
      */
     private val _liveUuids = MutableStateFlow<List<String>>(emptyList())
     // In your order (hold OK on a group in the menu → move); groups not placed yet keep the guide's order after them.
     // (📡 Live now is one of the groups, while anything's on: moved, hidden and shown again like the others, your
-    // choice. Peter, 2026-11-17. Out of the box it comes first.)
+    // choice. 2026-11-17. Out of the box it comes first.)
     // (The database's group list re-sent with nothing changed, e.g. after another table's write: nothing to redo.)
     val groups = combine(repo.observeGroups().distinctUntilChanged(), repo.groupOrder, _liveUuids) { g0, order, live ->
         val g = (if (live.isEmpty()) emptyList() else listOf(GroupWithCount(LIVE_NOW, LIVE_NAME, live.size))) + g0
@@ -442,7 +442,7 @@ class GuideViewModel @Inject constructor(
     // Guide time offset (see GuideRepository): the source's, and a channel's own (by its guide).
     val shiftVersion = repo.shiftVersion
     fun sourceShiftMin(): Int = repo.sourceShiftMin()
-    // (Slides the saved programmes: no guide download. Peter, 2026-11-17.)
+    // (Slides the saved programmes: no guide download. 2026-11-17.)
     fun setSourceShiftMin(min: Int) { viewModelScope.launch { repo.setSourceShiftMin(min) } }
     fun channelShiftMin(ch: ChannelListItem): Int = repo.channelShiftMin(ch.guideKey)
     fun setChannelShiftMin(ch: ChannelListItem, min: Int) { viewModelScope.launch { repo.setChannelShiftMin(ch.guideKey, min) } }
@@ -828,7 +828,7 @@ class GuideViewModel @Inject constructor(
 
     /** Channels whose name or number matches a search, across all categories (not event channels hidden for want of a listing). */
     /**
-     * Voice search (Peter, 2026-11-21: "voice search will play a TV channel automatically"): the channel [said] names,
+     * Voice search (2026-11-21: "voice search will play a TV channel automatically"): the channel [said] names,
      * when it clearly names one ("BBC One", "channel 104", "put on Sky Atlantic", "BBC 2"), else null (a normal search).
      * Exact name first; else the one channel whose name starts with it ("BBC One" → BBC One Scotland), HD copies aside.
      */
@@ -857,7 +857,7 @@ class GuideViewModel @Inject constructor(
         val t = q.trim()
         if (t.length < 2) return emptyList()
         val hidden = repo.hiddenEventIds.value
-        // (Also what people call them: "Sky Movies" finds Sky Cinema, "BBC 1" BBC One. Peter, 2026-11-21.)
+        // (Also what people call them: "Sky Movies" finds Sky Cinema, "BBC 1" BBC One. 2026-11-21.)
         val also = channelAliases(t)
         return allChannelsList().filter { c ->
             c.id !in hidden && (c.name.contains(t, ignoreCase = true) || also.any { c.name.contains(it, ignoreCase = true) } ||

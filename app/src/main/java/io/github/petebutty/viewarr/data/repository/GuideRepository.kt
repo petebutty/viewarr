@@ -108,7 +108,7 @@ class GuideRepository @Inject constructor(
     val shiftVersion = MutableStateFlow(0)
     fun sourceShiftMin(): Int = prefs.getInt(k(KEY_SHIFT), 0)
     // Changing an offset slides the programmes already saved on the box by the difference (the guide redraws from
-    // them at once), rather than fetching the whole guide again. (Peter, 2026-11-17: every change was a full guide
+    // them at once), rather than fetching the whole guide again. (2026-11-17: every change was a full guide
     // download.) The offset is saved, so programmes fetched later get it as they're saved, as before.
     private val shiftLock = kotlinx.coroutines.sync.Mutex()
     suspend fun setSourceShiftMin(min: Int) = shiftLock.withLock {
@@ -137,7 +137,7 @@ class GuideRepository @Inject constructor(
     /**
      * The house's guide offsets from the Viewarr plugin (viewarr_house.offsets, by guide key, minutes; data/report/
      * HouseSync): used for a channel with no offset of its own on this box. Kept, so a restart doesn't slide the saved
-     * listings again; a change slides them by the difference, as a hand-set one does. (Peter, 2026-11-19.)
+     * listings again; a change slides them by the difference, as a hand-set one does. (2026-11-19.)
      */
     suspend fun setHouseShifts(byKey: Map<String, Int>) = shiftLock.withLock {
         val old = shiftMap(k(KEY_HOUSE_SHIFT))
@@ -262,11 +262,11 @@ class GuideRepository @Inject constructor(
     // agree, and a group whose event channels are all hidden goes with them. Worked out again as the guide changes
     // (the DAO flow), when the plugin's data changes, and every five minutes (a programme starting brings a channel in,
     // one ending takes it out). Looking a channel up by id ([observeAllChannels]: links, reminders, recordings, the
-    // Sports page) still finds it, so a hidden channel still plays. (Peter, 2026-11-19.)
+    // Sports page) still finds it, so a hidden channel still plays. (2026-11-19.)
     // Without the plugin (ServerSports.pluginAlive false once it has been asked, or an IPTV login / playlist) the TV
     // works out the event channels itself (EventChannelRule: channels in event-style groups) and hides those with
     // nothing on now or in the next 24 hours the same way; with the plugin running its list is used, as before.
-    // ("All features should be available to people also not using the Viewarr plugin": Peter, 2026-11-21.)
+    // ("All features should be available to people also not using the Viewarr plugin": 2026-11-21.)
 
     /** The plugin's quiet channel ids (null: not told yet; the last hidden set saved in the database stays till then). */
     private val _quiet = MutableStateFlow<Set<Int>?>(null)
@@ -501,7 +501,7 @@ class GuideRepository @Inject constructor(
 
             _sync.value = SyncState.Running("Loading TV guide…")
             val now = System.currentTimeMillis()
-            // A top-up when nothing has changed on the server (Peter, 2026-11-19: the whole guide, ~220,000
+            // A top-up when nothing has changed on the server (2026-11-19: the whole guide, ~220,000
             // programmes, was downloaded and stored again every few hours): the guide sources' refresh stamps and
             // the channel list are as at the last full update, and the saved guide still reaches past now. Then
             // only the new hours at the far end are fetched (and what's over is dropped); otherwise everything.
@@ -616,7 +616,7 @@ class GuideRepository @Inject constructor(
             c.await() to g.await()
         }
         // Dispatcharr's channel list gives an admin every channel, hidden or not: the channel profiles say which are
-        // switched on (Event Channel Managarr hides idle event slots that way). Only those are kept (Peter, 2026-11-19:
+        // switched on (Event Channel Managarr hides idle event slots that way). Only those are kept (2026-11-19:
         // the guide was full of blank "TNT EVENTS 01:" slots Dispatcharr itself had hidden).
         val enabled = profileEnabledIds(api)
         val shown = if (enabled == null) channels else channels.filter { it.id in enabled }
@@ -1011,7 +1011,7 @@ class GuideRepository @Inject constructor(
      * Pictures for a whole screenful of programmes at once ([items]: row id, guide key, start), so they're there before
      * you move onto them: one small search per channel for its visible hours (Dispatcharr's guide grid sends none, and
      * [lookupImage] asked for one programme at a time, as each was highlighted). Kept with [lookupImage]'s.
-     * (Peter, 2026-11-17: Stage 4 of the server work, guide pictures ahead of time.)
+     * (2026-11-17: Stage 4 of the server work, guide pictures ahead of time.)
      */
     suspend fun prefetchImages(session: Session, items: List<Triple<Long, String, Long>>) {
         if (session.isDirect) return

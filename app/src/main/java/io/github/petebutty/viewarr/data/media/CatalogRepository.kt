@@ -90,6 +90,8 @@ const val PROVIDER = "IPTV"
 private const val PLEX_DISCOVER = "https://discover.provider.plex.tv"
 private val NOT_ALNUM = Regex("[^a-z0-9]")
 private val MARKS = Regex("\\p{Mn}+")
+private val RANKED = Regex("^\\s*#\\d+[.:)]?\\s+")
+private val YEAR_AFTER = Regex("\\s*\\((19|20)\\d{2}\\)\\s*$")
 
 /**
  * A home-network address: 192.168.x / 10.x / 172.16–31.x, a .local or single-word name, or Plex's
@@ -216,7 +218,7 @@ class CatalogRepository @Inject constructor(
         // Each source can hand over rows as they come (an addon with many catalogues: network by network).
         val slots: List<suspend (suspend (List<MediaRow>) -> Unit) -> List<MediaRow>> = buildList {
             // Trakt connected: Continue watching from Trakt's own list of what you've stopped partway, from any app or
-            // device (Peter, 2026-11-19). Also remembered for the title pages' bars (traktPlaybackOf).
+            // device (2026-11-19). Also remembered for the title pages' bars (traktPlaybackOf).
             traktAuth?.let { t -> add { listOfNotNull(traktPlaybackRow(a, t, type)) } }
             plexServers(a).forEach { p -> add { listOfNotNull(plexOnDeck(a, p, type)) } }
             a.jellyfin?.let { j -> add { listOfNotNull(serverResume(a, j, emby = false, type)) } }
@@ -559,6 +561,7 @@ class CatalogRepository @Inject constructor(
             type = type,
             title = title,
             year = date?.take(4)?.toIntOrNull(),
+            releaseDate = date?.takeIf { type == MediaType.Movie && it.length == 10 },
             poster = j.str("poster_path")?.let { TMDB_IMG + "w342" + it },
             backdrop = j.str("backdrop_path")?.let { TMDB_IMG + "w780" + it },
             overview = j.str("overview")?.takeIf { it.isNotBlank() },
@@ -580,17 +583,38 @@ class CatalogRepository @Inject constructor(
     /**
      * "<service> · Just added": what arrived on each streaming service in the UK over the last fortnight, newest first,
      * new seasons of shows included (the Viewarr plugin reads it from JustWatch once a day: viewarr_just_added).
-     * TMDB's "New" can't show these: it knows which service has a title, not when it arrived (Peter, 2026-11-20).
+     * TMDB's "New" can't show these: it knows which service has a title, not when it arrived (2026-11-20).
      */
+    /**
+     * This TV's own Just added lists handed to the Viewarr plugin for the whole house (its action just_added_from_tv,
+     * 2026-11-24): JustWatch refuses the server's VPN address, so one TV asks from the house's own connection and the
+     * plugin shares the lists as its own. Only while the plugin runs, by an admin (plugin actions are admin-only), and
+     * once a day per TV (the first TV to do it marks the day; the others then find the plugin's copy fresh).
+     */
+    private suspend fun shareJustAdded(s: io.github.petebutty.viewarr.data.session.Session, lists: JsonObject) {
+        if (!io.github.petebutty.viewarr.data.sync.ServerSports.pluginAlive || !io.github.petebutty.viewarr.data.profiles.Access.admin) return
+        val prefs = appContext.getSharedPreferences("just_added", android.content.Context.MODE_PRIVATE)
+        val today = java.time.LocalDate.now().toString()
+        if (prefs.getString("shared", null) == today) return
+        prefs.edit().putString("shared", today).apply()
+        runCatching {
+            val r = http.post(s.serverUrl.trimEnd('/') + "/api/plugins/viewarr/run/",
+                buildJsonObject { put("action", "just_added_from_tv"); put("params", buildJsonObject { put("data", lists) }) }, mapOf("X-API-Key" to s.apiKey))
+            android.util.Log.i("JustAdded", "shared with the plugin: ${if (r.ok) "ok" else "refused (${r.code})"}")
+        }.onFailure { android.util.Log.w("JustAdded", "couldn't share with the plugin: ${it.message}") }
+    }
+
     private suspend fun justAddedRows(a: Accounts, type: MediaType): List<MediaRow> {
         // Switched off in the Viewarr plugin: no Just added rows for the house (and no fetching of our own).
         if (io.github.petebutty.viewarr.data.sync.ServerSports.offInPlugin(io.github.petebutty.viewarr.data.sync.ServerSports.F_JUST)) return emptyList()
-        // From the Viewarr plugin when it's there (it asks JustWatch once a day for the house); else the TV asks JustWatch
-        // itself, once a day (JustAddedLocal), so everyone has these rows.
+        // From the Viewarr plugin when it's there (it asks JustWatch once a day for the house); else, or when the plugin's
+        // copy is missing or old, the TV asks JustWatch itself, once a day (JustAddedLocal), so everyone has these rows.
+        // (2026-11-24: JustWatch refuses Dispatcharr's VPN address with 403, so the plugin's copy never came; the TVs
+        // ask from the house's own connection.)
         val s = sessions.session.first()?.takeIf { !it.isDirect }
         val r = s?.let { runCatching { http.get(it.serverUrl.trimEnd('/') + "/api/accounts/users/me/app-data/viewarr_just_added/", mapOf("X-API-Key" to it.apiKey)) }.getOrNull() }
         val o = (r?.body as? JsonObject)?.takeIf { r.ok && (it["at"] as? kotlinx.serialization.json.JsonPrimitive)?.content?.toLongOrNull()?.let { at -> System.currentTimeMillis() / 1000 - at < 3 * 86_400 } == true }
-            ?: (if (io.github.petebutty.viewarr.data.sync.ServerSports.tvDoesJobs) JustAddedLocal.lists(appContext, http) else null) ?: return emptyList()
+            ?: JustAddedLocal.lists(appContext, http)?.also { mine -> if (s != null) shareJustAdded(s, mine) } ?: return emptyList()
         if (o.int("v") != 1) return emptyList()
         val field = if (type == MediaType.Movie) "movies" else "shows"
         val day = java.time.format.DateTimeFormatter.ofPattern("d MMM", java.util.Locale.UK)
@@ -1031,7 +1055,13 @@ class CatalogRepository @Inject constructor(
                 val r = runCatching { withTimeoutOrNull(15_000) { http.get("${srv.serverUrl}/Users/${srv.userId}/Views", mediaServers.headers(emby, a.deviceId, srv.token)) } }
                     .getOrNull()?.takeIf { it.ok } ?: return@async emptyList()
                 val want = if (type == MediaType.Movie) "movies" else "tvshows"
-                r.body.array("Items").filter { it.str("CollectionType") == want }.mapNotNull { v ->
+                // Marked libraries; and, on servers that don't mark them (Scene FTP's Jellyfin-style server), an unmarked
+                // or plain-folder library whose name says films / shows.
+                val byName = if (type == MediaType.Movie) UNMARKED_MOVIES else UNMARKED_SHOWS
+                r.body.array("Items").filter {
+                    val t = it.str("CollectionType")
+                    t == want || ((t == null || t == "folders" || t == "mixed") && byName.containsMatchIn(it.str("Name").orEmpty()))
+                }.mapNotNull { v ->
                     val id = v.str("Id") ?: return@mapNotNull null
                     MediaLibrary("${name.lowercase()}:$id", tidyLibraryName(v.str("Name") ?: name), name, id)
                 }
@@ -1206,7 +1236,7 @@ class CatalogRepository @Inject constructor(
                 mediaServers.headers(emby, a.deviceId, srv.token),
             )
         }.getOrNull()?.takeIf { it.ok } ?: return null
-        val items = r.body.array("Items").mapNotNull { serverItem(srv, it, type, lib.source) }
+        val items = r.body.array("Items").mapNotNull { serverFolderCard(srv, it, lib.source, type) ?: serverItem(srv, it, type, lib.source) }
         return items to (r.body.int("TotalRecordCount") ?: items.size)
     }
 
@@ -1315,6 +1345,7 @@ class CatalogRepository @Inject constructor(
             type = type,
             title = j.str("title") ?: return null,
             year = j.int("year"),
+            releaseDate = j.str("originallyAvailableAt")?.takeIf { type == MediaType.Movie && it.length == 10 },
             poster = plexImage(p, j.str("thumb"), 240, 360),
             backdrop = plexImage(p, j.str("art"), 960, 540),
             overview = j.str("summary")?.takeIf { it.isNotBlank() },
@@ -1545,6 +1576,24 @@ class CatalogRepository @Inject constructor(
         return out
     }
 
+    /**
+     * A folder on a Jellyfin-style server, as a card that opens it like a collection (folders in it open the same way).
+     * Some servers (Scene FTP's) answer a library with its folders ("Titles", "Genres", "Years"…) whatever is asked
+     * for, rather than its films. Null when [j] isn't a folder (a show is one on the server, but opens as a show).
+     */
+    private fun serverFolderCard(srv: MediaServerAuth, j: JsonElement?, source: String, type: MediaType): MediaItem? {
+        val t = j.str("Type")
+        // (Marked as a folder, or of a folder type where a server leaves the mark out.)
+        val folder = (j.child("IsFolder") as? JsonPrimitive)?.booleanOrNull == true ||
+            t in setOf("Folder", "CollectionFolder", "UserView", "BoxSet")
+        if (!folder || t in setOf("Series", "Season")) return null
+        val id = j.str("Id") ?: return null
+        val g = MediaLibrary("${source.lowercase()}folder:$id", j.str("Name") ?: return null, source, id, null, LibKind.Collection,
+            "${srv.serverUrl}/Items/$id/Images/Primary?maxHeight=360&quality=85&api_key=${enc(srv.token)}")
+        groupByKey[g.key] = g
+        return groupCard(g, type).copy(subtitle = "Folder")
+    }
+
     /** A card for a collection / playlist (OK opens it). */
     private fun groupCard(g: MediaLibrary, type: MediaType) = MediaItem(
         key = "col:" + g.key, type = type, title = g.title, poster = g.poster, origin = g.source,
@@ -1581,8 +1630,10 @@ class CatalogRepository @Inject constructor(
             val r = runCatching { http.get(url, mediaServers.headers(emby, a.deviceId, srv.token)) }.getOrNull()?.takeIf { it.ok } ?: return emptyList()
             r.body.array("Items").mapNotNull { j ->
                 val added = j.str("DateCreated")?.let { d -> runCatching { Instant.parse(d).epochSecond }.getOrNull() } ?: 0L
+                // A folder in it (a Jellyfin-style server's folders, see serverFolderCard): opens the same way.
+                serverFolderCard(srv, j, g.source, MediaType.Movie)?.let { return@mapNotNull it to added }
                 when (j.str("Type")) {
-                    "Movie" -> serverItem(srv, j, MediaType.Movie, g.source)
+                    "Movie", "Video" -> serverItem(srv, j, MediaType.Movie, g.source)
                     "Series" -> serverItem(srv, j, MediaType.Show, g.source)
                     "Episode" -> j.str("SeriesId")?.let { sid ->
                         MediaItem(key = "${g.source.lowercase()}:$sid", type = MediaType.Show, title = j.str("SeriesName") ?: return@mapNotNull null,
@@ -1723,7 +1774,7 @@ class CatalogRepository @Inject constructor(
     /** The addon each addon row came from, for [rowOrigin]. */
     private val addonRowSources = ConcurrentHashMap<String, AddonInfo>()
 
-    // (Off the main thread: an addon's catalogues parsed there cost ~0.8 s of it while browsing. Peter, 2026-11-19.)
+    // (Off the main thread: an addon's catalogues parsed there cost ~0.8 s of it while browsing. 2026-11-19.)
     private suspend fun stremioRows(addon: AddonInfo, type: MediaType, part: suspend (List<MediaRow>) -> Unit = {}): List<MediaRow> =
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { stremioRowsHere(addon, type, part) }
 
@@ -1762,7 +1813,7 @@ class CatalogRepository @Inject constructor(
                     }?.takeIf { it.ok }
                     if (r != null && id != null) {
                         val take = if (setName(c) in grouped) 20 else 40
-                        val items = r.body.array("metas").take(take).mapNotNull { m -> stremioMeta(addon, m, type, catType) }
+                        val items = withPosters(r.body.array("metas").take(take).mapNotNull { m -> stremioMeta(addon, m, type, catType) })
                         val rowId = "stremio-${addon.id}-$id-$catType-${type.name}"
                         addonRowSources[rowId] = addon
                         done[i] = MediaRow(rowId, c.str("name") ?: addon.name, items)
@@ -1773,6 +1824,43 @@ class CatalogRepository @Inject constructor(
             }
         }
         return done.toSortedMap().values.toList()
+    }
+
+    /**
+     * An addon's items with no poster of their own (Scene FTP's MDBList rows send none) borrow TMDB's, found by their
+     * TMDB id or IMDb id, rather than a blank card with only the name. Needs a TMDB key; anything not found stays as it was.
+     */
+    private suspend fun withPosters(items: List<MediaItem>): List<MediaItem> {
+        if (items.none { it.poster.isNullOrBlank() }) return items
+        val a = store.current()
+        val key = a.tmdbKey ?: return items
+        val bare = coroutineScope {
+            items.filter { it.poster.isNullOrBlank() }.map { item ->
+                async {
+                    val tmdbId = item.tmdbId ?: item.imdbId?.let { imdb ->
+                        tmdbIdOf(key, imdb, item.type)
+                    }
+                    item.copy(poster = null, tmdbId = tmdbId)
+                }
+            }.awaitAll()
+        }
+        val filled = enrich(a, bare.filter { it.tmdbId != null }).associateBy { it.key }
+        return items.map { item -> filled[item.key]?.let { f -> item.copy(poster = f.poster, tmdbId = item.tmdbId ?: f.tmdbId, backdrop = item.backdrop ?: f.backdrop) } ?: item }
+    }
+
+    /** IMDb id → TMDB id (0: TMDB doesn't have it), for addon items' posters. */
+    private val imdbToTmdb = ConcurrentHashMap<String, Int>()
+
+    /** An IMDb id's TMDB id, remembered. Only TMDB's own answer is remembered (found, or 0: it hasn't got it); a
+     *  timeout or a refusal (too many at once) isn't, so the next look tries again. */
+    private suspend fun tmdbIdOf(key: String, imdbId: String, type: MediaType): Int? {
+        val k = "${type.name}:$imdbId"
+        imdbToTmdb[k]?.let { return it.takeIf { id -> id > 0 } }
+        val r = runCatching { tmdbLimit.withPermit { http.get(tmdb.url("/find/$imdbId", key, mapOf("external_source" to "imdb_id")), tmdb.headers(key)) } }
+            .getOrNull()?.takeIf { it.ok } ?: return null
+        val id = r.body.array(if (type == MediaType.Movie) "movie_results" else "tv_results").firstOrNull().int("id") ?: 0
+        imdbToTmdb[k] = id
+        return id.takeIf { it > 0 }
     }
 
     private fun stremioMeta(addon: AddonInfo, m: JsonElement, type: MediaType, catType: String? = null): MediaItem? {
@@ -1804,13 +1892,25 @@ class CatalogRepository @Inject constructor(
      * matched on its TMDB / IMDb id), so it's quick however big the libraries are. Reading whole libraries instead
      * took minutes, or ran the TV out of memory, on big Plex servers.
      */
-    suspend fun copiesOf(item: MediaItem): List<LibraryCopy> {
-        copyCache[item.key]?.takeIf { it.fresh }?.let { return it.value }
+    /**
+     * [home]: called as soon as a Plex server in this house has the title (before the others answer), so Play can start
+     * it straight away: a home Plex copy always comes first (2026-11-24).
+     */
+    suspend fun copiesOf(given: MediaItem, home: ((List<LibraryCopy>) -> Unit)? = null): List<LibraryCopy> {
+        copyCache[given.key]?.takeIf { it.fresh }?.let { return it.value }
         val a = store.current()
+        // A title from an addon's row with only its IMDb id: its TMDB id too, so the servers are matched on both (every
+        // row checks your libraries the same way; 2026-11-24).
+        val item = if (given.tmdbId == null && given.imdbId != null) a.tmdbKey?.let { key ->
+            tmdbIdOf(key, given.imdbId, given.type)?.let { given.copy(tmdbId = it) }
+        } ?: given else given
         // null = that server timed out or failed (not "it hasn't got it").
         val answers = coroutineScope {
             val jobs = buildList {
-                plexServers(a).forEach { p -> add(async { runCatching { withTimeoutOrNull(15_000) { plexCopiesOf(a, p, item) } }.getOrNull() }) }
+                plexServers(a).forEach { p -> add(async {
+                    runCatching { withTimeoutOrNull(15_000) { plexCopiesOf(a, p, item) } }.getOrNull()
+                        ?.also { found -> if (home != null && found.isNotEmpty() && isHomeAddress(p.serverUrl)) runCatching { home(found) } }
+                }) }
                 listOfNotNull(a.jellyfin?.let { it to false }, a.emby?.let { it to true }).forEach { (srv, emby) ->
                     add(async { runCatching { withTimeoutOrNull(15_000) { serverCopies(a, srv, emby, item) } }.getOrNull() })
                 }
@@ -1826,19 +1926,35 @@ class CatalogRepository @Inject constructor(
         return found
     }
 
+    /** A title without the place some addons' rows put in front of it ("#4 The Hunger Games": 2026-11-24). */
+    // (And the year some put after it: "#8 The Good Daughter (2026)".)
+    private fun unranked(title: String) = title.replace(RANKED, "").replace(YEAR_AFTER, "").ifBlank { title }
+
     /** True when a server's entry is this title: same TMDB or IMDb id, or (no ids to go on) same name and year. */
     private fun sameTitle(item: MediaItem, tmdbId: Int?, imdbId: String?, name: String?, year: Int?): Boolean {
-        if (item.tmdbId != null && tmdbId != null) return item.tmdbId == tmdbId
-        if (item.imdbId != null && imdbId != null) return item.imdbId == imdbId
-        if (name == null || !name.equals(item.title, ignoreCase = true)) return false
-        return item.year == null || year == null || abs(item.year - year) <= 1
+        // Either id agreeing is enough (an addon's row can carry one id that's off while the other is right;
+        // 2026-11-24: shows opened from an addon's row all said "not in your library").
+        if (item.tmdbId != null && tmdbId != null && item.tmdbId == tmdbId) return true
+        if (item.imdbId != null && imdbId != null && item.imdbId.equals(imdbId, ignoreCase = true)) return true
+        val idsDisagree = (item.tmdbId != null && tmdbId != null) || (item.imdbId != null && imdbId != null)
+        // (The name as it is, or without an addon row's "#5 " rank and "(2026)": a real title can start with "#1 ".)
+        if (name == null || !(name.equals(item.title, ignoreCase = true) || name.equals(unranked(item.title), ignoreCase = true))) return false
+        if (item.year == null || year == null) return !idsDisagree
+        // A show's year can be its latest season's (addon rows) where the server has its first: a later year will do,
+        // but only when no ids say otherwise, and not decades on ("Doctor Who" 2005 isn't the 1963 series).
+        val near = abs(item.year - year) <= 1 ||
+            (item.type == MediaType.Show && !idsDisagree && item.year >= year && item.year - year <= 3)
+        // Ids that disagree with a same name and year: still this title only for a show whose addon id was off.
+        return near && (!idsDisagree || (item.type == MediaType.Show && item.key.startsWith("stremio:")))
     }
 
     /** Names to ask for: the title, and its part before a colon ("Batman: Year One" is "Batman Year One" on some servers). */
-    private fun searchNames(title: String): List<String> {
+    private fun searchNames(ranked: String): List<String> {
+        val title = unranked(ranked)
         // Also without accents: "Filipiñana" may be stored as "Filipinana".
         val plain = Normalizer.normalize(title, Normalizer.Form.NFD).replace(MARKS, "")
-        return listOf(title, plain, title.substringBefore(':').trim()).filter { it.length >= 2 }.distinct()
+        // (And as it was given, rank and all: a real title can start with "#1 ".)
+        return listOf(title, plain, title.substringBefore(':').trim(), ranked.trim()).filter { it.length >= 2 }.distinct()
     }
 
     /**
@@ -1867,7 +1983,7 @@ class CatalogRepository @Inject constructor(
                 else -> null
             }
             // The picture's class (1080, 720…): Plex's own word for it, else worked out from the width as well as the
-            // height. A wide film is 1920 x 800: by its height alone it was labelled 720p (Peter, 2026-11-20: Inception).
+            // height. A wide film is 1920 x 800: by its height alone it was labelled 720p (2026-11-20: Inception).
             val height = m.str("videoResolution")?.lowercase()?.let { r -> when (r) { "4k" -> 2160; "8k" -> 4320; "sd" -> 480; else -> r.toIntOrNull() } }
                 ?: pictureClass(video.int("width") ?: m.int("width"), video.int("height") ?: m.int("height"))
             val atmos = aTitle.contains("Atmos", true)
@@ -1918,7 +2034,7 @@ class CatalogRepository @Inject constructor(
         }
         // Plex's own search is looser (accents, punctuation, alternative titles): last try, matched on the ids.
         val want = if (item.type == MediaType.Movie) "movie" else "show"
-        val hubs = runCatching { plexGet(a, p, "/hubs/search?query=${enc(item.title)}&limit=20&includeGuids=1") }.getOrNull()?.array("Hub").orEmpty()
+        val hubs = runCatching { plexGet(a, p, "/hubs/search?query=${enc(unranked(item.title))}&limit=20&includeGuids=1") }.getOrNull()?.array("Hub").orEmpty()
         // Only real library items: Plex's search also returns online "Discover" titles that aren't on the server.
         val loose = hubs.filter { it.str("type") == want }.flatMap { it.array("Metadata") }
             .filter { j -> j.str("librarySectionID") != null || j.int("librarySectionID") != null }
@@ -1981,10 +2097,14 @@ class CatalogRepository @Inject constructor(
                 // the video stream's display title, "1080p HEVC SDR", "4K HEVC HDR". Else from its width and height.)
                 height = serverResolution(video.str("DisplayTitle")) ?: pictureClass(video.int("Width"), video.int("Height")),
                 hdr = hdr, dvOnly = range == "DOVI",
+                dvBase = when (range) { "DOVIWithHDR10" -> "HDR10"; "DOVIWithHDR10Plus" -> "HDR10+"; "DOVIWithHLG" -> "HLG"; "DOVIWithSDR" -> "SDR"; else -> null },
                 videoCodec = video.str("Codec"), container = ms.str("Container"),
                 audio = VersionPick.audioLabel(audio.str("Codec"), audio.str("Profile"), channels, atmos),
                 audioChannels = channels, atmos = atmos,
-                kbps = ms.long("Bitrate")?.let { (it / 1000).toInt() }, sizeBytes = ms.long("Size"),
+                // (No bitrate from the server (Scene FTP's Jellyfin): worked out from the file's size and running time.)
+                kbps = ms.long("Bitrate")?.let { (it / 1000).toInt() } ?: ms.long("Size")?.let { size ->
+                    (ms.long("RunTimeTicks") ?: info.long("RunTimeTicks"))?.takeIf { it > 0 }?.let { ticks -> (size * 8 / (ticks / 10_000_000.0) / 1000).toInt() } },
+                sizeBytes = ms.long("Size"),
                 // Several versions: each one's own name ("… - Director's Cut").
                 edition = ms.str("Name")?.substringAfterLast(" - ", "")?.takeIf { sources.size > 1 && it.isNotBlank() },
                 sourceId = ms.str("Id"),
@@ -2270,7 +2390,7 @@ class CatalogRepository @Inject constructor(
             val sent = runCatching { http.post(url, body, trakt.headers(t.accessToken)).ok }.getOrDefault(false)
             if (sent) took += "Trakt"
             // (Our own copy changed in place, not the whole history fetched again: four marks in a row did four full
-            // downloads and ran the AM9 out of memory. Peter, 2026-11-19.)
+            // downloads and ran the AM9 out of memory. 2026-11-19.)
             if (sent) runCatching { traktMarkLocal(t, item, null, null, watched) }
         }
         return if (!tried) null else took.toList()
@@ -2567,7 +2687,7 @@ class CatalogRepository @Inject constructor(
             http.get("${p.serverUrl}/:/timeline?ratingKey=$ratingKey&key=${enc("/library/metadata/$ratingKey")}&state=$state&time=$positionMs&duration=$durationMs",
                 plex.headers(a.deviceId, p.token))
             // (Past 80%, as Trakt counts it: stopping in the credits left Plex with a half-watched episode Trakt
-            // called watched. Peter, 2026-11-18.)
+            // called watched. 2026-11-18.)
             if (markWatched && state == "stopped" && durationMs > 0 && positionMs >= durationMs * 0.8) {
                 http.get("${p.serverUrl}/:/scrobble?identifier=com.plexapp.plugins.library&key=$ratingKey", plex.headers(a.deviceId, p.token))
             }
@@ -2576,7 +2696,7 @@ class CatalogRepository @Inject constructor(
 
     /** Trakt scrobble: start / pause / stop with % watched. Trakt marks it watched when stopped past 80%. */
     suspend fun scrobbleTrakt(action: String, target: WatchTarget, progress: Float) {
-        // (Every play, from wherever, while Trakt is connected and Send plays to Trakt is on: Peter, 2026-11-19.)
+        // (Every play, from wherever, while Trakt is connected and Send plays to Trakt is on: 2026-11-19.)
         if (!io.github.petebutty.viewarr.data.sync.WatchSource.sendToTrakt) return
         val auth = store.current().trakt?.let { freshTrakt(it) } ?: return
         val tmdbId = target.tmdbId ?: return
@@ -2698,7 +2818,7 @@ class CatalogRepository @Inject constructor(
     suspend fun traktWatched(force: Boolean = false, full: Boolean = force): TraktWatched? = traktLock.withLock {
         val a = store.current()
         val t = a.trakt?.let { freshTrakt(it) } ?: run { _traktWatched.value = null; return@withLock null }
-        // The copy saved on the box last time (Peter, 2026-11-18: every start downloaded and sorted the whole history
+        // The copy saved on the box last time (2026-11-18: every start downloaded and sorted the whole history
         // again: 15 seconds of work on the AM9). With it, a start only asks Trakt "anything new?".
         val cur = _traktWatched.value ?: loadTraktWatched(t.username)?.also { _traktWatched.value = it }
         val now = System.currentTimeMillis()
@@ -2830,7 +2950,7 @@ class CatalogRepository @Inject constructor(
      * Marks on your own Plex server what you've watched on Trakt in the last [COPY_DAYS] days (never the other way,
      * never un-marks). Only titles Plex has as unwatched are touched. Returns how many were marked.
      *
-     * (Peter, 2026-11-20: it used to copy the whole Trakt history to every Plex server the account can open. One run
+     * (2026-11-20: it used to copy the whole Trakt history to every Plex server the account can open. One run
      * marked 128 films at once, and Plex asked "how did you enjoy it?" for each, films watched years ago, some on
      * other people's servers. Recent watches on your own server keep Plex in step without that.)
      */
@@ -3098,6 +3218,7 @@ class CatalogRepository @Inject constructor(
             backdrop = full?.backdrop ?: item.backdrop,
             overview = full?.overview ?: item.overview,
             year = item.year ?: full?.year,
+            releaseDate = item.releaseDate ?: full?.releaseDate,
             rating = full?.rating ?: item.rating,
         )
         fun certFor(country: String) = if (movie) {
@@ -3168,7 +3289,7 @@ class CatalogRepository @Inject constructor(
 
     suspend fun extraRatings(item: MediaItem, copies: List<LibraryCopy>): List<RatingBadge> {
         ratingsCache[item.key]?.takeIf { System.currentTimeMillis() - it.first < 30 * 60_000L }?.let { return it.second }
-        // Kept on the box too (Peter, 2026-11-18: ratings hardly change, but every start fetched them again for each
+        // Kept on the box too (2026-11-18: ratings hardly change, but every start fetched them again for each
         // title you rest on): 7 days, or 1 day when there were none.
         val disk = ratingKey(item)
         loadRatings()
@@ -3520,7 +3641,7 @@ class CatalogRepository @Inject constructor(
 
     private val logoCache = ConcurrentHashMap<String, String>()
 
-    // Title logos kept on the box (Peter, 2026-11-18: every start-up looked each one up again on TMDB, one at a time,
+    // Title logos kept on the box (2026-11-18: every start-up looked each one up again on TMDB, one at a time,
     // as you moved along). File "title_logos.json": {"Movie:603": ["https://…png" or "" (none), day found]}; found ones
     // kept 60 days, "none" 7. Read once, written a few seconds after the last new one.
     private val logoFile get() = java.io.File(appContext.filesDir, "title_logos.json")
@@ -3639,7 +3760,7 @@ class CatalogRepository @Inject constructor(
     /**
      * A picture of [item] that needs no sign-in (TMDB's backdrop, else its poster), for the TV home screen's Watch Next
      * row: a Plex / Jellyfin / Emby picture link carries the server's token, so it's never handed to the launcher, and
-     * those cards showed a broken picture (Peter, 2026-11-17). Null: no TMDB key or nothing found. Kept per title.
+     * those cards showed a broken picture (2026-11-17). Null: no TMDB key or nothing found. Kept per title.
      */
     suspend fun publicArt(item: MediaItem): Pair<String, Boolean>? {
         val cacheKey = item.type.name + ":" + (item.tmdbId ?: item.imdbId ?: item.key)
@@ -3712,6 +3833,10 @@ class CatalogRepository @Inject constructor(
 
 /** Copy watched to Plex: how far back Trakt watches are copied. */
 private const val COPY_DAYS = 30
+
+/** An unmarked Jellyfin / Emby library's name that says films, or shows (see libraries()). */
+private val UNMARKED_MOVIES = Regex("(?i)\\b(movies?|films?|cinema|4k movies)\\b")
+private val UNMARKED_SHOWS = Regex("(?i)\\b(tv|shows?|series|anime|animé|kids tv|docuseries)\\b")
 
 /** TMDB watch-provider ids of the streaming services in Viewarr's catalogues (as AIOMetadata has them). */
 private val SERVICE_PROVIDERS = mapOf(

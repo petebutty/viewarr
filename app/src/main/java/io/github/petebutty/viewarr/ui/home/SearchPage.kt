@@ -466,7 +466,7 @@ internal fun SearchPage(
 
 /**
  * Listening on the mic: two rings pulsing out from it in the highlight colour, and a glow that swells with how loud
- * you're speaking ([level] 0–1, from the recogniser), so it's plain it's hearing you (Peter, 2026-11-16).
+ * you're speaking ([level] 0–1, from the recogniser), so it's plain it's hearing you (2026-11-16).
  */
 @Composable
 private fun MicPulse(level: Float) {

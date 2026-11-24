@@ -294,7 +294,7 @@ private fun tourPages(): List<TourPage> = listOf(
         "Press Left to open the menu (it slides in, pushing the page aside). Moving up and down changes the page behind straight away: Live TV, Movies, Shows, your streaming services, Sports, Music, Recordings. On an entry, Right goes into its page and Left opens its own list (channel groups, libraries…). Hold OK on an entry to hide, show or move it.",
     ) { pulse, _ ->
         Mock(listOf(
-            // (The ✎ Edit menus button is gone: hold OK edits the menu. Peter, 2026-11-17.)
+            // (The ✎ Edit menus button is gone: hold OK edits the menu. 2026-11-17.)
             Spot(0.03f, 0.175f, "Right: into its page"),
             Spot(0.03f, 0.236f, "Up / Down: the page changes"),
             Spot(0.03f, 0.345f, "Hold OK: hide, show or move"),

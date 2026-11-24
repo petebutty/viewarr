@@ -177,7 +177,7 @@ fun SportsSettingsScreen(onBack: () -> Unit, vm: SportsViewModel = hiltViewModel
     var leagueFor by remember { mutableStateOf<SportFollow?>(null) }
     var query by remember { mutableStateOf("") }
     var picked by remember { mutableStateOf<SportFollow?>(null) }
-    // A followed one being moved (its id; the shared ui/common/Reorder.kt, Peter, 2026-11-17).
+    // A followed one being moved (its id; the shared ui/common/Reorder.kt, 2026-11-17).
     val carry = rememberCarry()
     val searchFocus = remember { FocusRequester() }
     // Opens on the first sport button, not the search box (that would bring the keyboard up straight away).
@@ -392,7 +392,7 @@ fun SportsSettingsScreen(onBack: () -> Unit, vm: SportsViewModel = hiltViewModel
             }
         }
         // A league from the list: follow the whole league, or choose one of its teams.
-        // (Both through the shared options pop-up, Cancel last: they were raw Dialogs. Peter, 2026-11-17.)
+        // (Both through the shared options pop-up, Cancel last: they were raw Dialogs. 2026-11-17.)
         leagueFor?.let { f ->
             val following = follows.any { it.shortcutId == f.shortcutId }
             OptionsPopup(

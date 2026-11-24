@@ -5,7 +5,7 @@ import io.github.petebutty.viewarr.data.media.MediaRow
 import io.github.petebutty.viewarr.ui.theme.AppColors
 
 /**
- * Continue watching, server by server (Settings → Home page & menu → Continue watching from; Peter, 2026-11-18: a
+ * Continue watching, server by server (Settings → Home page & menu → Continue watching from; 2026-11-18: a
  * switch for each library). Kept as palette title parts, on to start: "cw:<source>".
  */
 object ContinueFrom {

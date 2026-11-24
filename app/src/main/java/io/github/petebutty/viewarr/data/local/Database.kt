@@ -38,7 +38,7 @@ data class GroupEntity(
  * An event channel kept out of the lists for now (Settings → Live TV → Event channels: only with a listing): one of
  * the Viewarr plugin's quiet channels with nothing in the guide on now or in the next 24 hours. Written by
  * GuideRepository as the guide and the plugin's data change; the list, group and guide-row queries leave these out,
- * so every screen agrees. Looking a channel up by id (links, reminders, recordings, Sports) doesn't. (Peter, 2026-11-19.)
+ * so every screen agrees. Looking a channel up by id (links, reminders, recordings, Sports) doesn't. (2026-11-19.)
  */
 @Entity(tableName = "hidden_channels")
 data class HiddenChannelEntity(@PrimaryKey val id: Int)

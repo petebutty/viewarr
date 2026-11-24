@@ -168,7 +168,7 @@ class PlayerMenu {
     var lastKey by mutableLongStateOf(0L)
     /**
      * The Info bar buttons list is open over the bar (hold OK on a button; FilmBarEditor sets it). It replaced editing
-     * the buttons in place on the bar (OK shows / hides, hold OK picks up, Left / Right move): Peter, 2026-11-17 UI review.
+     * the buttons in place on the bar (OK shows / hides, hold OK picks up, Left / Right move): 2026-11-17 UI review.
      */
     var editing by mutableStateOf(false)
     /** Hold OK on a button: opens the Info bar buttons list (filmHooks sets it). */
@@ -181,7 +181,7 @@ class PlayerMenu {
     /** Where Play / Pause is among the buttons. */
     var home = 0
     /**
-     * Opens on the Play / Pause button (not the seek bar), not the button used last time. (Peter: it used to open on
+     * Opens on the Play / Pause button (not the seek bar), not the button used last time. (It used to open on
      * the TV guide button.)
      */
     fun show() { btnOkDown = false; onEpisodes = false; episodesOnly = false; downRow = 0; withNext = false; open = true; onBar = false; button = home; touch() }
@@ -478,7 +478,7 @@ fun PlayerOsd(
             val epState = rememberLazyListState()
             // The highlighted card stays in the middle of the row (earlier ones to the left, later to the right), on
             // purpose: the episode that's playing is the middle one, so going back or forward an episode is one press
-            // either way (Peter, 2026-11-20). The cards slide under it, as the poster rows move.
+            // either way (2026-11-20). The cards slide under it, as the poster rows move.
             // (A row just opened isn't measured yet: a frame or two first, then straight there with no slide.)
             val epSlide = rememberRowSlide(epState) { curRow.items.size }
             val placed = remember(r) { booleanArrayOf(false) }

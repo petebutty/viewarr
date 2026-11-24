@@ -24,7 +24,7 @@ import javax.inject.Singleton
  * to watch each game, worked out on the server every few minutes for the whole house and left in each user's app data
  * (key [KEY]). Read here every 2 minutes; while it's [fresh], Live now and the Sports page use it at once instead of
  * each TV working it all out. Missing or old (no plugin, or its service stopped): the TV does the work, as before.
- * (Peter, 2026-11-17.)
+ * (2026-11-17.)
  */
 @Singleton
 class ServerSports @Inject constructor(
@@ -162,7 +162,7 @@ class ServerSports @Inject constructor(
         // ---- The plugin's functions (its viewarr_server "functions" map: viewarr-plugin server.FUNCTIONS). An admin
         // can switch each off in the plugin (Settings → Plugins → Viewarr); while the plugin runs, that feature is then
         // off for the house: Viewarr hides it and does none of it itself. Only with no plugin at all do this TV's own
-        // fallbacks run (tvDoesJobs). A plugin without the map: every function on. (Peter, 2026-11-22.)
+        // fallbacks run (tvDoesJobs). A plugin without the map: every function on. (2026-11-22.)
         const val F_LIVE = "live"
         const val F_GAMES = "games"
         const val F_RECORD = "recordings"

@@ -46,7 +46,7 @@ import kotlinx.coroutines.launch
  * "Choose the right guide": Dispatcharr's guides (EPGData) searched by name, the channel's name filled in to start,
  * each listed with its source. The one pop-up used by every way in: the "Wrong programme guide" report (with "Skip,
  * just report it"), Settings → Live TV → Reports → Needs your pick, and the house card for a pick the plugin couldn't
- * make. [onPick] gets the guide, or null for Skip. (Peter, 2026-11-19.)
+ * make. [onPick] gets the guide, or null for Skip. (2026-11-19.)
  */
 @Composable
 fun GuidePickerDialog(channelName: String, vm: ReportsViewModel, allowSkip: Boolean, onPick: (EpgRow?) -> Unit, onClose: () -> Unit) {

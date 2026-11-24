@@ -184,7 +184,7 @@ class SportsEvents @Inject constructor(private val http: HttpJson) {
 /**
  * The sports Live now sorts events into ([SportsEvents.sport]'s names): what a sport in Settings → Live TV → Live now
  * is matched by (data/sports/LiveNowPicks). The old per-sport / per-league switches and "Only what I follow" (kept as
- * appearance title parts) are only read once, to carry them over into that list (Peter, 2026-11-19).
+ * appearance title parts) are only read once, to carry them over into that list (2026-11-19).
  */
 object LiveSports {
     val names = listOf(

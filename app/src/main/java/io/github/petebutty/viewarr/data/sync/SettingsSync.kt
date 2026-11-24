@@ -641,7 +641,8 @@ class SettingsSync @Inject constructor(
                 "guide_left_v2", "guide_back_v2", "channel_keys", "zap_v2", "seek", "player_ok", "row_left", "media_back_v2",
                 "menu_back", "preset_base", "live_sides", "search_button", "search_keycode", "buttons_v1", "bmap_v1",
             ),
-            "appearance" to setOf("opt_zap_delay"),
+            // (Internet copies: each box's own connection. 2026-11-24.)
+            "appearance" to setOf("opt_zap_delay", "opt_away_max_mbps"),
         )
 
         /** {"t": type, "v": value}: Preferences keep their type, which plain JSON would lose. */

@@ -157,7 +157,7 @@ fun BackupSyncItem() {
     val st by vm.status.collectAsStateWithLifecycle()
     var open by remember { mutableStateOf(false) }
     MenuItem(text = "Backup & sync", trailing = if (st.mode == SyncMode.On) "On" else "Off", selected = false, onClick = { open = true })
-    // (The shared pop-up: was a raw Dialog. Peter, 2026-11-17.) Its pages: the options, the saved versions, the
+    // (The shared pop-up: was a raw Dialog. 2026-11-17.) Its pages: the options, the saved versions, the
     // plugin's backups; Back on a page goes back to the options.
     if (open) {
         var page by remember { mutableStateOf("main") }

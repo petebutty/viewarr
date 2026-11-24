@@ -9,7 +9,7 @@ import io.github.petebutty.viewarr.data.sports.SportGame
  * NFL team's ("NFL ARIZONA CARDINALS"), any league's ("NBA LAKERS", "SERIE A - MILAN TV"). Providers' team channels
  * carry a team's games, the ones not on TV too (a Saturday 3pm game abroad). For a game with no other channel: the home
  * team's channel, else the away team's. Teams are found by every name ESPN gives them plus the names TV uses
- * ([GameMatch.aliases]), whole names only. (Peter, 2026-11-16: every club had a channel in his Dispatcharr and the
+ * ([GameMatch.aliases]), whole names only. (2026-11-16: every club had a channel in his Dispatcharr and the
  * Sports page never used them; then "any user, any sport".)
  */
 internal object ClubChannels {

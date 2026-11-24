@@ -101,10 +101,10 @@ import coil.compose.AsyncImage
 import java.time.Instant
 import java.time.ZoneId
 
-// (200, was 230: Peter, 2026-11-20, "narrow the channel row a little"; the space goes to the programmes.)
+// (200, was 230: 2026-11-20, "narrow the channel row a little"; the space goes to the programmes.)
 private val ChannelColumn = 200.dp
-// (36: ten whole rows on a 1080p-shaped screen at the usual text size; at 38 the tenth was cut in half. Peter, 2026-11-19.)
-// Settings → Appearance → TV guide → Channel rows: how many fit under the top panel (Peter, 2026-11-20). 10 is 36 high.
+// (36: ten whole rows on a 1080p-shaped screen at the usual text size; at 38 the tenth was cut in half. 2026-11-19.)
+// Settings → Appearance → TV guide → Channel rows: how many fit under the top panel (2026-11-20). 10 is 36 high.
 private val RowHeight get() = when (AppColors.palette.opt(UiOpts.GUIDE_ROWS)) { 1 -> 30.dp; 2 -> 40.dp; 3 -> 45.dp; else -> 36.dp }
 /** The least room the guide panel's middle (title, times, synopsis) is given before the side column gives way. */
 private val MIDDLE_MIN = 340.dp
@@ -186,7 +186,7 @@ fun GuideScreen(
                 if (e.key == Key.DirectionLeft && nowMenu) {
                     // Tap: back one programme, or the menu when already on what's on now. Hold: back through the guide;
                     // but a hold on what's on now (going into catch-up) steps back just one programme (it raced past
-                    // several, stepping on every repeat; Peter, 2026-11-15). Already in the past, a hold scrolls on.
+                    // several, stepping on every repeat; 2026-11-15). Already in the past, a hold scrolls on.
                     when {
                         e.type == KeyEventType.KeyDown && e.nativeKeyEvent.repeatCount == 0 -> { leftPending.value = true; leftIntoCatchup.value = vm.isAtNow() }
                         e.type == KeyEventType.KeyDown -> {
@@ -296,7 +296,7 @@ private fun KeepRowCentred(listState: LazyListState, cursorState: State<GuideCur
         if (visible.isNotEmpty()) {
             val top = maxOf(0, row - maxOf(visible.size - 1, 1) / 2)
             // (And whole rows: a part-scroll, the top row half under the times, was never put right as only the
-            // row was compared. Peter, 2026-11-17.)
+            // row was compared. 2026-11-17.)
             if (top != listState.firstVisibleItemIndex || listState.firstVisibleItemScrollOffset != 0) listState.requestScrollToItem(top)
         }
     }
@@ -337,7 +337,7 @@ private fun GuideTop(
     val focused = selectedChannel?.let { GuideViewModel.programAt(programs[it.id].orEmpty(), cursor.focusTime) }
     // The highlighted programme's picture (looked up once you rest on it a moment), else the channel logo.
     // (Looked up for the "What's selected" wallpaper too, even with Programme pictures off: that wallpaper is
-    // nothing but this picture. Peter, 2026-11-19: it showed nothing with Programme pictures switched off.)
+    // nothing but this picture. 2026-11-19: it showed nothing with Programme pictures switched off.)
     val wallSelected = AppColors.palette.wallpaperMode == 3
     val art by produceState<String?>(null, focused?.rowId, AppColors.palette.guideArt, wallSelected) {
         // The guide's own picture first (from Dispatcharr / the guide source), else a lookup by title.
@@ -401,7 +401,7 @@ private fun GuideGrid(
                 modifier = Modifier.fillMaxSize()
                     // (No off-screen buffer: inside one, every cell got a buffer of its own from the renderer,
                     // ~150 MB at 4K once the guide had been open. The soft bottom edge is the cut-off last row
-                    // drawn fainter instead: see the row's wrapper below. Peter, 2026-11-19.)
+                    // drawn fainter instead: see the row's wrapper below. 2026-11-19.)
                     .clipToBounds(),
             ) {
                 // One copy of the channels for the count, the keys and the rows (the list changing size between
@@ -496,7 +496,7 @@ private fun InfoPanel(
     banner: Boolean = false,
 ) {
     val boxArt = art.takeUnless { banner }
-    // The panel fits itself to the width it gets (Peter, 2026-11-19: on a narrower screen, with a big picture and a
+    // The panel fits itself to the width it gets (2026-11-19: on a narrower screen, with a big picture and a
     // 12-hour clock, the details ran out of room and the synopsis vanished). The middle (title, times, synopsis)
     // keeps at least MIDDLE_MIN: first the Next / Then column narrows, then it goes; the banner likewise.
     androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth()) {
@@ -588,7 +588,7 @@ private fun InfoPanel(
     }
 }
 
-/** The programme's name (or the channel's, with no guide). (Programme title logos were removed: Peter, 2026-11-20.) */
+/** The programme's name (or the channel's, with no guide). (Programme title logos were removed: 2026-11-20.) */
 @Composable
 private fun InfoTitle(channel: ChannelListItem?, program: GuideProgram?) {
     Text(
@@ -657,7 +657,7 @@ private fun NextUpColumn(channel: ChannelListItem, program: GuideProgram?, now: 
         }
         if (program != null) {
             Spacer(Modifier.height(6.dp))
-            // (At the column's right edge, under the programme times: Peter, 2026-11-19.)
+            // (At the column's right edge, under the programme times: 2026-11-19.)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) { InfoBadges(channel, program, now, recorded) }
         }
     }

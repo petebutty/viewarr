@@ -11,7 +11,7 @@ import io.github.petebutty.viewarr.playback.HdmiSoundGuard
 import kotlinx.coroutines.delay
 
 /**
- * Match frame rate for the built-in film player (Peter, 2026-11-15: kept simple): only when the server tells Viewarr
+ * Match frame rate for the built-in film player (2026-11-15: kept simple): only when the server tells Viewarr
  * the file's frame rate (Plex, Jellyfin / Emby: [VodStream.fps]). Then the TV switches as the film opens, behind the
  * loading screen, with the soundtrack off; once the HDMI link is back (or it didn't drop within 2 s) the sound goes
  * on and the film plays, its sound opening on the new link. No rate from the server: the TV is left as it is (no
@@ -48,7 +48,7 @@ class FilmRateStart(private val activity: Activity?, on: Boolean, stream: VodStr
             }
             if (guard.backSince(since)) delay(800)
             else {
-                // No HDMI drop seen (the AM9 over ARC, Peter 2026-11-18): the box gives no sign when the TV and sound
+                // No HDMI drop seen (the AM9 over ARC, 2026-11-18): the box gives no sign when the TV and sound
                 // system have re-locked, and Dolby started 2 s in came out silent. Wait until the screen really is at
                 // the new rate (at most 4 s more), then give the sound system 3 s before the sound starts.
                 @Suppress("DEPRECATION")
@@ -68,7 +68,7 @@ class FilmRateStart(private val activity: Activity?, on: Boolean, stream: VodStr
                 player.playWhenReady = true
             }
         }
-        // (The automatic pause and play after a switch, to wake a silent Dolby track, was taken out again: Peter,
+        // (The automatic pause and play after a switch, to wake a silent Dolby track, was taken out again:
         // 2026-11-19.)
     }
 }

@@ -25,7 +25,7 @@ object ListScroll {
 
 /**
  * Poster rows and library grids, in every browsing style: always a short eased slide, whatever List scrolling says
- * (Peter, 2026-11-19: "fast but no animation at all" moving through the films). Same resting place as [base].
+ * (2026-11-19: "fast but no animation at all" moving through the films). Same resting place as [base].
  */
 fun BringIntoViewSpec.cinemaGlide(): BringIntoViewSpec {
     val base = this

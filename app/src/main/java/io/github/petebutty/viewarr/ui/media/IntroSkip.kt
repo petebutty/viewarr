@@ -46,7 +46,7 @@ object NextUp {
     fun cards(): List<OsdPoster> = upcoming.map { ep ->
         OsdPoster(
             key = "ep-${ep.season}-${ep.number}",
-            // Just the season and episode, and when it came out (Peter: no name or running time). ▶ the one playing.
+            // Just the season and episode, and when it came out (no name or running time). ▶ the one playing.
             title = (if (current == ep.season to ep.number) "▶  " else "") + "S${ep.season} · E${ep.number}",
             subtitle = null,
             centred = true,

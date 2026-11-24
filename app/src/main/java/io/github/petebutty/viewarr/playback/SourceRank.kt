@@ -4,7 +4,7 @@ import android.content.Context
 import io.github.petebutty.viewarr.playback.PlaybackViewModel.LiveSource
 
 /**
- * Which of a channel's streams to start on, and how each one has behaved on this box (Peter, 2026-11-19: "play first
+ * Which of a channel's streams to start on, and how each one has behaved on this box (2026-11-19: "play first
  * the best quality, and if it fails it should remember it failed, so it keeps a best order that is adjusted if a
  * stream fails"). Kept per Live TV server and channel in the "source_rank" preferences; nothing leaves the box.
  *
@@ -48,7 +48,7 @@ class SourceRank(context: Context) {
     /**
      * Every stream's record for one Live TV server, by stream id: its fails this week and when it last played well,
      * both in seconds (what HealthSync sends to the Viewarr plugin). A stream behind two channels has one record:
-     * their fails together (the last 10), the later good play. (Peter, 2026-11-19.)
+     * their fails together (the last 10), the later good play. (2026-11-19.)
      */
     fun export(serverUrl: String, now: Long = System.currentTimeMillis()): Map<Int, Pair<List<Long>, Long>> {
         val prefix = serverUrl.trimEnd('/') + "|"
