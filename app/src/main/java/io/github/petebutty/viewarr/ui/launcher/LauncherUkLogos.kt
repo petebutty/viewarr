@@ -19,8 +19,8 @@ import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Text
 
 /**
- * Logos drawn here for the UK channels and players whose pictures from TMDB don't work on a tile (BBC One, BBC Two,
- * BBC iPlayer, ITV1, ITVX: an app icon or a logo that drew as a blank or a blob; 2026-11-25). Each is its own colours
+ * Logos drawn here for the channels and players whose pictures from TMDB don't work on a tile (BBC One, BBC Two,
+ * BBC iPlayer, ITV1, ITVX, FX, Sky Atlantic: an app icon or a logo that drew as a blank or a blob; 2026-11-25). Each is its own colours
  * and lettering, in the style of the real one, at any size ([h]: the logo's height).
  */
 internal object LauncherUkLogos {
@@ -58,6 +58,16 @@ internal object LauncherUkLogos {
             Row(verticalAlignment = Alignment.Bottom) {
                 Text("itv", fontSize = (h.value * 0.78f).sp, fontWeight = FontWeight.Black, color = Color.White, maxLines = 1, letterSpacing = (-h.value * 0.02f).sp)
                 Text("1", fontSize = (h.value * 0.78f).sp, fontWeight = FontWeight.Black, color = Color(0xFF4FD1C5), maxLines = 1)
+            }
+        },
+        // (FX and Sky Atlantic too: TMDB had nothing that drew on a tile, so they were empty. 2026-11-25.)
+        "fx" to Drawn(listOf(Color(0xFF141414), Color(0xFF000000))) { h ->
+            Text("FX", fontSize = (h.value * 1.05f).sp, fontWeight = FontWeight.Black, color = Color.White, maxLines = 1, letterSpacing = (-h.value * 0.04f).sp)
+        },
+        "sky atlantic" to Drawn(listOf(Color(0xFF0E2A5C), Color(0xFF06142E))) { h ->
+            Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(h * 0.14f)) {
+                Text("sky", fontSize = (h.value * 0.78f).sp, fontWeight = FontWeight.Black, color = Color.White, maxLines = 1, letterSpacing = (-h.value * 0.03f).sp)
+                Text("atlantic", fontSize = (h.value * 0.56f).sp, fontWeight = FontWeight.Medium, color = Color(0xFFBFD4FF), maxLines = 1)
             }
         },
         "itvx" to Drawn(listOf(Color(0xFFDEEB52), Color(0xFFB9C93A))) { h ->

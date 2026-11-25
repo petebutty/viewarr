@@ -836,7 +836,7 @@ private fun GuideRow(
                 modifier = Modifier.padding(start = 8.dp).weight(1f),
             )
             // Its guide moved (Guide time offset / Guide times): shown so it's never forgotten.
-            // (No "+2h" by the name: abbey, 2026-11-17. The offset is in the channel's hold-OK menu.)
+            // (No "+2h" by the name, 2026-11-17. The offset is in the channel's hold-OK menu.)
             // ("Highlighted channel only": the icon on every channel said nothing. UI review, 2026-11-18.)
             if (channel.catchupDays > 0 && AppColors.palette.opt(UiOpts.CATCHUP_ICONS).let { it != 2 && (it != 3 || selected) }) CatchupIcon(Modifier.padding(start = 4.dp).size(14.dp))
         }

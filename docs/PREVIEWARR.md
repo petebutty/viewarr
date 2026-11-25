@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="images/previewarr-banner.png" alt="Previewarr" width="560">
+</p>
+
 # Previewarr (preview)
 
 > **This is a preview.** Previewarr tries out the next Viewarr interface. It may change from one release to the next, and parts of it may go or work differently later. **Viewarr carries on as the main app**, and everything here also works in Viewarr, only arranged differently.

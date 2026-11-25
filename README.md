@@ -22,6 +22,10 @@ Viewarr doesn't provide any content. It plays only what your own servers and acc
 
 ## Previewarr (preview)
 
+<p align="center">
+  <img src="docs/images/previewarr-banner.png" alt="Previewarr" width="480">
+</p>
+
 **Previewarr** is a preview of the next Viewarr interface, released alongside it from this repo. It's the same app underneath (live TV, the guide, films and shows, music, sports, the same setup and the same [Viewarr plugin](#viewarr-plugin-optional)), with a different way in:
 
 - **A home screen** of tiles (Live TV, Movies, TV Shows, My Libraries, Music, Sports and your streaming services, which you can move or hide) and rows such as **Play next** and **Recently added**, in place of the side menu.

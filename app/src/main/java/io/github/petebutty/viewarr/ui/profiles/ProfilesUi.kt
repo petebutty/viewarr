@@ -938,7 +938,7 @@ private fun ConfirmDialog(title: String, body: String, action: String, onCancel:
 fun ProfileHost(vm: ProfilesViewModel = hiltViewModel()) {
     // Profiles off for now (ProfileUi.ENABLED): no picker on start, no Users page, no PIN, and the TV back on its main
     // sign-in (the first profile: whoever set it up). A TV left on someone else's profile kept their limits with no
-    // way to switch back: on Anne's, recording was hidden, so holding OK in the guide just tuned the channel.
+    // way to switch back: on one profile, recording was hidden, so holding OK in the guide just tuned the channel.
     // (Nothing at all while off: switching back to the "main" profile bounced a change of Live TV source, and could
     // restore an empty setup. Review, 2026-11-16.)
     if (!ProfileUi.ENABLED) return

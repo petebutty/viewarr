@@ -54,7 +54,7 @@ android {
             // Previewarr's own version numbers: Viewarr's × 100 plus its own build count (bumped for each Previewarr
             // build put out between Viewarr releases), so every one counts as newer: home screens (Projectivy) refresh
             // its icon, and its updates install. (2026-11-25: the same number kept the old icon on the home screen.)
-            versionCode = (defaultConfig.versionCode ?: 0) * 100 + 1
+            versionCode = (defaultConfig.versionCode ?: 0) * 100 + 2
             resValue("string", "app_name", "Previewarr")
             buildConfigField("boolean", "LAUNCHER", "true")
             buildConfigField("String", "LINK_SCHEME", "\"viewarrl\"")

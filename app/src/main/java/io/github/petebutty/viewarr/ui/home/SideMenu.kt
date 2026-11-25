@@ -1446,7 +1446,7 @@ internal fun GroupList(carry: Carry, sourcesVm: LiveSourcesViewModel, focusReque
             )
             }
         }
-        // Hidden groups, folded at the end: OK on one shows it in the list again. The row is optional (abbey, 2026-11-17:
+        // Hidden groups, folded at the end: OK on one shows it in the list again. The row is optional (2026-11-17:
         // clutter): off, it only appears after "Show hidden groups" in a group's hold-OK menu.
         val hiddenCount = hiddenTotal
         if (hiddenCount > 0 && onHide != null && (showHidden || AppColors.palette.opt(UiOpts.MENU_HIDDEN) == 1)) {

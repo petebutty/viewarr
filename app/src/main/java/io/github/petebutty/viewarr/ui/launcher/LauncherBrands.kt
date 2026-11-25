@@ -50,12 +50,13 @@ internal object LauncherBrands {
         "crunchyroll" to b(0xFFF47521, 0xFFC4550E, false, listOf(1112), "crunchyroll"),
         "discovery+" to b(0xFF0A2AF0, 0xFF06168C, false, listOf(4353), "discovery"),
         "shudder" to b(0xFF000000, 0xFF1A0000, false, listOf(2690), "shudder"),
-        // TV channels: their see-through logo from the channel's own row (no TMDB match needed), drawn white.
-        "hbo" to b(0xFF000000, 0xFF2A2A2A, false, emptyList()),
-        "fx" to b(0xFF0A0A0A, 0xFF262626, false, emptyList()),
-        "amc" to b(0xFF0A0A0A, 0xFF262626, false, emptyList()),
-        "fox" to b(0xFF003B7A, 0xFF00224A, false, emptyList()),
-        "sky atlantic" to b(0xFF0A1A3A, 0xFF050C1E, false, emptyList()),
+        // TV channels: TMDB's network logo when its name matches, else their see-through logo from the channel's own
+        // row, drawn white. (2026-11-25: FX and Sky Atlantic had neither, and showed an empty tile.)
+        "hbo" to b(0xFF000000, 0xFF2A2A2A, false, listOf(49), "hbo"),
+        "fx" to b(0xFF0A0A0A, 0xFF262626, false, listOf(88), "fx"),
+        "amc" to b(0xFF0A0A0A, 0xFF262626, false, listOf(174), "amc"),
+        "fox" to b(0xFF003B7A, 0xFF00224A, false, listOf(19), "fox"),
+        "sky atlantic" to b(0xFF0A1A3A, 0xFF050C1E, false, listOf(1063), "sky atlantic"),
     )
 
     fun brand(service: String): Brand? = brands[service.substringBefore(" · ").trim().lowercase()]

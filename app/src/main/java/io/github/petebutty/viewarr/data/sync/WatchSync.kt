@@ -29,7 +29,7 @@ import javax.inject.Singleton
 /**
  * IPTV (Xtream VOD through Dispatcharr) and addon watch progress shared between every box signed in to the same
  * Dispatcharr user, through Dispatcharr's own per-user app-data store (as the setup is), key [KEY]. The format is
- * shared with companion plugins (ullms's "VOD Watch Progress Companion" syncs it with Emby / Jellyfin):
+ * shared with companion plugins (the "VOD Watch Progress Companion" plugin syncs it with Emby / Jellyfin):
  *
  *   { "tmdb_movie_693134": {"title": "Dune: Part Two", "pos": 2415, "dur": 9960, "status": "watching", "updated_at": 1794782733},
  *     "tmdb_tv_94997_s02_e04": {"status": "watched", "updated_at": 1794782340},
@@ -59,7 +59,7 @@ class WatchSync @Inject constructor(
      * Settings → Playback → Watch progress → Sync IPTV progress with my Emby / Jellyfin (off until switched on): this
      * user's Emby / Jellyfin address, user and sign-in left in their own Dispatcharr app data ([SERVERS_KEY], readable
      * only by them and admins), so the Viewarr plugin (0.5.2+) keeps their IPTV watch progress in step with that
-     * server, both ways, without Trakt. Off: the details are taken back out. (ullms asked for it, 2026-11-17.)
+     * server, both ways, without Trakt. Off: the details are taken back out. (Asked for 2026-11-17.)
      */
     suspend fun shareServers(on: Boolean): Boolean {
         val s = sessions.session.first()?.takeIf { !it.isDirect } ?: return false
@@ -137,7 +137,7 @@ class WatchSync @Inject constructor(
 
     /** One sync: read the shared copy, merge with this box, write it back if it changed, and take in what's newer. */
     suspend fun sync(force: Boolean = false) = lock.withLock {
-        // Settings → Playback → Watch progress → Sync with Dispatcharr (on unless switched off; ullms asked for the
+        // Settings → Playback → Watch progress → Sync with Dispatcharr (on unless switched off; asked for the
         // option, for his companion plugin, 2026-11-17). [force]: Sync now, even when off.
         // (Whatever else is connected: IPTV and addon progress is shared between TVs only through here. Not before the
         // accounts have been read once, so a start-up blip can't act on a blank copy.)
@@ -280,7 +280,7 @@ class WatchSync @Inject constructor(
     /**
      * The entry to update, or a new one for a title this box hasn't seen (another box, or Emby, watched it). An entry
      * with no name (a companion plugin writes only the ids and progress) takes its name and poster from TMDB: they all
-     * showed "Unknown" in Continue watching (ullms, 2026-11-17).
+     * showed "Unknown" in Continue watching (2026-11-17).
      */
     private fun base(here: LocalWatch?, ref: Ref, v: JsonObject, names: Map<String, Pair<String, String?>>): LocalWatch {
         val named = ref.tmdb?.let { names[ref.type + ":" + it] }
