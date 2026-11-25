@@ -41,7 +41,10 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 private const val TAG = "Updates"
-private const val RELEASES_URL = "https://api.github.com/repos/petebutty/viewarr/releases?per_page=30"
+// (Previewarr's downloads have their own repository, petebutty/previewarr: Viewarr 0.29.9.4 and older took the first
+// file of a release, alphabetically, so Previewarr's files can't sit in Viewarr's releases. 2026-11-25.)
+private val RELEASES_URL = if (BuildConfig.LAUNCHER) "https://api.github.com/repos/petebutty/previewarr/releases?per_page=30"
+    else "https://api.github.com/repos/petebutty/viewarr/releases?per_page=30"
 /** Automatic checks: on start and when the app comes back to the front, at most this often (GitHub allows 60 an hour). */
 private const val AUTO_INTERVAL_MS = 30 * 60_000L
 

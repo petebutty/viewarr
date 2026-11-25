@@ -13,12 +13,12 @@ You can tell them apart by the icon (Previewarr's is orange and pink) and the sp
 1. On your TV, install the **Downloader** app (by AFTVnews) from the Play Store / Amazon Appstore.
 2. In Downloader, enter the code **9332422** (or this link; both always get the newest version):
 
-   `https://github.com/petebutty/viewarr/releases/latest/download/previewarr.apk`
+   `https://github.com/petebutty/previewarr/releases/latest/download/previewarr.apk`
 
-   Allow Downloader to install apps when asked. (Or download `previewarr.apk` from [Releases](https://github.com/petebutty/viewarr/releases) and copy it over with **Send Files to TV**, or use `adb install`.)
+   Allow Downloader to install apps when asked. (Or download `previewarr.apk` from [Previewarr's releases](https://github.com/petebutty/previewarr/releases) and copy it over with **Send Files to TV**, or use `adb install`.)
 3. Open **Previewarr** from your apps. On Google TV it may be under *Apps → See all*.
 
-Each release has two Previewarr files: `previewarr.apk` (always the latest) and `previewarr-<version>.apk` (that version). Viewarr's own files are `viewarr.apk` and `viewarr-<version>.apk`, so take care to pick the right one.
+Previewarr's downloads have their own page, [petebutty/previewarr](https://github.com/petebutty/previewarr/releases): `previewarr.apk` (always the latest) and `previewarr-<version>.apk` (that version). Viewarr's are on [Viewarr's releases](https://github.com/petebutty/viewarr/releases). The code and these guides are shared, here.
 
 ## Setup
 
