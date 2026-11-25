@@ -30,7 +30,7 @@ Viewarr doesn't provide any content. It plays only what your own servers and acc
 
 It installs alongside Viewarr (you don't need both), with an orange and pink icon so you can tell them apart. It's a preview, so it may change; **Viewarr carries on as the main app**.
 
-Install it with Downloader: enter the code **9332422** (or `https://github.com/petebutty/previewarr/releases/latest/download/previewarr.apk`). See the **[Previewarr guide](docs/PREVIEWARR.md)**.
+Install it with Downloader: enter the code **6733457** (or `https://github.com/petebutty/previewarr/releases/latest/download/previewarr.apk`). See the **[Previewarr guide](docs/PREVIEWARR.md)**.
 
 ## Highlights
 

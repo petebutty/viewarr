@@ -11,7 +11,7 @@ You can tell them apart by the icon (Previewarr's is orange and pink) and the sp
 ## Install
 
 1. On your TV, install the **Downloader** app (by AFTVnews) from the Play Store / Amazon Appstore.
-2. In Downloader, enter the code **9332422** (or this link; both always get the newest version):
+2. In Downloader, enter the code **6733457** (or this link; both always get the newest version):
 
    `https://github.com/petebutty/previewarr/releases/latest/download/previewarr.apk`
 
