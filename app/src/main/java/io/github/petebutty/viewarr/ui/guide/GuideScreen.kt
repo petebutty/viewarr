@@ -24,6 +24,8 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.layout.layout
+import io.github.petebutty.viewarr.ui.common.glowHighlight
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.aspectRatio
@@ -983,6 +985,21 @@ private fun GuideRow(
                     val dot = 4.dp.toPx()
                     drawCircle(RecordRed, dot, Offset(x1 - pad - dot, size.height / 2f))
                 }
+            }
+        }
+        // The highlighted programme: the rotating glow ring every highlight has (GlowHighlight), round its block.
+        // (Settings → Appearance → TV guide → Glow round the highlight: off in Viewarr to start.)
+        if (focusedP != null && AppColors.palette.opt(UiOpts.GUIDE_GLOW) == 0 && focusedP.endTime > windowStart && focusedP.startTime < windowEnd) {
+            val fp = focusedP
+            Box(Modifier.matchParentSize()) {
+                Box(Modifier.layout { measurable, c ->
+                    val pxPerMs = c.maxWidth.toFloat() / GuideViewModel.VISIBLE_MS
+                    val x0 = (maxOf(fp.startTime, windowStart) - windowStart) * pxPerMs
+                    val x1 = (minOf(fp.endTime, windowEnd) - windowStart) * pxPerMs - 3.dp.toPx()
+                    val w = (x1 - x0).toInt().coerceAtLeast(1)
+                    val placeable = measurable.measure(Constraints.fixed(w, c.maxHeight))
+                    layout(c.maxWidth, c.maxHeight) { placeable.place(x0.toInt(), 0) }
+                }.glowHighlight(true, if (square) androidx.compose.ui.graphics.RectangleShape else RoundedCornerShape(Tokens.RowRadius)))
             }
         }
         // The scrolling name, on its own layer (so each step redraws only it, not the whole row's programmes).

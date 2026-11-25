@@ -65,6 +65,7 @@ object VodHost {
      * (drawn above it) has the remote. Picking a page puts it in the corner; closing the menu gives it the remote back.
      */
     var behind by mutableStateOf(false)
+
     /** Opens the menu over the film (the home screen sets it). */
     var openMenu: () -> Unit = {}
 

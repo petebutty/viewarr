@@ -66,7 +66,7 @@ object RowsCache {
         m.rating?.let { put("r", it) }; put("or", m.origin); m.subtitle?.let { put("s", it) }
         m.progress?.let { put("pr", it.toDouble()) }; m.nextSeason?.let { put("ns", it) }; m.nextEpisode?.let { put("ne", it) }
         m.durationMs?.let { put("d", it) }; if (m.owned) put("ow", true); m.ownedFrom?.let { put("of", it) }
-        m.addonType?.let { put("at", it) }
+        m.addonType?.let { put("at", it) }; m.lastWatchedAt?.let { put("lw", it) }
     }
 
     private fun item(j: JsonObject, page: MediaType): MediaItem? {
@@ -79,7 +79,7 @@ object RowsCache {
         tmdbId = j.i("tm"), imdbId = j.s("im"), rating = (j["r"] as? JsonPrimitive)?.doubleOrNull, origin = j.s("or").orEmpty(),
         subtitle = j.s("s"), progress = (j["pr"] as? JsonPrimitive)?.doubleOrNull?.toFloat(), nextSeason = j.i("ns"), nextEpisode = j.i("ne"),
         durationMs = (j["d"] as? JsonPrimitive)?.longOrNull, owned = (j["ow"] as? JsonPrimitive)?.contentOrNull == "true",
-        ownedFrom = j.s("of"), addonType = j.s("at"),
+        ownedFrom = j.s("of"), addonType = j.s("at"), lastWatchedAt = (j["lw"] as? JsonPrimitive)?.longOrNull,
         )
     }
 

@@ -198,6 +198,7 @@ fun appearanceCategories(vm: AppearanceViewModel = hiltViewModel(), opts: UiOpts
                 optItem(opts, "End of a list", "The TV guide, the channel list and its groups, past the last channel (or above the first). Jump to the other end: one more press goes to the top (holding the button stops at the end, so a long scroll doesn't fly round). Stop: nothing more.", UiOpts.LIST_ENDS),
                 optItem(opts, "Timeline", "How much time the TV guide shows across the screen. More time: more programmes at once, each one narrower.", UiOpts.GUIDE_SPAN),
                 optItem(opts, "Catch-up icons", "The replay icon on past programmes you can watch again, and beside channels that have catch-up (or beside the highlighted channel only, so the list stays calm). Catch-up still works with it off.", UiOpts.CATCHUP_ICONS),
+                optItem(opts, "Glow round the highlight", "A soft light running slowly round the highlighted programme's edge, as on the cards.", UiOpts.GUIDE_GLOW),
                 optItem(opts, "Elapsed shading", "On a programme that's on now: the part that's already gone is lightly shaded up to the time line.", UiOpts.GUIDE_SHADE),
                 // Low-memory mode: no programme pictures at all, so these are locked.
                 optItem(opts, "Programme pictures", "The highlighted programme's picture at the top of the guide. Off: no pictures are looked up (the channel's logo shows instead).", UiOpts.GUIDE_ART).locked(lowLock),
@@ -265,6 +266,7 @@ fun appearanceCategories(vm: AppearanceViewModel = hiltViewModel(), opts: UiOpts
         SettingCategory(
             "Posters", "How big library posters are, and what's drawn on posters in Movies, Shows and search.",
             listOf(
+                optItem(opts, "Row cards", "The rows on Movies, Shows and the services' pages: posters, or wide pictures (16:9) with the name under them.", UiOpts.ROW_CARDS),
                 optItem(opts, "Library posters", "How big the posters are in a library's grid (Plex, Jellyfin, Emby, IPTV). Small is the same size as the posters in the rows; as many fit across as there's room for, with the mini player or menu beside it too.", UiOpts.LIBRARY_POSTERS),
                 optItem(opts, "Where it's from", "The label saying which of your servers has it (e.g. \"Plex · Living room\").", UiOpts.BADGE_SOURCE),
                 optItem(opts, "Progress bars", "How far through you are, along the bottom of posters and episodes.", UiOpts.BADGE_PROGRESS),
@@ -346,12 +348,12 @@ private val AppearanceOpts = UiOpts.run {
     listOf(
         PICTURE_SIZE, TEXT_SIZE_V2, FONT, CLOCK, DATE_ORDER, TIME_FORMAT, // Theme
         GLASS_TINT, POPUP_SEE, POPUP_GLASS, BANNER_BORDER, // Glass & transparency (Pop-up glass's older form too)
-        CHANNEL_LOGOS, GUIDE_ROWS, GUIDE_EPISODE, CHLIST_WIDTH, CHLIST_PROGRESS, CHLIST_PROGRESS_COLOUR, GUIDE_SPAN, CATCHUP_ICONS, GUIDE_SHADE, GUIDE_ART, GUIDE_ART_PLACE, WALL_SHADE, GUIDE_NEXT, GUIDE_EPISODE_BADGE, GUIDE_CATCHUP_BADGE, TITLE_BG, GUIDE_WALL, // TV guide
+        CHANNEL_LOGOS, GUIDE_ROWS, GUIDE_EPISODE, CHLIST_WIDTH, CHLIST_PROGRESS, CHLIST_PROGRESS_COLOUR, GUIDE_SPAN, CATCHUP_ICONS, GUIDE_SHADE, GUIDE_GLOW, GUIDE_ART, GUIDE_ART_PLACE, WALL_SHADE, GUIDE_NEXT, GUIDE_EPISODE_BADGE, GUIDE_CATCHUP_BADGE, TITLE_BG, GUIDE_WALL, // TV guide
         INFOBAR_STYLE, INFOBAR_CORNERS, INFOBAR_SIZE, INFOBAR_CLOCK, INFOBAR_WIDTH, CARD_SIZE,
         BANNER_NUMBER, BANNER_EPISODE, BANNER_BADGES, BANNER_SOURCE, BANNER_FPS, CONTROLS_SIZE, // Info bar & controls
         MENU_HEADINGS, MENU_HEAD_SOURCE, MENU_EDGE, MENU_TINT, MENU_HINTS, MENU_GROUP_ICON, MENU_LIVE_MARK, MENU_HIDDEN, BUTTON_HINTS, // Menu
         NEWS_INFOBAR, NEWS_GUIDE, NEWS_PAGES, NEWS_SPEED, // News ticker
-        HERO_STYLE, ROW_POSTERS, LIBRARY_POSTERS, BADGE_SOURCE, BADGE_PROGRESS, POSTER_DIM, POSTER_ZOOM, AGE_RATING, // Browsing style, Posters, Title pages
+        HERO_STYLE, ROW_POSTERS, LIBRARY_POSTERS, ROW_CARDS, BADGE_SOURCE, BADGE_PROGRESS, POSTER_DIM, POSTER_ZOOM, AGE_RATING, // Browsing style, Posters, Title pages
         MUSIC_ART, MUSIC_VIS, MUSIC_SAVER, MUSIC_LYRICS, LIST_SCROLL, // Music, Motion
     )
 }

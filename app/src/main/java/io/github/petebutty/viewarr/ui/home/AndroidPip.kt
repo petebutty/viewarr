@@ -25,7 +25,9 @@ object AndroidPip {
     /** Something is playing that would go into the window (the home screen sets it). */
     var wanted by mutableStateOf(false)
 
-    private fun canPip(a: Activity) = a.packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)
+    // (Not in the Viewarr launcher for now: Home stops what's playing there.)
+    private fun canPip(a: Activity) = !io.github.petebutty.viewarr.BuildConfig.LAUNCHER &&
+        a.packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)
 
     /** When Viewarr last opened a screen of Android's itself (a permission, approving home-screen rows). Older Android
      *  calls that "leaving" too, and it mustn't shrink Viewarr into the window behind it. */

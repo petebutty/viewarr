@@ -119,7 +119,8 @@ class SyncHistory @Inject constructor(private val http: HttpJson, private val js
 
     internal companion object {
         private const val TAG = "ViewarrSync"
-        const val HISTORY_KEY = "io.github.petebutty.viewarr.history"
+        // (The Viewarr launcher's history apart from Viewarr's, as its settings are: SettingsSync.)
+        val HISTORY_KEY = if (io.github.petebutty.viewarr.BuildConfig.LAUNCHER) "io.github.petebutty.viewarr.launcher.history" else "io.github.petebutty.viewarr.history"
         const val RECENT = 5
         const val DAYS = 7
         const val MAX_ITEMS = 12

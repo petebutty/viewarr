@@ -1,5 +1,33 @@
 # Viewarr changelog (built by tools/changelog.py from the GitHub releases; don't edit by hand)
 
+## 0.29.9.5 · 25 Nov 2026
+
+Viewarr 0.29.9.5, and the first preview of **Previewarr**: a new home-screen style app built from the same code.
+
+### New: Previewarr (preview)
+- A launcher-style front end on Viewarr's live TV, guide, players and libraries: a row of tiles (Live TV, Movies, TV Shows, My library, Music, Sports, your streaming services), then Play next, Recently added and more
+- Simpler settings on one page, one remote preset (Classic) with every button still changeable
+- Films and live TV carry on in a corner while you browse; the Now playing tile takes you back to full screen
+- Hold OK on a tile to move or hide it
+- Installs alongside Viewarr (you don't need both): download `previewarr.apk`. See docs/PREVIEWARR.md
+- It's a preview: things will change, and Viewarr carries on as the main app
+
+### Live TV
+- Source → hold OK on a stream → **Make this the best stream**: puts it first for that channel in Dispatcharr on every TV, and the Viewarr plugin's best-stream sorting leaves it there (Dispatcharr admins; needs plugin 0.6.13 for the plugin part)
+- Source and stream info stay in the controls while you're paused or rewound on the plugin's timeshift buffer
+- Coming up in the info bar shows each programme's picture instead of the channel logo
+- An optional rotating glow on the TV guide's highlighted programme, in the guide's look settings (off as standard)
+
+### Films and shows
+- A rotating glow around the highlighted card (it stands still in low-memory mode)
+- New Row cards setting in Appearance: posters, or wide 16:9 pictures
+- Trailers: when one won't play (age-restricted, removed), the next is tried; silent ones are skipped when sound is on
+- Recently added no longer shows the same title twice from different sources
+
+### Fixes
+- The info bar's rows no longer pop in outside the info bar when moving left and right
+- Updates: each app now picks its own download from a release
+
 ## 0.29.9.4 · 25 Nov 2026
 
 Live TV follows Dispatcharr's stream order again when Start with the best source is off, plus two fixes.

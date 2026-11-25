@@ -52,21 +52,21 @@
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="viewarr" android:host="title" />
+                <data android:scheme="${linkScheme}" android:host="title" />
             </intent-filter>
             <!-- Home automation / ADB: viewarr://channel (uuid / number / step), stop, guide, page, record, search, refresh. -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
-                <data android:scheme="viewarr" android:host="channel" />
-                <data android:scheme="viewarr" android:host="stop" />
-                <data android:scheme="viewarr" android:host="guide" />
-                <data android:scheme="viewarr" android:host="page" />
-                <data android:scheme="viewarr" android:host="record" />
-                <data android:scheme="viewarr" android:host="search" />
-                <data android:scheme="viewarr" android:host="refresh" />
-                <data android:scheme="viewarr" android:host="homerows" />
-                <data android:scheme="viewarr" android:host="rows" />
+                <data android:scheme="${linkScheme}" android:host="channel" />
+                <data android:scheme="${linkScheme}" android:host="stop" />
+                <data android:scheme="${linkScheme}" android:host="guide" />
+                <data android:scheme="${linkScheme}" android:host="page" />
+                <data android:scheme="${linkScheme}" android:host="record" />
+                <data android:scheme="${linkScheme}" android:host="search" />
+                <data android:scheme="${linkScheme}" android:host="refresh" />
+                <data android:scheme="${linkScheme}" android:host="homerows" />
+                <data android:scheme="${linkScheme}" android:host="rows" />
             </intent-filter>
             <!-- The remote's mic / search button: Android sends a voice-search or assist request to the app set to take
                  it. With Viewarr chosen for these, the button opens Viewarr's voice search from anywhere (2026-11-20). -->
@@ -90,7 +90,7 @@
         <receiver android:name=".data.update.InstallReceiver" android:exported="false" />
         <!-- Home screen rows (Settings → Live TV): refreshed every 15 minutes while Viewarr is closed. -->
         <!-- The home-screen rows' card pictures, for the launcher to read (channel logos on cards; nothing private). -->
-        <provider android:name=".data.media.HomeRowArtProvider" android:authorities="io.github.petebutty.viewarr.homerowart" android:exported="true" />
+        <provider android:name=".data.media.HomeRowArtProvider" android:authorities="${applicationId}.homerowart" android:exported="true" />
         <service android:name=".data.media.HomeRowsJob" android:permission="android.permission.BIND_JOB_SERVICE" android:exported="false" />
     </application>
 </manifest>

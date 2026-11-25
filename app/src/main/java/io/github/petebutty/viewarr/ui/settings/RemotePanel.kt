@@ -163,8 +163,9 @@ fun RemoteSettingsScreen(onBack: () -> Unit, vm: RemoteViewModel = hiltViewModel
                 when {
                     // Back and Left step through the guide and pages first, so they have their own choices there.
                     screen == io.github.petebutty.viewarr.data.settings.BtnScreen.Guide && press == BtnPress.Back -> {
-                        add(item("In the TV guide: jump to now first", "Scrolled away from what's on now, Back first comes back to now, and the next Back goes full screen (something playing) or does what's set below. Off: Back does its job straight away.", k.GUIDE_BACK_NOW, all<GuideBackNow>(), s.guideBackNow))
-                        add(item(place, "With a channel or film playing, Back always goes back to it full screen. With nothing playing: ask to exit, or open the menu. (Ask to exit needs another way to the menu, such as Menu set to Main menu; without one, Back opens the menu.)", k.GUIDE_BACK, listOf(GuideBack.NowThenExit, GuideBack.Menu), s.guideBack))
+                        add(item("In the TV guide: jump to now first", if (io.github.petebutty.viewarr.BuildConfig.LAUNCHER) "Scrolled away from what's on now, Back first comes back to now, and the next Back goes home. Off: Back goes home straight away." else "Scrolled away from what's on now, Back first comes back to now, and the next Back goes full screen (something playing) or does what's set below. Off: Back does its job straight away.", k.GUIDE_BACK_NOW, all<GuideBackNow>(), s.guideBackNow))
+                        // (Previewarr: Back in the guide is always home, no main menu to open; no choice here.)
+                        if (!io.github.petebutty.viewarr.BuildConfig.LAUNCHER) add(item(place, "With a channel or film playing, Back always goes back to it full screen. With nothing playing: ask to exit, or open the menu. (Ask to exit needs another way to the menu, such as Menu set to Main menu; without one, Back opens the menu.)", k.GUIDE_BACK, listOf(GuideBack.NowThenExit, GuideBack.Menu), s.guideBack))
                     }
                     // (Left in the guide and on the first poster work one way since 0.28.3: no choice to make.)
                     screen == io.github.petebutty.viewarr.data.settings.BtnScreen.Guide && press == BtnPress.Left -> Unit
@@ -183,8 +184,9 @@ fun RemoteSettingsScreen(onBack: () -> Unit, vm: RemoteViewModel = hiltViewModel
     val buttonCategories = listOf(
         SettingCategory(
             "Presets", "Set every button at once, then change any you like: each button below lists what it does in the TV guide, on live TV, in films and in menus.",
-            listOf(
-                presetRow(ControlPreset.Viewarr, "Use Viewarr buttons",
+            listOfNotNull(
+                // (Previewarr: one preset, Classic; its buttons can still each be changed below. 2026-11-25.)
+                if (io.github.petebutty.viewarr.BuildConfig.LAUNCHER) null else presetRow(ControlPreset.Viewarr, "Use Viewarr buttons",
                     "The Classic buttons with a few changes. The guide: Left carries on back into catch-up (no hold), Back jumps to now then the menu, colour buttons: record, groups, a day back, a day forward. Live TV: Up / Down change channel, OK the controls, Left / Right rewind and skip, hold Play: go live. Search and extra buttons go back to standard too."),
                 presetRow(ControlPreset.Classic, "Use Classic buttons",
                     "The layout most IPTV apps use. Live TV: Up / Down change channel, OK the controls, Left the channel list, Right the last channel, Menu the main menu. The guide: Left back a programme (on now: the channel groups); Hold OK: record options; Back: back to the player. Search and extra buttons go back to standard too."),

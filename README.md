@@ -20,6 +20,18 @@ Viewarr doesn't provide any content. It plays only what your own servers and acc
 
 > **Status: early beta.** It's tested on an Amlogic Android TV box (2 GB). For the smoothest films and full surround sound, a stronger box such as an Nvidia Shield TV Pro helps. Things may break; please report anything odd in [Issues](../../issues).
 
+## Previewarr (preview)
+
+**Previewarr** is a preview of the next Viewarr interface, released alongside it from this repo. It's the same app underneath (live TV, the guide, films and shows, music, sports, the same setup and the same [Viewarr plugin](#viewarr-plugin-optional)), with a different way in:
+
+- **A home screen** of tiles (Live TV, Movies, TV Shows, My Libraries, Music, Sports and your streaming services, which you can move or hide) and rows such as **Play next** and **Recently added**, in place of the side menu.
+- **One simple Settings page** with the basics only.
+- Live TV and films carry on in the corner of the home screen while you browse.
+
+It installs alongside Viewarr (you don't need both), with an orange and pink icon so you can tell them apart. It's a preview, so it may change; **Viewarr carries on as the main app**.
+
+Install it with Downloader: enter the code **9332422** (or `https://github.com/petebutty/viewarr/releases/latest/download/previewarr.apk`). See the **[Previewarr guide](docs/PREVIEWARR.md)**.
+
 ## Highlights
 
 - **One glass menu on the left** that slides the page aside, and a **top-left window** where live TV, a film or a trailer keeps playing while you browse.
@@ -105,6 +117,7 @@ The full walkthrough, with what each step needs and troubleshooting tips, is in 
 - **[Privacy](docs/PRIVACY.md)**: what's stored and what's sent where
 - **[Controlling Viewarr from outside](docs/AUTOMATION.md)**: `viewarr://` links for ADB and home automation
 - **[Home Assistant](docs/HOME-ASSISTANT.md)**: lights that follow what you watch, pop-ups on the TV, voice and phone control
+- **[Previewarr (preview)](docs/PREVIEWARR.md)**: the home-screen version of Viewarr, its tiles, rows, mini player and simple settings
 
 ## Building from source
 

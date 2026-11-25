@@ -129,8 +129,19 @@ fun TrailerPreview(item: MediaItem?, active: Boolean, trailers: TrailerRepositor
         if (item == null || !active) return@LaunchedEffect
         // The hero itself already waited 250 ms for focus to settle.
         delay((pb.trailerDelay.ms - 250).coerceAtLeast(0))
-        val id = trailers.youtubeId(item) ?: return@LaunchedEffect
-        val streams = trailers.resolve(id, PREVIEW_HEIGHT) ?: return@LaunchedEffect
+        // The title's trailers in turn (up to three): one that won't play (age-restricted, removed) is marked and the
+        // next tried; one with no sound, when sound is wanted, is kept only in case none has any (2026-11-25: a refused
+        // trailer meant no trailer, and some played silent).
+        var chosen: Pair<String, io.github.petebutty.viewarr.data.trailers.TrailerStreams>? = null
+        var silent: Pair<String, io.github.petebutty.viewarr.data.trailers.TrailerStreams>? = null
+        for (tid in trailers.youtubeIds(item).take(3)) {
+            val st = trailers.resolve(tid, PREVIEW_HEIGHT)
+            // (Resolving marks it itself: for good when YouTube refuses it, ten minutes after a network failure.)
+            if (st == null) continue
+            if (sound && st.audio == null) { if (silent == null) silent = tid to st; continue }
+            chosen = tid to st; break
+        }
+        val (id, streams) = chosen ?: silent ?: return@LaunchedEffect
         val source = trailers.mediaSource(streams, withAudio = sound) ?: return@LaunchedEffect
         currentId = id
         val p = player ?: trailerPlayer(context, small = true).also { it.addListener(listener); player = it }

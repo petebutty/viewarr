@@ -29,6 +29,8 @@ object ResumeSpot {
 
     /** Looked at already in this process (a cold start reads it once; a warm return never does). */
     @Volatile var checked = false
+    /** The app went to the background (ON_STOP) since it last came back: coming back then resumes live TV. */
+    @Volatile var wentAway = false
 
     /** The spot saved last time, if it's recent (not forgotten: see [clear]). */
     fun peek(ctx: Context): Spot? {
@@ -90,8 +92,21 @@ internal fun ResumeEffects(hs: HomeState, remote: RemoteSettings, session: Sessi
                 title = film?.let { DeepLink.uriFor(it).toString() },
             ))
         }
-        playback.pause(); VodHost.remote?.pause()
+        // (The live player let go entirely, not just stopped, so the sound output is free for the app in front; a film's
+        // player does the same itself, VodPlayer.)
+        // (Viewarr launcher only: in Viewarr, coming back reloaded the film from scratch, which can fail on a link that
+        // has run out, and live TV lost its audio / subtitle choice.)
+        if (io.github.petebutty.viewarr.BuildConfig.LAUNCHER) playback.releaseForBackground() else playback.pause()
+        VodHost.remote?.pause()
+        ResumeSpot.wentAway = true
     }
-    androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_START) { playback.resume(); if (ResumeSpot.checked) ResumeSpot.clear(ctx) }
+    androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_START) {
+        // (Previewarr: this screen comes and goes as pages open from its home screen, and each time it does this runs as
+        // if the app had come back; live TV playing in the home screen's corner was restarted, black and back to the
+        // live edge (2026-11-25). There it only resumes after really being away. Viewarr: always, as before.)
+        if (!io.github.petebutty.viewarr.BuildConfig.LAUNCHER || ResumeSpot.wentAway) playback.resume()
+        ResumeSpot.wentAway = false
+        if (ResumeSpot.checked) ResumeSpot.clear(ctx)
+    }
     AndroidPipEffects(hs, playing)
 }

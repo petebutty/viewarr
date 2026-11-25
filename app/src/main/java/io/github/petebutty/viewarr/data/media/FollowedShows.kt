@@ -52,7 +52,7 @@ class FollowedShows @Inject constructor(
             // Every 3 hours while New episodes is on; looked at every 10 minutes, so switching it on starts within 10.
             var last = 0L
             while (true) {
-                if (Notify.newEpisodes && System.currentTimeMillis() - last >= 3 * 3_600_000L) {
+                if ((Notify.newEpisodes || io.github.petebutty.viewarr.BuildConfig.LAUNCHER) && System.currentTimeMillis() - last >= 3 * 3_600_000L) {
                     last = System.currentTimeMillis()
                     runCatching { check() }.onFailure { Log.w(TAG, "check failed: ${it.message}") }
                 }
@@ -104,7 +104,9 @@ class FollowedShows @Inject constructor(
     data class NewEpisode(val show: Show, val season: Int, val episode: Int, val at: Long)
 
     private suspend fun check() {
-        if (!Notify.newEpisodes) return
+        // (The Viewarr launcher looks whatever the notification says: its home screen's Play next shows them.)
+        val notify = Notify.newEpisodes
+        if (!notify && !io.github.petebutty.viewarr.BuildConfig.LAUNCHER) return
         if (autoOn()) runCatching { updateAuto() }
         val news = ArrayList<NewEpisode>()
         for (s in followed()) {
@@ -120,6 +122,7 @@ class FollowedShows @Inject constructor(
         Log.i(TAG, "new: " + news.joinToString { "${it.show.title} S${it.season} E${it.episode}" })
         saveCards(news)
         runCatching { watchNext.get().refresh() }
+        if (!notify) return
         withContext(Dispatchers.Main) {
             val first = news.first()
             val text = if (news.size == 1) "New episode · ${first.show.title} S${first.season} E${first.episode} is in your library"
@@ -147,9 +150,10 @@ class FollowedShows @Inject constructor(
 
     private fun cardLines() = prefs.getStringSet(CARDS, emptySet()).orEmpty()
 
-    /** The new episodes of the last week, newest first, as Play next cards (WatchNext). */
-    fun playNextCards(): List<MediaItem> {
-        if (!Notify.newEpisodes) return emptyList()
+    /** The new episodes of the last week, newest first, as Play next cards (WatchNext; [always]: whatever the
+     *  notification setting says, for the launcher's home screen). */
+    fun playNextCards(always: Boolean = false): List<MediaItem> {
+        if (!always && !Notify.newEpisodes) return emptyList()
         val now = System.currentTimeMillis()
         return cardLines().mapNotNull { line ->
             val p = line.split('|', limit = 6)
@@ -157,7 +161,7 @@ class FollowedShows @Inject constructor(
             val at = p[0].toLongOrNull() ?: return@mapNotNull null
             if (now - at > CARD_KEEP_MS) return@mapNotNull null
             at to MediaItem(key = p[1], type = MediaType.Show, title = p[5], tmdbId = p[2].toIntOrNull(), origin = "Followed",
-                nextSeason = p[3].toIntOrNull(), nextEpisode = p[4].toIntOrNull(), subtitle = "New episode  S${p[3]} E${p[4]}")
+                nextSeason = p[3].toIntOrNull(), nextEpisode = p[4].toIntOrNull(), subtitle = "New episode  S${p[3]} E${p[4]}", lastWatchedAt = at)
         }.sortedByDescending { it.first }.map { it.second }
     }
 

@@ -277,8 +277,8 @@ class RemoteStore @Inject constructor(@ApplicationContext private val context: C
                 .forEach { prefs.remove(stringPreferencesKey(it)) }
             prefs.remove(intPreferencesKey(SEARCH_KEYCODE))
         }
-        // (Every button set, so it reads "Viewarr" straight after, whatever was stored before.)
-        applyPreset(ControlPreset.Viewarr)
+        // (Every button set, so it reads "Viewarr" straight after, whatever was stored before. Previewarr: Classic, its one preset.)
+        applyPreset(if (io.github.petebutty.viewarr.BuildConfig.LAUNCHER) ControlPreset.Classic else ControlPreset.Viewarr)
     }
 
     /** Some choice settings back to their defaults (a section's "Reset these buttons"). */

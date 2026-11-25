@@ -47,6 +47,7 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -136,6 +137,8 @@ fun PlayerOsd(
     val sources by vm.sources.collectAsStateWithLifecycle()
     val sourceNote by vm.sourceNote.collectAsStateWithLifecycle()
     var popup by remember { mutableStateOf<OsdPopup?>(if (openAudio) OsdPopup.Audio else null) }
+    // Source → hold OK on a stream: set it as the channel's best stream by hand, or hand it back (PlaybackViewModel.pinSource).
+    var pinMenu by remember { mutableStateOf<PlaybackViewModel.LiveSource?>(null) }
     // Info bar buttons editor (hold OK on the bar; also Settings → Appearance → Info bar buttons).
     var barEditor by remember { mutableStateOf(false) }
     var barItems by remember { mutableStateOf(emptyList<BarItem>()) }
@@ -197,7 +200,7 @@ fun PlayerOsd(
                     OsdPopup.Sync -> AvSync.steps.map { AvSync.label(it) to (it == AvSync.ms) }
                     // Each source with its provider, Dispatcharr's last check of its quality, and why it may not play now.
                     OsdPopup.Source -> sources.orEmpty().map {
-                        (if (it.current) "✓  " else "     ") + listOfNotNull(it.name, it.provider.ifEmpty { null }, it.quality).joinToString("  ·  ") +
+                        (if (it.current) "✓  " else "     ") + (if (it.pinned) "📌 " else "") + listOfNotNull(it.name, it.provider.ifEmpty { null }, it.quality).joinToString("  ·  ") +
                             (it.warning?.let { w -> "  ·  ⚠ $w" } ?: "") to it.current
                     }
                     OsdPopup.Info -> emptyList()
@@ -219,6 +222,19 @@ fun PlayerOsd(
                     }
                     popup = null
                 },
+                onLongPick = if (p == OsdPopup.Source) { i -> sources?.getOrNull(i)?.let { pinMenu = it } } else null,
+            )
+        }
+        pinMenu?.let { src ->
+            io.github.petebutty.viewarr.ui.common.OptionsPopup(
+                title = src.name,
+                subtitle = "Best stream for this channel",
+                options = listOfNotNull(
+                    if (!src.pinned) io.github.petebutty.viewarr.ui.common.PopupOption("Make this the best stream") { vm.pinSource(src); popup = null } else null,
+                    if (src.pinned) io.github.petebutty.viewarr.ui.common.PopupOption("Let Viewarr choose again") { vm.unpinSource(); popup = null } else null,
+                ),
+                description = "Puts this stream first for the channel in Dispatcharr, on every TV, and the best-stream sorting leaves it there. Dispatcharr admins only.",
+                onClose = { pinMenu = null },
             )
         }
 
@@ -482,7 +498,11 @@ private fun PosterRows(rows: List<OsdRow>, current: Int, onRow: (Int) -> Unit) {
                 androidx.compose.foundation.gestures.LocalBringIntoViewSpec provides io.github.petebutty.viewarr.ui.media.NoRowScroll,
             ) {
                 LazyRow(
-                    Modifier.padding(top = 2.dp).offset(x = (-12).dp).onFocusChanged { if (!it.hasFocus) slide.focused = -1 }.then(slide.modifier),
+                    // (Clipped at its sides: as the cards slid, the one coming in or going out was drawn past the info
+                    // bar's edge for a moment. Not top and bottom, where the highlight's glow spills out.)
+                    Modifier.padding(top = 2.dp).offset(x = (-12).dp).onFocusChanged { if (!it.hasFocus) slide.focused = -1 }
+                        .drawWithContent { clipRect(left = 0f, top = -size.height, right = size.width, bottom = size.height * 2) { this@drawWithContent.drawContent() } }
+                        .then(slide.modifier),
                     state = rowState,
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -730,6 +750,8 @@ private fun OptionPopup(
     options: List<Pair<String, Boolean>>,
     emptyText: String,
     onPick: (Int) -> Unit,
+    /** Hold OK on a choice (the Source list: set the best stream by hand). */
+    onLongPick: ((Int) -> Unit)? = null,
 ) {
     val focus = remember { FocusRequester() }
     LaunchedEffect(options.size) {
@@ -757,6 +779,7 @@ private fun OptionPopup(
                     text = label,
                     selected = selected,
                     onClick = { onPick(i) },
+                    onLongClick = onLongPick?.let { f -> { f(i) } },
                     trailing = if (selected) "✓" else null,
                     modifier = if (i == selectedIndex) Modifier.focusRequester(focus) else Modifier,
                 )

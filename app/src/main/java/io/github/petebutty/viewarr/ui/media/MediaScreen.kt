@@ -584,7 +584,9 @@ private fun PageHeader(
         librarySourcesOf = vm::librarySources,
         logoOf = vm::logoFor,
         ratingsOf = vm::ratingsFor,
-        height = if (AppColors.palette.heroStyle == 1) 296.dp else 212.dp,
+        // (Previewarr: as tall as its home screen's banner, so the rows start at the same height on every page and its
+        // trailer is the same size and place as on home. 2026-11-25.)
+        height = if (io.github.petebutty.viewarr.ui.launcher.LauncherLook.on) 300.dp else if (AppColors.palette.heroStyle == 1) 296.dp else 212.dp,
     ) else LiteStrip(type, item, heroLabel)
 }
 
@@ -632,7 +634,7 @@ private fun LibraryPage(
             // the library's own heading and toolbar sit under it, not hidden behind it. 2026-11-19.)
             // (205: the window ends at 200, so the toolbar sits just under it; 250 left a gap and cut the grid's second row
             // off. 2026-11-20: "needs to come up a bit".)
-            height = if (LiveBehind.preview) 205.dp else 180.dp,
+            height = if (io.github.petebutty.viewarr.ui.launcher.LauncherLook.on) 300.dp else if (LiveBehind.preview) 205.dp else 180.dp,
             compact = true,
         )
         Box(Modifier.fillMaxWidth().weight(1f)) {
@@ -775,7 +777,9 @@ private fun Hero(
     // (None: no picture at all, the panel's own copy included.)
     val pageArt = (Wallpaper.titlePages > 0 && AppColors.palette.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.TITLE_BG) != 1) || LiveBehind.on
     // (Clipped: a tall logo with a long description ran down over the library's heading and search box below.)
-    Box(Modifier.fillMaxWidth().height(height).clipToBounds().clearAndSetSemantics { item?.title?.let { contentDescription = it } }) {
+    // (Viewarr launcher: not clipped, so its trailer can run down behind the first row; the details are clipped instead.)
+    val launcherHero = io.github.petebutty.viewarr.ui.launcher.LauncherLook.on
+    Box(Modifier.fillMaxWidth().height(height).then(if (launcherHero) Modifier else Modifier.clipToBounds()).clearAndSetSemantics { item?.title?.let { contentDescription = it } }) {
         if (!pageArt) item?.backdrop?.let { url ->
             AsyncImage(
                 model = url,
@@ -806,7 +810,14 @@ private fun Hero(
         // where the live TV window used to push them from): a dimmed still of the title until its trailer fades in.
         // (A shorter header, the library pages: a smaller window that still fits.)
         val winH = if (height < 206.dp) (height - 24.dp) else 180.dp
-        if (besidePreview && !LiveBehind.preview) Box(
+        // Viewarr launcher: the trailer without a frame, faded into the page (as on its home screen), over the
+        // header's right-hand side: libraries and catalogues alike (2026-11-25).
+        if (besidePreview && !LiveBehind.preview && io.github.petebutty.viewarr.ui.launcher.LauncherLook.on) {
+            if (trailers != null) // (Exactly as on home: in the corner picture's place and size, the picture fading away under it, so there's no
+            // edge where a smaller trailer met it; it runs down behind the first rows and fades out. 2026-11-25.)
+            // (The same size and place as on home: the header is home's banner height here. 2026-11-25.)
+            FadedTrailer(trailerItem, trailerActive, trailers, fadeEnd = 300.dp, onShowing = { HeroTrailer.showing = it })
+        } else if (besidePreview && !LiveBehind.preview) Box(
             Modifier.align(Alignment.TopEnd).padding(end = Tokens.Gutter, top = if (height < 206.dp) 12.dp else 20.dp).size(width = winH * 16 / 9, height = winH).clip(RoundedCornerShape(8.dp)),
         ) {
             // (No still picture first: the window stays empty until the trailer itself fades in. 2026-11-19.)
@@ -821,6 +832,8 @@ private fun Hero(
         val colAlign = if (endSide) Alignment.End else Alignment.Start
         Column(
             Modifier.align(if (endSide) Alignment.TopEnd else Alignment.TopStart)
+                // (The header itself isn't clipped in the launcher: its details are, to the header's height.)
+                .then(if (launcherHero) Modifier.heightIn(max = height).clipToBounds() else Modifier)
                 .padding(start = Tokens.Gutter, top = if (endSide) 14.dp else 26.dp, end = if (endSide) 0.dp else Tokens.Gutter)
                 .fillMaxWidth(if (endSide) 0.6f else if (besidePreview) 0.6f else 0.5f)
                 // Over at the right it sits on the artwork: a shade behind it, fading in from the left, so the details
@@ -1341,6 +1354,7 @@ private fun PosterRow(
                 }
                 PosterCard(
                     item = item,
+                    rowCards = true,
                     modifier = (if (id == entryCard) Modifier.focusRequester(entryFocus) else Modifier)
                         .then(if (index == entryIndex) Modifier.focusRequester(rowEntry) else Modifier)
                         // Left on a row's first poster opens the catalogue menu (once per press: the shared leftOpens).
@@ -1388,12 +1402,19 @@ internal fun PosterCard(item: MediaItem, modifier: Modifier, onClick: () -> Unit
                        /** False: the row draws the highlight ring itself (PosterRow: a still ring over sliding posters). */
                        ring: Boolean = true,
                        /** False: no trailer in this card (the title page's small rows). */
-                       trailer: Boolean = true) {
+                       trailer: Boolean = true,
+                       /** A page's poster row (PosterRow): Settings → Row cards → Wide applies (not the info bar's rows,
+                        *  person pages or a title page's rows, which kept their poster sizes and came out tiny). */
+                       rowCards: Boolean = false) {
     var focused by remember { mutableStateOf(false) }
     // Trailers in the poster (rows only, not grids or people): one trailer for the app (PosterTrailerHost) sits on the
     // highlighted poster, which widens to 16:9 once it shows; then it grows into the big panel. This card only starts
     // and stops it and says where it is on screen.
-    val inPoster = trailer && !fill && PosterTrailer.on && !item.key.startsWith("person:")
+    // Settings → Appearance → Posters → Row cards → Wide: a 16:9 picture (the title's backdrop) with its name over the
+    // foot, as the Viewarr launcher's home screen (2026-11-25). Not in a grid, not for people. (No trailer in the card:
+    // it's wide already; the corner window plays it.)
+    val wide = rowCards && AppColors.palette.wideRows && !fill && !item.key.startsWith("person:")
+    val inPoster = trailer && !fill && !wide && PosterTrailer.on && !item.key.startsWith("person:")
     // (Worked out apart, so a trailer moving to another poster rebuilds only the two posters concerned, not the row.)
     val mine by remember(item.key, inPoster) { androidx.compose.runtime.derivedStateOf { inPoster && PosterTrailer.item?.key == item.key } }
     val playing = mine && PosterTrailer.showing
@@ -1433,6 +1454,7 @@ internal fun PosterCard(item: MediaItem, modifier: Modifier, onClick: () -> Unit
         modifier = (if (mine && PosterTrailer.panel) Modifier.onPreviewKeyEvent { e -> PosterTrailer.panelKey(e) } else Modifier).then(modifier).free().then(
             if (fill) Modifier.fillMaxWidth()
             else if (inPoster) Modifier.width(width).height(baseW * 1.5f).bringIntoViewRequester(bring)
+            else if (wide) Modifier.width(baseW * 16f / 9f * 1.05f)
             else Modifier.width(baseW),
         ).focusRequester(cardFocus).onFocusChanged { focused = it.isFocused }
             // One accessibility element per poster (its title), not its image, badges and texts: with any
@@ -1445,7 +1467,7 @@ internal fun PosterCard(item: MediaItem, modifier: Modifier, onClick: () -> Unit
             // a shade drawn over the card: each of those made Android's renderer keep an off-screen buffer, a
             // full-screen one at start and one per poster as you moved; ~75 MB at 4K. 2026-11-19.)
             .then(if (mine) Modifier.onGloballyPositioned { PosterTrailer.cardRect = it.boundsInRoot() } else Modifier),
-        aspect = if (inPoster) null else CardAspect.Poster,
+        aspect = if (inPoster) null else if (wide) CardAspect.Wide else CardAspect.Poster,
         ring = ring && !(mine && PosterTrailer.panel),
         // (Grows a little when highlighted, except in a grid and while its trailer plays in it.)
         focusedScale = if (fill || playing) 1f else AppColors.palette.posterZoom,
@@ -1453,13 +1475,15 @@ internal fun PosterCard(item: MediaItem, modifier: Modifier, onClick: () -> Unit
     ) {
         Box(Modifier.fillMaxSize()) {
             if (playing) item.backdrop?.let { PosterImage(it, item.title, Modifier.fillMaxSize()) }
-            val picture = if (playing) null else cardPicture(item)
+            val picture = if (playing) null else if (wide) (item.backdrop ?: cardPicture(item)) else cardPicture(item)
             // The name, under the picture until it loads (or always, with no picture).
             if (picture == null) CardName(item.title)
             else PosterImage(picture, item.title, Modifier.fillMaxSize(), tintOf = posterWash(dimAlpha),
-                sizePx = if (fill) null else rowPosterPx(), placeholder = { CardName(item.title) })
+                // (A wide card's picture loaded at its own size, not full size.)
+                sizePx = if (fill) null else if (wide) rowPosterPx().let { r -> androidx.compose.ui.unit.IntSize((r.width * 1.87f).toInt(), (r.width * 1.87f * 9f / 16f).toInt()) } else rowPosterPx(),
+                placeholder = { CardName(item.title) })
             // (No poster, only a wide picture: the name over its foot. UI review, 2026-11-18.)
-            if (!playing && item.poster == null && item.backdrop != null) Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+            if (!playing && item.backdrop != null && (wide || item.poster == null)) Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth()
                 .background(Brush.verticalGradient(0f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.8f))).padding(horizontal = 8.dp, vertical = 8.dp)) {
                 Text(item.title, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 3, overflow = TextOverflow.Ellipsis)
             }
@@ -1572,12 +1596,19 @@ private fun DetailScreen(
     }
     Box(Modifier.fillMaxSize().background(AppColors.Background).onFocusChanged { pageFocused = it.hasFocus }
         .then(if (active) Modifier.trapFocus() else Modifier.focusGroup())) {
-        item.backdrop?.let {
-            AsyncImage(model = it, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.align(Alignment.TopEnd).fillMaxHeight().fillMaxWidth(0.75f))
+        if (io.github.petebutty.viewarr.ui.launcher.LauncherLook.on) {
+            // Viewarr launcher: the title's artwork in the top-right corner, faded into the page (its one look, as
+            // every page there), not across the whole page behind the text (2026-11-25: "messy").
+            LaunchedEffect(item.key) { item.backdrop?.let { io.github.petebutty.viewarr.ui.theme.Wallpaper.title = it } }
+            Box(Modifier.fillMaxSize().appBackground(titleArt = true))
+        } else {
+            item.backdrop?.let {
+                AsyncImage(model = it, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.align(Alignment.TopEnd).fillMaxHeight().fillMaxWidth(0.75f))
+            }
+            val bg = AppColors.Background
+            Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(0.25f to bg, 0.6f to bg.copy(alpha = 0.6f), 1f to Color.Transparent)))
+            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.55f to Color.Transparent, 1f to bg)))
         }
-        val bg = AppColors.Background
-        Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(0.25f to bg, 0.6f to bg.copy(alpha = 0.6f), 1f to Color.Transparent)))
-        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.55f to Color.Transparent, 1f to bg)))
         // One screen: a compact header (poster, logo, details, ratings, description, buttons), then tabs with one
         // row under them (cast & crew, reviews, more like this, details), as on other TV media apps.
         var reading by remember { mutableStateOf<Review?>(null) }
@@ -1598,7 +1629,20 @@ private fun DetailScreen(
         // The header (logo, details, buttons) stays put; only what's under it scrolls (the logo was cut off the top as
         // the page scrolled down to the episodes).
         // (The one page margin, Tokens.Gutter, both sides: it was 56 on the left and 40 on the right.)
-        Column(Modifier.fillMaxSize().padding(start = Tokens.Gutter, end = Tokens.Gutter, top = 24.dp, bottom = 12.dp)) {
+        // Everything on the page shows at once, faded in together, when its details, your copies and (a show) the
+        // season's episodes are in: piece by piece, the logo, buttons, pills and rows each jumped in at different
+        // times (2026-11-25). At most 1.5 s: a slow server's parts still come in after.
+        // (Previewarr only: Viewarr shows the page straight away, piece by piece, as it always has.)
+        var settled by remember(item.key) { mutableStateOf(!io.github.petebutty.viewarr.ui.launcher.LauncherLook.on) }
+        // (A show with its episodes row switched off has no episodes to wait for.)
+        val ready = !ui.loading && ui.copies != null && (!show || ui.seasons.isEmpty() || ui.episodes != null || !parts.shows(TitleParts.EPISODES))
+        LaunchedEffect(item.key) { kotlinx.coroutines.delay(1_500); settled = true }
+        LaunchedEffect(ready) { if (ready) { kotlinx.coroutines.delay(60); settled = true } }
+        val reveal by androidx.compose.animation.core.animateFloatAsState(if (settled) 1f else 0f, androidx.compose.animation.core.tween(280), label = "reveal")
+        Column(Modifier.fillMaxSize().graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha; alpha = reveal }
+            // (Until it shows, no button but Back: OK pressed Play on a page you couldn't see yet.)
+            .onPreviewKeyEvent { e -> !settled && e.key != androidx.compose.ui.input.key.Key.Back }
+            .padding(start = Tokens.Gutter, end = Tokens.Gutter, top = 24.dp, bottom = 12.dp)) {
         Row(verticalAlignment = Alignment.Top, modifier = if (besidePreview) Modifier.heightIn(min = 190.dp) else Modifier) {
             // The preview's place (12–332 dp from the left) instead of the poster: the text starts at 356, as on every page.
             if (besidePreview) Spacer(Modifier.width(Tokens.BesideWindowStart - Tokens.Gutter))

@@ -47,6 +47,7 @@ import androidx.tv.material3.Text
 import dagger.hilt.android.lifecycle.HiltViewModel
 import io.github.petebutty.viewarr.data.dvr.InstalledPlugin
 import io.github.petebutty.viewarr.data.dvr.PluginField
+import io.github.petebutty.viewarr.data.dvr.PluginAction
 import io.github.petebutty.viewarr.data.dvr.PluginsRepository
 import io.github.petebutty.viewarr.data.dvr.StorePlugin
 import io.github.petebutty.viewarr.ui.common.MenuItem
@@ -224,14 +225,29 @@ private fun PluginDetail(p: InstalledPlugin, storeEntry: StorePlugin?, vm: Plugi
             ConfirmRow("update:${p.key}", "Update to v${storeEntry.version}", "From ${storeEntry.repoName}.", "Update", "Press OK again to update") { vm.install(storeEntry) }
         }
         pluginActivity(activity) { vm.refreshActivity() }
-        if (p.actions.isNotEmpty()) item(key = "ah") { Header("Actions" + if (!p.enabled) " (turn the plugin on first)" else "") }
-        items(p.actions, key = { "a:" + it.id }) { a ->
+        // An action that belongs to a setting (its id starts with the setting's: "stream_order_reset" goes with
+        // "stream_order") is shown right under that setting, not in the list at the top: "Put stream order back" sits
+        // under Best stream first (2026-11-25).
+        val fields = p.fields
+        // (Each such action under one setting only, the longest match: under two it was listed twice and the page crashed.)
+        val ownerOf: Map<String, String> = p.actions.mapNotNull { a ->
+            fields.filter { f -> f.type != "info" && a.id.startsWith(f.id + "_") }.maxByOrNull { it.id.length }?.let { a.id to it.id }
+        }.toMap()
+        val owned = ownerOf.keys
+        val loose = p.actions.filter { it.id !in owned }
+        @Composable fun ActionRow(a: PluginAction) {
             if (a.confirm != null) ConfirmRow("a:${p.key}:${a.id}", a.label, a.description, a.button, "OK again: ${a.confirm}") { vm.run(p, a.id) }
             else Row2("a:${p.key}:${a.id}", a.label, a.description, trailing = a.button) { vm.run(p, a.id) }
         }
-        val fields = p.fields
+        if (loose.isNotEmpty()) item(key = "ah") { Header("Actions" + if (!p.enabled) " (turn the plugin on first)" else "") }
+        items(loose, key = { "a:" + it.id }) { a -> ActionRow(a) }
         if (fields.isNotEmpty()) item(key = "sh") { Header("Settings") }
-        items(fields, key = { "f:" + it.id }) { f -> FieldRow(p, f, vm) }
+        fields.forEach { f ->
+            item(key = "f:" + f.id) { FieldRow(p, f, vm) }
+            p.actions.filter { ownerOf[it.id] == f.id }.forEach { a ->
+                item(key = "a:" + a.id) { Box(Modifier.padding(start = 24.dp)) { ActionRow(a) } }
+            }
+        }
     }
 }
 

@@ -34,6 +34,8 @@ data class MediaItem(
     /** An addon's own catalogue type when it isn't a film or series ("tv", "channel", "events", "anime"…): what its
      *  meta and streams are asked for under. */
     val addonType: String? = null,
+    /** Continue watching: when you last watched it (ms; null: not known), for "most recent first". */
+    val lastWatchedAt: Long? = null,
 )
 
 data class EpisodeInfo(

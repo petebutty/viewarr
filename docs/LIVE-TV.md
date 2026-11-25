@@ -274,6 +274,18 @@ Each window counts as a stream on your provider. Dispatcharr's failover to a bac
 
 Both are in the live TV controls (**OK** while watching).
 
+### Make this the best stream
+
+*(Dispatcharr admin users only.)*
+
+Found a stream that's better than the one a channel starts on? In the **Source** list, **hold OK** on it and choose **Make this the best stream**:
+
+- It goes first in the channel's streams in Dispatcharr, so the channel starts on it on every TV (and switches to it now, if it isn't already playing).
+- The [Viewarr plugin](#viewarr-plugin-optional)'s best-stream sorting, and each TV's **Start with the best source**, leave it there.
+- 📌 marks it in the Source list.
+
+To hand the channel back, hold OK on the 📌 stream and choose **Let Viewarr choose again**. The plugin sorts the channel again on its next round.
+
 ## Live now
 
 **Live now** in the menu lists what's on the sport and event channels now and starting soon, including NBA and other US games. Match pictures come from TheSportsDB.

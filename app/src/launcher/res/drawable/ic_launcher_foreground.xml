@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Viewarr "Play Stack" mark (2026-11-17; the same shapes as ui/common/Logo.kt and tools/brand/stack.py): three rounded
+     play buttons, back to front at 30 / 60 / 100 %, orange to pink (Previewarr). Inside the adaptive icon's safe circle. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android" xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
+  <group android:translateX="17.3" android:translateY="18" android:scaleX="0.36" android:scaleY="0.36">
+    <path android:fillAlpha="0.3" android:pathData="M76,44 Q76,34 85,39 L170,92 Q178,100 170,108 L85,161 Q76,166 76,156 Z">
+      <aapt:attr name="android:fillColor"><gradient android:type="linear" android:startX="0" android:startY="0" android:endX="200" android:endY="200" android:startColor="#F97316" android:endColor="#EC4899"/></aapt:attr>
+    </path>
+    <path android:fillAlpha="0.6" android:pathData="M52,50 Q52,40 61,45 L138,93 Q146,100 138,107 L61,155 Q52,160 52,150 Z">
+      <aapt:attr name="android:fillColor"><gradient android:type="linear" android:startX="0" android:startY="0" android:endX="200" android:endY="200" android:startColor="#F97316" android:endColor="#EC4899"/></aapt:attr>
+    </path>
+    <path android:pathData="M26,56 Q26,46 35,51 L104,94 Q112,100 104,106 L35,149 Q26,154 26,144 Z">
+      <aapt:attr name="android:fillColor"><gradient android:type="linear" android:startX="0" android:startY="0" android:endX="200" android:endY="200" android:startColor="#F97316" android:endColor="#EC4899"/></aapt:attr>
+    </path>
+  </group>
+</vector>

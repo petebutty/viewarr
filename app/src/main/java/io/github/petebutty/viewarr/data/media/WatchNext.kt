@@ -139,7 +139,8 @@ object DeepLink {
 
     /** Any viewarr:// link: a title or a channel, each to its own queue. */
     fun handle(uri: Uri?) {
-        if (uri == null || uri.scheme != "viewarr") return
+        // (This app's own link name, and "viewarr" itself for links made inside the app: Home Assistant's commands.)
+        if (uri == null || (uri.scheme != "viewarr" && uri.scheme != io.github.petebutty.viewarr.BuildConfig.LINK_SCHEME)) return
         when (uri.host) {
             "title" -> parse(uri)?.let { pending.value = it }
             "channel" -> {
@@ -188,7 +189,7 @@ object DeepLink {
         }
     }
 
-    fun uriFor(item: MediaItem): Uri = Uri.Builder().scheme("viewarr").authority("title").apply {
+    fun uriFor(item: MediaItem): Uri = Uri.Builder().scheme(io.github.petebutty.viewarr.BuildConfig.LINK_SCHEME).authority("title").apply {
         appendQueryParameter("key", item.key.removeSuffix(":deck"))
         appendQueryParameter("type", item.type.name)
         appendQueryParameter("title", item.title)
@@ -223,7 +224,7 @@ object DeepLink {
 
     /** From an incoming intent's data, or null if it isn't one of ours. */
     fun parse(uri: Uri?): MediaItem? {
-        if (uri == null || uri.scheme != "viewarr" || uri.host != "title") return null
+        if (uri == null || (uri.scheme != "viewarr" && uri.scheme != io.github.petebutty.viewarr.BuildConfig.LINK_SCHEME) || uri.host != "title") return null
         // ("type" may be Movie / Show, or movie / show / tv from outside.)
         val type = when (uri.getQueryParameter("type")?.lowercase()) { "show", "tv", "series" -> MediaType.Show; else -> MediaType.Movie }
         // From outside with just a TMDB id: the title's page is looked up from it.

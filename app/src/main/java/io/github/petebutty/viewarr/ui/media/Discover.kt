@@ -51,12 +51,11 @@ object Discover {
     /** Several rows as one: their titles taken in turn (newest of each first), each title once. */
     private fun interleave(id: String, title: String, rows: List<MediaRow>): MediaRow? {
         if (rows.isEmpty()) return null
-        val seen = HashSet<String>(); val out = ArrayList<MediaItem>()
+        val all = ArrayList<MediaItem>()
         val longest = rows.maxOf { it.items.size }
-        for (i in 0 until longest) for (r in rows) {
-            val item = r.items.getOrNull(i) ?: continue
-            if (seen.add(itemKey(item))) out += item
-        }
+        for (i in 0 until longest) for (r in rows) r.items.getOrNull(i)?.let { all += it }
+        // (Each title once, the same by name and year too: a Jellyfin copy with no TMDB id beside Plex's showed twice.)
+        val out = io.github.petebutty.viewarr.data.media.sameTitleOnce(all)
         return MediaRow(id, title, out).takeIf { out.isNotEmpty() }
     }
     private fun itemKey(i: MediaItem) = i.tmdbId?.let { "${i.type}:$it" } ?: i.imdbId ?: i.key

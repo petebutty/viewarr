@@ -1,6 +1,8 @@
 # Shown once, the first time a new version opens (not on a fresh install). Written by tools/changelog.py
 # from the release notes. Lines starting with "- " are the points; the first other line is the heading.
-Live TV follows Dispatcharr's stream order again when Start with the best source is off, plus two fixes.
-- Start with the best source off
-- Trending's first row
-- "Out tomorrow" no longer shows for an episode that's already on one of your servers or IPTV
+Set a channel's best stream by hand, programme pictures in Coming up, and a glow round the highlight.
+- Live TV → Source → hold OK on a stream: Make this the best stream
+- Source stays while you're paused or rewound
+- Coming up shows each programme's picture
+- Trailers try the next one when one won't play
+- New: Previewarr, a preview of a home-screen style Viewarr (a separate download)

@@ -192,10 +192,83 @@ class PlaybackViewModel @Inject constructor(
         val quality: String? = null,
         /** Why it may not play right now: "busy" (its provider has no connection free), "didn't start just now", "gone from the provider's list". */
         val warning: String? = null,
+        /** Set by hand as the channel's best stream (Source → hold OK → Make this the best stream). */
+        val pinned: Boolean = false,
     )
 
+    // ---------------------------------------------------------------- Best stream set by hand (2026-11-25)
+    // Source → hold OK on a stream → "Make this the best stream": that stream goes first in the channel's streams in
+    // Dispatcharr (admins only), so every TV starts there, and the channel is listed in this user's app data
+    // (viewarr_stream_pins) so the Viewarr plugin's best-stream sorting leaves it alone (it shares every admin's list
+    // with all the TVs as viewarr_house "pinned_channels"). This TV's own best-source choice leaves it alone too.
+
+    /** This user's channels set by hand: channel id → stream id (null: not read yet). */
+    private var ownPins: MutableMap<Int, Int>? = null
+
+    private suspend fun pins(s: Session): MutableMap<Int, Int> = ownPins ?: run {
+        val r = runCatching { http.get("${s.serverUrl.trimEnd('/')}/api/accounts/users/me/app-data/$PINS_KEY/", apiHeaders(s)) }.getOrNull()
+        val o = (r?.takeIf { it.ok }?.body as? kotlinx.serialization.json.JsonObject)?.let { (it["value"] as? kotlinx.serialization.json.JsonObject) ?: it }
+        val map = (o?.get("pins") as? kotlinx.serialization.json.JsonObject).orEmpty().mapNotNull { (k, v) ->
+            k.toIntOrNull()?.let { id -> (v as? JsonPrimitive)?.content?.toIntOrNull()?.let { id to it } }
+        }.toMap().toMutableMap()
+        // (Kept only once read: a failed read is tried again next time.)
+        if (r?.ok == true || r?.code == 404) ownPins = map
+        map
+    }
+
+    /** The stream set by hand for [channelId]: this user's own, else another admin's as the plugin shares it. */
+    private fun pinnedFor(channelId: Int): Int? = ownPins?.get(channelId) ?: houseSync.pinnedStream(channelId)
+
+    private suspend fun savePins(s: Session, map: Map<Int, Int>): Boolean {
+        val body = kotlinx.serialization.json.buildJsonObject {
+            put("updated_at", kotlinx.serialization.json.JsonPrimitive(System.currentTimeMillis() / 1000))
+            put("pins", kotlinx.serialization.json.buildJsonObject { map.forEach { (c, st) -> put(c.toString(), kotlinx.serialization.json.JsonPrimitive(st)) } })
+        }
+        return runCatching { http.put("${s.serverUrl.trimEnd('/')}/api/accounts/users/me/app-data/$PINS_KEY/", body, apiHeaders(s)).ok }.getOrDefault(false)
+    }
+
+    /** Puts [src] first in the channel's streams in Dispatcharr and keeps it there; switches to it if it isn't playing. */
+    fun pinSource(src: LiveSource) {
+        val s = session ?: return
+        val ch = _channel.value ?: return
+        if (s.isDirect) { _sourceNote.value = "This source can't be picked here."; return }
+        viewModelScope.launch {
+            val h = apiHeaders(s)
+            val detail = runCatching { http.get(api(s, "api/channels/channels/${ch.id}/"), h) }.getOrNull()
+            if (detail == null || !detail.ok) { _sourceNote.value = "Couldn't read the channel's streams."; return@launch }
+            val ids = streamIds(detail.body)
+            val order = listOf(src.streamId) + ids.filter { it != src.streamId }
+            val w = runCatching { http.patch(api(s, "api/channels/channels/${ch.id}/"), kotlinx.serialization.json.buildJsonObject {
+                put("streams", kotlinx.serialization.json.JsonArray(order.map { kotlinx.serialization.json.JsonPrimitive(it) }))
+            }, h) }.getOrNull()
+            if (w == null || !w.ok) {
+                _sourceNote.value = if (w?.code == 401 || w?.code == 403) "Only a Dispatcharr admin can set the best stream." else "Couldn't set the best stream."
+                return@launch
+            }
+            val map = pins(s).also { it[ch.id] = src.streamId }
+            if (!savePins(s, map)) Log.w("Playback", "couldn't save the best-stream list")
+            _sourceNote.value = "${src.name} is now this channel's best stream."
+            _sources.value = _sources.value?.map { it.copy(pinned = it.streamId == src.streamId) }
+            if (!src.current) switchSource(src)
+        }
+    }
+
+    /** Hands the channel back to automatic best stream (the plugin sorts it again on its next round). */
+    fun unpinSource() {
+        val s = session ?: return
+        val ch = _channel.value ?: return
+        viewModelScope.launch {
+            val map = pins(s)
+            if (map.remove(ch.id) == null) { _sourceNote.value = "This channel's best stream wasn't set here."; return@launch }
+            _sourceNote.value = if (savePins(s, map)) "Viewarr chooses this channel's best stream again." else "Couldn't save that."
+            _sources.value = _sources.value?.map { it.copy(pinned = false) }
+        }
+    }
+
     /** Live TV through Dispatcharr (not a provider login, not catch-up): sources and stream info are available. */
-    val dispatcharrLive get() = session?.isDirect == false && _catchup.value == null
+    // (The plugin's timeshift buffer is still Dispatcharr's live channel underneath: Source and the stream's details stay.
+    // 2026-11-25: they went as soon as you paused or rewound. A provider's catch-up programme isn't.)
+    val dispatcharrLive get() = session?.isDirect == false && (_catchup.value == null || onBuffer)
 
     private val _sources = MutableStateFlow<List<LiveSource>?>(null)
     val sources = _sources.asStateFlow()
@@ -259,9 +332,13 @@ class PlaybackViewModel @Inject constructor(
                 if (_channel.value?.id != ch.id) return@launch
                 if (status.code == 401 || status.code == 403) _sourceNote.value = ADMIN_ONLY
                 if (list.size < 2) _sourceNote.value = "This channel has only one source."
-                // Start with the best source on: the list in that order, the best marked.
-                _sources.value = if (!bestSourceOn || list.size < 2) list
-                    else sourceRank.order(sourceKey(s, ch), list, ids).mapIndexed { i, src -> if (i > 0) src else src.copy(quality = listOfNotNull(src.quality, "★ best").joinToString("  ·  ")) }
+                pins(s)
+                val pin = pinnedFor(ch.id)
+                val marked = list.map { it.copy(pinned = it.streamId == pin) }
+                // Start with the best source on: the list in that order, the best marked. (One set by hand: Dispatcharr's
+                // order, which has it first.)
+                _sources.value = if (!bestSourceOn || list.size < 2 || pin != null) marked
+                    else sourceRank.order(sourceKey(s, ch), marked, ids).mapIndexed { i, src -> if (i > 0) src else src.copy(quality = listOfNotNull(src.quality, "★ best").joinToString("  ·  ")) }
             }.onFailure {
                 _sourceNote.value = "Couldn't load the sources."
                 _sources.value = emptyList()
@@ -286,7 +363,21 @@ class PlaybackViewModel @Inject constructor(
         val ch = _channel.value ?: return
         if (switching) { _sourceNote.value = "Still switching…"; return }
         if (src.hash == null || s.isDirect) { _sourceNote.value = "This source can't be picked here."; return }
-        if (_catchup.value != null) { _sourceNote.value = "Go back to live TV to change the source."; return }
+        if (_catchup.value != null && !onBuffer) { _sourceNote.value = "Go back to live TV to change the source."; return }
+        // On the plugin's buffer: back to live first (the buffer holds what came from the old source), then the switch.
+        if (_catchup.value != null) {
+            _sourceNote.value = "Back to live, then switching to ${src.name}…"
+            viewModelScope.launch {
+                goLive()
+                val live = withTimeoutOrNull(8_000) {
+                    while (_catchup.value != null || _state.value != PlaybackState.Playing) kotlinx.coroutines.delay(100)
+                    true
+                }
+                if (live == true && _channel.value?.id == ch.id) switchSource(src)
+                else if (_channel.value?.id == ch.id) _sourceNote.value = "Couldn't get back to live TV to switch."
+            }
+            return
+        }
         if (player == null) return
         // (mpv let go only once the switch goes ahead: a source that can't be picked left the picture black.)
         _mpvLive.value = null
@@ -1026,6 +1117,8 @@ class PlaybackViewModel @Inject constructor(
 
     private companion object {
         const val ADMIN_ONLY = "Dispatcharr only lets admin users switch sources and see stream info."
+        /** This user's channels whose best stream was set by hand (see pinSource). */
+        const val PINS_KEY = "viewarr_stream_pins"
         /** How long live TV may sit loading, with nothing new arriving, after it had been playing, before reconnecting. */
         const val REBUFFER_MS = 8_000L
     }
@@ -1392,9 +1485,11 @@ class PlaybackViewModel @Inject constructor(
         // Start with the best source off: the channel itself, as Dispatcharr orders its streams (its first, its own
         // failover and stream switching), never a stream remembered from a pick or failover here. A tester's
         // channels with regional streams kept starting on one stream directly, which Dispatcharr then couldn't switch.
-        if (bestSourceOn) useRememberedSource(channel, s)
+        // (A channel whose best stream was set by hand: as Dispatcharr orders it, which has that stream first.)
+        val bestHere = bestSourceOn && pinnedFor(channel.id) == null
+        if (bestHere) useRememberedSource(channel, s)
         else if (fresh && direct?.first == channel.id) { direct = null; directProvider = null }
-        if (fresh && !s.isDirect && bestSourceOn) startOnBest(channel, s, leaving) else startLive(channel, s)
+        if (fresh && !s.isDirect && bestHere) startOnBest(channel, s, leaving) else startLive(channel, s)
         viewModelScope.launch { runCatching { remoteStore.setLastChannel(channel.id) } }
         // Also per source, so switching back to a saved source carries on with its channel.
         runCatching { guide.rememberChannel(channel.id) }
@@ -1643,6 +1738,18 @@ class PlaybackViewModel @Inject constructor(
         _channel.value = null
         _catchup.value = null
         _state.value = PlaybackState.Idle
+    }
+
+    /**
+     * In the background (another app in front, not the small window): the player itself let go too, so the TV's sound
+     * output is free. With Dolby passthrough only one app can have it; a paused player kept it, and the next app (a
+     * second Viewarr, YouTube…) got no sound or wouldn't play (2026-11-24). The channel is kept: [resume] makes a new one.
+     */
+    fun releaseForBackground() {
+        pause()
+        player?.release()
+        player = null
+        _playerVersion.value++
     }
 
     /** A film or episode is playing instead: live TV ends and its player is let go (a new one is made for the next channel). */

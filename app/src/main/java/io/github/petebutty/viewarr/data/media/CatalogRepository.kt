@@ -127,19 +127,48 @@ fun mergeRows(rows: List<MediaRow>): List<MediaRow> {
             recentGroups == 1 -> "Recently added"
             else -> "Recently added in ${members.first().groupName ?: ""}".trim()
         }
-        val seen = HashSet<String>()
-        val merged = ArrayList<MediaItem>()
+        val all = ArrayList<MediaItem>()
         val longest = members.maxOf { it.items.size }
-        for (i in 0 until longest) for (m in members) {
-            val item = m.items.getOrNull(i) ?: continue
-            val id = item.tmdbId?.let { "${item.type}:$it" } ?: item.key
-            if (seen.add(id)) merged += item
-        }
+        for (i in 0 until longest) for (m in members) m.items.getOrNull(i)?.let { all += it }
+        val merged = sameTitleOnce(all)
         // A fixed id for the combined row (not whichever server's row came first), so Home page & menu settings
         // for it stick. One page's rows are all one type, and settings are kept per type.
         r.copy(id = "merged:$g", title = title, items = merged)
     }
 }
+/**
+ * [items] with each title once (in their order): the same by TMDB id, else by name and year (a year missing on either
+ * side still matches by name), so a server copy without its TMDB id (a Jellyfin copy beside Plex's) doesn't show
+ * twice (2026-11-25). The copy with the TMDB id is kept, in the place the first copy had. Remakes with the same name
+ * and both years differ. Every place that combines rows uses this (merged libraries, the main rows, the launcher).
+ */
+fun sameTitleOnce(items: List<MediaItem>): List<MediaItem> {
+    fun name(it: MediaItem) = it.type.name + ":" + it.title.lowercase().filter { c -> c.isLetterOrDigit() }
+    fun sameYear(a: MediaItem, b: MediaItem) = a.year == null || b.year == null || a.year == b.year
+    // (By name only when one of them has no TMDB id: two with different ids are different titles, whatever their
+    // names. 2026-11-25.)
+    fun maybeSame(a: MediaItem, b: MediaItem) = (a.tmdbId == null || b.tmdbId == null) && sameYear(a, b)
+    val out = ArrayList<MediaItem>()
+    val ids = HashSet<String>()
+    val byName = HashMap<String, MutableList<Int>>() // name → indexes in out
+    for (item in items) {
+        val id = item.tmdbId?.let { "${item.type}:$it" } ?: item.imdbId ?: item.key
+        if (!ids.add(id)) continue
+        val n = name(item)
+        // (A name that comes out empty, all symbols, matches nothing.)
+        if (n.substringAfter(':').isEmpty()) { out += item; continue }
+        val twin = byName[n]?.firstOrNull { maybeSame(out[it], item) }
+        if (twin != null) {
+            // (The one with the TMDB id stays; a nameless-id copy that got in first gives its place up.)
+            if (out[twin].tmdbId == null && item.tmdbId != null) out[twin] = item
+            continue
+        }
+        byName.getOrPut(n) { ArrayList() } += out.size
+        out += item
+    }
+    return out
+}
+
 /** The provider's films / series as a library in the menu (IPTV provider, or Dispatcharr's provider VOD). */
 const val PROVIDER_LIBRARY = "IPTV"
 
@@ -840,7 +869,12 @@ class CatalogRepository @Inject constructor(
         val r = runCatching { http.get("https://api.trakt.tv/sync/history/episodes?limit=80", trakt.headers(t.accessToken)) }.getOrNull()
         if (r == null || !r.ok) return@coroutineScope emptyList()
         // The shows in the order you last watched them.
-        val shows = r.body.asArray().map { it.child("show") }.distinctBy { it.child("ids").int("trakt") }.take(15)
+        val history = r.body.asArray()
+        val shows = history.map { it.child("show") }.distinctBy { it.child("ids").int("trakt") }.take(15)
+        // When each was last watched (the history is newest first).
+        val lastAt = HashMap<Int, Long>()
+        history.forEach { h -> h.child("show").child("ids").int("trakt")?.let { id ->
+            if (id !in lastAt) h.str("watched_at")?.let { runCatching { java.time.Instant.parse(it).toEpochMilli() }.getOrNull() }?.let { lastAt[id] = it } } }
         val limit = Semaphore(4)
         val items = shows.map { show ->
             async {
@@ -852,7 +886,7 @@ class CatalogRepository @Inject constructor(
                 val s = next.int("season") ?: return@async null
                 val e = next.int("number") ?: return@async null
                 traktItem(show, MediaType.Show, "Trakt")?.let { item ->
-                    item.copy(key = item.key + ":trakt-next", nextSeason = s, nextEpisode = e, subtitle = "S$s · E$e  " + next.str("title").orEmpty())
+                    item.copy(key = item.key + ":trakt-next", nextSeason = s, nextEpisode = e, subtitle = "S$s · E$e  " + next.str("title").orEmpty(), lastWatchedAt = lastAt[id])
                 }
             }
         }.awaitAll().filterNotNull()
@@ -1454,7 +1488,7 @@ class CatalogRepository @Inject constructor(
             all.filter { it.str("type") == if (type == MediaType.Movie) "movie" else "episode" }.take(20).map { j ->
                 async {
                     val progress = j.long("viewOffset")?.let { off -> j.long("duration")?.takeIf { it > 0 }?.let { off.toFloat() / it } }
-                    if (type == MediaType.Movie) plexItem(p, j, type)?.copy(progress = progress, durationMs = j.long("duration"))
+                    if (type == MediaType.Movie) plexItem(p, j, type)?.copy(progress = progress, durationMs = j.long("duration"), lastWatchedAt = j.long("lastViewedAt")?.times(1000))
                     else {
                         // An episode: show the series, with the episode underneath.
                         val showKey = j.str("grandparentRatingKey") ?: return@async null
@@ -1468,6 +1502,8 @@ class CatalogRepository @Inject constructor(
                             backdrop = plexImage(p, j.str("art") ?: j.str("grandparentArt"), 960, 540) ?: base.backdrop,
                             progress = progress,
                             durationMs = j.long("duration"),
+                            // (The next episode itself may never have been played: then when the show last was.)
+                            lastWatchedAt = (j.long("lastViewedAt") ?: show?.long("lastViewedAt"))?.times(1000),
                         )
                     }
                 }
@@ -1734,7 +1770,11 @@ class CatalogRepository @Inject constructor(
         val items = r.body.array("Items").mapNotNull { j ->
             val pct = (j.child("UserData").child("PlayedPercentage") as? JsonPrimitive)?.doubleOrNull?.toFloat()?.div(100f)
             val length = j.long("RunTimeTicks")?.div(10_000)
-            if (type == MediaType.Movie) serverItem(s, j, type, name)?.copy(progress = pct, durationMs = length)
+            // (Jellyfin writes "…Z"; Emby can write "+00:00", which Instant.parse doesn't take.)
+            val played = j.child("UserData").str("LastPlayedDate")?.let { d ->
+                runCatching { java.time.Instant.parse(d).toEpochMilli() }.recoverCatching { java.time.OffsetDateTime.parse(d).toInstant().toEpochMilli() }.getOrNull()
+            }
+            if (type == MediaType.Movie) serverItem(s, j, type, name)?.copy(progress = pct, durationMs = length, lastWatchedAt = played)
             else serverItem(s, buildJsonObject {
                 put("Id", j.str("SeriesId"))
                 put("Name", j.str("SeriesName"))
@@ -1745,6 +1785,7 @@ class CatalogRepository @Inject constructor(
                 subtitle = "S${j.int("ParentIndexNumber") ?: "?"} · E${j.int("IndexNumber") ?: "?"}  ${j.str("Name").orEmpty()}",
                 progress = pct,
                 durationMs = length,
+                lastWatchedAt = played,
             )
         }
         return MediaRow("$name-resume-${type.name}", "Continue watching on $name", enrich(a, items), group = "deck")
@@ -3455,20 +3496,26 @@ class CatalogRepository @Inject constructor(
     private val trailerCache = ConcurrentHashMap<String, String>()
 
     /** The YouTube id of the title's trailer on TMDB (official English trailer first, then teasers), or null. */
-    suspend fun trailerKey(item: MediaItem): String? {
-        trailerCache[item.key]?.let { return it.ifEmpty { null } }
-        val key = store.current().tmdbKey ?: return null
-        val id = item.tmdbId ?: item.imdbId?.let { findByImdb(key, it, item.type) } ?: return null
+    suspend fun trailerKey(item: MediaItem): String? = trailerKeys(item).firstOrNull()
+
+    /**
+     * Every YouTube trailer and teaser TMDB lists for [item], best first (official English trailers first): when one
+     * won't play (age-restricted, removed) or has no sound, the next is tried (2026-11-25: one refused trailer meant none).
+     */
+    suspend fun trailerKeys(item: MediaItem): List<String> {
+        trailerCache[item.key]?.let { return it.split(',').filter { k -> k.isNotEmpty() } }
+        val key = store.current().tmdbKey ?: return emptyList()
+        val id = item.tmdbId ?: item.imdbId?.let { findByImdb(key, it, item.type) } ?: return emptyList()
         val path = (if (item.type == MediaType.Movie) "/movie/" else "/tv/") + id + "/videos"
         val r = runCatching { http.get(tmdb.url(path, key, mapOf("include_video_language" to "en,null")), tmdb.headers(key)) }
-            .getOrNull()?.takeIf { it.ok } ?: return null
+            .getOrNull()?.takeIf { it.ok } ?: return emptyList()
         fun score(v: JsonElement) = (if (v.str("type") == "Trailer") 0 else 10) +
             (if (v.str("official") == "true") 0 else 4) + (if (v.str("iso_639_1") == "en") 0 else 2)
-        val pick = r.body.array("results")
+        val picks = r.body.array("results")
             .filter { it.str("site") == "YouTube" && !it.str("key").isNullOrBlank() && it.str("type") in setOf("Trailer", "Teaser") }
-            .minByOrNull(::score)?.str("key")
-        trailerCache[item.key] = pick.orEmpty()
-        return pick
+            .sortedBy(::score).mapNotNull { it.str("key") }.distinct().take(5)
+        trailerCache[item.key] = picks.joinToString(",")
+        return picks
     }
 
     // ------------------------------------------------------------------ IPTV provider films & series (Xtream Codes)
@@ -3804,6 +3851,19 @@ class CatalogRepository @Inject constructor(
         return out
     }
     private val serviceLogoCache = java.util.concurrent.ConcurrentHashMap<String, Pair<String, Boolean>>()
+
+    /** A TMDB network's name and see-through logo (a service's wordmark: "NETFLIX", "prime video"), kept; null: none / no key. */
+    suspend fun networkLogo(id: Int): Pair<String, String>? {
+        networkLogoCache[id]?.let { return it.takeIf { a -> a.second.isNotEmpty() } }
+        val key = store.current().tmdbKey ?: return null
+        // (Remembered as "none" only when TMDB answered: a failed request is asked again next time.)
+        val r = runCatching { http.get(tmdb.url("/network/$id", key), tmdb.headers(key)) }.getOrNull() ?: return null
+        if (!r.ok && r.code != 404) return null
+        val out = if (r.ok) r.body?.let { b -> b.str("logo_path")?.let { (b.str("name") ?: "") to "${TMDB_IMG}w500$it" } } else null
+        networkLogoCache[id] = out ?: ("" to "")
+        return out
+    }
+    private val networkLogoCache = java.util.concurrent.ConcurrentHashMap<Int, Pair<String, String>>()
     @Volatile private var providerLogos: Map<Int, String>? = null
 
     /** A title's name and poster from TMDB by its id ([type] "Movie" / "Show"), kept per title; null: no TMDB key. */

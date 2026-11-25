@@ -135,7 +135,7 @@ class HomeRows @Inject constructor(
         for (key in wanted) {
             val group = groups.firstOrNull { it.name.trim().lowercase() == key } ?: continue
             val rowName = io.github.petebutty.viewarr.ui.common.GroupNames.display(group.name)
-            val rowId = rowFor(cr, rows, "tv:$key", rowName, "viewarr://guide") ?: continue
+            val rowId = rowFor(cr, rows, "tv:$key", rowName, "${io.github.petebutty.viewarr.BuildConfig.LINK_SCHEME}://guide") ?: continue
             labelRow(rowId, rowName)
             val channels = guide.observeChannels(group.id).first().take(MAX)
             val onNow = guide.programsForChannels(channels.map { it.id }, now, now + 1).associateBy { it.channelId }
@@ -151,7 +151,7 @@ class HomeRows @Inject constructor(
                     .setTitle(ch.name)
                     .setDescription(onNow[ch.id]?.title.orEmpty())
                     .setInternalProviderId(ch.uuid)
-                    .setIntentUri(Uri.parse("viewarr://channel?uuid=${ch.uuid}"))
+                    .setIntentUri(Uri.parse("${io.github.petebutty.viewarr.BuildConfig.LINK_SCHEME}://channel?uuid=${ch.uuid}"))
                     .setWeight(MAX - i)
                     .setLive(true)
                 (card ?: logo?.let(Uri::parse))?.let { p.setPosterArtUri(it).setPosterArtAspectRatio(TvContractCompat.PreviewPrograms.ASPECT_RATIO_16_9) }
@@ -197,7 +197,7 @@ class HomeRows @Inject constructor(
             val what = if (type == MediaType.Movie) "movies" else "shows"
             // (The name says the page too, as "Netflix · New" is on both Movies and Shows.)
             val rowName = row.title + if (type == MediaType.Movie) " · Films" else " · Shows"
-            val rowId = rowFor(cr, rows, "m:${type.name}|${row.id}", rowName, "viewarr://page?name=$what") ?: continue
+            val rowId = rowFor(cr, rows, "m:${type.name}|${row.id}", rowName, "${io.github.petebutty.viewarr.BuildConfig.LINK_SCHEME}://page?name=$what") ?: continue
             labelRow(rowId, row.title)
             clear(cr, rowId)
             row.items.take(MEDIA_MAX).forEachIndexed { i, item ->

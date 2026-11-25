@@ -47,6 +47,8 @@ data class HouseData(
     val updatedAt: Long, val offsets: Map<Int, Int>, val changes: List<HouseChange>, val needsPick: List<NeedsPick>,
     /** Channels in the plugin's quiet groups (club TV, event channels): off air by nature, never reported as dead by a TV. */
     val quiet: Set<Int> = emptySet(),
+    /** Channels whose best stream an admin set by hand (channel id → stream id), from every admin's TV. */
+    val pinned: Map<Int, Int> = emptyMap(),
 )
 
 /**
@@ -83,6 +85,8 @@ class HouseSync @Inject constructor(
     fun quiet(channelId: Int): Boolean = _data.value?.quiet?.contains(channelId) == true
     /** Every quiet channel id (empty: no plugin, or nothing read yet). */
     fun quietIds(): Set<Int> = _data.value?.quiet.orEmpty()
+    /** The stream an admin set as this channel's best by hand (Source → hold OK), as the plugin shares it; null: none. */
+    fun pinnedStream(channelId: Int): Int? = _data.value?.pinned?.get(channelId)
 
     /** The plugin answered at least once (false: nothing fetched yet, or no plugin). */
     @Volatile var fetched = false
@@ -211,7 +215,8 @@ class HouseSync @Inject constructor(
             NeedsPick(p.text("report_id") ?: return@mapNotNull null, p.long("at") ?: 0, p.int("channel_id") ?: return@mapNotNull null, p.text("channel_name") ?: "", p.text("by") ?: "")
         }.sortedByDescending { it.at }
         val quiet = (o["quiet_channels"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.intOrNull }.toSet()
-        return HouseData(o.long("updated_at") ?: 0, offsets, changes, picks, quiet)
+        val pinned = (o["pinned_channels"] as? JsonObject).orEmpty().mapNotNull { (k, v) -> k.toIntOrNull()?.let { id -> (v as? JsonPrimitive)?.intOrNull?.let { id to it } } }.toMap()
+        return HouseData(o.long("updated_at") ?: 0, offsets, changes, picks, quiet, pinned)
     }
 
     private fun JsonObject.text(k: String): String? = (this[k] as? JsonPrimitive)?.contentOrNull?.takeIf { it != "null" }

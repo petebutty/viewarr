@@ -1,5 +1,7 @@
 package io.github.petebutty.viewarr.ui.theme
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
@@ -16,5 +18,6 @@ object CornerPicture {
     /** Where it sits: from the left and from the top. */
     val inset: Pair<Dp, Dp> get() = 12.dp to 20.dp
     /** The menu's glass pushing the page right: the window goes along with it (px; the home screen sets it). */
-    var pushPx: () -> Int = { 0 }
+    // (Kept as state: the player's window re-places itself when it's swapped, e.g. Previewarr's Settings moving it right.)
+    var pushPx: () -> Int by androidx.compose.runtime.mutableStateOf({ 0 })
 }

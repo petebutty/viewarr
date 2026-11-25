@@ -330,9 +330,18 @@ class SettingsSync @Inject constructor(
         val r = http.get(url(s), headers(s))
         when {
             r.code in 200..299 -> r.body as? JsonObject ?: error("Dispatcharr sent an unreadable copy.")
-            r.code == 404 -> null
+            r.code == 404 -> viewarrSignIns(s)
             else -> error("Dispatcharr answered ${r.code}.")
         }
+    }
+
+    /** The launcher with no copy of its own yet: Viewarr's copy with its settings taken out, so only the sign-ins come over. */
+    private suspend fun viewarrSignIns(s: Session): JsonObject? {
+        if (!io.github.petebutty.viewarr.BuildConfig.LAUNCHER) return null
+        val r = runCatching { http.get(s.serverUrl.trimEnd('/') + "/api/accounts/users/me/app-data/$VIEWARR_KEY/", headers(s)) }.getOrNull()
+        val copy = r?.takeIf { it.code in 200..299 }?.body as? JsonObject ?: return null
+        if (copy.str("signIns") == null) return null
+        return JsonObject(copy.filterKeys { it != "prefs" } + ("device" to JsonPrimitive("Viewarr (sign-ins only)")))
     }
 
     /** A copy's sign-ins: null when it has none; a failure when they're there but can't be read (another key). */
@@ -619,7 +628,10 @@ class SettingsSync @Inject constructor(
 
     internal companion object {
         private const val TAG = "ViewarrSync"
-        private const val APP_KEY = "io.github.petebutty.viewarr"
+        // The Viewarr launcher keeps its own settings, apart from Viewarr's (2026-11-25: its settings are to become
+        // the new, simpler set); a first start there can take the sign-ins (only) from Viewarr's copy: copyResult.
+        private const val VIEWARR_KEY = "io.github.petebutty.viewarr"
+        private val APP_KEY = if (io.github.petebutty.viewarr.BuildConfig.LAUNCHER) "io.github.petebutty.viewarr.launcher" else VIEWARR_KEY
         val MODE = stringPreferencesKey("mode")
         val SIGN_INS = booleanPreferencesKey("sign_ins")
         val LAST_HASH = stringPreferencesKey("last_hash")

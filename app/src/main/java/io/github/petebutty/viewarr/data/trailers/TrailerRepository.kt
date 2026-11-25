@@ -73,7 +73,10 @@ class TrailerRepository @Inject constructor(
 
     private fun isDead(id: String) = dead[id]?.let { System.currentTimeMillis() < it } == true
 
-    suspend fun youtubeId(item: MediaItem): String? = runCatching { catalog.trailerKey(item) }.getOrNull()
+    suspend fun youtubeId(item: MediaItem): String? = youtubeIds(item).firstOrNull()
+
+    /** Every trailer for [item], best first, without the ones known not to play. */
+    suspend fun youtubeIds(item: MediaItem): List<String> = runCatching { catalog.trailerKeys(item) }.getOrDefault(emptyList()).filterNot { isDead(it) }
 
     /** Best streams no taller than [maxHeight]. Prefers H.264 (every box decodes it in hardware), then VP9. */
     suspend fun resolve(youtubeId: String, maxHeight: Int): TrailerStreams? = withContext(Dispatchers.IO) {

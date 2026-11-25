@@ -55,6 +55,8 @@ data class Palette(val main: Color, val highlight: Color, val transparency: Floa
     /** Settings → Appearance → Info bar size / Preview cards. */
     val infoBarScale get() = floatArrayOf(1f, 0.85f, 0.72f, 1.12f)[opt(UiOpts.INFOBAR_SIZE).coerceIn(0, 3)]
     /** A library poster's width (dp): Small matches the rows' posters. */
+    /** Settings → Appearance → Posters → Row cards: wide pictures in the rows instead of posters. */
+    val wideRows get() = opt(UiOpts.ROW_CARDS) == 1
     val libraryPosterDp get() = floatArrayOf(100f, 116f, 88f, 136f)[opt(UiOpts.LIBRARY_POSTERS).coerceIn(0, 3)]
     val infoBarWidth get() = floatArrayOf(1f, 0.9f, 0.8f, 0.7f, 0.6f)[opt(UiOpts.INFOBAR_WIDTH).coerceIn(0, 4)]
     /** Row posters' width (Settings → Appearance → Browsing style). */
@@ -321,6 +323,8 @@ object UiOpts {
     const val INFOBAR_WIDTH = "infobar_width"
     /** A library's grid: how big the posters are (how many fit across). */
     const val LIBRARY_POSTERS = "library_posters"
+    /** Movies / Shows / a service's rows: posters (2:3) or wide pictures (16:9, the Viewarr launcher's look). */
+    const val ROW_CARDS = "row_cards"
     /** The glass's strength for the info bar and every pop-up, as a slider: 0 the clearest … 10 solid. */
     const val POPUP_GLASS = "popup_glass"
     /** Pop-up glass, 0–100% see-through (replaces [POPUP_GLASS]): see Palette.popupAlpha. */
@@ -385,6 +389,8 @@ object UiOpts {
     const val CATCHUP_ICONS = "catchup_icons"
     /** Guide: the part of an on-now programme that's already gone, shaded. */
     const val GUIDE_SHADE = "guide_shade"
+    /** The TV guide: the rotating glow ring round the highlighted programme (off in Viewarr to start, on in the launcher). */
+    const val GUIDE_GLOW = "guide_glow"
     /** Rows: how much the posters that aren't highlighted fade (0 none … 60%). */
     const val POSTER_DIM = "poster_dim"
     /** Rows: the highlighted poster grows a little. */
@@ -436,6 +442,7 @@ object UiOpts {
     const val TIME_FORMAT = "time_format"
     /** Defaults other than the first choice (anyone who never chose). Stored choices are kept as they are. */
     val defaults = mapOf(
+        GUIDE_GLOW to if (io.github.petebutty.viewarr.BuildConfig.LAUNCHER) 0 else 1, // (Viewarr: off to start, 2026-11-25)
         EVENT_ONLY_LISTED to 1, // off until switched on (2026-11-19: app-side hiding is opt-in)
         POSTER_DIM to 2, // (20% faded to start: 2026-11-18)
         // (The Viewarr look: light glass, as "Info bar: glass" Light was.)
@@ -482,6 +489,7 @@ object UiOpts {
         MUSIC_LYRICS to listOf("On", "Off"),
         INFOBAR_SIZE to listOf("Normal", "Compact", "Small", "Large"),
         LIBRARY_POSTERS to listOf("Small (as the rows)", "Normal", "Smaller", "Large"),
+        ROW_CARDS to listOf("Posters", "Wide (16:9)"),
         INFOBAR_WIDTH to listOf("Full width", "90%", "80%", "70%", "60%"),
         CARD_SIZE to listOf("Normal", "Small", "Smaller", "Large"),
         MUSIC_ART to listOf("Square cover", "Spinning vinyl record", "Spinning CD", "Round cover, turning slowly", "Cover with a reflection"),
@@ -523,6 +531,7 @@ object UiOpts {
         SET_ROWS_HOME to listOf("Only through their shortcuts", "On the home page too"),
         CATCHUP_ICONS to listOf("Programmes and channels", "Channel names only", "Off", "Highlighted channel only"),
         GUIDE_SHADE to listOf("On", "Off"),
+        GUIDE_GLOW to listOf("On", "Off"),
         POSTER_DIM to listOf("Off", "10%", "20%", "30%", "40%", "50%", "60%", "70%", "80%", "90%", "100%"),
         POSTER_ZOOM to listOf("Slight", "Off", "More"),
         BANNER_NUMBER to listOf("On", "Off"),

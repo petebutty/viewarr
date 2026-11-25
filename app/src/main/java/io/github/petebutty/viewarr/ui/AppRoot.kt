@@ -176,6 +176,8 @@ fun AppRoot(vm: AppViewModel = hiltViewModel()) {
     val playbackSettings by vm.playback.collectAsStateWithLifecycle()
     // Audio sync starts from Settings → Playback → Lip sync (the info bars' button changes it from there).
     androidx.compose.runtime.LaunchedEffect(playbackSettings.audioDelay) { AvSync.set(playbackSettings.audioDelay.ms) }
+    // The one clock that turns the highlight's glow ring on every card (GlowHighlight).
+    io.github.petebutty.viewarr.ui.common.GlowClockHost()
     // The splash stays up for at least 3.8 s (the logo's animation, then a moment's hold) while the start page loads
     // underneath it, and then until that page is ready (StartupGate: the guide's channels are in), so the first press
     // after it fades lands on a ready page. Slow boxes get longer; a guide that never comes (no live TV yet) doesn't
@@ -184,7 +186,8 @@ fun AppRoot(vm: AppViewModel = hiltViewModel()) {
     val appCtx = androidx.compose.ui.platform.LocalContext.current
     androidx.compose.runtime.LaunchedEffect(Unit) {
         if (splashDone) return@LaunchedEffect
-        kotlinx.coroutines.delay(3_800)
+        // (Previewarr: 2.9 s, its splash done by 2.3 and a moment to see it; Viewarr's own takes its 3.8.)
+        kotlinx.coroutines.delay(if (io.github.petebutty.viewarr.BuildConfig.LAUNCHER) 2_900 else 3_800)
         val am = appCtx.getSystemService(android.content.Context.ACTIVITY_SERVICE) as? android.app.ActivityManager
         val slow = am?.isLowRamDevice == true || AppColors.palette.lowMemory
         kotlinx.coroutines.withTimeoutOrNull(if (slow) 12_000L else 7_000L) {
@@ -306,7 +309,18 @@ fun AppRoot(vm: AppViewModel = hiltViewModel()) {
                 // start of every glide, more than it saved; measured on a Formuler.)
                 // (Drawn above the film while the menu is open over it: Left from the film controls' first button.)
                 if (!touring) androidx.compose.foundation.layout.Box(Modifier.fillMaxSize().zIndex(if (VodHost.behind) 2f else 0f)) {
-                    HomeScreen(session = s.session, onSignOut = vm::signOut)
+                    // Viewarr launcher: its home screen, or Viewarr's screens opened from it (ui/launcher).
+                    // (The TV guide's model made from the start, as Viewarr's home screen does under the splash: its
+                    // channels, guide and sync get going straight away, not when the guide is first opened. 2026-11-25:
+                    // "when opening the app live TV guide has not yet loaded".)
+                    if (io.github.petebutty.viewarr.ui.launcher.Launcher.enabled) androidx.hilt.navigation.compose.hiltViewModel<io.github.petebutty.viewarr.ui.guide.GuideViewModel>()
+                    io.github.petebutty.viewarr.ui.launcher.LauncherLifecycle()
+                    if (io.github.petebutty.viewarr.ui.launcher.Launcher.enabled && io.github.petebutty.viewarr.ui.launcher.Launcher.home) {
+                        // (Its Settings: a page of its own over the home screen, not Viewarr's side menu.)
+                        if (io.github.petebutty.viewarr.ui.launcher.Launcher.settingsOpen) io.github.petebutty.viewarr.ui.launcher.LauncherSettings(s.session, vm::signOut)
+                        else io.github.petebutty.viewarr.ui.launcher.LauncherHome()
+                    }
+                    else io.github.petebutty.viewarr.ui.launcher.LauncherVeil { HomeScreen(session = s.session, onSignOut = vm::signOut) }
                 }
                 // Films, episodes and recordings: above every page, full screen or shrunk to a corner.
                 VodHostLayer()

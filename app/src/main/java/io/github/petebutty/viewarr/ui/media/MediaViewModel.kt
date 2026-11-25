@@ -2294,6 +2294,11 @@ class MediaViewModel @Inject constructor(
 
     /** A streaming service's logo (url, whether it's a square app icon), for the main menu's icons. */
     suspend fun serviceLogo(name: String) = repo.serviceLogo(name)
+    suspend fun networkLogo(id: Int) = repo.networkLogo(id)
+    /** TMDB's backdrop (else poster) for [item], for cards that came without a picture (new-episode cards). */
+    suspend fun publicArt(item: MediaItem) = repo.publicArt(item)
+    /** New episodes of followed shows in your library this week (the launcher's Play next). */
+    fun newEpisodeCards(): List<MediaItem> = runCatching { followedShows.playNextCards(always = true) }.getOrDefault(emptyList())
 
     /** Play straight from a poster: Plex if it's in your library, otherwise the addon streams. */
     fun quickPlay(item: MediaItem) {

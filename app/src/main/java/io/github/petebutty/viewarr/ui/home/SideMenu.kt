@@ -309,6 +309,8 @@ internal fun MenuOverlay(
     val guideReturn = remember { GuideReturn(vm) }
     fun restoreGuide() = guideReturn.restore()
     fun revealMain() {
+        // Viewarr launcher: no main list; from the guide's channel groups, home; from Settings, nothing.
+        if (io.github.petebutty.viewarr.ui.launcher.Launcher.enabled) { if (!onSettings) io.github.petebutty.viewarr.ui.launcher.Launcher.goHome(); return }
         subFromMain = false
         // Back from a service's rows: onto the service itself.
         val target = serviceOn?.let { if (editingMain) mainFocus["svc:$it"] else serviceFocus[it] }
@@ -534,7 +536,9 @@ internal fun MenuOverlay(
             // The Viewarr logo: aperture mark plus the glossy wordmark (the splash's, tools/brand/wordmark.py; its
             // picture has room round it for the shadow, hence the negative gap).
             // The Viewarr logo ("Play Stack", ui/common/Logo.kt; it was the aperture and the glossy wordmark picture).
-            io.github.petebutty.viewarr.ui.common.ViewarrLogo(Modifier.padding(start = 10.dp, top = 5.dp, bottom = 25.dp), markSize = 30.dp, textSize = 30.sp)
+            // (Previewarr's name is longer: smaller, so it fits the menu's width. 2026-11-25.)
+            io.github.petebutty.viewarr.ui.common.ViewarrLogo(Modifier.padding(start = 10.dp, top = 5.dp, bottom = 25.dp),
+                markSize = if (io.github.petebutty.viewarr.BuildConfig.LAUNCHER) 24.dp else 30.dp, textSize = if (io.github.petebutty.viewarr.BuildConfig.LAUNCHER) 21.sp else 30.sp)
             // How to get around, for anyone new to it: what Right does on the highlighted entry (not every one has a
             // list: a service or Sports just goes into its page).
             val rightHint = when {

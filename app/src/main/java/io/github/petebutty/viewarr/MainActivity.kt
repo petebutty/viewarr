@@ -83,7 +83,7 @@ class MainActivity : ComponentActivity() {
         }
         // (Only a fresh start: Android hands a restored app its original link again, which replayed it on every restart.)
         if (savedInstanceState == null) { DeepLink.handle(intent?.data); voiceRequest(intent) }
-        lifecycleScope.launch { themeStore.palette.collect { AppColors.palette = it } }
+        lifecycleScope.launch { themeStore.palette.collect { AppColors.palette = io.github.petebutty.viewarr.ui.launcher.LauncherLook.fix(it) } }
         setContent {
             ViewarrTheme { AppRoot() }
         }

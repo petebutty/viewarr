@@ -33,8 +33,17 @@ import io.github.petebutty.viewarr.R
  */
 @OptIn(androidx.compose.ui.text.ExperimentalTextApi::class)
 object ViewarrBrand {
-    val From = Color(0xFF34D399)
-    val To = Color(0xFF06B6D4)
+    // (Previewarr, the launcher build: the same mark in orange to pink, so the two apps can be told apart.)
+    val From = if (io.github.petebutty.viewarr.BuildConfig.LAUNCHER) Color(0xFFF97316) else Color(0xFF34D399)
+    val To = if (io.github.petebutty.viewarr.BuildConfig.LAUNCHER) Color(0xFFEC4899) else Color(0xFF06B6D4)
+
+    /** The app's name as the logo writes it: "viewarr", or "previewarr" with "pre" in orange (the launcher build). */
+    val Name: androidx.compose.ui.text.AnnotatedString get() = androidx.compose.ui.text.buildAnnotatedString {
+        if (io.github.petebutty.viewarr.BuildConfig.LAUNCHER) {
+            pushStyle(androidx.compose.ui.text.SpanStyle(color = From)); append("pre"); pop()
+        }
+        append("viewarr")
+    }
     val Font = FontFamily(Font(R.font.plus_jakarta_sans, FontWeight.ExtraBold, variationSettings = FontVariation.Settings(FontVariation.weight(800))))
 
     // The three play buttons on a 200 × 200 square (the design's SVG), back to front.
@@ -93,7 +102,7 @@ fun ViewarrLogo(modifier: Modifier = Modifier, markSize: Dp = 30.dp, textSize: T
     Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(markSize * 0.3f)) {
         ViewarrMark(markSize)
         Text(
-            "viewarr", fontFamily = ViewarrBrand.Font, fontWeight = FontWeight.ExtraBold, fontSize = textSize,
+            ViewarrBrand.Name, fontFamily = ViewarrBrand.Font, fontWeight = FontWeight.ExtraBold, fontSize = textSize,
             letterSpacing = (-0.03).em, color = Color.White, maxLines = 1, softWrap = false,
         )
     }

@@ -583,6 +583,11 @@ class HomeState(
         if (VodHost.active) return false
         val music = MusicPlayer
         if (music.active && !music.nowPlayingOpen) return false
+        // Viewarr launcher: hold Back in the TV guide stops the channel in its window (the mini player), whatever the
+        // button table says (2026-11-25: it went full screen, as a tap does).
+        if (io.github.petebutty.viewarr.ui.launcher.Launcher.enabled && hs.page == Page.Tv && !hs.fullscreen && playing != null) {
+            playback.stop(); return true
+        }
         val screen = when {
             hs.page == Page.Tv && hs.fullscreen -> if (hs.osdVisible || hs.channelListOpen || hs.multiView) return false else BtnScreen.Live
             hs.page == Page.Tv -> BtnScreen.Guide
@@ -637,17 +642,21 @@ class HomeState(
 
     fun backOnPage() {
         if (backToVideo()) return
+        // Viewarr launcher: back to its home screen (no exit from here).
+        if (io.github.petebutty.viewarr.ui.launcher.Launcher.enabled) { io.github.petebutty.viewarr.ui.launcher.Launcher.goHome(); return }
         if (hs.exitArmed != 0L) activity?.finish() else hs.exitArmed = System.currentTimeMillis()
     }
 
     /** Back on a page goes to the video it came from first (true: it did). */
     private fun backToVideo(): Boolean {
         // A film in the corner (opened over live TV): Back takes it full screen again (as live TV does).
-        if (VodHost.active && VodHost.mini) { VodHost.expand(); return true }
+        // (Not in the Viewarr launcher: there Back with the mini player up is the page's own Back.)
+        if (VodHost.active && VodHost.mini && !io.github.petebutty.viewarr.ui.launcher.Launcher.enabled) { VodHost.expand(); return true }
         // A library over live TV: Back is the channel full screen again.
         if (hs.liveBehind && playing != null) { hs.liveBehind = false; hs.page = Page.Tv; hs.fullscreen = true; showBanner(); return true }
         // The channel in the guide's preview place: Back is the channel full screen (as everywhere: Back maximises).
-        if (hs.livePreview && playing != null && hs.page != Page.Tv) { hs.livePreview = false; hs.page = Page.Tv; hs.fullscreen = true; showBanner(); return true }
+        // (Not in Previewarr: there Back from a page is home, and the channel carries on in its corner.)
+        if (hs.livePreview && playing != null && hs.page != Page.Tv && !io.github.petebutty.viewarr.ui.launcher.Launcher.enabled) { hs.livePreview = false; hs.page = Page.Tv; hs.fullscreen = true; showBanner(); return true }
         return false
     }
 
@@ -658,6 +667,7 @@ class HomeState(
      */
     fun backFromPage() {
         if (backToVideo()) return
+        if (io.github.petebutty.viewarr.ui.launcher.Launcher.enabled) { io.github.petebutty.viewarr.ui.launcher.Launcher.goHome(); return }
         if (hs.exitArmed != 0L) { activity?.finish(); return }
         hs.menuFromFullscreen = false
         hs.menuOnMain = true; hs.menuFromGuideBack = true; hs.menuOpen = true
@@ -798,6 +808,11 @@ class HomeState(
             hs.pipBackHeld = false; hs.backLongPress = false
             VodHost.swallowBack = false; VodHost.eatBackRelease = false; MusicPlayer.eatBackRelease = false
         }
+        // (Viewarr launcher: a tap's release always ends the corner's hold timer, even when what the press opened keeps the
+        // release from reaching the corner's own handling below; the timer then closed the mini player after a tap.)
+        if (io.github.petebutty.viewarr.ui.launcher.Launcher.enabled && e.key == Key.Back && e.type == KeyEventType.KeyUp && !hs.pipBackHeld) {
+            hs.pipHoldJob?.cancel(); hs.pipHoldJob = null
+        }
         // "Still watching?" up: any button answers yes.
         if (hs.stillAsk) { if (e.type == KeyEventType.KeyUp) hs.stillAsk = false; return@root true }
         // A reminder on screen: OK switches to it, Back dismisses it; other buttons work as usual.
@@ -855,7 +870,8 @@ class HomeState(
                     hs.pipHoldJob?.cancel()
                     backDownAt = System.currentTimeMillis()
                     hs.pipHoldJob = fromStartScope.launch { delay(BACK_HOLD_MS); hs.pipHoldJob = null; closeCorner() }
-                    return@root true
+                    // (Viewarr launcher: a tap is the page's own Back, so the press goes on to it; only a hold is the corner's.)
+                    return@root !io.github.petebutty.viewarr.ui.launcher.Launcher.enabled
                 }
                 // (The remote's repeats only count once it's really a hold: some start before half a second.)
                 e.type == KeyEventType.KeyDown && e.nativeKeyEvent.repeatCount > 0 && !hs.pipBackHeld -> {
@@ -865,6 +881,12 @@ class HomeState(
                 e.type == KeyEventType.KeyDown && hs.pipBackHeld -> return@root true
                 // The release of the hold: that press is over (not a Back as well).
                 e.type == KeyEventType.KeyUp && hs.pipBackHeld -> { hs.pipBackHeld = false; VodHost.eatBackRelease = false; return@root true }
+                // Viewarr launcher: a tap is Back as on any page (the mini player stays where it is; 2026-11-25: "Back:
+                // full screen to mini player, hold Back closes the mini player").
+                e.type == KeyEventType.KeyUp && io.github.petebutty.viewarr.ui.launcher.Launcher.enabled -> {
+                    hs.pipHoldJob?.cancel(); hs.pipHoldJob = null
+                    return@root false
+                }
                 // A tap: full screen.
                 e.type == KeyEventType.KeyUp -> {
                     hs.pipHoldJob?.cancel(); hs.pipHoldJob = null
@@ -1120,7 +1142,8 @@ private const val ZAP_GAP_MS = 400L
 internal fun rememberHomeState(): HomeState {
     val menuOpen = rememberSaveable { mutableStateOf(false) }
     val showAccounts = rememberSaveable { mutableStateOf(false) }
-    val page = rememberSaveable { mutableStateOf(Page.Tv) }
+    // (viewarr launcher: the page it asked for, so nothing else is drawn first.)
+    val page = rememberSaveable { mutableStateOf(io.github.petebutty.viewarr.ui.launcher.Launcher.takeStartPage() ?: Page.Tv) }
     val startApplied = rememberSaveable { mutableStateOf(false) }
     val fullscreen = rememberSaveable { mutableStateOf(false) }
     return remember { HomeState(menuOpen, showAccounts, page, startApplied, fullscreen) }

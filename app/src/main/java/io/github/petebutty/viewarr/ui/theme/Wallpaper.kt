@@ -171,6 +171,9 @@ object Wallpaper {
 
     /** Movies and Shows pages open: their artwork is loaded. */
     var titlePages by mutableStateOf(0)
+    /** Viewarr launcher: how far a trailer playing in the corner has taken the corner picture's place (0 none … 1 all):
+     *  the still picture fades away under it, so nothing shows round the trailer's edges (FadedTrailer). */
+    var trailerCover by mutableFloatStateOf(0f)
 
     /**
      * Movies or Shows is the page on screen: the app's own background (behind the menu's glass) shows its artwork too,
@@ -255,7 +258,7 @@ fun WallpaperLoader() {
     }
     LaunchedEffect(Unit) {
         // Low-memory mode: no full-screen artwork behind title pages.
-        snapshotFlow { (Wallpaper.titlePages > 0 && AppColors.palette.heavyExtras && Wallpaper.titleArtOn) to Wallpaper.title }.collectLatest { (open, url) ->
+        snapshotFlow { ((Wallpaper.titlePages > 0 || io.github.petebutty.viewarr.ui.launcher.LauncherLook.on) && AppColors.palette.heavyExtras && Wallpaper.titleArtOn) to Wallpaper.title }.collectLatest { (open, url) ->
             if (!open) { Wallpaper.titleArt.clear(); spare.clear(); return@collectLatest }
             delay(300)
             show(Wallpaper.titleArt, url)
@@ -269,6 +272,8 @@ fun WallpaperLoader() {
  * Shows pages, whose background is always the highlighted title's artwork.
  */
 fun Modifier.appBackground(titleArt: Boolean = false, readable: Boolean = false): Modifier = drawBehind {
+    // (Viewarr launcher: always the highlighted title's artwork in the corner, faded in: its one look, LauncherLook.)
+    val titleArt = titleArt || io.github.petebutty.viewarr.ui.launcher.LauncherLook.on
     val p = AppColors.palette
     val sh = p.shade
     // Settings pages: a picture wallpaper (e.g. the highlighted programme's) darkened further, most behind the text.
@@ -298,8 +303,9 @@ fun Modifier.appBackground(titleArt: Boolean = false, readable: Boolean = false)
             val left = size.width * ART_LEFT
             val w = size.width - left
             val h = w * 9f / 16f
-            layer.previous?.takeIf { layer.fade < 1f }?.let { drawImage(it, dstOffset = IntOffset(left.roundToInt(), 0), dstSize = IntSize(w.roundToInt(), h.roundToInt())) }
-            drawImage(img, dstOffset = IntOffset(left.roundToInt(), 0), dstSize = IntSize(w.roundToInt(), h.roundToInt()), alpha = layer.fade)
+            val shown = 1f - Wallpaper.trailerCover
+            layer.previous?.takeIf { layer.fade < 1f }?.let { drawImage(it, dstOffset = IntOffset(left.roundToInt(), 0), dstSize = IntSize(w.roundToInt(), h.roundToInt()), alpha = shown) }
+            drawImage(img, dstOffset = IntOffset(left.roundToInt(), 0), dstSize = IntSize(w.roundToInt(), h.roundToInt()), alpha = layer.fade * shown)
         }
         return@drawBehind
     }

@@ -25,14 +25,41 @@ android {
         applicationId = "io.github.petebutty.viewarr"
         minSdk = 26
         targetSdk = 34
-        versionCode = 70
-        versionName = "0.29.9.4"
+        versionCode = 71
+        versionName = "0.29.9.5"
         // Trakt device login needs a client id from your own Trakt app (trakt.tv/oauth/applications). Blank = no Trakt.
         // Android TV boxes are ARM; leaving out x86 keeps the APK smaller.
         ndk { abiFilters += listOf("armeabi-v7a", "arm64-v8a") }
         buildConfigField("String", "TRAKT_CLIENT_ID", "\"${secrets.getProperty("traktClientId", "")}\"")
         // Send a report's notice channel (ntfy topic): private, so it isn't in the public code. Empty: no notice is sent.
         buildConfigField("String", "REPORT_NOTIFY", "\"${secrets.getProperty("reportNotify", "")}\"")
+    }
+
+    // Two apps from one codebase (2026-11-24): Viewarr itself, and "Viewarr launcher", a launcher-style front end
+    // (no main menu) on the same live TV, guide, players and libraries. Each has its own app id, so both can be
+    // installed side by side; its own viewarr:// link name ("viewarr" / "viewarrl") so links reach the right one.
+    flavorDimensions += "app"
+    productFlavors {
+        create("viewarr") {
+            dimension = "app"
+            resValue("string", "app_name", "Viewarr")
+            buildConfigField("boolean", "LAUNCHER", "false")
+            buildConfigField("String", "LINK_SCHEME", "\"viewarr\"")
+            manifestPlaceholders["linkScheme"] = "viewarr"
+        }
+        create("launcher") {
+            dimension = "app"
+            applicationIdSuffix = ".launcher"
+            versionNameSuffix = "-launcher"
+            // Previewarr's own version numbers: Viewarr's × 100 plus its own build count (bumped for each Previewarr
+            // build put out between Viewarr releases), so every one counts as newer: home screens (Projectivy) refresh
+            // its icon, and its updates install. (2026-11-25: the same number kept the old icon on the home screen.)
+            versionCode = (defaultConfig.versionCode ?: 0) * 100 + 1
+            resValue("string", "app_name", "Previewarr")
+            buildConfigField("boolean", "LAUNCHER", "true")
+            buildConfigField("String", "LINK_SCHEME", "\"viewarrl\"")
+            manifestPlaceholders["linkScheme"] = "viewarrl"
+        }
     }
 
     signingConfigs {

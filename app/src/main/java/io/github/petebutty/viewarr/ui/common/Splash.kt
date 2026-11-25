@@ -1,5 +1,7 @@
 package io.github.petebutty.viewarr.ui.common
 
+import androidx.compose.ui.layout.layout
+
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -69,7 +71,9 @@ fun ViewarrSplash() {
     // The layers behind ripple outward from the press, middle first.
     fun ripple(a: Float): Float { val r = ((t - a) / 0.6f).coerceIn(0f, 1f); return if (r < 0.45f) 10f * ease.transform(r / 0.45f) else 10f * (1f - ease.transform((r - 0.45f) / 0.55f)) }
     val dxMid = ripple(0.62f); val dxBack = ripple(0.72f)
-    val word = span(1.0f, 1.5f)
+    // (Previewarr: "viewarr" then "pre", done by about 2.3 s. 2026-11-25: first "slow" at 2.5 s, then "a little longer"
+    // after 1.7 s. "pre" comes once the app's first busy moments under the splash have passed, which made it jerky.)
+    val word = if (io.github.petebutty.viewarr.BuildConfig.LAUNCHER) span(0.8f, 1.3f) else span(1.0f, 1.5f)
     Box(Modifier.fillMaxSize().background(Color(0xFF0B0D14)), contentAlignment = Alignment.Center) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(36.dp)) {
             Canvas(Modifier.size(170.dp)) {
@@ -87,12 +91,26 @@ fun ViewarrSplash() {
                     frontScale = frontScale,
                 )
             }
-            Text(
-                "viewarr", fontFamily = ViewarrBrand.Font, fontWeight = FontWeight.ExtraBold, fontSize = 80.sp,
-                letterSpacing = (-0.03).em, color = Color.White, maxLines = 1, softWrap = false,
-                // (Slides in from the mark's side.)
-                modifier = Modifier.graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha; alpha = word; translationX = -(1f - word) * 18.dp.toPx() },
-            )
+            // "viewarr" slides in from the mark's side. Previewarr (the launcher build): then "pre" slides in ahead of it
+            // in orange, growing into place and nudging the word along: the next Viewarr (2026-11-25).
+            val pre = if (io.github.petebutty.viewarr.BuildConfig.LAUNCHER) span(1.65f, 2.3f) else 0f
+            Row(Modifier.graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha; alpha = word; translationX = -(1f - word) * 18.dp.toPx() }) {
+                if (io.github.petebutty.viewarr.BuildConfig.LAUNCHER) Text(
+                    "pre", fontFamily = ViewarrBrand.Font, fontWeight = FontWeight.ExtraBold, fontSize = 80.sp,
+                    letterSpacing = (-0.03).em, color = ViewarrBrand.From, maxLines = 1, softWrap = false,
+                    modifier = Modifier
+                        .layout { m, c ->
+                            val p = m.measure(c)
+                            val w = (p.width * pre).toInt()
+                            layout(w, p.height) { p.placeRelative(w - p.width, 0) }
+                        }
+                        .graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha; alpha = pre; clip = true },
+                )
+                Text(
+                    "viewarr", fontFamily = ViewarrBrand.Font, fontWeight = FontWeight.ExtraBold, fontSize = 80.sp,
+                    letterSpacing = (-0.03).em, color = Color.White, maxLines = 1, softWrap = false,
+                )
+            }
         }
     }
 }

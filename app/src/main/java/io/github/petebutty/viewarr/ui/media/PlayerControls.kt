@@ -1,5 +1,9 @@
 package io.github.petebutty.viewarr.ui.media
 
+import androidx.compose.ui.draw.drawWithContent
+
+import androidx.compose.ui.graphics.drawscope.clipRect
+
 import androidx.compose.foundation.horizontalScroll
 import android.graphics.Bitmap
 import androidx.compose.foundation.Image
@@ -496,7 +500,11 @@ fun PlayerOsd(
             androidx.compose.runtime.key(r) {
                 LazyRow(
                     state = epState,
-                    modifier = Modifier.padding(top = 2.dp).offset(x = (-12).dp).then(epSlide.modifier),
+                    // (Clipped at its sides before the slide moves it: the whole row, edge and all, was shifted as the
+                    // cards slid, so cards showed past the info bar's edge. Not top and bottom, where the glow spills.)
+                    modifier = Modifier.padding(top = 2.dp).offset(x = (-12).dp)
+                        .drawWithContent { clipRect(left = 0f, top = -size.height, right = size.width, bottom = size.height * 2) { this@drawWithContent.drawContent() } }
+                        .then(epSlide.modifier),
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp), userScrollEnabled = false,
                 ) {

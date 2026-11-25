@@ -346,6 +346,8 @@ fun HomeScreen(
     LaunchedEffect(remote.loaded) {
         if (!remote.loaded || hs.startApplied) return@LaunchedEffect
         hs.startApplied = true
+        // (viewarr launcher: its home screen chose what to open; Viewarr's own start page and last channel don't run.)
+        if (io.github.petebutty.viewarr.ui.launcher.Launcher.enabled) return@LaunchedEffect
         val start = hs.startFor(remote.startPage)
         when (start) {
             StartPage.Guide -> Unit
@@ -430,11 +432,17 @@ fun HomeScreen(
             // A channel playing in the guide's window: Back brings it full screen
             // (2026-11-15; a film in the mini player likewise, at the root). Back there shrinks it here again; hold Back
             // closes it.
+            // (Previewarr: Back is home, as from every page; OK on the channel or the Now playing tile is full screen.
+            // 2026-11-25: "I can't get out of the TV guide as pressing back is set to go back to full screen".)
+            playing != null && io.github.petebutty.viewarr.ui.launcher.Launcher.enabled -> hs.backOnPage()
             playing != null -> { if (!vm.isAtNow()) vm.goToNow(); hs.fullscreen = true; hs.showBanner() }
             // "Press Back again to exit" is up: this Back exits.
             hs.exitArmed != 0L -> hs.backOnPage()
             // On now with nothing playing: Remote buttons → Back → In the TV guide (the menu, or ask to exit).
             guideBack == GuideBack.NowThenExit -> hs.backOnPage()
+            // (Previewarr: home, whatever the setting; it has no main menu, and "Menu" opened and closed the channel
+            // groups for ever. 2026-11-25.)
+            io.github.petebutty.viewarr.ui.launcher.Launcher.enabled -> hs.backOnPage()
             else -> { hs.menuOpen = true; hs.menuFromGuideBack = true }
         }
     }
@@ -466,6 +474,7 @@ fun HomeScreen(
     }
     // Live TV behind a page, Watch Next cards, the splash and viewarr:// links (HomeLinkEffects).
     HomeLinkEffects(hs)
+    io.github.petebutty.viewarr.ui.launcher.LauncherEffects(hs)
     val movieMenuRows by moviesVm.menuRows.collectAsStateWithLifecycle()
     val showMenuRows by showsVm.menuRows.collectAsStateWithLifecycle()
     // Streaming services down the main menu (AIOMetadata's "Netflix · Popular", "Netflix · New"… rows), each with its
@@ -727,7 +736,7 @@ private fun HomeButtonHints(hs: HomeState, remote: RemoteSettings, signedIn: Boo
         hs.page == Page.Tv && hs.fullscreen && !hs.osdVisible && !hs.channelListOpen && !hs.multiView -> ButtonHint(
             "live-back", "OK: controls  ·  ▲ ▼ channels  ·  Back: mini player  ·  Hold Back: close the player")
         hs.page == Page.Tv && !hs.fullscreen && signedIn -> ButtonHint(
-            if (playing) "guide-back" else "guide", "OK: watch  ·  Hold OK: more  ·  " + (if (remote.guideLeft == GuideLeft.NowMenu) "‹ menu  ·  Hold ‹ catch-up" else "‹ catch-up") + "  ·  Back: " + (if (playing) "full screen  ·  Hold Back: close the player" else if (guideBack == GuideBack.NowThenExit) "exit" else "menu"))
+            if (playing) "guide-back" else "guide", "OK: watch  ·  Hold OK: more  ·  " + (if (remote.guideLeft == GuideLeft.NowMenu) "‹ menu  ·  Hold ‹ catch-up" else "‹ catch-up") + "  ·  Back: " + (if (playing && io.github.petebutty.viewarr.ui.launcher.Launcher.enabled) "home  ·  Hold Back: close the player" else if (playing) "full screen  ·  Hold Back: close the player" else if (io.github.petebutty.viewarr.ui.launcher.Launcher.enabled) "home" else if (guideBack == GuideBack.NowThenExit) "exit" else "menu"))
         hs.page == Page.Movies || hs.page == Page.Shows -> ButtonHint(
             "media", "OK: open  ·  Hold OK: options  ·  ‹ menu  ·  Hold Back: " + ButtonMap.action(remote, BtnScreen.Pages, BtnPress.BackHold).label)
         else -> Unit
@@ -1181,7 +1190,7 @@ private fun BoxScope.SearchLayer(hs: HomeState) {
 
     // Search popped up from any screen: the same search page, on top; Back closes it.
     if (hs.quickSearch) {
-        BackHandler { hs.quickSearch = false; hs.searchStart = null }
+        BackHandler { hs.quickSearch = false; hs.searchStart = null; io.github.petebutty.viewarr.ui.launcher.Launcher.searchBacked = true }
         // Solid: the screen underneath showing through between results (guide text, times) looked like a glitch.
         // The remote stays inside search until it closes.
         // Over full-screen live TV: see-through, so the programme carries on showing behind (2026-11-21);
@@ -1331,7 +1340,9 @@ private fun BoxScope.PagesLayer(
     val dvrRecordings by dvr.recordings.collectAsStateWithLifecycle()
     val sportFollows by hs.sportsVm.follows.collectAsStateWithLifecycle()
     Box(Modifier.fillMaxSize().offset { IntOffset(guidePush.value, 0) }.graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha; alpha = if (VodHost.behind) 0f else 1f }) {
-        SideEffect { CornerPicture.pushPx = { guidePush.value } }
+        // (One lambda kept: it's state now, so a fresh one each redraw would re-place the corner window every time.)
+        val pushFn = remember(guidePush) { { guidePush.value } }
+        SideEffect { if (CornerPicture.pushPx !== pushFn) CornerPicture.pushPx = pushFn }
         // (Search isn't a page any more: openPage(Search) opens quick search over the page instead.)
         if (hs.page == Page.Music) {
             MusicScreen(
@@ -1371,12 +1382,15 @@ private fun BoxScope.PagesLayer(
                     hs.menuOpen = true
                 },
                 onBack = {
-                    if (VodHost.active && VodHost.mini) { VodHost.expand(); return@MediaScreen }
+                    // (Viewarr launcher: Back is the page's own; only the Now playing tile or the film brings it back.)
+                    if (VodHost.active && VodHost.mini && !io.github.petebutty.viewarr.ui.launcher.Launcher.enabled) { VodHost.expand(); return@MediaScreen }
                     // Otherwise your Back setting (not always back to live TV).
                     // Over live TV: back to the channel full screen.
                     if (hs.liveBehind && playing != null) { hs.backOnPage(); return@MediaScreen }
                     // The channel in the preview place: back to the guide.
                     if (hs.livePreview && playing != null) { hs.backOnPage(); return@MediaScreen }
+                    // (viewarr launcher: home, whatever Viewarr's own Back setting says; "the TV guide" went there.)
+                    if (io.github.petebutty.viewarr.ui.launcher.Launcher.enabled) { io.github.petebutty.viewarr.ui.launcher.Launcher.goHome(); return@MediaScreen }
                     when (remote.mediaBack) {
                         MediaBack.Exit -> hs.backOnPage()
                         MediaBack.Menu -> hs.menuOpen = true
@@ -1598,6 +1612,11 @@ private fun rememberInfoBarRows(hs: HomeState): List<OsdRow> {
     val programs by vm.programs.collectAsStateWithLifecycle()
     val favsNow by vm.favourites.collectAsStateWithLifecycle()
     val dvrRecordings by dvr.recordings.collectAsStateWithLifecycle()
+    // Coming up's programme pictures looked up from Dispatcharr (the guide's own lookup, remembered there, "none"
+    // included): programme row id → picture. Only while the info bar is up, only the programmes the row shows.
+    // ("" = looked up, none found or the lookup failed: not asked again while the app runs. Written once per lookup
+    // round, so the rows rebuild once, not for every picture. 2026-11-25.)
+    var upPictures by UpPictures.found
     val movieMenuRows by moviesVm.menuRows.collectAsStateWithLifecycle()
     val showMenuRows by showsVm.menuRows.collectAsStateWithLifecycle()
     val continueMovies by moviesVm.continueItems.collectAsStateWithLifecycle()
@@ -1701,8 +1720,10 @@ private fun rememberInfoBarRows(hs: HomeState): List<OsdRow> {
                 val ch = playing
                 OsdRow("Coming up on ${ch?.name ?: "this channel"}", ch?.let { c ->
                     hs.programsOf(c).filter { it.startTime > chNow }.sortedBy { it.startTime }.take(12).map { p ->
+                        // The programme's own picture (the guide's, or looked up), else the channel's logo.
+                        val pic = p.image ?: upPictures[p.rowId]?.ifEmpty { null }
                         OsdPoster(key = "up-${c.id}-${p.startTime}", title = displayTitle(p), subtitle = Dates.time(p.startTime) + "–" + Dates.time(p.endTime),
-                            image = channelLogo(session?.serverUrl.orEmpty(), c), logo = true) {
+                            image = pic ?: channelLogo(session?.serverUrl.orEmpty(), c), logo = pic == null) {
                             hs.osdVisible = false; PlayerBridge.openGuide()
                         }
                     }
@@ -1726,7 +1747,20 @@ private fun rememberInfoBarRows(hs: HomeState): List<OsdRow> {
         return row.takeIf { it.items.isNotEmpty() }
     }
     val infoRowsStamp = listOf(liveKinds, filmKinds, remote.recentChannels, playing?.id, allChannels, programs, ownStamp, favsNow, groupChannels,
-        continueMovies, continueShows, recentMovies, recentShows, traktMovies, traktShows, localWatchEntries, dvrRecordings, movieMenuRows, showMenuRows, now, session?.serverUrl, VodHost.active, playingWatch)
+        continueMovies, continueShows, recentMovies, recentShows, traktMovies, traktShows, localWatchEntries, dvrRecordings, movieMenuRows, showMenuRows, now, session?.serverUrl, VodHost.active, playingWatch,
+        upPictures)
+    // (Looked up one at a time, as the info bar opens on a channel; each programme once: the guide remembers the answer.)
+    LaunchedEffect(hs.osdVisible, playing?.id, programs, ownStamp) {
+        val c = playing ?: return@LaunchedEffect
+        if (!hs.osdVisible || !liveKinds.contains(RowKind.COMING_UP)) return@LaunchedEffect
+        val t = System.currentTimeMillis()
+        val found = HashMap<Long, String>()
+        for (p in hs.programsOf(c).filter { it.startTime > t && it.image == null }.sortedBy { it.startTime }.take(12)) {
+            if (p.rowId in upPictures) continue
+            found[p.rowId] = runCatching { vm.pictureFor(p) }.getOrNull().orEmpty()
+        }
+        if (found.isNotEmpty()) upPictures = upPictures + found
+    }
     // Built only while they can be seen (the live controls up, or a film playing): every channel card looks up what's on,
     // which was being done every 30 s for rows nobody could see.
     val liveRowsWanted = hs.osdVisible
@@ -1743,3 +1777,8 @@ private fun rememberInfoBarRows(hs: HomeState): List<OsdRow> {
 
 /** A film or episode on full screen (or with the menu open over it): the menu mustn't change the page underneath. */
 private fun filmFullScreen() = VodHost.active && !VodHost.mini
+
+/** Coming up's looked-up programme pictures, kept while the app runs (programme row id → picture, "" for none). */
+private object UpPictures {
+    val found = androidx.compose.runtime.mutableStateOf<Map<Long, String>>(emptyMap())
+}

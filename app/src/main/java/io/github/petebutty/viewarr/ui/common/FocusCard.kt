@@ -7,6 +7,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -49,17 +52,22 @@ fun FocusCard(
     smoothScale: Boolean = false,
     content: @Composable BoxScope.() -> Unit,
 ) {
+    // (The highlight: the rotating glow ring, GlowHighlight, in place of a plain border.)
+    var focused by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
     Surface(
         // (With a hold-OK menu: the hold's release isn't a click too.)
         onClick = if (onLongClick != null) HeldOk.guard(onClick) else onClick,
         onLongClick = onLongClick,
         enabled = enabled,
-        modifier = (if (aspect != null) modifier.aspectRatio(aspect) else modifier).then(if (focusedScale != 1f && !smoothScale) Modifier.instantFocusScale(focusedScale) else Modifier),
+        modifier = (if (aspect != null) modifier.aspectRatio(aspect) else modifier)
+            .onFocusChanged { focused = it.isFocused }
+            .glowHighlight(ring && focused && enabled, shape, focusedScale)
+            .then(if (focusedScale != 1f && !smoothScale) Modifier.instantFocusScale(focusedScale) else Modifier),
         scale = if (focusedScale == 1f) NoScale
             else if (smoothScale) androidx.tv.material3.ClickableSurfaceDefaults.scale(scale = 1f, focusedScale = focusedScale, pressedScale = focusedScale)
             else focusScale(focusedScale),
         shape = ClickableSurfaceDefaults.shape(shape),
-        border = if (ring) ClickableSurfaceDefaults.border(focusedBorder = focusRing(shape)) else ClickableSurfaceDefaults.border(),
+        border = ClickableSurfaceDefaults.border(),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = containerColor,
             focusedContainerColor = focusedContainerColor,
@@ -83,10 +91,11 @@ fun FocusCardStatic(
     content: @Composable BoxScope.() -> Unit,
 ) {
     Box(
+        // (The ring outside the clip, so its glow can spill out round the card.)
         (if (aspect != null) modifier.aspectRatio(aspect) else modifier)
+            .glowHighlight(highlighted, shape)
             .clip(shape)
-            .background(containerColor)
-            .then(if (highlighted) Modifier.border(Tokens.FocusBorder, AppColors.Accent, shape) else Modifier),
+            .background(containerColor),
         content = content,
     )
 }

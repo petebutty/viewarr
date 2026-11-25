@@ -382,6 +382,17 @@ fun VodPlayer(
             player.release()
         }
     }
+    // Another app in front (not the small window): the player stopped, keeping its place, so the TV's sound output is
+    // free for that app (Dolby passthrough allows one at a time; a paused player kept it). Back in Viewarr: it's made
+    // ready again, still paused where it was (2026-11-24).
+    androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_STOP) {
+        // (Viewarr launcher only: in Viewarr a film coming back from Home reloaded from scratch, failing on links that had
+        // run out meanwhile; there it's just paused, as before.)
+        if (!io.github.petebutty.viewarr.ui.home.AndroidPip.active) { player.pause(); if (io.github.petebutty.viewarr.BuildConfig.LAUNCHER) player.stop() }
+    }
+    androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_START) {
+        if (io.github.petebutty.viewarr.BuildConfig.LAUNCHER && player.playbackState == Player.STATE_IDLE && player.mediaItemCount > 0) player.prepare()
+    }
     // Back, one step at a time (FilmControls.kt filmBackStep): what's open closes, then the mini player. A film that
     // failed closes outright (it went to the corner, broken).
     fun backStep() = if (error != null) onClose() else filmBackStep(panels, menu, scrub, skip, onClose, hideOsd = { osdUntil = 0L }, showOsd = ::showOsd)

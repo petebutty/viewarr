@@ -23,7 +23,8 @@ import java.io.File
  * Cards are served to the launcher by [HomeRowArtProvider] (content://…homerowart/<file>).
  */
 object HomeRowArt {
-    const val AUTHORITY = "io.github.petebutty.viewarr.homerowart"
+    /** The app's own (Viewarr and Viewarr launcher each have theirs). */
+    val AUTHORITY = io.github.petebutty.viewarr.BuildConfig.APPLICATION_ID + ".homerowart"
     private const val DIR = "homerow_art"
 
     fun dir(context: Context) = File(context.filesDir, DIR).apply { mkdirs() }

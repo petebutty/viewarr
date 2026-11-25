@@ -92,7 +92,8 @@ class UpdateManager @Inject constructor(
         UpdatePrefs(auto = p[AUTO] ?: true, beta = p[BETA] ?: true)
     }
 
-    val currentVersion: String = BuildConfig.VERSION_NAME
+    // (Previewarr's version name carries "-launcher": the release's own number is what's compared.)
+    val currentVersion: String = BuildConfig.VERSION_NAME.substringBefore("-launcher")
 
     suspend fun setAuto(on: Boolean) { context.updateStore.edit { it[AUTO] = on } }
     suspend fun setBeta(on: Boolean) { context.updateStore.edit { it[BETA] = on } }
@@ -147,8 +148,12 @@ class UpdateManager @Inject constructor(
             .mapNotNull { j ->
                 val version = j.optString("tag_name").removePrefix("v").takeIf { it.isNotBlank() } ?: return@mapNotNull null
                 val assets = j.optJSONArray("assets") ?: return@mapNotNull null
-                val apk = (0 until assets.length()).map { assets.getJSONObject(it) }
-                    .firstOrNull { it.optString("name").endsWith(".apk", ignoreCase = true) } ?: return@mapNotNull null
+                // Each release carries both apps: Viewarr's viewarr-<version>.apk and Previewarr's previewarr-<version>.apk
+                // (2026-11-25). This app's own, the numbered one first; an older release with one plain .apk: Viewarr's.
+                val all = (0 until assets.length()).map { assets.getJSONObject(it) }.filter { it.optString("name").endsWith(".apk", ignoreCase = true) }
+                val mine = if (BuildConfig.LAUNCHER) all.filter { it.optString("name").startsWith("previewarr", ignoreCase = true) }
+                    else all.filter { !it.optString("name").startsWith("previewarr", ignoreCase = true) }
+                val apk = mine.firstOrNull { it.optString("name").contains('-') } ?: mine.firstOrNull() ?: return@mapNotNull null
                 val sha = apk.optString("digest").takeIf { it.startsWith("sha256:", ignoreCase = true) }?.substringAfter(':')?.lowercase()
                 Release(version, cleanNotes(j.optString("body")), apk.optString("browser_download_url"), apk.optLong("size"), j.optBoolean("prerelease"), sha)
             }
