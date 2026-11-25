@@ -122,19 +122,21 @@ object Discover {
 /**
  * Trending's first row turning by itself (2026-11-24: no swiping banner with dots; the row itself carousels):
  * while the highlight isn't on the page (e.g. still in the menu), the row moves on one poster every few seconds and
- * the header shows that poster's title. Going into the rows ends it: the row goes back to its start and the header
- * follows the highlight as usual. Returns the title the header shows (null: the carousel isn't running).
+ * the header shows that poster's title. Going into the rows ends it: the highlight lands on the poster showing in
+ * the first place, the row staying where it had turned to, and the header follows the highlight as usual. Returns the title the header shows (null: the carousel isn't running).
  */
 @Composable
 fun RowCarousel(on: Boolean, row: MediaRow?, state: androidx.compose.foundation.lazy.LazyListState?): MediaItem? {
     var index by remember { mutableIntStateOf(-1) }
     val items = row?.items.orEmpty()
     LaunchedEffect(on, row?.id, items.size, state) {
-        if (!on || state == null || items.size < 2) {
-            if (index > 0) runCatching { state?.scrollToItem(0) }
-            index = -1
-            return@LaunchedEffect
-        }
+        // Stopped (the highlight came into the rows): the row stays where it had turned to, so the highlight lands
+        // on the poster that was showing. Sending it back to its start then left the highlight on a poster off the
+        // row's left edge (the row moves itself only from a press), and Left went through posters that couldn't be
+        // seen until the start came back into view.
+        if (!on || state == null || items.size < 2) { index = -1; return@LaunchedEffect }
+        // Starting (again): from the row's start (the highlight isn't in the rows now, so moving it is safe).
+        if (state.firstVisibleItemIndex != 0 || state.firstVisibleItemScrollOffset != 0) runCatching { state.scrollToItem(0) }
         index = 0
         while (true) {
             delay(5_000)

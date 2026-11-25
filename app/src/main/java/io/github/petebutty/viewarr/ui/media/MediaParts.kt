@@ -141,9 +141,13 @@ internal fun detailLibraryLine(ui: DetailUi, show: Boolean): String = listOfNotN
     },
 ).joinToString("   ·   ")
 
-/** The episode you're up to ([next]: season, episode) when it isn't out yet (its air date from the season's list), else null. */
+/** The episode you're up to ([next]: season, episode) when it isn't out yet (its air date from the season's list, and
+ *  not in your library), else null. */
 internal fun notOutYet(ui: DetailUi, next: Triple<Int, Int, Boolean>?): java.time.LocalDate? =
-    next?.let { n -> ui.episodes?.takeIf { ui.season == n.first }?.firstOrNull { it.number == n.second }?.airDate }
+    // (Already on one of your servers, this box or IPTV: it's out, whatever the listed air date says; an episode
+    // added the day before its date said "out tomorrow".)
+    next?.takeUnless { n -> (n.first to n.second).let { k -> k in ui.plexEpisodes || k in ui.serverEpisodes || k in ui.localEpisodes || k in ui.providerEpisodes } }
+    ?.let { n -> ui.episodes?.takeIf { ui.season == n.first }?.firstOrNull { it.number == n.second }?.airDate }
         ?.let { runCatching { java.time.LocalDate.parse(it.take(10)) }.getOrNull() }
         ?.takeIf { it.isAfter(java.time.LocalDate.now()) }
 

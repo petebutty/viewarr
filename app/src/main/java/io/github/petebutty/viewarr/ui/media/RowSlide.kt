@@ -48,7 +48,9 @@ internal class RowSlide(private val state: LazyListState, private val scope: Cor
     }
 
     private fun slideTo(newIdx: Int, place: Int = 0) {
-        val to = state.layoutInfo.visibleItemsInfo.firstOrNull { it.index == newIdx } ?: return
+        // (Off screen: a jump there, or it would be highlighted off the row's edge, unseen.)
+        val to = state.layoutInfo.visibleItemsInfo.firstOrNull { it.index == newIdx }
+            ?: run { scope.launch { runCatching { state.scrollToItem(newIdx) } }; return }
         // To its place (at the row's end there's nothing further to bring in, so the highlight walks on).
         val used = state.dispatchRawDelta((to.offset - place).toFloat())
         if (used == 0f) return

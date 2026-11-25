@@ -1282,8 +1282,9 @@ private fun PosterRow(
             val items = state.layoutInfo.visibleItemsInfo
             val from = items.firstOrNull { it.index == focusedIdx }
             val to = items.firstOrNull { it.index == newIdx }
-            // (Not both on screen: left to the focus change, no slide.)
-            if (from == null || to == null) return@slide
+            // (Not both on screen: no slide; the row jumps to the poster being moved to, which would otherwise be
+            // highlighted off the row's edge, this row's own scrolling being off while pinned.)
+            if (from == null || to == null) { scope.launch { runCatching { state.scrollToItem(newIdx) } }; return@slide }
             val used = state.dispatchRawDelta((to.offset - from.offset).toFloat())
             if (used == 0f) return@slide
             // Never more than one poster behind: a held or fast-pressed button used to add a step per press (up to 1500

@@ -1,5 +1,14 @@
 # Viewarr changelog (built by tools/changelog.py from the GitHub releases; don't edit by hand)
 
+## 0.29.9.4 · 25 Nov 2026
+
+Live TV follows Dispatcharr's stream order again when Start with the best source is off, plus two fixes.
+
+### Fixes
+- **Start with the best source off:** a channel always plays as Dispatcharr orders its streams. Viewarr kept asking for a stream it had switched to before, so Dispatcharr couldn't change stream for that channel and showed the stream rather than the channel as playing (most noticed on channels with regional streams). Nothing to clear: it works as soon as you update.
+- **Trending's first row:** going into it after it had moved along by itself, Left went through posters you couldn't see until the start of the row. The highlight now lands on the poster that was showing, and any row jumps to show a poster that would be off the edge.
+- **"Out tomorrow"** no longer shows for an episode that's already on one of your servers or IPTV: the button plays it.
+
 ## 0.29.9.3 · 24 Nov 2026
 
 Trending and What's new pages, your own Play order, following shows for new episodes, icons in the menu, and a long list of fixes.

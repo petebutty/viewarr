@@ -1389,7 +1389,11 @@ class PlaybackViewModel @Inject constructor(
             return
         }
         val leaving = direct?.takeIf { it.first != channel.id }
-        useRememberedSource(channel, s)
+        // Start with the best source off: the channel itself, as Dispatcharr orders its streams (its first, its own
+        // failover and stream switching), never a stream remembered from a pick or failover here. A tester's
+        // channels with regional streams kept starting on one stream directly, which Dispatcharr then couldn't switch.
+        if (bestSourceOn) useRememberedSource(channel, s)
+        else if (fresh && direct?.first == channel.id) { direct = null; directProvider = null }
         if (fresh && !s.isDirect && bestSourceOn) startOnBest(channel, s, leaving) else startLive(channel, s)
         viewModelScope.launch { runCatching { remoteStore.setLastChannel(channel.id) } }
         // Also per source, so switching back to a saved source carries on with its channel.
