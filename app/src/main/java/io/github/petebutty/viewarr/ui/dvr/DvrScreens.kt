@@ -145,8 +145,8 @@ class DvrViewModel @Inject constructor(
         repo.playback(rec)?.let { (url, headers) -> VodStream(url, rec.title, headers, resumeMs = RecordingProgress.resumeMs(appContext, rec.id)) }
 }
 
-private fun span(start: Long, end: Long) = "${io.github.petebutty.viewarr.ui.theme.Dates.dayTime(start)}–${io.github.petebutty.viewarr.ui.theme.Dates.time(end)}"
-private fun episodeTag(season: Int?, episode: Int?) = if (season != null && episode != null) " · S$season · E$episode" else ""
+internal fun span(start: Long, end: Long) = "${io.github.petebutty.viewarr.ui.theme.Dates.dayTime(start)}–${io.github.petebutty.viewarr.ui.theme.Dates.time(end)}"
+internal fun episodeTag(season: Int?, episode: Int?) = if (season != null && episode != null) " · S$season · E$episode" else ""
 
 /**
  * Small centred panel of choices, used for the record options and the programme details. On the shared pop-up
@@ -356,7 +356,7 @@ private val HoldKinds = listOf(
 /** The Recordings tabs left to right: Recorded, Scheduled, Series recordings. */
 private val TAB_ORDER = listOf(1, 0, 2)
 
-private sealed interface DvrRow {
+internal sealed interface DvrRow {
     data class Header(val text: String) : DvrRow
     /** A quiet line under an empty section ("Nothing recorded yet…"). */
     data class Note(val text: String) : DvrRow
@@ -637,7 +637,7 @@ fun RecordingsScreen(
  * "Working…" and the answer, then close. (2026-11-17: was ChoicePanel with "Close" and its own confirm step.)
  */
 @Composable
-private fun RecordingOptions(
+internal fun RecordingOptions(
     picked: DvrRow?, vm: DvrViewModel, channels: Map<Int, ChannelListItem>, message: String?,
     scope: kotlinx.coroutines.CoroutineScope, onPlay: (VodStream) -> Unit, close: () -> Unit,
 ) {

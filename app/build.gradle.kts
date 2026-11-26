@@ -25,8 +25,8 @@ android {
         applicationId = "io.github.petebutty.viewarr"
         minSdk = 26
         targetSdk = 34
-        versionCode = 71
-        versionName = "0.29.9.5"
+        versionCode = 72
+        versionName = "0.29.9.6"
         // Trakt device login needs a client id from your own Trakt app (trakt.tv/oauth/applications). Blank = no Trakt.
         // Android TV boxes are ARM; leaving out x86 keeps the APK smaller.
         ndk { abiFilters += listOf("armeabi-v7a", "arm64-v8a") }
@@ -54,7 +54,7 @@ android {
             // Previewarr's own version numbers: Viewarr's × 100 plus its own build count (bumped for each Previewarr
             // build put out between Viewarr releases), so every one counts as newer: home screens (Projectivy) refresh
             // its icon, and its updates install. (2026-11-25: the same number kept the old icon on the home screen.)
-            versionCode = (defaultConfig.versionCode ?: 0) * 100 + 2
+            versionCode = (defaultConfig.versionCode ?: 0) * 100 + 1
             resValue("string", "app_name", "Previewarr")
             buildConfigField("boolean", "LAUNCHER", "true")
             buildConfigField("String", "LINK_SCHEME", "\"viewarrl\"")

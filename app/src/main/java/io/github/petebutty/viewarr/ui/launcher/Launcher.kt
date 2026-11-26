@@ -62,6 +62,8 @@ internal object Launcher {
         startPage = page
         titleOnly = false
         overlay = null
+        // (The Library pages go with it; a title opened from them asks for them back: LauncherLibrary.keep.)
+        LauncherLibrary.hide()
         enteredAt = SystemClock.elapsedRealtime()
         home = false
     }
@@ -70,8 +72,9 @@ internal object Launcher {
     var overlay by mutableStateOf<String?>(null)
         private set
 
-    fun openSearch() {
-        open(Page.Movies, { hs -> hs.openPage(Page.Search) }, readyWhen = { hs -> hs.quickSearch })
+    /** [voice]: already listening (the mic); [words]: already said or typed elsewhere, searched for straight away. */
+    fun openSearch(voice: Boolean = false, words: String? = null) {
+        open(Page.Movies, { hs -> hs.searchStart = words; hs.searchVoice = voice && words == null; hs.openPage(Page.Search) }, readyWhen = { hs -> hs.quickSearch })
         overlay = "search"
         searchBacked = false
     }
@@ -133,6 +136,23 @@ internal object Launcher {
     var lastFocus: String? = null
 }
 
+/**
+ * The remote's mic / search button while the home screen (or its Settings) is up: Viewarr's screens, which answer it
+ * otherwise, aren't running then, so search is opened from here, and Back from it comes home.
+ */
+@Composable
+internal fun LauncherVoice() {
+    val command by io.github.petebutty.viewarr.data.media.DeepLink.pendingCommand.collectAsState()
+    LaunchedEffect(command) {
+        val c = command ?: return@LaunchedEffect
+        if (c.kind != "voice" && c.kind != "search") return@LaunchedEffect
+        io.github.petebutty.viewarr.data.media.DeepLink.pendingCommand.value = null
+        VodHost.minimise()
+        Launcher.settingsOpen = false
+        Launcher.openSearch(voice = c.kind == "voice", words = c.arg?.takeIf { it.isNotBlank() })
+    }
+}
+
 /** HomeScreen's part in the launcher build: opens what was asked for, and sends main-menu requests home. */
 @Composable
 internal fun LauncherEffects(hs: HomeState) {
@@ -176,15 +196,21 @@ internal fun LauncherEffects(hs: HomeState) {
     // A title opened from the home screen, closed (Back from it): home.
     val movieTitle by hs.moviesVm.detail.collectAsState()
     val showTitle by hs.showsVm.detail.collectAsState()
-    LaunchedEffect(movieTitle == null && showTitle == null) {
-        if (!Launcher.titleOnly || movieTitle != null || showTitle != null) return@LaunchedEffect
+    // (A cast member's page takes the title's place, the title closed for it: still up, not "closed". 2026-11-26:
+    // picking an actor on a title opened from the home screen went home.)
+    val moviePerson by hs.moviesVm.personPage.collectAsState()
+    val showPerson by hs.showsVm.personPage.collectAsState()
+    val nothingUp = movieTitle == null && showTitle == null && moviePerson == null && showPerson == null
+    LaunchedEffect(nothingUp) {
+        if (!Launcher.titleOnly || !nothingUp) return@LaunchedEffect
         // (Closed in the first moments, before its page had even come up: still home, once it's settled.)
         while (Launcher.settling) kotlinx.coroutines.delay(100)
-        if (hs.moviesVm.detail.value == null && hs.showsVm.detail.value == null) Launcher.goHome()
+        if (hs.moviesVm.detail.value == null && hs.showsVm.detail.value == null && hs.moviesVm.personPage.value == null && hs.showsVm.personPage.value == null) Launcher.goHome()
     }
     SideEffect {
         Launcher.onLeave = {
             hs.menuOpen = false
+            runCatching { hs.moviesVm.closePerson(backToTitle = false); hs.showsVm.closePerson(backToTitle = false) }
             runCatching { hs.moviesVm.closeTitlePages(); hs.showsVm.closeTitlePages() }
             // (A film carries on in the mini player over the home screen, never stopped by going home (Settings from
             // a film's controls stopped it); hold Back there closes it. Not left "behind" a page that's gone.)
@@ -217,7 +243,9 @@ internal fun LauncherVeil(content: @Composable () -> Unit) {
     val shows: io.github.petebutty.viewarr.ui.media.MediaViewModel = androidx.hilt.navigation.compose.hiltViewModel(key = "media-Show")
     val m by movies.detail.collectAsState()
     val s by shows.detail.collectAsState()
-    val hide = Launcher.titleOnly && m == null && s == null || Launcher.arriving
+    val mp by movies.personPage.collectAsState()
+    val sp by shows.personPage.collectAsState()
+    val hide = Launcher.titleOnly && m == null && s == null && mp == null && sp == null || Launcher.arriving
     // (The home screen's background behind them while they're covered.)
     androidx.compose.foundation.layout.Box(
         androidx.compose.ui.Modifier.fillMaxSize()

@@ -26,7 +26,7 @@ import androidx.tv.material3.Text
 import io.github.petebutty.viewarr.ui.home.MenuIcons
 
 /**
- * The launcher's own tiles (Live TV, Movies, TV Shows, My Libraries, Music) given a look of their own, as the
+ * The launcher's own tiles (Live TV, Movies, TV Shows, My Libraries, Music, Recordings) given a look of their own, as the
  * streaming services have theirs (2026-11-25: "plain and boring"): each its colours, its symbol large and faint across
  * the tile, the symbol and name in front; Live TV with a LIVE badge.
  */
@@ -39,6 +39,7 @@ internal object LauncherTiles {
         "Shows" to Look(Color(0xFF8B5CF6), Color(0xFF2A2470)),
         "Library" to Look(Color(0xFF14B8A6), Color(0xFF0F3D3A)),
         "Music" to Look(Color(0xFF22C55E), Color(0xFF0E4224)),
+        "Recordings" to Look(Color(0xFF3B82F6), Color(0xFF12245C)),
     )
 
     /** [id]'s tile face; [plain] for a tile without a look of its own. */
@@ -57,6 +58,9 @@ internal object LauncherTiles {
                 if (icon != null) androidx.compose.material3.Icon(icon, null, tint = Color.White, modifier = Modifier.size(24.dp))
                 Text(label, fontSize = 17.sp, fontWeight = FontWeight.ExtraBold, color = Color.White, maxLines = 1, letterSpacing = 0.2.sp)
             }
+            // Recordings: a red record dot, top right.
+            if (id == "Recordings") Box(Modifier.align(Alignment.TopEnd).padding(top = 10.dp, end = 10.dp).size(16.dp).background(Color.White.copy(alpha = 0.95f), CircleShape),
+                contentAlignment = Alignment.Center) { Box(Modifier.size(10.dp).background(Color(0xFFE11D48), CircleShape)) }
             if (id == "Tv") Row(Modifier.align(Alignment.TopEnd).padding(top = 9.dp, end = 9.dp)
                 .background(Color.White.copy(alpha = 0.95f), RoundedCornerShape(50)).padding(horizontal = 7.dp, vertical = 2.dp),
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {

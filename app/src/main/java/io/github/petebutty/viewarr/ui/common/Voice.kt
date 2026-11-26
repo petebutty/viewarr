@@ -37,13 +37,16 @@ class VoiceSearch internal constructor(private val context: Context) {
     /** How loud it hears you, 0..1 (the mic button pulses with it). */
     var level by mutableFloatStateOf(0f)
         internal set
+    /** The words so far, while it listens (only when asked for: [rememberVoiceSearch]'s partial). */
+    var heard by mutableStateOf("")
+    internal var partial = false
     internal var recognizer: SpeechRecognizer? = null
     internal var askPermission: () -> Unit = {}
     internal var onKeyboard: () -> Unit = {}
 
     internal fun intent(): Intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
         .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-        .putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
+        .putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, partial)
         .putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
         .putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
 
@@ -80,11 +83,12 @@ class VoiceSearch internal constructor(private val context: Context) {
  * for its mic.
  */
 @Composable
-fun rememberVoiceSearch(onResult: (String) -> Unit, onKeyboard: () -> Unit): VoiceSearch {
+fun rememberVoiceSearch(onResult: (String) -> Unit, onKeyboard: () -> Unit, partial: Boolean = false): VoiceSearch {
     val context = LocalContext.current
     val result by rememberUpdatedState(onResult)
     val keyboard by rememberUpdatedState(onKeyboard)
     val voice = remember { VoiceSearch(context) }
+    voice.partial = partial
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) voice.begin()
         else Toast.makeText(context, "Voice search needs the microphone. You can use the keyboard's mic instead.", Toast.LENGTH_LONG).show()
@@ -118,10 +122,12 @@ fun rememberVoiceSearch(onResult: (String) -> Unit, onKeyboard: () -> Unit): Voi
                 voice.listening = false
                 voice.level = 0f
                 val said = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()?.trim().orEmpty()
-                if (said.isNotEmpty()) result(said)
+                if (said.isNotEmpty()) { voice.heard = said; result(said) }
                 else Toast.makeText(context, "Didn't catch that. Press the mic and try again.", Toast.LENGTH_SHORT).show()
             }
-            override fun onPartialResults(partialResults: Bundle?) = Unit
+            override fun onPartialResults(partialResults: Bundle?) {
+                partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()?.trim()?.takeIf { it.isNotEmpty() }?.let { voice.heard = it }
+            }
             override fun onEvent(eventType: Int, params: Bundle?) = Unit
         })
         voice.recognizer = r

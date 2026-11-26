@@ -139,6 +139,8 @@ class MainActivity : ComponentActivity() {
         if (action != "android.speech.action.WEB_SEARCH" && action != android.content.Intent.ACTION_ASSIST &&
             action != android.content.Intent.ACTION_VOICE_COMMAND && action != android.content.Intent.ACTION_SEARCH_LONG_PRESS) return
         val words = intent.getStringExtra(android.app.SearchManager.QUERY)?.trim()?.takeIf { it.isNotEmpty() }?.take(200)
+        // (Previewarr: the mic listens in a small bar over what's on screen, ui/launcher/VoiceBar.)
+        if (words == null && BuildConfig.LAUNCHER) { io.github.petebutty.viewarr.ui.launcher.VoiceBar.ask(); return }
         DeepLink.pendingCommand.value = if (words != null) DeepLink.Command("search", words) else DeepLink.Command("voice")
     }
 }

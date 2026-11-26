@@ -376,6 +376,8 @@ object UiOpts {
     const val AFTER_FILM = "after_film"
     /** Back from a full-screen film: the mini player over the page it was started from (0, standard since 0.28.5), or over the TV guide with the menu (1). */
     const val FILM_BACK = "film_back_v2"
+    /** Settings → Playback → Films and episodes → Keep playing after Home: Android's own small window over its home screen. */
+    const val HOME_WINDOW = "home_window"
     const val AGE_RATING = "age_rating"
     const val BUTTON_HINTS = "button_hints"
     const val ANIM_FILM = "anim_film"
@@ -525,6 +527,7 @@ object UiOpts {
         LIST_ENDS to listOf("Jump to the other end", "Stop"),
         AFTER_FILM to listOf("Stay where you were", "Back to live TV"),
         FILM_BACK to listOf("Its own page", "The TV guide and menu"),
+        HOME_WINDOW to listOf("Off", "On"),
         ANIM_FILM to listOf("On", "Off"),
         PLAY_ORDER to PlayOrder.oldLabels,
         GUIDE_SPAN to listOf("2½ hours", "1½ hours", "2 hours", "3 hours", "4 hours", "6 hours"),

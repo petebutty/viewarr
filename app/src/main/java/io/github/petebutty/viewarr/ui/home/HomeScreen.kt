@@ -1352,6 +1352,15 @@ private fun BoxScope.PagesLayer(
                 onBack = hs::backFromPage,
                 onSetUp = { hs.showAccounts = true },
             )
+        } else if (hs.page == Page.Recordings && io.github.petebutty.viewarr.ui.launcher.LauncherLook.on) {
+            // (Previewarr: the page as rows of wide cards, as its home screen. Viewarr keeps the list page below.)
+            io.github.petebutty.viewarr.ui.dvr.RecordingsWide(
+                vm = dvr,
+                focusRequester = mediaFocus,
+                focusEnabled = !hs.menuOpen && !hs.cornerFocused && !hs.showAccounts && !hs.quickSearch && !VodHost.covering && !hs.sportsOpen,
+                onBack = hs::backFromPage,
+                onPlay = { hs.recordingPlayback = it },
+            )
         } else if (hs.page == Page.Recordings) {
             RecordingsScreen(
                 vm = dvr,

@@ -76,7 +76,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
-/** A tile in the top row: Live TV, Movies, TV Shows, My Libraries, or a streaming service ([icon]: "svc:<name>"). */
+/** A tile in the top row: Live TV, Movies, TV Shows, Library, or a streaming service ([icon]: "svc:<name>"). */
 private data class Tile(val icon: String, val label: String, val about: String, val open: () -> Unit) {
     /** The background while it's highlighted: a picture of what it opens (LauncherHome sets it). */
     var art: () -> String? = { null }
@@ -84,7 +84,7 @@ private data class Tile(val icon: String, val label: String, val about: String, 
 
 /**
  * The launcher build's home screen (2026-11-24): a featured banner showing whatever is highlighted, a row of tiles
- * (Live TV, Movies, TV Shows, My Libraries, the streaming services), then Play next, Recently added, Upcoming
+ * (Live TV, Movies, TV Shows, Library, the streaming services), then Play next, Recently added, Upcoming
  * episodes and a row for each service. Everything comes from the rows Viewarr already loads (Discover.rows) and its
  * Continue watching; picking something opens Viewarr's own screens on it (Launcher.open).
  */
@@ -126,7 +126,8 @@ internal fun LauncherHome() {
         (if (show) shows else movies).open(item)
         Launcher.openTitle(if (show) Page.Shows else Page.Movies)
     }
-    LaunchedEffect(linkChannel, linkCommand) { if (linkChannel != null || linkCommand != null) Launcher.open(Page.Tv) }
+    // (Not a search: LauncherVoice opens that over the home screen, so closing it comes back here.)
+    LaunchedEffect(linkChannel, linkCommand) { if (linkChannel != null || (linkCommand != null && linkCommand?.kind != "search" && linkCommand?.kind != "voice")) Launcher.open(Page.Tv) }
 
     // ---- What's on it ----
     // (The rows worked out once per change of what's loaded, not on every press: they were rebuilt as the highlight moved.)
@@ -151,13 +152,15 @@ internal fun LauncherHome() {
         add(Tile("Shows", "TV Shows", "Your shows, next episodes first.") {
             shows.closeTitlePages(); shows.openLibrary(null, MediaType.Show); shows.jumpTo(null); Launcher.open(Page.Shows)
         })
-        add(Tile("Library", "My Libraries", "Your Plex, Jellyfin and IPTV libraries.") { openMyLibraryHere(movies, shows) })
+        add(Tile("Library", "Library", "Every library on your servers: go through everything in one, sorted and filtered your way.") { LauncherLibrary.show() })
         // Music, when it's set up (Navidrome, Plex or Jellyfin music: Viewarr's own Music page).
         if (musicOn) add(Tile("Music", "Music", "Your music: albums, artists, playlists and radio.") { Launcher.open(Page.Music) })
         // Sports: the fixtures for your teams and leagues and the channel showing each (Viewarr's Sports page).
         if (Access.liveTv) add(Tile("Sports", "Sports", "Fixtures for your teams and leagues, and the channel showing each.") {
             Launcher.open(Page.Tv, action = { hs -> hs.openSportsPage(true) }, readyWhen = { hs -> hs.sportsOpen })
         })
+        // Recordings: recorded, recording now, scheduled and series recordings, as rows of cards (RecordingsWide).
+        if (Access.liveTv) add(Tile("Recordings", "Recordings", "What you've recorded, what's recording now and what's coming up.") { Launcher.open(Page.Recordings) })
         services.forEach { name -> add(Tile("svc:$name", name, "New, originals, popular and top rated on $name.") { openServiceHere(name, movies, shows) }) }
     }
     // A film or episode in the mini player: a "Now playing" tile first, OK back to full screen (2026-11-25: from home
@@ -537,15 +540,6 @@ private fun openServiceHere(name: String, movies: MediaViewModel, shows: MediaVi
     Launcher.open(if (show) Page.Shows else Page.Movies)
 }
 
-private fun openMyLibraryHere(movies: MediaViewModel, shows: MediaViewModel) {
-    val mine = io.github.petebutty.viewarr.ui.media.MyLibrary.SET
-    if (movies.currentRowSet.value != mine) { movies.openLibrary(null, MediaType.Movie); movies.jumpTo(null) }
-    movies.closeTitlePages()
-    movies.load(MediaType.Movie); shows.load(MediaType.Show)
-    movies.showRowSet(mine)
-    Launcher.open(Page.Movies)
-}
-
 /** Several rows as one: their titles in turn, each once. */
 private fun interleave(rows: List<MediaRow>): List<MediaItem> {
     val all = ArrayList<MediaItem>()
@@ -622,12 +616,13 @@ private fun Banner(itemState: androidx.compose.runtime.State<MediaItem?>, tileSt
     }
 }
 
-/** Search, Settings and the clock, top right. */
+/** Voice search, search, Settings and the clock, top right. */
 @Composable
 private fun TopCorner(modifier: Modifier) {
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) { while (true) { delay(20_000); now = System.currentTimeMillis() } }
     Row(modifier.padding(top = 18.dp, end = 40.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+        RoundIcon(AppIcons.Mic) { VoiceBar.ask() }
         RoundIcon(AppIcons.Search) { Launcher.openSearch() }
         RoundIcon(AppIcons.Settings) { Launcher.settingsOpen = true }
         Text(Dates.time(now), fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary)

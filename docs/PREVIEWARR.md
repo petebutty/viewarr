@@ -51,7 +51,7 @@ The tiles open the main parts of the app:
 | **Live TV** | The TV guide. |
 | **Movies** | Every film from your servers, IPTV and addons. |
 | **TV Shows** | Your shows, next episodes first. |
-| **My Libraries** | Your Plex, Jellyfin and IPTV libraries. |
+| **Library** | Every library on your servers, each as a tile. See [Library](#library). |
 | **Music** | Your music (when it's set up). |
 | **Sports** | The fixtures for your teams and leagues, and the channel showing each (the football pitch tile). |
 | **Streaming services** | Netflix, Disney+, BBC iPlayer and the rest, each with its own logo: new, originals, popular and top rated on that service. These come from your addons' rows. |
@@ -110,6 +110,26 @@ The guide, catch-up, recordings, reminders, the info bar, source switching (incl
 ## Sports
 
 The **Sports** tile opens the Sports page: your teams' and leagues' games and the channel showing each. Choose your teams in **Settings → Sports**. See [Live TV → Sports](LIVE-TV.md#sports).
+
+## Library
+
+The **Library** tile lists every library on your Plex, Jellyfin and Emby servers and your IPTV films and series, each as a wide tile. A tile's colours, symbol and badge come from the library's name ("Anime", "Kids", "4K", "Documentaries", "Subs"…), with a picture from the library behind and how many titles it has.
+
+- **OK** on a tile opens the library as a wall of posters: every title, to the end.
+- **Across the top**: **Sort**, then everything that server can filter by (Unwatched, Genre, Year, Age rating, Resolution…). An on / off one switches with OK; the others open a list. The ones in force are lit and say what's picked, the count follows, and **Clear filters** puts them all off. A library remembers its sort and filters.
+- **The A–Z strip** down the right (Right from the last poster in a row): Up / Down through the letters and the wall follows; OK or Left goes to that letter's first title.
+- **OK** on a poster opens its page; **Back** from it returns to the same poster. **Back** on the wall returns to the libraries.
+- **Hold OK** on a library's tile → **Hide this library**. Hidden ones sit at the foot of the page; OK on one brings it back.
+
+Some Jellyfin-style servers answer with their own folders (Titles, Genres, Years, Actors…) instead of a library's titles. There the wall opens on the titles, and the server's folders are the buttons across the top, one at a time.
+
+## Recordings
+
+The **Recordings** tile opens what you've recorded, what's recording now, what's scheduled and your series recordings, as rows of cards. **Back** goes to the start of the row, then to the top, then home.
+
+## Voice
+
+The remote's **mic** button (or the mic at the top right of the home screen) shows a small **Listening…** bar at the foot of whatever is on screen, with your words as you say them. Say a channel's name to tune to it; anything else is searched for. **Back** cancels. If Android asks which app should answer the mic button, pick Previewarr and **Always**.
 
 ## Settings
 

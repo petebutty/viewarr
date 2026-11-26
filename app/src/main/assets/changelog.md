@@ -1,5 +1,24 @@
 # Viewarr changelog (built by tools/changelog.py from the GitHub releases; don't edit by hand)
 
+## 0.29.9.6 · 26 Nov 2026
+
+Viewarr 0.29.9.6: Home stops what's playing unless you ask for the small window, and the guide's details use the full width with Next and Then off.
+
+### Live TV
+- TV guide: with **Next and Then** switched off (Settings → Appearance → TV guide), the programme's details now run the full width; the empty column is gone and the badges sit beside the times
+
+### Films and shows
+- Pressing **Home** while something plays now stops it, as before 0.29.9.3. Android's small window over the home screen is a setting, off as standard: **Settings → Playback → Keep playing after Home** (the remote can't reach that window on most boxes)
+
+### Previewarr (preview)
+- **Library**: every library on your servers as a tile with a look made from its name; open one for a wall of posters with sort, filters across the top and an A–Z strip. Hold OK on a library to hide it
+- The **mic** button shows a small Listening bar over whatever is on screen: say a channel to tune it, or anything else to search
+- **Recordings** page: recorded, recording now and coming up as rows of cards
+- A title's page eases in rather than snapping in
+- Fix: picking an actor on a title opened from the home screen went home; Back from the actor returns to the title
+
+Previewarr is a separate download: Downloader code **6733457**, or https://github.com/petebutty/previewarr/releases
+
 ## 0.29.9.5 · 25 Nov 2026
 
 Viewarr 0.29.9.5, and the first preview of **Previewarr**: a new home-screen style app built from the same code.
@@ -9,7 +28,7 @@ Viewarr 0.29.9.5, and the first preview of **Previewarr**: a new home-screen sty
 - Simpler settings on one page, one remote preset (Classic) with every button still changeable
 - Films and live TV carry on in a corner while you browse; the Now playing tile takes you back to full screen
 - Hold OK on a tile to move or hide it
-- Installs alongside Viewarr (you don't need both): download `previewarr.apk`. See docs/PREVIEWARR.md
+- Installs alongside Viewarr (you don't need both): Downloader code **6733457**, or https://github.com/petebutty/previewarr/releases. See docs/PREVIEWARR.md
 - It's a preview: things will change, and Viewarr carries on as the main app
 
 ### Live TV

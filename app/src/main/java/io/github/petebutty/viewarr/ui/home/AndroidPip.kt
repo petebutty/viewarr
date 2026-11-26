@@ -26,7 +26,10 @@ object AndroidPip {
     var wanted by mutableStateOf(false)
 
     // (Not in the Viewarr launcher for now: Home stops what's playing there.)
+    // Only when switched on (Settings → Playback → Keep playing after Home; off to start, 2026-11-26: the window
+    // can't be reached with the remote on most boxes, so Home stops what's playing unless you ask for it).
     private fun canPip(a: Activity) = !io.github.petebutty.viewarr.BuildConfig.LAUNCHER &&
+        io.github.petebutty.viewarr.ui.theme.AppColors.palette.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.HOME_WINDOW) == 1 &&
         a.packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)
 
     /** When Viewarr last opened a screen of Android's itself (a permission, approving home-screen rows). Older Android
@@ -47,7 +50,9 @@ object AndroidPip {
      * came too late there.)
      */
     fun update(a: Activity) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || !canPip(a)) return
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
+        // (Switched off: Android told not to go into the window by itself, in case it was told to before.)
+        if (!canPip(a)) { runCatching { a.setPictureInPictureParams(PictureInPictureParams.Builder().setAutoEnterEnabled(false).build()) }; return }
         runCatching {
             a.setPictureInPictureParams(PictureInPictureParams.Builder().setAspectRatio(Rational(16, 9))
                 .setAutoEnterEnabled(wanted).setSeamlessResizeEnabled(true).build())
@@ -72,7 +77,8 @@ object AndroidPip {
 internal fun AndroidPipEffects(hs: HomeState, playing: ChannelListItem?) {
     val activity = androidx.compose.ui.platform.LocalContext.current as? Activity
     SideEffect { AndroidPip.wanted = playing != null || VodHost.active }
-    LaunchedEffect(AndroidPip.wanted) { activity?.let { AndroidPip.update(it) } }
+    val windowOn = io.github.petebutty.viewarr.ui.theme.AppColors.palette.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.HOME_WINDOW)
+    LaunchedEffect(AndroidPip.wanted, windowOn) { activity?.let { AndroidPip.update(it) } }
     var before by remember { mutableStateOf<Triple<Boolean, Boolean, Boolean>?>(null) }
     LaunchedEffect(AndroidPip.active) {
         if (AndroidPip.active) {

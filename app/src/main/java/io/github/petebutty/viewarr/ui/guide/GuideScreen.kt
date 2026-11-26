@@ -543,7 +543,9 @@ private fun InfoPanel(
         // The panel is a fixed 180 units tall: the column is clipped so a long synopsis can't run under the grid.
         // The banner (the picture as a card on the right) takes the room the Next / Then column would have; its badges
         // then sit in the time row instead.
-        val sideColumn = !banner && sideWidth > 0.dp
+        // (Next and Then switched off, Settings → Appearance → TV guide: no column at all, the details the full width
+        // and the badges in the time row; the empty column kept its room. 2026-11-26.)
+        val sideColumn = !banner && sideWidth > 0.dp && AppColors.palette.opt(io.github.petebutty.viewarr.ui.theme.UiOpts.GUIDE_NEXT) == 0
         Column(Modifier.weight(1f).padding(start = 24.dp, top = 4.dp).fillMaxHeight().clipToBounds()) {
             // Channel number · name · group, small, above the programme (the group used to sit alone at the row's end).
             if (channel != null) Text(

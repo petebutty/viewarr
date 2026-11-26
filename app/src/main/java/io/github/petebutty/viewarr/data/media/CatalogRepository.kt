@@ -1094,7 +1094,15 @@ class CatalogRepository @Inject constructor(
                 val byName = if (type == MediaType.Movie) UNMARKED_MOVIES else UNMARKED_SHOWS
                 r.body.array("Items").filter {
                     val t = it.str("CollectionType")
-                    t == want || ((t == null || t == "folders" || t == "mixed") && byName.containsMatchIn(it.str("Name").orEmpty()))
+                    val n = it.str("Name").orEmpty()
+                    val unmarked = t == null || t == "folders" || t == "mixed"
+                    // Previewarr's Library page: every library the server lists, whatever it's marked or called (you
+                    // hide the ones you don't want there, hold OK); one that's neither films nor shows by its mark or
+                    // name is listed once, with the films, and what's in it opens as what it is. (2026-11-26: only
+                    // libraries named like films or shows came through on servers that don't mark them.)
+                    val shows = t == "tvshows" || (unmarked && UNMARKED_SHOWS.containsMatchIn(n))
+                    val everything = io.github.petebutty.viewarr.BuildConfig.LAUNCHER && type == MediaType.Movie && t != "movies" && !shows
+                    t == want || (unmarked && byName.containsMatchIn(n)) || everything
                 }.mapNotNull { v ->
                     val id = v.str("Id") ?: return@mapNotNull null
                     MediaLibrary("${name.lowercase()}:$id", tidyLibraryName(v.str("Name") ?: name), name, id)

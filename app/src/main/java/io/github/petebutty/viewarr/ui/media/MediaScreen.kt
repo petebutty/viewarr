@@ -1638,8 +1638,15 @@ private fun DetailScreen(
         val ready = !ui.loading && ui.copies != null && (!show || ui.seasons.isEmpty() || ui.episodes != null || !parts.shows(TitleParts.EPISODES))
         LaunchedEffect(item.key) { kotlinx.coroutines.delay(1_500); settled = true }
         LaunchedEffect(ready) { if (ready) { kotlinx.coroutines.delay(60); settled = true } }
-        val reveal by androidx.compose.animation.core.animateFloatAsState(if (settled) 1f else 0f, androidx.compose.animation.core.tween(280), label = "reveal")
-        Column(Modifier.fillMaxSize().graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha; alpha = reveal }
+        // (Eased in from the left, slowing to a stop, as the home screen's banner does: a quick fade alone read as the
+        // page snapping in. 2026-11-26.)
+        val reveal by androidx.compose.animation.core.animateFloatAsState(if (settled) 1f else 0f,
+            androidx.compose.animation.core.tween(560, easing = androidx.compose.animation.core.LinearOutSlowInEasing), label = "reveal")
+        Column(Modifier.fillMaxSize().graphicsLayer {
+                compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha
+                alpha = (reveal * 1.8f).coerceAtMost(1f)
+                translationX = -(1f - reveal) * 40.dp.toPx()
+            }
             // (Until it shows, no button but Back: OK pressed Play on a page you couldn't see yet.)
             .onPreviewKeyEvent { e -> !settled && e.key != androidx.compose.ui.input.key.Key.Back }
             .padding(start = Tokens.Gutter, end = Tokens.Gutter, top = 24.dp, bottom = 12.dp)) {

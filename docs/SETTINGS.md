@@ -141,7 +141,7 @@ The page opens on **Watching**: **Match frame rate**, audio **Language**, **Show
 | **Subtitles** | Subtitle **Language** (how they look is in Appearance). |
 | **Streams** | **Play order**, **Cached only**, **Try the next stream**. |
 | **Auto-play match** | Rules (4K, 1080p, HEVC, Atmos, English…) switched on and sorted by importance; **Add your own…**; **Reset the rules**. |
-| **Episodes** | **Skip credits**, **After a film or episode**, **Back from a film**, **Next episode countdown**. |
+| **Episodes** | **Skip credits**, **After a film or episode**, **Back from a film**, **Keep playing after Home** (pressing Home while something plays keeps it in Android's small window over the home screen; off as standard, when Home stops it. The remote can't reach that window on most boxes), **Next episode countdown**. |
 | **Trailers** | **Trailer previews play** (in the window at the top or in the poster), **Start after** (1 to 5 seconds), **Then the big panel** (1 to 5 seconds, or Never), **Preview sound**. |
 | **Music** | **Lyrics from LRCLIB**. |
 

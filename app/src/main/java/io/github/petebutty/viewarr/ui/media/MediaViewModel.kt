@@ -748,13 +748,19 @@ class MediaViewModel @Inject constructor(
     /** From a title page: a cast member's films and shows (the title page closes). */
     fun openCastMember(c: CastMember) {
         val id = c.id ?: return
+        // (The new look: Back from the person returns to this title, see closePerson.)
+        val from = _detail.value?.detail?.item
         // Leave every title page (not back to the title before it): the person's page takes over.
         detailStack.clear()
         close()
         // (From a title opened in a library: the library closes too, or the person's page was hidden behind it.)
         _browse.value = null
         open(MediaItem(key = "person:$id", type = MediaType.Movie, title = c.name, poster = c.photo, origin = "TMDB"))
+        titleBeforePerson = from.takeIf { io.github.petebutty.viewarr.ui.launcher.LauncherLook.on }
     }
+
+    /** The title a person's page was opened from (the new look only): Back from the person opens it again. */
+    private var titleBeforePerson: MediaItem? = null
 
     /** IMDb / Rotten Tomatoes (your Plex) and Trakt ratings for a title, cached for a while. */
     suspend fun ratingsFor(item: MediaItem): List<RatingBadge> = runCatching {
@@ -853,6 +859,7 @@ class MediaViewModel @Inject constructor(
         lastQuery = q
         _person.value = null
         resultsBeforePerson = null
+        titleBeforePerson = null
         loaded = null
         layoutType.value = null
         rowsJob?.cancel()
@@ -923,6 +930,8 @@ class MediaViewModel @Inject constructor(
     internal val personPage = _personPage.asStateFlow()
 
     private fun openPerson(item: MediaItem) {
+        // (Only a person opened from a title's cast goes back to that title: openCastMember sets it after this.)
+        titleBeforePerson = null
         val id = item.key.removePrefix("person:")
         _personInfo.value = null
         _personPage.value = PersonPageUi(id, item.title, item.poster, details = null, loading = true)
@@ -938,7 +947,9 @@ class MediaViewModel @Inject constructor(
     }
 
     /** Back from a person: the search results again. */
-    fun closePerson() {
+    fun closePerson(backToTitle: Boolean = true) {
+        val title = titleBeforePerson.takeIf { backToTitle }
+        titleBeforePerson = null
         if (_person.value == null) return
         rowsJob?.cancel()
         _person.value = null
@@ -946,6 +957,7 @@ class MediaViewModel @Inject constructor(
         _personPage.value = null
         _rows.value = resultsBeforePerson ?: RowsState(emptyList(), done = true)
         resultsBeforePerson = null
+        title?.let { open(it) }
     }
 
     /** Quick picks under the search box (titles and names that match what's typed). */
@@ -1046,6 +1058,26 @@ class MediaViewModel @Inject constructor(
         librariesFor = type
         viewModelScope.launch { _libraries.value = runCatching { repo.libraries(type) }.getOrDefault(emptyList()) }
     }
+
+    /** A library's tile (Previewarr's Library page): a wide picture from something added lately, and how many titles it has. */
+    suspend fun libraryFacts(lib: MediaLibrary, type: MediaType): Pair<String?, Int>? {
+        val sort = when { lib.source == PROVIDER_LIBRARY -> "Added"; lib.server != null -> "addedAt"; else -> "DateCreated" }
+        val got = runCatching { repo.libraryPage(lib, type, LibraryQuery(sort, true), 0, 12) }.getOrNull() ?: return null
+        // A server that answers with its folders, not its titles (CatalogRepository.serverFolderCard): the ones in its
+        // "Titles" folder are the library.
+        val folders = got.first.takeIf { l -> l.isNotEmpty() && l.all { it.key.startsWith("col:") && it.key.contains("folder:") } }
+        folders?.firstOrNull { it.title.equals("Titles", ignoreCase = true) }?.let { folderFor(it) }?.let { g ->
+            val inside = folderChildren(g, type)
+            if (inside.isNotEmpty()) return inside.firstNotNullOfOrNull { it.backdrop } to inside.size
+        }
+        return got.first.firstNotNullOfOrNull { it.backdrop } to got.second
+    }
+
+    /** A folder card's folder (a server of folders), to open as a library. */
+    fun folderFor(item: MediaItem): MediaLibrary? = repo.groupFor(item.key)
+    /** What's in a folder, in the server's order. */
+    suspend fun folderChildren(g: MediaLibrary, type: MediaType): List<MediaItem> =
+        runCatching { repo.libraryPage(g, type, LibraryQuery("order", false), 0, 20_000)?.first }.getOrNull().orEmpty()
 
     private val _browse = MutableStateFlow<LibraryBrowse?>(null)
     val browse = _browse.asStateFlow()

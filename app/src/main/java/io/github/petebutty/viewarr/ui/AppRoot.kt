@@ -316,8 +316,11 @@ fun AppRoot(vm: AppViewModel = hiltViewModel()) {
                     if (io.github.petebutty.viewarr.ui.launcher.Launcher.enabled) androidx.hilt.navigation.compose.hiltViewModel<io.github.petebutty.viewarr.ui.guide.GuideViewModel>()
                     io.github.petebutty.viewarr.ui.launcher.LauncherLifecycle()
                     if (io.github.petebutty.viewarr.ui.launcher.Launcher.enabled && io.github.petebutty.viewarr.ui.launcher.Launcher.home) {
+                        io.github.petebutty.viewarr.ui.launcher.LauncherVoice()
                         // (Its Settings: a page of its own over the home screen, not Viewarr's side menu.)
                         if (io.github.petebutty.viewarr.ui.launcher.Launcher.settingsOpen) io.github.petebutty.viewarr.ui.launcher.LauncherSettings(s.session, vm::signOut)
+                        // (Its Library pages: every library as a tile, and one library's wall of posters.)
+                        else if (io.github.petebutty.viewarr.ui.launcher.LauncherLibrary.open) io.github.petebutty.viewarr.ui.launcher.LauncherLibraryPages()
                         else io.github.petebutty.viewarr.ui.launcher.LauncherHome()
                     }
                     else io.github.petebutty.viewarr.ui.launcher.LauncherVeil { HomeScreen(session = s.session, onSignOut = vm::signOut) }
@@ -334,6 +337,7 @@ fun AppRoot(vm: AppViewModel = hiltViewModel()) {
                 // Over everything: the "update available" pop-up (and the automatic check on start).
                 // A poster's trailer full screen (OK while it plays in the card).
                 io.github.petebutty.viewarr.ui.media.PosterTrailerHost()
+                if (!splashShown && io.github.petebutty.viewarr.ui.launcher.Launcher.enabled) io.github.petebutty.viewarr.ui.launcher.VoiceBarHost(Modifier.align(Alignment.BottomCenter))
                 if (!splashShown) UpdateHost()
                 // Once after an update: a few lines on what's new.
                 if (!splashShown) WhatsNewHost()
