@@ -1,5 +1,6 @@
 package io.github.petebutty.viewarr.ui.library
 
+import io.github.petebutty.viewarr.ui.common.touchFocusable
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusGroup
@@ -43,7 +44,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.tv.material3.Border
 import androidx.tv.material3.ClickableSurfaceDefaults
-import androidx.tv.material3.Surface
+import io.github.petebutty.viewarr.ui.common.Surface
 import androidx.tv.material3.Text
 import io.github.petebutty.viewarr.ui.theme.AppColors
 import kotlinx.coroutines.android.awaitFrame
@@ -113,7 +114,7 @@ internal fun AlphabetRail(
             .background(if (focusedRail) AppColors.Panel.copy(alpha = 0.7f) else Color.Transparent, RoundedCornerShape(14.dp))
             .focusRequester(focusRequester)
             .onFocusChanged { focusedRail = it.isFocused; onFocus(it.isFocused); if (it.isFocused) { jumped = sel; onMove(sel) } }
-            .focusable()
+            .touchFocusable()
             .onPreviewKeyEvent { e ->
                 if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent e.key in setOf(Key.DirectionUp, Key.DirectionDown, Key.DirectionRight)
                 when (e.key) {

@@ -14,4 +14,5 @@
 | [Privacy](PRIVACY.md) | What's stored on the TV and what's sent where |
 | [Controlling Viewarr from outside](AUTOMATION.md) | `viewarr://` links for ADB and home automation |
 | [Home Assistant](HOME-ASSISTANT.md) | What's playing, pop-ups on the TV, and voice / phone control |
+| [Previewarr Mobile (preview)](PREVIEWARR-MOBILE.md) | Viewarr for phones and tablets: installing it, Live TV by finger (swipe for a channel's guide or the groups), films and shows, Streaming, Music, Recordings, Play on TV and Settings |
 | [Previewarr (preview)](PREVIEWARR.md) | The preview app: installing it, the home screen and its tiles, the mini player, live TV in the corner, its simple Settings, and what's different from Viewarr |

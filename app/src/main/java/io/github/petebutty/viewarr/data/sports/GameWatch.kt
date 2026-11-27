@@ -36,6 +36,7 @@ class GameWatch @Inject constructor(
         started = true
         scope.launch {
             while (true) {
+                io.github.petebutty.viewarr.AppVisible.await()
                 runCatching { pull() }.onFailure { android.util.Log.w(TAG, "couldn't read the shared copy: ${it.message}") }
                 kotlinx.coroutines.delay(5 * 60_000L)
             }

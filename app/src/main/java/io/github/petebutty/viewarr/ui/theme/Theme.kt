@@ -53,7 +53,8 @@ data class Palette(val main: Color, val highlight: Color, val transparency: Floa
     val serverPreviews get() = opt(UiOpts.SEEK_PREVIEWS) != 2
     val boxPreviews get() = opt(UiOpts.SEEK_PREVIEWS) == 0 && !lowMemory
     /** Settings → Appearance → Info bar size / Preview cards. */
-    val infoBarScale get() = floatArrayOf(1f, 0.85f, 0.72f, 1.12f)[opt(UiOpts.INFOBAR_SIZE).coerceIn(0, 3)]
+    // (On a touch screen both are drawn bigger, finger-sized: TouchScreen.controls. A TV: unchanged.)
+    val infoBarScale get() = floatArrayOf(1f, 0.85f, 0.72f, 1.12f)[opt(UiOpts.INFOBAR_SIZE).coerceIn(0, 3)] * io.github.petebutty.viewarr.ui.common.TouchScreen.controls
     /** A library poster's width (dp): Small matches the rows' posters. */
     /** Settings → Appearance → Posters → Row cards: wide pictures in the rows instead of posters. */
     val wideRows get() = opt(UiOpts.ROW_CARDS) == 1
@@ -71,7 +72,7 @@ data class Palette(val main: Color, val highlight: Color, val transparency: Floa
     val posterZoom get() = floatArrayOf(1.06f, 1f, 1.12f)[opt(UiOpts.POSTER_ZOOM).coerceIn(0, 2)]
     val cardScale get() = floatArrayOf(1f, 0.8f, 0.65f, 1.15f)[opt(UiOpts.CARD_SIZE).coerceIn(0, 3)]
     /** Player controls (seek bar area and buttons) scale: Medium, Small, Large (the original size). */
-    val controlsScale get() = floatArrayOf(0.8f, 0.65f, 1f)[opt(UiOpts.CONTROLS_SIZE).coerceIn(0, 2)]
+    val controlsScale get() = floatArrayOf(0.8f, 0.65f, 1f)[opt(UiOpts.CONTROLS_SIZE).coerceIn(0, 2)] * io.github.petebutty.viewarr.ui.common.TouchScreen.controls
     val controlsMs get() = longArrayOf(4_000, 3_000, 6_000, 10_000)[opt(UiOpts.CONTROLS_TIME).coerceIn(0, 3)]
     /** Settings → Remote buttons → Live TV → Channel change delay, in milliseconds. */
     val zapDelayMs get() = opt(UiOpts.ZAP_DELAY).coerceIn(0, 20) * 100L
@@ -378,6 +379,8 @@ object UiOpts {
     const val FILM_BACK = "film_back_v2"
     /** Settings → Playback → Films and episodes → Keep playing after Home: Android's own small window over its home screen. */
     const val HOME_WINDOW = "home_window"
+    /** Settings → Troubleshooting → Touch controls: Automatic (a touch screen that isn't a TV), On, Off. See TouchScreen. */
+    const val TOUCH = "touch_controls"
     const val AGE_RATING = "age_rating"
     const val BUTTON_HINTS = "button_hints"
     const val ANIM_FILM = "anim_film"
@@ -528,6 +531,7 @@ object UiOpts {
         AFTER_FILM to listOf("Stay where you were", "Back to live TV"),
         FILM_BACK to listOf("Its own page", "The TV guide and menu"),
         HOME_WINDOW to listOf("Off", "On"),
+        TOUCH to listOf("Automatic", "On", "Off"),
         ANIM_FILM to listOf("On", "Off"),
         PLAY_ORDER to PlayOrder.oldLabels,
         GUIDE_SPAN to listOf("2½ hours", "1½ hours", "2 hours", "3 hours", "4 hours", "6 hours"),

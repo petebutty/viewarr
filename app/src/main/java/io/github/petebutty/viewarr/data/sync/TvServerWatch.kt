@@ -100,6 +100,7 @@ class TvServerWatch @Inject constructor(
         scope.launch {
             delay(60_000)
             while (true) {
+                io.github.petebutty.viewarr.AppVisible.await()
                 val now = System.currentTimeMillis()
                 val settled = lastChange > lastRound && now - lastChange >= SETTLE_MS && now - lastRound >= MIN_GAP_MS
                 if ((now - lastRound >= ROUND_MS || settled) && active()) {

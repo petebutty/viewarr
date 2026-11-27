@@ -1,5 +1,6 @@
 package io.github.petebutty.viewarr.ui.media
 
+import io.github.petebutty.viewarr.ui.common.touchFocusable
 import io.github.petebutty.viewarr.ui.common.glass
 import io.github.petebutty.viewarr.ui.common.trapFocus
 import io.github.petebutty.viewarr.ui.common.EdgeBlocked
@@ -56,7 +57,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.petebutty.viewarr.ui.common.Button
-import androidx.tv.material3.OutlinedButton
+import io.github.petebutty.viewarr.ui.common.OutlinedButton
 import androidx.tv.material3.Text
 import io.github.petebutty.viewarr.data.media.MediaItem
 import io.github.petebutty.viewarr.data.media.MediaType
@@ -495,7 +496,7 @@ internal fun ReviewDialog(r: Review, onClose: () -> Unit) {
         // (Its own scroll, held under the panel's height, moved by Up / Down on the text.)
         Column(
             Modifier.heightIn(max = 380.dp).verticalScroll(scroll)
-                .focusRequester(f).focusable()
+                .focusRequester(f).touchFocusable()
                 .onPreviewKeyEvent { e ->
                     // OK closes when it's let go: closing on the press, the release landed on the review's card and
                     // opened it again.

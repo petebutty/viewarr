@@ -1,5 +1,6 @@
 package io.github.petebutty.viewarr.ui.player
 
+import io.github.petebutty.viewarr.ui.common.tapIsOk
 import io.github.petebutty.viewarr.ui.common.videoBleed
 import android.graphics.Color as AndroidColor
 import android.view.ViewGroup
@@ -138,7 +139,7 @@ fun PlayerLayer(
         onDispose { afrActivity?.let { io.github.petebutty.viewarr.playback.FrameRateMatcher.Live.restore(it) } }
     }
 
-    Box(modifier.background(Color.Black)) {
+    Box(modifier.background(Color.Black).tapIsOk(fullscreen)) {
         AndroidView(
             factory = { ctx ->
                 PlayerView(ctx).apply {

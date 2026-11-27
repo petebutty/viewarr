@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Previewarr Mobile: turns upright or sideways as the phone or tablet is held (the TV builds are always sideways),
+     and keeps music playing with the screen off or in another app (MobileMusicService, a media service with the
+     usual notification and lock-screen controls). -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <application>
+        <activity
+            android:name=".MainActivity"
+            android:screenOrientation="fullUser"
+            tools:replace="android:screenOrientation" />
+        <service
+            android:name="io.github.petebutty.viewarr.playback.MobileMusicService"
+            android:foregroundServiceType="mediaPlayback"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="androidx.media3.session.MediaSessionService" />
+            </intent-filter>
+        </service>
+    </application>
+</manifest>

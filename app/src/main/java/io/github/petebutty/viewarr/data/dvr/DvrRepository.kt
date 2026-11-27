@@ -51,14 +51,17 @@ data class DvrRecording(
     val programEnd: Long? = null,
 )
 
-data class SeriesRule(val tvgId: String, val title: String, val mode: String, val titleMode: String, val epgSourceId: Int?) {
+data class SeriesRule(val tvgId: String, val title: String, val mode: String, val titleMode: String, val epgSourceId: Int?,
+                      /** What the programme's description must say, for a rule that goes by that (its [title] is then empty). */
+                      val description: String = "") {
     /**
      * Its name for people. A plain title as it is; a pattern (the Viewarr plugin's "Record all <team>" rules, written as
      * a search like ((\mvs?\M|@).*\mCeltic\M|…)) as the names in it: "Celtic games" (2026-11-21: the raw
-     * pattern was shown). An empty one: "Any programme".
+     * pattern was shown). A rule that goes by the description, not the title: named from that the same way (it read
+     * "Any programme", as if it recorded everything; 2026-11-26). Neither: "Any programme".
      */
     val label: String get() {
-        val t = title.trim('"', '^', '$').trim()
+        val t = title.trim('"', '^', '$').trim().ifEmpty { description.trim('"', '^', '$').trim() }
         if (t.isEmpty()) return "Any programme"
         if (!Regex("""[\\()|*]""").containsMatchIn(t)) return t
         val names = Regex("""\\m([^\\]+?)\\M""").findAll(t).map { it.groupValues[1].trim() }
@@ -115,7 +118,7 @@ class DvrRepository @Inject constructor(
         val rr = runCatching { http.get("${s.serverUrl}/api/channels/series-rules/", headers(s)) }.getOrNull()
         if (rr?.ok == true) {
             _rules.value = rr.body.array("rules").map {
-                SeriesRule(it.str("tvg_id").orEmpty(), it.str("title").orEmpty(), it.str("mode") ?: "all", it.str("title_mode") ?: "exact", it.int("epg_source_id"))
+                SeriesRule(it.str("tvg_id").orEmpty(), it.str("title").orEmpty(), it.str("mode") ?: "all", it.str("title_mode") ?: "exact", it.int("epg_source_id"), it.str("description").orEmpty())
             }
         }
     }

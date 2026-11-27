@@ -1,5 +1,6 @@
 package io.github.petebutty.viewarr.ui.report
 
+import io.github.petebutty.viewarr.ui.common.typeOnTap
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -77,7 +78,7 @@ fun GuidePickerDialog(channelName: String, vm: ReportsViewModel, allowSkip: Bool
             SearchField(
                 value = query, onValueChange = { query = it }, placeholder = "Search guides", compact = true,
                 readOnly = !editing, listening = voice.listening,
-                modifier = Modifier.weight(1f).height(36.dp).focusRequester(field)
+                modifier = Modifier.weight(1f).height(36.dp).focusRequester(field).typeOnTap { editing = true }
                     .onFocusChanged { if (!it.isFocused) { editing = false; keyboard?.hide() } }
                     .onPreviewKeyEvent { e ->
                         if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
@@ -142,7 +143,7 @@ fun TextEntryDialog(title: String, subtitle: String, placeholder: String, initia
                     editing = false; keyboard?.hide()
                     if (optional || text.isNotBlank()) onDone(text.trim()) else runCatching { done.requestFocus() }
                 }),
-                modifier = Modifier.weight(1f).height(36.dp).focusRequester(field)
+                modifier = Modifier.weight(1f).height(36.dp).focusRequester(field).typeOnTap { editing = true }
                     .onFocusChanged { if (!it.isFocused) { editing = false; keyboard?.hide() } }
                     .onPreviewKeyEvent { e ->
                         if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false

@@ -1,5 +1,6 @@
 package io.github.petebutty.viewarr.ui.settings
 
+import io.github.petebutty.viewarr.ui.common.touchFocusable
 import io.github.petebutty.viewarr.ui.theme.appBackground
 
 import androidx.activity.compose.BackHandler
@@ -42,7 +43,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import androidx.tv.material3.ClickableSurfaceDefaults
-import androidx.tv.material3.Surface
+import io.github.petebutty.viewarr.ui.common.Surface
 import androidx.tv.material3.Text
 import dagger.hilt.android.lifecycle.HiltViewModel
 import io.github.petebutty.viewarr.data.dvr.InstalledPlugin
@@ -150,7 +151,7 @@ fun PluginsSettingsScreen(onBack: () -> Unit, vm: PluginsViewModel = hiltViewMod
                 Text("Settings", fontSize = 14.sp, color = AppColors.Accent, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text("Dispatcharr plugins", fontSize = 30.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, modifier = Modifier.padding(bottom = 20.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 if (ui.loading) Text("Loading…", fontSize = 14.sp, color = AppColors.TextSecondary)
-                ui.problem?.let { Text(it, fontSize = 14.sp, color = AppColors.TextSecondary, modifier = Modifier.focusRequester(firstFocus).focusable()) }
+                ui.problem?.let { Text(it, fontSize = 14.sp, color = AppColors.TextSecondary, modifier = Modifier.focusRequester(firstFocus).touchFocusable()) }
                 if (!ui.loading && ui.problem == null) {
                     Text("Installed", fontSize = 13.sp, color = AppColors.Accent, modifier = Modifier.padding(start = 12.dp, bottom = 4.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
                     LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
@@ -312,17 +313,17 @@ private fun TextFieldRow(p: InstalledPlugin, f: PluginField, value: String, vm: 
     )
 }
 
-private const val MAX_TEXT = 200
+internal const val MAX_TEXT = 200
 private val TIME_WINDOW = Regex("""^([01]?\d|2[0-3]):[0-5]\d\s*-\s*([01]?\d|2[0-3]):[0-5]\d$""")
 
 /** A setting that takes a time window ("HH:MM-HH:MM"): the Viewarr plugin's measuring window, or any with such a default. */
 private fun isTimeWindow(f: PluginField) =
     f.id == "measure_window" || (f.default as? JsonPrimitive)?.content?.let { TIME_WINDOW.matches(it.trim()) } == true
 
-private fun timeWindowHint(f: PluginField) = if (isTimeWindow(f)) "As HH:MM-HH:MM in the server's local time, e.g. 01:00-07:00. Empty: never." else null
+internal fun timeWindowHint(f: PluginField) = if (isTimeWindow(f)) "As HH:MM-HH:MM in the server's local time, e.g. 01:00-07:00. Empty: never." else null
 
 /** Why [typed] can't be saved for [f] (null: fine). Checked here, as Dispatcharr saves plugin settings unchecked. */
-private fun textProblem(f: PluginField, typed: String): String? = when {
+internal fun textProblem(f: PluginField, typed: String): String? = when {
     typed.isEmpty() -> null
     isTimeWindow(f) && !TIME_WINDOW.matches(typed.trim()) -> "Not saved: use HH:MM-HH:MM, e.g. 01:00-07:00."
     f.type == "number" && typed.toDoubleOrNull() == null -> "Not saved: that needs a number."

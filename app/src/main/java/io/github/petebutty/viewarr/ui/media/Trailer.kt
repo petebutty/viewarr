@@ -1,5 +1,6 @@
 package io.github.petebutty.viewarr.ui.media
 
+import io.github.petebutty.viewarr.ui.common.touchFocusable
 import io.github.petebutty.viewarr.ui.common.videoBleed
 import android.view.TextureView
 import androidx.activity.compose.BackHandler
@@ -66,8 +67,16 @@ import kotlinx.coroutines.delay
 import io.github.petebutty.viewarr.data.settings.LocalRemote
 import io.github.petebutty.viewarr.ui.common.BackLayer
 
-/** Small windows don't need more than 480p; less to download and decode on a weak box. */
-private const val PREVIEW_HEIGHT = 480
+/**
+ * Small windows don't need more than 480p; less to download and decode on a weak box. Previewarr's preview fills
+ * the top right of the page (about half the screen's height), where 480p looked soft on a 4K TV: 1080p there, 720p
+ * in low-memory mode (2026-11-26).
+ */
+private val PREVIEW_HEIGHT: Int get() = when {
+    !io.github.petebutty.viewarr.ui.launcher.LauncherLook.on -> 480
+    io.github.petebutty.viewarr.ui.theme.AppColors.palette.heavyExtras -> 1080
+    else -> 720
+}
 
 /** A full-screen trailer is open (the Trailer button): live TV stops for it, as for a film (one stream, one sound). */
 object FullTrailer {
@@ -226,7 +235,7 @@ fun TrailerPlayer(item: MediaItem, trailers: TrailerRepository, onClose: () -> U
                     else -> false
                 }
             }
-            .focusable(),
+            .touchFocusable(),
         contentAlignment = Alignment.Center,
     ) {
         AndroidView(

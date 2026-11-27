@@ -57,7 +57,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import androidx.tv.material3.ClickableSurfaceDefaults
-import androidx.tv.material3.Surface
+import io.github.petebutty.viewarr.ui.common.Surface
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -990,7 +990,12 @@ private fun MusicDetailPage(d: MusicDetail, vm: MusicViewModel, page: String, me
             } else {
                 LazyColumn(Modifier.weight(1f), state = list, contentPadding = PaddingValues(bottom = 110.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     item(key = "hint") { HoldHint(Modifier.padding(start = 12.dp, bottom = 4.dp)) }
-                    val multiDisc = d.songs.mapNotNull { it.disc }.distinct().size > 1
+                    // Disc headings for an album on several discs only: every song says its disc, and they run in order.
+                    // (A playlist's songs come from many albums, some with no disc at all: it showed "Disc 1", "Disc null"
+                    // between them. 2026-11-26.)
+                    val discs = d.songs.map { it.disc }
+                    val multiDisc = discs.none { it == null } && discs.distinct().size > 1 &&
+                        discs.zipWithNext().all { (a, b) -> (b ?: 0) >= (a ?: 0) }
                     itemsIndexed(d.songs, key = { i, s -> "$i:${s.id}" }) { i, s ->
                         Column {
                             if (multiDisc && (i == 0 || d.songs[i - 1].disc != s.disc)) Text(

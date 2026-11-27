@@ -95,6 +95,7 @@ class GuideViewModel @Inject constructor(
         viewModelScope.launch {
             kotlinx.coroutines.delay(30_000)
             while (true) {
+                io.github.petebutty.viewarr.AppVisible.await()
                 if (io.github.petebutty.viewarr.data.media.HomeRows.anyOn()) homeRows.refresh()
                 kotlinx.coroutines.delay(15 * 60_000L)
             }
@@ -529,7 +530,11 @@ class GuideViewModel @Inject constructor(
             // (Settings → Live TV → TV guide refresh).
             sessions.session.filterNotNull().distinctUntilChanged().collectLatest { s ->
                 while (true) {
-                    repo.syncIfStale(s, AppColors.palette.guideRefreshMs)
+                    // Previewarr Mobile: only while it's on screen, and at most twice a day unless set longer (a phone
+                    // isn't plugged in like a TV, and the guide reaches days ahead).
+                    io.github.petebutty.viewarr.AppVisible.await()
+                    val every = AppColors.palette.guideRefreshMs
+                    repo.syncIfStale(s, if (io.github.petebutty.viewarr.BuildConfig.MOBILE && every != null) maxOf(every, 12 * 3_600_000L) else every)
                     delay(15 * 60_000L)
                 }
             }
@@ -599,6 +604,50 @@ class GuideViewModel @Inject constructor(
         }
         ensurePast()
         return _cursor.value.row != before
+    }
+
+    /**
+     * Touch: the highlight straight onto the channel in [row] and the programme on at [time] (where a finger landed).
+     * The timeline stays where it is.
+     */
+    fun touchTo(row: Int, time: Long) {
+        val count = channels.value.size
+        if (count == 0) return
+        val r = row.coerceIn(0, count - 1)
+        val now = _now.value
+        val t0 = time.coerceIn(now - MAX_PAST_MS, now + maxForwardMs())
+        val ws = _cursor.value.windowStart
+        val t = programAt(rowPrograms(r), t0)?.startTime?.let { maxOf(it, ws) } ?: t0
+        _cursor.update { it.copy(row = r, focusTime = t) }
+        ensurePast()
+    }
+
+    /**
+     * Touch: the timeline itself moves [steps] half-hours (later: positive), as a finger drags it. The highlight
+     * stays on its time, and comes along only where it would be left off the edge.
+     */
+    fun touchShift(steps: Int) {
+        val c = _cursor.value
+        val now = _now.value
+        val ws = (c.windowStart + steps * STEP_MS).coerceIn(floorToStep(now - MAX_PAST_MS), floorToStep(now + maxForwardMs()))
+        if (ws == c.windowStart) return
+        val t = c.focusTime.coerceIn(ws, ws + VISIBLE_MS - STEP_MS)
+        _cursor.value = c.copy(focusTime = t, windowStart = ws)
+        ensurePast()
+    }
+
+    /**
+     * Phone and tablet channel list: the programmes loaded for the channels around [row] (the list's place), with the
+     * timeline on now. (The TV guide opened afterwards starts there too.)
+     */
+    fun followList(row: Int) {
+        val now = _now.value
+        _cursor.update { c ->
+            val nowInView = now >= c.windowStart && now < c.windowStart + VISIBLE_MS
+            if (c.row == row && nowInView) c
+            else c.copy(row = row.coerceAtLeast(0), focusTime = if (nowInView) c.focusTime else now,
+                windowStart = if (nowInView) c.windowStart else floorToStep(now))
+        }
     }
 
     fun moveRight() {
@@ -690,7 +739,8 @@ class GuideViewModel @Inject constructor(
     suspend fun channelById(id: Int): ChannelListItem? = allChannelsById()[id]
 
     /** A channel's programmes: back as far as its catch-up goes (else just earlier today), and the next day ahead. */
-    suspend fun programsFor(ch: ChannelListItem): List<GuideProgram> {
+    /** [aheadMs]: how far ahead (the TV's panels: 30 hours; Previewarr Mobile's channel page: the whole guide). */
+    suspend fun programsFor(ch: ChannelListItem, aheadMs: Long = 30 * 3_600_000L): List<GuideProgram> {
         val now = System.currentTimeMillis()
         // Earlier today at least (from midnight, or 6 hours if that's longer), more for catch-up channels.
         val midnight = LocalDate.now().atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
@@ -712,7 +762,7 @@ class GuideViewModel @Inject constructor(
                 withTimeoutOrNull(8_000) { jobs.forEach { it.join() } }
             }
         }
-        return repo.programsFor(ch.id, ch.guideKey, from, now + 30 * 3_600_000L)
+        return repo.programsFor(ch.id, ch.guideKey, from, now + aheadMs)
     }
 
     // A game's channel, remembered for ten minutes (the Sports rows ask each time the live TV controls open).

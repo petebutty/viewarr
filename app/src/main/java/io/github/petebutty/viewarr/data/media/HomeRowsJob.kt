@@ -38,7 +38,9 @@ class HomeRowsJob : JobService() {
     companion object {
         private const val ID = 4120
 
-        fun schedule(context: Context, on: Boolean) {
+        fun schedule(context: Context, on0: Boolean) {
+            // (Android TV's home-screen rows: nothing to do on a phone or tablet.)
+            val on = on0 && !io.github.petebutty.viewarr.BuildConfig.MOBILE
             val js = context.getSystemService(Context.JOB_SCHEDULER_SERVICE) as? JobScheduler ?: return
             val there = js.getPendingJob(ID) != null
             if (!on) { if (there) js.cancel(ID); return }

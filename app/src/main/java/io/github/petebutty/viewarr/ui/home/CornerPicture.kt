@@ -1,5 +1,6 @@
 package io.github.petebutty.viewarr.ui.home
 
+import io.github.petebutty.viewarr.ui.common.touchFocusable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
@@ -88,7 +89,7 @@ internal fun BoxScope.CornerHighlight(
                 onFocused(it.isFocused); arm[0] = false
                 if (it.isFocused) button = 0 else okDown = false
             }
-            .focusable()
+            .touchFocusable()
             .onPreviewKeyEvent { e ->
                 val down = e.type == KeyEventType.KeyDown
                 when (e.key) {

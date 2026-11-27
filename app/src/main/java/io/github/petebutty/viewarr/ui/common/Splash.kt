@@ -74,9 +74,15 @@ fun ViewarrSplash() {
     // (Previewarr: "viewarr" then "pre", done by about 2.3 s. 2026-11-25: first "slow" at 2.5 s, then "a little longer"
     // after 1.7 s. "pre" comes once the app's first busy moments under the splash have passed, which made it jerky.)
     val word = if (io.github.petebutty.viewarr.BuildConfig.LAUNCHER) span(0.8f, 1.3f) else span(1.0f, 1.5f)
-    Box(Modifier.fillMaxSize().background(Color(0xFF0B0D14)), contentAlignment = Alignment.Center) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(36.dp)) {
-            Canvas(Modifier.size(170.dp)) {
+    androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize().background(Color(0xFF0B0D14)), contentAlignment = Alignment.Center) {
+        // Previewarr Mobile: the button big on top and the name under it, sized to the phone's width (2026-11-26:
+        // "a big play button on top and the previewarr name underneath"). The TV builds: side by side, as ever.
+        val mobile = io.github.petebutty.viewarr.BuildConfig.MOBILE
+        val short = minOf(maxWidth, maxHeight)
+        val markSize = if (mobile) short * 0.55f else 170.dp
+        val wordSize = if (mobile) with(androidx.compose.ui.platform.LocalDensity.current) { (short * 0.145f).toSp() } else 80.sp
+        SplashArrangement(mobile) {
+            Canvas(Modifier.size(markSize)) {
                 // The two-tone glow behind the front button: a wide cyan halo, a tighter emerald core.
                 val c = Offset(size.width * 0.32f, size.height / 2f)
                 if (glow > 0f) {
@@ -96,7 +102,7 @@ fun ViewarrSplash() {
             val pre = if (io.github.petebutty.viewarr.BuildConfig.LAUNCHER) span(1.65f, 2.3f) else 0f
             Row(Modifier.graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha; alpha = word; translationX = -(1f - word) * 18.dp.toPx() }) {
                 if (io.github.petebutty.viewarr.BuildConfig.LAUNCHER) Text(
-                    "pre", fontFamily = ViewarrBrand.Font, fontWeight = FontWeight.ExtraBold, fontSize = 80.sp,
+                    "pre", fontFamily = ViewarrBrand.Font, fontWeight = FontWeight.ExtraBold, fontSize = wordSize,
                     letterSpacing = (-0.03).em, color = ViewarrBrand.From, maxLines = 1, softWrap = false,
                     modifier = Modifier
                         .layout { m, c ->
@@ -107,10 +113,17 @@ fun ViewarrSplash() {
                         .graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha; alpha = pre; clip = true },
                 )
                 Text(
-                    "viewarr", fontFamily = ViewarrBrand.Font, fontWeight = FontWeight.ExtraBold, fontSize = 80.sp,
+                    "viewarr", fontFamily = ViewarrBrand.Font, fontWeight = FontWeight.ExtraBold, fontSize = wordSize,
                     letterSpacing = (-0.03).em, color = Color.White, maxLines = 1, softWrap = false,
                 )
             }
         }
     }
+}
+
+/** The splash's mark and name: side by side on a TV, one above the other on a phone or tablet. */
+@Composable
+private fun SplashArrangement(stacked: Boolean, content: @Composable () -> Unit) {
+    if (stacked) androidx.compose.foundation.layout.Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(28.dp)) { content() }
+    else Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(36.dp)) { content() }
 }

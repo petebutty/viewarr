@@ -302,6 +302,7 @@ fun playbackCategories(vm: PlaybackSettingsViewModel = hiltViewModel(), opts: Ui
         SettingCategory(
             "Troubleshooting", "Tools for when something doesn't play right.",
             listOf(
+                optItem(opts, "Touch controls", "On a tablet or phone: tap, long press and swipe work as well as a remote, the players' buttons are drawn finger-sized, and the app fills the screen. Automatic: on when the device has a touch screen and isn't a TV. On or Off: decide yourself, if a device is taken for the wrong kind. A TV box is left exactly as it was.", UiOpts.TOUCH),
                 // Locked and uploaded only on Send; the code it gives is what to share in Discord.
                 SettingItem("Send a report", "Something not working? This sends what Viewarr was doing to the developer, with passwords, keys, addresses and names taken out, and gives you a short code to share in Discord.",
                     listOf(PlainChoice("")), PlainChoice(""), action = { ReportUi.noteMode = false; ReportUi.open = true }, onSelect = {}),

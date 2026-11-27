@@ -1,5 +1,6 @@
 package io.github.petebutty.viewarr.ui.setup
 
+import io.github.petebutty.viewarr.ui.common.typeOnTap
 import io.github.petebutty.viewarr.ui.theme.appBackground
 
 import androidx.compose.foundation.focusGroup
@@ -54,7 +55,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.petebutty.viewarr.ui.common.Button
 import androidx.tv.material3.MaterialTheme
-import androidx.tv.material3.OutlinedButton
+import io.github.petebutty.viewarr.ui.common.OutlinedButton
 import androidx.tv.material3.Text
 import io.github.petebutty.viewarr.data.accounts.Accounts
 import io.github.petebutty.viewarr.data.session.Session
@@ -550,6 +551,7 @@ private fun WizardField(
         readOnly = !editing,
         modifier = (if (focus != null) Modifier.focusRequester(focus) else Modifier)
             .fillMaxWidth()
+            .typeOnTap { editing = true }
             .onFocusChanged { f ->
                 if (f.isFocused && !editing) keyboard?.hide()
                 if (!f.isFocused) editing = false
@@ -605,7 +607,7 @@ private fun summary(a: Accounts, session: Session?): String = SetupItem.entries
     .mapNotNull { item -> statusFor(item, a, session)?.let { "${item.label}: $it" } }
     .joinToString("\n")
 
-private fun titleFor(step: SetupStep, mode: SetupMode) = when (step) {
+internal fun titleFor(step: SetupStep, mode: SetupMode) = when (step) {
     SetupStep.Phone -> if (mode == SetupMode.Manage) "Set up on your phone" else "Welcome to Viewarr"
     SetupStep.Welcome -> "Welcome"
     SetupStep.Choose -> if (mode == SetupMode.Manage) "Accounts & sources" else "Set up Viewarr"
@@ -625,7 +627,7 @@ private fun titleFor(step: SetupStep, mode: SetupMode) = when (step) {
     SetupStep.Done -> "You're all set"
 }
 
-private fun bodyFor(state: SetupUiState) = when (state.step) {
+internal fun bodyFor(state: SetupUiState) = when (state.step) {
     SetupStep.Phone -> "Scan the code to set everything up on your phone: live TV, films and shows, and the accounts that go with them. " +
         "Typing passwords and links there is much easier than with the remote."
     SetupStep.Welcome -> "Let's connect this TV to your services. It only takes a few minutes."

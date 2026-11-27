@@ -115,6 +115,7 @@ class ServerSports @Inject constructor(
         started = true
         scope.launch {
             while (true) {
+                io.github.petebutty.viewarr.AppVisible.await()
                 runCatching { refresh() }.onFailure { Log.w(TAG, "couldn't read: ${it.message}") }
                 delay(120_000)
             }

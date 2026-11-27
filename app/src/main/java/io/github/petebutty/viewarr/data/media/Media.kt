@@ -36,7 +36,15 @@ data class MediaItem(
     val addonType: String? = null,
     /** Continue watching: when you last watched it (ms; null: not known), for "most recent first". */
     val lastWatchedAt: Long? = null,
+    /** In a library's wall of posters: what your server says about you and this title (null: it doesn't say). */
+    val marks: Marks? = null,
 )
+
+/**
+ * A title's marks on a library's wall: [watched] (a film seen, a show with nothing left), [started] 0..1 through a
+ * film you've begun, [unwatched] episodes left of a show, and [addedAt] when it came to the library (seconds).
+ */
+data class Marks(val watched: Boolean = false, val started: Float? = null, val unwatched: Int? = null, val addedAt: Long? = null)
 
 data class EpisodeInfo(
     val season: Int,

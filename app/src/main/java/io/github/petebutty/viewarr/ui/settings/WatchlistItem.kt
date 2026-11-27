@@ -26,6 +26,9 @@ class WatchlistViewModel @Inject constructor(
     fun choices(a: Accounts) = repo.watchlistChoices(a)
     fun current(a: Accounts) = repo.watchlistSource(a)
 
+    /** A watchlist picked by name (the phone's list of choices). */
+    fun set(id: String) = viewModelScope.launch { store.update { it.copy(watchlist = id) } }
+
     /** OK: the next connected watchlist. */
     fun next() = viewModelScope.launch {
         val a = store.current()

@@ -26,7 +26,7 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.ClickableSurfaceDefaults
-import androidx.tv.material3.Surface
+import io.github.petebutty.viewarr.ui.common.Surface
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import io.github.petebutty.viewarr.ui.theme.AppColors

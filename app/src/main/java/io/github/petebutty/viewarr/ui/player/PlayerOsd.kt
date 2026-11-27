@@ -1,5 +1,6 @@
 package io.github.petebutty.viewarr.ui.player
 
+import io.github.petebutty.viewarr.ui.common.touchFocusable
 import io.github.petebutty.viewarr.ui.common.glass
 import androidx.compose.foundation.horizontalScroll
 import io.github.petebutty.viewarr.ui.common.popupScroll
@@ -281,7 +282,7 @@ fun PlayerOsd(
                         fun jump() { rewindTo?.let { keepBar = true; vm.rewindLiveTo(it) }; rewindTo = null }
                         LaunchedEffect(rewindTo) { if (rewindTo != null) { delay(2_500); jump() } }
                         Column(
-                            Modifier.focusRequester(barFocus).onFocusChanged { barOn = it.isFocused; if (!it.isFocused) rewindTo = null }.focusable().onPreviewKeyEvent { e ->
+                            Modifier.focusRequester(barFocus).onFocusChanged { barOn = it.isFocused; if (!it.isFocused) rewindTo = null }.touchFocusable().onPreviewKeyEvent { e ->
                                 if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                                 val step = if (e.nativeKeyEvent.repeatCount >= 4) seekStep * 4 else seekStep
                                 when (e.key) {
@@ -701,7 +702,7 @@ private fun SeekBar(
         modifier
             .fillMaxWidth()
             .onFocusChanged { focused = it.isFocused }
-            .focusable()
+            .touchFocusable()
             .onPreviewKeyEvent { e ->
                 if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 val step = if (e.nativeKeyEvent.repeatCount >= 4) seekMs * 4 else seekMs
@@ -769,7 +770,7 @@ private fun OptionPopup(
     ) {
         Text(title, fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(start = 12.dp, top = 4.dp, bottom = 4.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
         if (options.isEmpty()) {
-            Text(emptyText, fontSize = 13.sp, color = Color.White, modifier = Modifier.padding(12.dp).focusRequester(focus).focusable())
+            Text(emptyText, fontSize = 13.sp, color = Color.White, modifier = Modifier.padding(12.dp).focusRequester(focus).touchFocusable())
         }
         val selectedIndex = options.indexOfFirst { it.second }.coerceAtLeast(0)
         // (Scrolls inside the pop-up: long lists stay reachable, see popupScroll.)

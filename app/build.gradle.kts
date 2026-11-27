@@ -25,8 +25,8 @@ android {
         applicationId = "io.github.petebutty.viewarr"
         minSdk = 26
         targetSdk = 34
-        versionCode = 72
-        versionName = "0.29.9.6"
+        versionCode = 73
+        versionName = "0.29.9.7"
         // Trakt device login needs a client id from your own Trakt app (trakt.tv/oauth/applications). Blank = no Trakt.
         // Android TV boxes are ARM; leaving out x86 keeps the APK smaller.
         ndk { abiFilters += listOf("armeabi-v7a", "arm64-v8a") }
@@ -44,6 +44,7 @@ android {
             dimension = "app"
             resValue("string", "app_name", "Viewarr")
             buildConfigField("boolean", "LAUNCHER", "false")
+            buildConfigField("boolean", "MOBILE", "false")
             buildConfigField("String", "LINK_SCHEME", "\"viewarr\"")
             manifestPlaceholders["linkScheme"] = "viewarr"
         }
@@ -57,10 +58,29 @@ android {
             versionCode = (defaultConfig.versionCode ?: 0) * 100 + 1
             resValue("string", "app_name", "Previewarr")
             buildConfigField("boolean", "LAUNCHER", "true")
+            buildConfigField("boolean", "MOBILE", "false")
             buildConfigField("String", "LINK_SCHEME", "\"viewarrl\"")
             manifestPlaceholders["linkScheme"] = "viewarrl"
         }
+        // Previewarr Mobile (2026-11-26): Previewarr for phones and tablets, its own app beside it. The same live TV,
+        // guide, players and libraries; its own screens, made for fingers (ui/mobile), upright or sideways. The TV
+        // Previewarr never shows them. Version numbers: Viewarr's × 100 plus its own build count, as Previewarr's.
+        create("mobile") {
+            dimension = "app"
+            applicationIdSuffix = ".mobile"
+            versionNameSuffix = "-mobile"
+            versionCode = (defaultConfig.versionCode ?: 0) * 100 + 1
+            resValue("string", "app_name", "Previewarr Mobile")
+            buildConfigField("boolean", "LAUNCHER", "true")
+            buildConfigField("boolean", "MOBILE", "true")
+            buildConfigField("String", "LINK_SCHEME", "\"viewarrm\"")
+            manifestPlaceholders["linkScheme"] = "viewarrm"
+        }
     }
+
+    // Previewarr Mobile uses Previewarr's icon and pictures (app/src/launcher), with its own manifest changes on top.
+    sourceSets["mobile"].res.srcDirs("src/launcher/res")
+    sourceSets["mobile"].assets.srcDirs("src/launcher/assets")
 
     signingConfigs {
         if (keystore.getProperty("storeFile") != null) {
@@ -135,6 +155,8 @@ dependencies {
     implementation(libs.media3.ui)
     implementation(libs.media3.hls)
     implementation(libs.media3.dash)
+    // Previewarr Mobile only: music keeps playing with the screen off or in another app (a media service).
+    "mobileImplementation"(libs.media3.session)
     // NewPipe Extractor (GPL-3.0): finds the playable video behind a YouTube trailer link.
     implementation(libs.newpipe.extractor)
     coreLibraryDesugaring(libs.desugar.nio)

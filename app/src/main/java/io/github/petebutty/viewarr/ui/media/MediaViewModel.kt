@@ -1073,6 +1073,52 @@ class MediaViewModel @Inject constructor(
         return got.first.firstNotNullOfOrNull { it.backdrop } to got.second
     }
 
+    // Several libraries as one wall (Previewarr's Library page, MergedList): each read in its own A to Z order.
+    /** What [lib] can be sorted and filtered by (null: no answer). */
+    suspend fun libraryOptionsOf(lib: MediaLibrary, type: MediaType): LibraryOptions? = runCatching { repo.libraryOptions(lib, type) }.getOrNull()
+    /** A filter's choices in [lib]. */
+    suspend fun libraryFilterValues(lib: MediaLibrary, type: MediaType, group: String): List<FilterValue> =
+        runCatching { repo.filterValues(lib, type, group) }.getOrDefault(emptyList())
+    /** [size] titles of [lib] from [start], as [q] asks, and how many match in all (null: no answer). */
+    suspend fun libraryStretch(lib: MediaLibrary, type: MediaType, q: LibraryQuery, start: Int, size: Int): Pair<List<MediaItem>, Int>? =
+        runCatching { repo.libraryPage(lib, type, q, start, size) }.getOrNull()
+    /** Where [letter] starts in [lib] in A to Z order (null: this server can't say). */
+    suspend fun libraryLetterStart(lib: MediaLibrary, type: MediaType, q: LibraryQuery, letter: Char): Int? =
+        runCatching { repo.letterStart(lib, type, q, letter) }.getOrNull()
+
+    /** A film on a library's wall marked watched or not (hold OK there), everywhere it is; [done] with what to say, null if it failed. */
+    fun markWatched(item: MediaItem, watched: Boolean, done: (String?) -> Unit) {
+        viewModelScope.launch {
+            val copies = runCatching { repo.copiesOf(item) }.getOrDefault(emptyList())
+            val saved = saveWatched(item, copies, watched, onIptv = copies.any { it.source == PROVIDER } || item.origin == "IPTV")
+            if (saved.ok && watched) dropFromContinue(item)
+            done(if (saved.ok) markedMessage(watched, saved.where, item.title) + "." else null)
+        }
+    }
+
+    /**
+     * The open title's page changed for another picked by [pick] (Previewarr's Surprise me → Another one): one of the
+     * same kind that isn't this one, in its place (not a page on top of it, so Back still leaves in one press).
+     */
+    fun anotherTitle(pick: suspend () -> MediaItem?) {
+        val now = _detail.value?.detail?.item ?: return
+        viewModelScope.launch {
+            repeat(4) {
+                val next = runCatching { pick() }.getOrNull() ?: return@launch
+                if (next.type == now.type && next.key != now.key) { showDetail(next); return@launch }
+            }
+        }
+    }
+
+    /** A title's details for the wall's info card (cast, genres, runtime…); null: no answer. */
+    suspend fun cardDetail(item: MediaItem): MediaDetail? = runCatching { repo.detail(item) }.getOrNull()
+
+    /** The open library in [sort] order, [desc] or not (the wall's one-press views: Recently added, Top rated). */
+    fun setLibraryView(sort: String, desc: Boolean) {
+        val b = _browse.value ?: return
+        if (b.query.sort != sort || b.query.desc != desc) reload(b.copy(query = b.query.copy(sort = sort, desc = desc)))
+    }
+
     /** A folder card's folder (a server of folders), to open as a library. */
     fun folderFor(item: MediaItem): MediaLibrary? = repo.groupFor(item.key)
     /** What's in a folder, in the server's order. */
@@ -1660,6 +1706,22 @@ class MediaViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Play on TV (from Previewarr Mobile): the title's page opened and started once it has loaded: a film's Play, a
+     * show's [season] / [episode] (or its next episode).
+     */
+    fun openAndPlay(item: MediaItem, season: Int?, episode: Int?) {
+        open(item)
+        viewModelScope.launch {
+            // (Its full details first: open() puts up a bare page at once, and playing from that missed the title's ids.)
+            kotlinx.coroutines.withTimeoutOrNull(30_000) { _detail.first { it?.detail?.item?.key == item.key && !it.loading } } ?: return@launch
+            if (item.type != MediaType.Show) return@launch playBest()
+            if (season != null && episode != null) return@launch playBestEpisode(season, episode)
+            kotlinx.coroutines.withTimeoutOrNull(15_000) { _detail.first { it == null || it.detail.item.key != item.key || it.seasons.isNotEmpty() } }
+            playNextUp()
+        }
+    }
+
     /** The "Play S2 E4" button on a show from continue watching. */
     fun playNextUp() {
         val d = _detail.value ?: return
@@ -1679,29 +1741,57 @@ class MediaViewModel @Inject constructor(
         val title = "${item.title} · S$season · E$episode"
         val watch = watchTarget(item, season, episode)
         launchPlay {
-            // Only the home Plex copies so far (copiesPartial): the full list first, so your other servers and IPTV
-            // are in the running too.
-            val d = if (!d.copiesPartial) d else kotlinx.coroutines.withTimeoutOrNull(25_000) {
-                _detail.first { it == null || it.detail.item.key != item.key || !it.copiesPartial }
-            }?.takeIf { it.detail.item.key == item.key } ?: d
+            // (Previewarr Mobile: something on screen at once, while the sources are still being asked.)
+            if (io.github.petebutty.viewarr.BuildConfig.MOBILE) _detail.update { it?.copy(message = "Finding S$season · E$episode…") }
+            // Your copies: pressed before any server had answered, wait for them (it went straight past your servers to
+            // IPTV and addons). A home Plex copy that answered first plays at once when Play order puts home Plex
+            // first (as a film's Play does): the far servers aren't waited for. Otherwise the full list first, so your
+            // other servers and IPTV are in the running too. (2026-11-27: an episode waited up to 25 s with a home copy.)
+            val homeFirst = PlayOrder.current().firstOrNull() == PlayOrder.Source.HomePlex
+            var d = when {
+                d.copies == null -> kotlinx.coroutines.withTimeoutOrNull(25_000) {
+                    _detail.first { it == null || it.detail.item.key != item.key || (it.copies != null && (!it.copiesPartial || homeFirst)) }
+                }?.takeIf { it.detail.item.key == item.key } ?: d
+                !d.copiesPartial || homeFirst -> d
+                else -> kotlinx.coroutines.withTimeoutOrNull(25_000) {
+                    _detail.first { it == null || it.detail.item.key != item.key || !it.copiesPartial }
+                }?.takeIf { it.detail.item.key == item.key } ?: d
+            }
             data class Try(val label: String, val place: PlayOrder.Source, val get: suspend () -> VodStream?)
             val tries = ArrayList<Try>()
-            // Every Plex server that has the show (home first, as the copies are sorted), each with its own episode list.
-            d.copies.orEmpty().filter { it.source == "Plex" && it.ref != null }.forEachIndexed { i, c ->
-                val eps = if (i == 0) d.plexEpisodes.ifEmpty { runCatching { repo.plexEpisodes(c.ref!!) }.getOrNull().orEmpty() }
-                else runCatching { repo.plexEpisodes(c.ref!!) }.getOrNull().orEmpty()
-                eps[season to episode]?.ratingKey?.let { rk ->
-                    tries += Try(copyLabel(c), PlayOrder.placeOf(true, runCatching { repo.isHomeCopy(c) }.getOrDefault(false))) { repo.plexStream(rk, watch)?.copy(title = title) }
+            val tried = HashSet<String>()
+            suspend fun buildTries() {
+                tries.clear()
+                // Every Plex server that has the show (home first, as the copies are sorted), each with its own episode list.
+                d.copies.orEmpty().filter { it.source == "Plex" && it.ref != null }.forEachIndexed { i, c ->
+                    val eps = if (i == 0) d.plexEpisodes.ifEmpty { runCatching { repo.plexEpisodes(c.ref!!) }.getOrNull().orEmpty() }
+                    else runCatching { repo.plexEpisodes(c.ref!!) }.getOrNull().orEmpty()
+                    eps[season to episode]?.ratingKey?.let { rk ->
+                        tries += Try(copyLabel(c), PlayOrder.placeOf(true, runCatching { repo.isHomeCopy(c) }.getOrDefault(false))) { repo.plexStream(rk, watch)?.copy(title = title) }
+                    }
+                }
+                serverCopy(d)?.let { c ->
+                    d.serverEpisodes[season to episode]?.ratingKey?.let { id ->
+                        tries += Try(c.source, PlayOrder.placeOf(false, runCatching { repo.isHomeCopy(c) }.getOrDefault(false))) { repo.serverStream(c.source, id, title, watch) }
+                    }
                 }
             }
-            serverCopy(d)?.let { c ->
-                d.serverEpisodes[season to episode]?.ratingKey?.let { id ->
-                    tries += Try(c.source, PlayOrder.placeOf(false, runCatching { repo.isHomeCopy(c) }.getOrDefault(false))) { repo.serverStream(c.source, id, title, watch) }
-                }
+            buildTries()
+            // Started on the home copy alone: past it (it didn't play, or isn't first), the rest of your servers, IPTV and
+            // the addons are waited for then, and tried in Play order (home, then far servers, then the rest).
+            suspend fun ensureFull() {
+                if (!d.copiesPartial) return
+                d = kotlinx.coroutines.withTimeoutOrNull(25_000) {
+                    _detail.first { it == null || it.detail.item.key != item.key || !it.copiesPartial }
+                }?.takeIf { it.detail.item.key == item.key } ?: return
+                buildTries()
             }
             // Each source in the order set in Settings → Playback → Play order (true: done, playing or a list to pick from).
             suspend fun servers(place: PlayOrder.Source): Boolean {
-                for (t in tries.filter { it.place == place }) {
+                if (place != PlayOrder.Source.HomePlex) ensureFull()
+                // (A home copy that only turned up in the full list is still tried first.)
+                val places = if (place != PlayOrder.Source.HomePlex && homeFirst) listOf(PlayOrder.Source.HomePlex, place) else listOf(place)
+                for (t in places.flatMap { p -> tries.filter { it.place == p } }.filter { tried.add(it.label + "|" + it.place) }) {
                     _detail.update { it?.copy(message = "Opening S$season · E$episode on ${t.label}…") }
                     val stream = kotlinx.coroutines.withTimeoutOrNull(20_000) { runCatching { t.get() }.getOrNull() }
                     kotlinx.coroutines.currentCoroutineContext().ensureActive()
@@ -1710,6 +1800,7 @@ class MediaViewModel @Inject constructor(
                 return false
             }
             suspend fun addons(): Boolean {
+                ensureFull()
                 if (!d.hasAddons || (item.imdbId == null && !repo.isAddonOwnTitle(item))) return false
                 _detail.update { it?.copy(searching = true, message = "Looking in your addons for S$season · E$episode…") }
                 val found = kotlinx.coroutines.withTimeoutOrNull(30_000) { rank(runCatching { repo.addonStreams(item, season, episode) }.getOrDefault(emptyList())) }.orEmpty()
@@ -1726,6 +1817,7 @@ class MediaViewModel @Inject constructor(
                 return true
             }
             suspend fun iptv(): Boolean {
+                ensureFull()
                 if ((season to episode) !in d.providerEpisodes) return false
                 // (The searches above swallow their errors, cancelling included: check this request is still wanted.)
                 kotlinx.coroutines.currentCoroutineContext().ensureActive()

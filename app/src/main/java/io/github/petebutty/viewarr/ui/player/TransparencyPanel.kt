@@ -1,5 +1,6 @@
 package io.github.petebutty.viewarr.ui.player
 
+import io.github.petebutty.viewarr.ui.common.touchFocusable
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -93,7 +94,7 @@ fun TransparencyPanel(onClose: () -> Unit, onRow: (Int) -> Unit = {},
             Modifier.fillMaxHeight().width(440.dp)
                 // (Drawn in the glass's own colour, so a new one shows straight away.)
                 .background(AppColors.MenuPanel)
-                .focusRequester(focus).focusable()
+                .focusRequester(focus).touchFocusable()
                 .onPreviewKeyEvent { e ->
                     if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent e.key != Key.Back
                     when (e.key) {

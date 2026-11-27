@@ -1,5 +1,6 @@
 package io.github.petebutty.viewarr.ui.settings
 
+import io.github.petebutty.viewarr.ui.common.touchFocusable
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
@@ -246,7 +247,7 @@ private fun TeachButtonDialog(
             androidx.compose.ui.Modifier.align(androidx.compose.ui.Alignment.Center).width(io.github.petebutty.viewarr.ui.theme.Tokens.PopupWide)
                 .glass(io.github.petebutty.viewarr.ui.theme.Tokens.PopupRadius)
                 .padding(26.dp)
-                .focusRequester(f).focusable()
+                .focusRequester(f).touchFocusable()
                 .onPreviewKeyEvent { e ->
                     // Act on the press; its release (and repeats) do nothing.
                     if (e.type != androidx.compose.ui.input.key.KeyEventType.KeyDown || e.nativeKeyEvent.repeatCount > 0) return@onPreviewKeyEvent true
@@ -296,7 +297,7 @@ private fun LearnButtonDialog(onKey: (Int) -> Unit, onCancel: () -> Unit) {
             androidx.compose.ui.Modifier.align(androidx.compose.ui.Alignment.Center).width(io.github.petebutty.viewarr.ui.theme.Tokens.PopupWide)
                 .glass(io.github.petebutty.viewarr.ui.theme.Tokens.PopupRadius)
                 .padding(26.dp)
-                .focusRequester(f).focusable()
+                .focusRequester(f).touchFocusable()
                 .onPreviewKeyEvent { e ->
                     if (e.type != androidx.compose.ui.input.key.KeyEventType.KeyDown) return@onPreviewKeyEvent true
                     val code = e.nativeKeyEvent.keyCode

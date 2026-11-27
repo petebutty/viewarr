@@ -35,7 +35,7 @@ import androidx.compose.foundation.layout.size
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.tv.material3.ClickableSurfaceDefaults
-import androidx.tv.material3.Surface
+import io.github.petebutty.viewarr.ui.common.Surface
 import androidx.tv.material3.Text
 import io.github.petebutty.viewarr.ui.common.MenuItem
 import io.github.petebutty.viewarr.data.media.MediaType

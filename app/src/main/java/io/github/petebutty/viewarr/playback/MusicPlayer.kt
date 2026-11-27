@@ -88,6 +88,8 @@ object MusicPlayer {
             }.setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON))
             .setMediaSourceFactory(DefaultMediaSourceFactory(io.github.petebutty.viewarr.data.net.reachOf(http)))
             .setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(), true)
+            // Previewarr Mobile: keeps streaming with the screen off, and pauses when headphones come out.
+            .apply { if (io.github.petebutty.viewarr.BuildConfig.MOBILE) { setWakeMode(C.WAKE_MODE_NETWORK); setHandleAudioBecomingNoisy(true) } }
             .build().also { p ->
                 p.addListener(object : Player.Listener {
                     override fun onIsPlayingChanged(playing: Boolean) {
@@ -125,18 +127,34 @@ object MusicPlayer {
             }
     }
 
+    /** The player itself (made if need be): Previewarr Mobile's background music service wraps it. */
+    fun playerFor(context: Context): ExoPlayer = ensure(context)
+
+    /**
+     * Previewarr Mobile: the background music service (MobileMusicService, mobile builds only), so music carries on
+     * with the screen off or another app open. Started by name: the TV builds don't have it.
+     */
+    private fun startService(context: Context) {
+        if (!io.github.petebutty.viewarr.BuildConfig.MOBILE) return
+        runCatching { context.startService(android.content.Intent().setClassName(context.packageName, "io.github.petebutty.viewarr.playback.MobileMusicService")) }
+            .onFailure { android.util.Log.w("MusicPlayer", "music service not started: ${it.message}") }
+    }
+
     /** Plays [songs] from [start]; [shuffled] turns shuffle on (starting from a random track); [radio]: keep adding songs. */
     fun play(context: Context, songs: List<Song>, start: Int = 0, shuffled: Boolean = false, radio: Boolean = false) {
         if (songs.isEmpty()) return
         io.github.petebutty.viewarr.ui.media.VodHost.close()
         val p = ensure(context)
+        startService(context.applicationContext)
         error = null
         failures = 0
         queue = songs
         this.radio = radio
         val items = songs.map { s ->
             MediaItem.Builder().setMediaId(s.id).setUri(s.streamUrl).setMediaMetadata(
-                MediaMetadata.Builder().setTitle(s.title).setArtist(s.artist).setAlbumTitle(s.album).build(),
+                MediaMetadata.Builder().setTitle(s.title).setArtist(s.artist).setAlbumTitle(s.album)
+                    // (The cover on the phone's music notification and lock screen.)
+                    .apply { s.art?.large?.let { setArtworkUri(android.net.Uri.parse(it)) } }.build(),
             ).build()
         }
         p.shuffleModeEnabled = shuffled

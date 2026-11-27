@@ -54,6 +54,7 @@ class TvGameRecorder @Inject constructor(
         started = true
         scope.launch {
             while (true) {
+                io.github.petebutty.viewarr.AppVisible.await()
                 runCatching { check("every 15 minutes") }.onFailure { Log.w(TAG, "check failed: ${it.message}") }
                 delay(15 * 60_000L)
             }

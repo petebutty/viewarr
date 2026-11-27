@@ -1,5 +1,6 @@
 package io.github.petebutty.viewarr.ui.settings
 
+import io.github.petebutty.viewarr.ui.common.typeOnTap
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -281,7 +282,7 @@ fun SportsSettingsScreen(onBack: () -> Unit, vm: SportsViewModel = hiltViewModel
                     value = query, onValueChange = { query = it; browsed = null; vm.search(it) },
                     label = { androidx.compose.material3.Text("Search a team, league or sport (e.g. Celtic, Premier League, golf)") },
                     singleLine = true, readOnly = !editing,
-                    modifier = Modifier.fillMaxWidth().focusRequester(searchFocus).downTo { firstPill }
+                    modifier = Modifier.fillMaxWidth().focusRequester(searchFocus).downTo { firstPill }.typeOnTap { editing = true }
                         .onFocusChanged { if (!it.isFocused) { editing = false; keyboard?.hide() } }
                         .onPreviewKeyEvent { e ->
                             if (e.type != androidx.compose.ui.input.key.KeyEventType.KeyDown) return@onPreviewKeyEvent false

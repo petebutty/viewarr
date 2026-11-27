@@ -99,7 +99,7 @@ fun GuideShiftDialog(channel: ChannelListItem, vm: GuideViewModel, onToast: (Str
 /** −10 h … +10 h, filled from the middle (no offset) towards the side it's moved to; Left / Right: 30 minutes. */
 @Composable
 private fun ShiftSlider(min: Int, onChange: (Int) -> Unit, modifier: Modifier, onOk: () -> Unit) {
-    androidx.tv.material3.Surface(
+    io.github.petebutty.viewarr.ui.common.Surface(
         onClick = onOk,
         modifier = modifier.fillMaxWidth().onPreviewKeyEvent { e ->
             if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent e.key == Key.DirectionLeft || e.key == Key.DirectionRight

@@ -1,5 +1,35 @@
 # Viewarr changelog (built by tools/changelog.py from the GitHub releases; don't edit by hand)
 
+## 0.29.9.7 · 27 Nov 2026
+
+Viewarr 0.29.9.7: touch screens, faster episodes from your own server, and the first preview of **Previewarr Mobile** for phones and tablets.
+
+### Touch screens
+- On a tablet or a touch-screen box, Viewarr now answers a finger: tap to choose, swipe to move, long press for the hold-OK menu, type into boxes with the on-screen keyboard
+- TV guide by finger: drag to move the guide (channels up and down, times left and right), tap a programme to pick it, tap it again to watch
+- Settings → Playback → Troubleshooting → **Touch controls**: Automatic (as standard: on only where there's a touch screen and no TV remote), On or Off. TV boxes stay exactly as they were
+
+### Films and shows
+- Episodes start sooner: a copy on a Plex server in your house plays straight away, without waiting for your other servers, IPTV and addons to answer (as a film's Play already did); if it can't play, your servers outside the house come next, then the rest in Play order
+- Pressing an episode before your servers had answered skipped them and went to IPTV and addons: it now waits for them
+- Fix: pressing OK on the next-episode countdown made the "play from" menu flash up and the release could land on it
+- Fix: the credits pill no longer comes back once the next episode is on its way
+
+### Live TV
+- Rewinding live TV with the Viewarr plugin: the app tells the plugin about a channel change within a quarter of a second, so its buffer lets go of your provider's line before the next channel needs it
+
+### Previewarr (preview)
+- **Play on TV**: Previewarr Mobile on a phone can send a channel, film, episode or recording to Previewarr on a TV on the same Wi-Fi (only from a phone signed in to the same Dispatcharr account)
+- Library: join libraries into one tile (hold OK on a tile → Merge with…), and posters show a tick once watched, episodes left, NEW for a week and how far you got
+
+### New: Previewarr Mobile (preview)
+- Previewarr for phones and tablets, made for fingers: Live TV as big channel cards (swipe one left for its guide, right for the channel groups), a channel page with the picture upright and full screen when you turn the phone, Films and Shows with big posters and search, a Streaming tab with your services, Music with a now-playing bar that keeps playing with the screen off, Recordings, and Settings redone for a phone
+- Record from a channel's schedule, and send what you're watching to a TV with Play on TV
+- A separate download for phones and tablets: https://github.com/petebutty/previewarr-mobile/releases
+- Easy on the battery: nothing refreshes while it's off screen
+
+Previewarr is a separate download: Downloader code **6733457**, or https://github.com/petebutty/previewarr/releases
+
 ## 0.29.9.6 · 26 Nov 2026
 
 Viewarr 0.29.9.6: Home stops what's playing unless you ask for the small window, and the guide's details use the full width with Next and Then off.

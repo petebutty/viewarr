@@ -23,7 +23,7 @@ fun Button(
 ) = androidx.tv.material3.Button(
     onClick = if (onLongClick != null) HeldOk.guard(onClick) else onClick,
     onLongClick = onLongClick,
-    modifier = modifier,
+    modifier = modifier.tap(enabled, onLongClick, onClick),
     enabled = enabled,
     contentPadding = if (compact) androidx.compose.foundation.layout.PaddingValues(start = 14.dp, end = 18.dp, top = 5.dp, bottom = 5.dp) else ButtonDefaults.ContentPadding,
     colors = ButtonDefaults.colors(

@@ -1,5 +1,6 @@
 package io.github.petebutty.viewarr.ui.settings
 
+import io.github.petebutty.viewarr.ui.common.typeOnTap
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.ui.input.key.type
@@ -111,7 +112,7 @@ fun ReportScreen(onClose: () -> Unit) {
                     cursorBrush = androidx.compose.ui.graphics.SolidColor(AppColors.Accent),
                     textStyle = androidx.compose.ui.text.TextStyle(fontSize = 15.sp, color = AppColors.TextPrimary),
                     readOnly = !editing,
-                    modifier = Modifier.fillMaxWidth().focusRequester(noteField)
+                    modifier = Modifier.fillMaxWidth().focusRequester(noteField).typeOnTap { editing = true }
                         .onFocusChanged { if (!it.isFocused) { editing = false; keyboard?.hide() } }
                         .onPreviewKeyEvent { e ->
                             if (e.type != androidx.compose.ui.input.key.KeyEventType.KeyDown) return@onPreviewKeyEvent false

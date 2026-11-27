@@ -16,7 +16,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.tv.material3.Border
 import androidx.tv.material3.ClickableSurfaceDefaults
-import androidx.tv.material3.Surface
 import io.github.petebutty.viewarr.ui.theme.AppColors
 import io.github.petebutty.viewarr.ui.theme.NoScale
 import io.github.petebutty.viewarr.ui.theme.Tokens

@@ -1,5 +1,6 @@
 package io.github.petebutty.viewarr.ui.home
 
+import io.github.petebutty.viewarr.ui.common.touchFocusable
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -187,7 +188,7 @@ internal fun GamePageHost(hub: SportsHub, besidePreview: Boolean) {
             Spacer(Modifier.height(16.dp))
             // The details: Down into them, Up / Down scroll, Up at the top back to the buttons.
             Box(
-                Modifier.fillMaxWidth().weight(1f).focusRequester(detailsFocus).onFocusChanged { detailsFocused = it.isFocused }.focusable()
+                Modifier.fillMaxWidth().weight(1f).focusRequester(detailsFocus).onFocusChanged { detailsFocused = it.isFocused }.touchFocusable()
                     // (Outlined while you're in the details, so you can see where you are.)
                     .then(if (detailsFocused) Modifier.border(2.dp, AppColors.Accent, RoundedCornerShape(10.dp)).padding(10.dp) else Modifier.padding(10.dp))
                     .onPreviewKeyEvent { e ->

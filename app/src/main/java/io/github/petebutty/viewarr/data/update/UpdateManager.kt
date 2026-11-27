@@ -43,8 +43,13 @@ import javax.inject.Singleton
 private const val TAG = "Updates"
 // (Previewarr's downloads have their own repository, petebutty/previewarr: Viewarr 0.29.9.4 and older took the first
 // file of a release, alphabetically, so Previewarr's files can't sit in Viewarr's releases. 2026-11-25.)
-private val RELEASES_URL = if (BuildConfig.LAUNCHER) "https://api.github.com/repos/petebutty/previewarr/releases?per_page=30"
-    else "https://api.github.com/repos/petebutty/viewarr/releases?per_page=30"
+// (Previewarr Mobile: its own, petebutty/previewarr-mobile, and only its own previewarr-mobile-<version>.apk: the TV
+// Previewarr's file is another app and can't update it. 2026-11-26.)
+private val RELEASES_URL = when {
+    BuildConfig.MOBILE -> "https://api.github.com/repos/petebutty/previewarr-mobile/releases?per_page=30"
+    BuildConfig.LAUNCHER -> "https://api.github.com/repos/petebutty/previewarr/releases?per_page=30"
+    else -> "https://api.github.com/repos/petebutty/viewarr/releases?per_page=30"
+}
 /** Automatic checks: on start and when the app comes back to the front, at most this often (GitHub allows 60 an hour). */
 private const val AUTO_INTERVAL_MS = 30 * 60_000L
 
@@ -154,8 +159,11 @@ class UpdateManager @Inject constructor(
                 // Each release carries both apps: Viewarr's viewarr-<version>.apk and Previewarr's previewarr-<version>.apk
                 // (2026-11-25). This app's own, the numbered one first; an older release with one plain .apk: Viewarr's.
                 val all = (0 until assets.length()).map { assets.getJSONObject(it) }.filter { it.optString("name").endsWith(".apk", ignoreCase = true) }
-                val mine = if (BuildConfig.LAUNCHER) all.filter { it.optString("name").startsWith("previewarr", ignoreCase = true) }
-                    else all.filter { !it.optString("name").startsWith("previewarr", ignoreCase = true) }
+                val mine = when {
+                    BuildConfig.MOBILE -> all.filter { it.optString("name").startsWith("previewarr-mobile", ignoreCase = true) }
+                    BuildConfig.LAUNCHER -> all.filter { it.optString("name").startsWith("previewarr", ignoreCase = true) && !it.optString("name").startsWith("previewarr-mobile", ignoreCase = true) }
+                    else -> all.filter { !it.optString("name").startsWith("previewarr", ignoreCase = true) }
+                }
                 val apk = mine.firstOrNull { it.optString("name").contains('-') } ?: mine.firstOrNull() ?: return@mapNotNull null
                 val sha = apk.optString("digest").takeIf { it.startsWith("sha256:", ignoreCase = true) }?.substringAfter(':')?.lowercase()
                 Release(version, cleanNotes(j.optString("body")), apk.optString("browser_download_url"), apk.optLong("size"), j.optBoolean("prerelease"), sha)

@@ -16,7 +16,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Border
 import androidx.tv.material3.ClickableSurfaceDefaults
-import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import io.github.petebutty.viewarr.ui.theme.AppColors
 import io.github.petebutty.viewarr.ui.theme.NoScale
@@ -41,8 +40,13 @@ fun AppPill(
     outlined: Boolean = false,
     height: Dp = 34.dp,
 ) {
+    // Previewarr: a selected pill (the tab that's showing, a filter that's on) keeps the plain colour and gets a thin
+    // white edge. The shared tint, a muted highlight colour, read there as the highlight itself (2026-11-26: "always
+    // looks highlighted but it's not"). The highlight colour then means only where the remote is.
+    val edged = selected && io.github.petebutty.viewarr.ui.launcher.LauncherLook.on
     val ring = when {
         carried -> Border(BorderStroke(3.dp, Color.White), shape = Tokens.PillShape)
+        edged -> Border(BorderStroke(1.5.dp, Color.White.copy(alpha = 0.9f)), shape = Tokens.PillShape)
         outlined -> Border(BorderStroke(1.dp, AppColors.Accent.copy(alpha = 0.6f)), shape = Tokens.PillShape)
         else -> Border.None
     }
@@ -55,7 +59,7 @@ fun AppPill(
         shape = ClickableSurfaceDefaults.shape(Tokens.PillShape),
         border = ClickableSurfaceDefaults.border(border = ring, focusedBorder = ring, pressedBorder = ring),
         colors = ClickableSurfaceDefaults.colors(
-            containerColor = if (selected) Tokens.SelectedTint else Tokens.PillIdle,
+            containerColor = if (selected && !edged) Tokens.SelectedTint else Tokens.PillIdle,
             contentColor = AppColors.TextPrimary,
             focusedContainerColor = AppColors.Accent,
             focusedContentColor = AppColors.OnAccent,

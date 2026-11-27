@@ -1,5 +1,6 @@
 package io.github.petebutty.viewarr.ui.settings
 
+import io.github.petebutty.viewarr.ui.common.typeOnTap
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
@@ -193,7 +194,7 @@ private fun LiveNowAddScreen(live: LiveNowViewModel, onAdd: (LiveNowPick) -> Uni
                     value = query, onValueChange = { query = it; browsed = null; vm.search(it) },
                     label = { androidx.compose.material3.Text("Search a team, league or sport (e.g. Celtic, NBA, darts)") },
                     singleLine = true, readOnly = !editing,
-                    modifier = Modifier.fillMaxWidth().downTo { firstPill }
+                    modifier = Modifier.fillMaxWidth().downTo { firstPill }.typeOnTap { editing = true }
                         .onFocusChanged { if (!it.isFocused) { editing = false; keyboard?.hide() } }
                         .onPreviewKeyEvent { e ->
                             if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false

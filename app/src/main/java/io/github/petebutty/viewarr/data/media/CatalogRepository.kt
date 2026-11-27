@@ -232,6 +232,7 @@ class CatalogRepository @Inject constructor(
         appScope.launch {
             delay(5_000)
             while (true) {
+                io.github.petebutty.viewarr.AppVisible.await() // (Previewarr Mobile: not while it's off screen.)
                 runCatching { traktWatched() }
                 delay(30 * 60_000L)
             }
@@ -665,20 +666,26 @@ class CatalogRepository @Inject constructor(
         }
     }
 
-    /** Fills poster, backdrop and overview from TMDB for items that only have ids (Trakt, Stremio without art). */
-    private suspend fun enrich(a: Accounts, items: List<MediaItem>): List<MediaItem> {
+    /**
+     * Fills poster, backdrop and overview from TMDB for items that only have ids (Trakt, Stremio without art).
+     * [byName]: ones with no id are found on TMDB by name and year first (IPTV libraries: many providers send no id,
+     * and those titles had no story, score or wide picture on a wall; they then carry the id too, so the same film on
+     * another server is known to be the same. 2026-11-26).
+     */
+    private suspend fun enrich(a: Accounts, items: List<MediaItem>, byName: Boolean = false): List<MediaItem> {
         val key = a.tmdbKey ?: return items
         return coroutineScope {
             items.map { item ->
                 async {
-                    val id = item.tmdbId ?: return@async item
+                    val id = item.tmdbId ?: (if (byName) tmdbLimit.withPermit { runCatching { titleMatch(key, item) }.getOrNull() } else null) ?: return@async item
                     val cacheKey = "tmdb:${item.type.name}:$id"
                     val hit = tmdbCache[cacheKey] ?: tmdbLimit.withPermit {
                         val path = if (item.type == MediaType.Movie) "/movie/$id" else "/tv/$id"
                         runCatching { http.get(tmdb.url(path, key, mapOf("language" to "en-GB")), tmdb.headers(key)) }.getOrNull()
                             ?.takeIf { it.ok }?.let { tmdbItem(it.body, item.type) }?.also { tmdbCache[cacheKey] = it }
                     }
-                    if (hit == null) item else item.copy(
+                    if (hit == null) item.copy(tmdbId = id) else item.copy(
+                        tmdbId = id,
                         poster = item.poster ?: hit.poster,
                         backdrop = item.backdrop ?: hit.backdrop,
                         overview = item.overview ?: hit.overview,
@@ -1274,7 +1281,7 @@ class CatalogRepository @Inject constructor(
         val srv = (if (emby) a.emby else a.jellyfin) ?: return null
         val r = runCatching {
             http.get(
-                "${srv.serverUrl}/Users/${srv.userId}/Items?" + jellyfinQuery(lib, type, q) + "&StartIndex=$start&Limit=$size&Fields=ProviderIds,Overview,ProductionYear",
+                "${srv.serverUrl}/Users/${srv.userId}/Items?" + jellyfinQuery(lib, type, q) + "&StartIndex=$start&Limit=$size&Fields=ProviderIds,Overview,ProductionYear,DateCreated",
                 mediaServers.headers(emby, a.deviceId, srv.token),
             )
         }.getOrNull()?.takeIf { it.ok } ?: return null
@@ -1395,6 +1402,16 @@ class CatalogRepository @Inject constructor(
             imdbId = imdbId,
             rating = (j.child("audienceRating") as? JsonPrimitive)?.doubleOrNull,
             origin = if (isMainPlex(p)) "Plex" else "Plex · ${p.serverName}",
+            marks = run {
+                val left = if (type == MediaType.Show) j.int("leafCount")?.let { all -> (all - (j.int("viewedLeafCount") ?: 0)).coerceAtLeast(0) } else null
+                val length = j.long("duration") ?: 0L
+                Marks(
+                    watched = if (type == MediaType.Show) left == 0 && (j.int("leafCount") ?: 0) > 0 else (j.int("viewCount") ?: 0) > 0,
+                    started = j.long("viewOffset")?.takeIf { it > 0 && length > 0 }?.let { (it.toFloat() / length).coerceIn(0f, 1f) },
+                    unwatched = left?.takeIf { it > 0 },
+                    addedAt = j.long("addedAt"),
+                )
+            },
         )
     }
 
@@ -1752,6 +1769,14 @@ class CatalogRepository @Inject constructor(
             imdbId = j.child("ProviderIds").str("Imdb"),
             rating = (j.child("CommunityRating") as? JsonPrimitive)?.doubleOrNull,
             origin = origin,
+            marks = j.child("UserData")?.let { u ->
+                Marks(
+                    watched = (u.child("Played") as? JsonPrimitive)?.booleanOrNull == true,
+                    started = (u.child("PlayedPercentage") as? JsonPrimitive)?.doubleOrNull?.takeIf { it > 0.5 && it < 99.5 }?.let { (it / 100.0).toFloat() },
+                    unwatched = u.int("UnplayedItemCount")?.takeIf { it > 0 },
+                    addedAt = j.str("DateCreated")?.let { d -> runCatching { Instant.parse(d).epochSecond }.getOrNull() },
+                )
+            },
         )
     }
 
@@ -1954,16 +1979,21 @@ class CatalogRepository @Inject constructor(
             tmdbIdOf(key, given.imdbId, given.type)?.let { given.copy(tmdbId = it) }
         } ?: given else given
         // null = that server timed out or failed (not "it hasn't got it").
+        // (How long each source took, in logcat "Copies": one slow server holds up Play, so it shows which.)
+        val t0 = android.os.SystemClock.elapsedRealtime()
+        fun <T> timed(name: String, r: List<T>?): List<T>? = r.also {
+            android.util.Log.i("Copies", "$name: ${it?.size ?: "no answer"} in ${android.os.SystemClock.elapsedRealtime() - t0} ms")
+        }
         val answers = coroutineScope {
             val jobs = buildList {
                 plexServers(a).forEach { p -> add(async {
-                    runCatching { withTimeoutOrNull(15_000) { plexCopiesOf(a, p, item) } }.getOrNull()
+                    timed("Plex ${p.serverName}", runCatching { withTimeoutOrNull(15_000) { plexCopiesOf(a, p, item) } }.getOrNull())
                         ?.also { found -> if (home != null && found.isNotEmpty() && isHomeAddress(p.serverUrl)) runCatching { home(found) } }
                 }) }
                 listOfNotNull(a.jellyfin?.let { it to false }, a.emby?.let { it to true }).forEach { (srv, emby) ->
-                    add(async { runCatching { withTimeoutOrNull(15_000) { serverCopies(a, srv, emby, item) } }.getOrNull() })
+                    add(async { timed(if (emby) "Emby" else "Jellyfin", runCatching { withTimeoutOrNull(15_000) { serverCopies(a, srv, emby, item) } }.getOrNull()) })
                 }
-                add(async { runCatching { withTimeoutOrNull(20_000) { providerCopies(item) } }.getOrNull() })
+                add(async { timed("IPTV", runCatching { withTimeoutOrNull(20_000) { providerCopies(item) } }.getOrNull()) })
             }
             jobs.awaitAll()
         }
@@ -3616,7 +3646,7 @@ class CatalogRepository @Inject constructor(
             val params = dvodOrder(sort) + mapOf("page" to (start / size + 1).toString(), "page_size" to size.toString()) +
                 (if (q.isNotEmpty()) mapOf("name" to q) else emptyMap()) + (category?.let { mapOf("category" to it) } ?: emptyMap())
             val (items, count) = dvodPage(type, params) ?: return null
-            return enrich(store.current(), items) to count
+            return enrich(store.current(), items, byName = true) to count
         }
         val s = xcSession() ?: return null
         val (films, series) = xcCatalog(s)
@@ -3635,7 +3665,7 @@ class CatalogRepository @Inject constructor(
             LibrarySort.Rating -> picked.sortedByDescending { it.item.rating ?: 0.0 }
         }
         val page = sorted.drop(start).take(size).map { it.item }
-        return enrich(store.current(), page) to sorted.size
+        return enrich(store.current(), page, byName = true) to sorted.size
     }
 
     private fun xcKey(type: MediaType, id: Int) = "xc:${type.name}:$id"

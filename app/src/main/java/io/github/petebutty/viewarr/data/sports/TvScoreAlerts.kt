@@ -61,6 +61,7 @@ class TvScoreAlerts @Inject constructor(
         scope.launch {
             runCatching { load() }
             while (true) {
+                io.github.petebutty.viewarr.AppVisible.await()
                 runCatching { tick() }.onFailure { Log.w(TAG, "check failed: ${it.message}") }
                 delay(TICK_MS)
             }

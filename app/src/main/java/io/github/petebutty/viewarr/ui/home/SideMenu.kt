@@ -2,6 +2,7 @@
 
 package io.github.petebutty.viewarr.ui.home
 
+import io.github.petebutty.viewarr.ui.common.typeOnTap
 import androidx.compose.foundation.focusGroup
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.layout.positionInRoot
@@ -640,7 +641,7 @@ internal fun MenuOverlay(
                         listening = menuVoice.listening,
                         litWhenFocused = true,
                         keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = { startSearch() }, onDone = { startSearch() }),
-                        modifier = Modifier.weight(1f).height(30.dp)
+                        modifier = Modifier.weight(1f).height(30.dp).typeOnTap { menuTyping = true }
                             .onFocusChanged { if (!it.isFocused) { menuTyping = false; keyboard?.hide() } }
                             .onPreviewKeyEvent { e ->
                                 if (e.key == Key.DirectionUp) return@onPreviewKeyEvent true

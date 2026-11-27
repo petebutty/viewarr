@@ -1,5 +1,6 @@
 package io.github.petebutty.viewarr.ui.update
 
+import io.github.petebutty.viewarr.ui.common.touchFocusable
 import android.content.Context
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusGroup
@@ -181,7 +182,7 @@ fun ChangelogHost() {
                                 else -> false
                             }
                         }
-                        .focusable()
+                        .touchFocusable()
                         .then(if (notesFocused) Modifier.border(1.dp, AppColors.Accent.copy(alpha = 0.6f), RoundedCornerShape(12.dp)) else Modifier)
                         .padding(horizontal = 18.dp, vertical = 12.dp),
                 ) {

@@ -134,6 +134,10 @@ object DeepLink {
     data class Command(val kind: String, val arg: String? = null, val uuid: String? = null, val number: Double? = null, val at: Long = System.nanoTime())
     val pendingCommand = MutableStateFlow<Command?>(null)
 
+    /** The title link just handled asked for it to start playing (play=1), not only its page: read once by [takePlay]. */
+    @Volatile var playOnOpen = false
+    fun takePlay(): Boolean = playOnOpen.also { playOnOpen = false }
+
     /** Presses a remote key in the app (MainActivity sets it): viewarr://pause, play, playpause act as the remote's own. */
     @Volatile var keySink: ((Int) -> Unit)? = null
 
@@ -142,7 +146,10 @@ object DeepLink {
         // (This app's own link name, and "viewarr" itself for links made inside the app: Home Assistant's commands.)
         if (uri == null || (uri.scheme != "viewarr" && uri.scheme != io.github.petebutty.viewarr.BuildConfig.LINK_SCHEME)) return
         when (uri.host) {
-            "title" -> parse(uri)?.let { pending.value = it }
+            // (play=1: started straight away, not just its page opened: Play on TV from Previewarr Mobile.)
+            "title" -> parse(uri)?.let { playOnOpen = uri.getQueryParameter("play") == "1"; pending.value = it }
+            // A recording, played where you stopped (Play on TV).
+            "recording" -> uri.getQueryParameter("id")?.toIntOrNull()?.let { io.github.petebutty.viewarr.data.dvr.RecordingOpen.pending.value = it }
             "channel" -> {
                 val uuid = uri.getQueryParameter("uuid")?.trim()?.takeIf { it.isNotEmpty() }
                 val number = uri.getQueryParameter("number")?.trim()?.toDoubleOrNull()

@@ -171,6 +171,8 @@ object Wallpaper {
 
     /** Movies and Shows pages open: their artwork is loaded. */
     var titlePages by mutableStateOf(0)
+    /** A title's own page is up (Previewarr): the corner artwork is that title's, and the page under it leaves it be. */
+    var detailPages by mutableStateOf(0)
     /** Viewarr launcher: how far a trailer playing in the corner has taken the corner picture's place (0 none … 1 all):
      *  the still picture fades away under it, so nothing shows round the trailer's edges (FadedTrailer). */
     var trailerCover by mutableFloatStateOf(0f)

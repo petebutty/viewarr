@@ -36,6 +36,10 @@ It installs alongside Viewarr (you don't need both), with an orange and pink ico
 
 Install it with Downloader: enter the code **6733457** (or `https://github.com/petebutty/previewarr/releases/latest/download/previewarr.apk`). See the **[Previewarr guide](docs/PREVIEWARR.md)**.
 
+### On a phone or tablet: Previewarr Mobile (preview)
+
+**Previewarr Mobile** is Viewarr laid out for fingers: live TV as big channel cards (swipe a channel for its guide), films and shows with search, your streaming services, music that keeps playing with the screen off, recordings, and **Play on TV** to send what you're watching to Previewarr on your TV. Open `https://github.com/petebutty/previewarr-mobile/releases/latest/download/previewarr-mobile.apk` on your phone. See the **[Previewarr Mobile guide](docs/PREVIEWARR-MOBILE.md)**.
+
 ## Highlights
 
 - **One glass menu on the left** that slides the page aside, and a **top-left window** where live TV, a film or a trailer keeps playing while you browse.
@@ -121,6 +125,7 @@ The full walkthrough, with what each step needs and troubleshooting tips, is in 
 - **[Privacy](docs/PRIVACY.md)**: what's stored and what's sent where
 - **[Controlling Viewarr from outside](docs/AUTOMATION.md)**: `viewarr://` links for ADB and home automation
 - **[Home Assistant](docs/HOME-ASSISTANT.md)**: lights that follow what you watch, pop-ups on the TV, voice and phone control
+- **[Previewarr Mobile (preview)](docs/PREVIEWARR-MOBILE.md)**: Viewarr for phones and tablets, made for fingers, with Play on TV
 - **[Previewarr (preview)](docs/PREVIEWARR.md)**: the home-screen version of Viewarr, its tiles, rows, mini player and simple settings
 
 ## Building from source

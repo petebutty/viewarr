@@ -55,7 +55,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.ClickableSurfaceDefaults
-import androidx.tv.material3.Surface
+import io.github.petebutty.viewarr.ui.common.Surface
 import androidx.tv.material3.Text
 import io.github.petebutty.viewarr.data.settings.RemoteChoice
 import io.github.petebutty.viewarr.ui.common.MenuItem
@@ -185,6 +185,11 @@ fun SettingsPage(
     /** … with this setting highlighted. */
     startItem: String? = null,
 ) {
+    // Previewarr Mobile: the same settings drawn for a phone (cards, switches, choices from the bottom).
+    if (io.github.petebutty.viewarr.ui.mobile.Mobile.on) {
+        io.github.petebutty.viewarr.ui.mobile.CategoriesPage(title, allCategories, onBack, onReset, resetLabel)
+        return
+    }
     // "Customise": the finer sections, closed until opened (opened straight away when Search settings lands in one).
     val foldable = allCategories.any { it.more } && allCategories.any { !it.more }
     LaunchedEffect(Unit) { if (startSection != null && allCategories.any { it.more && it.name == startSection }) SettingsFold.open[title] = true }

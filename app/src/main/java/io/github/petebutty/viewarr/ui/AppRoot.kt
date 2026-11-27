@@ -2,6 +2,7 @@
 
 package io.github.petebutty.viewarr.ui
 
+import io.github.petebutty.viewarr.ui.common.remoteGestures
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import io.github.petebutty.viewarr.ui.common.followingSetting
@@ -258,6 +259,15 @@ fun AppRoot(vm: AppViewModel = hiltViewModel()) {
             // Presses during the splash are swallowed rather than lost on a half-loaded page.
             // (Every press also counts as being there: the music screensaver waits for a quiet spell.)
             .onPreviewKeyEvent { UserActivity.touch(); splashShown }
+            // By finger, anywhere nothing else took the swipe: the arrows (the highlight moves the way the finger does).
+            // (Previewarr Mobile: every touch brings back its bar of pages over a TV page, ui/mobile.)
+            .then(with(io.github.petebutty.viewarr.ui.mobile.MobileBarWatch) { Modifier.watch() })
+            // (Previewarr Mobile: a swipe in from the left edge is Back, on every page and over the players.)
+            .then(with(io.github.petebutty.viewarr.ui.mobile.EdgeBack) { Modifier.edgeBack() })
+            // (Not over the phone and tablet screens: there a finger just scrolls and taps.)
+            .then(if (io.github.petebutty.viewarr.ui.mobile.Mobile.on && io.github.petebutty.viewarr.ui.launcher.Launcher.home &&
+                !io.github.petebutty.viewarr.ui.launcher.Launcher.settingsOpen && !io.github.petebutty.viewarr.ui.launcher.LauncherLibrary.open) Modifier
+                else Modifier.remoteGestures(tap = false))
             // Settings → Appearance → Picture size: the pages inside the border; the background above fills the screen.
             .pictureInset(pictureInset),
     ) {
@@ -315,12 +325,16 @@ fun AppRoot(vm: AppViewModel = hiltViewModel()) {
                     // "when opening the app live TV guide has not yet loaded".)
                     if (io.github.petebutty.viewarr.ui.launcher.Launcher.enabled) androidx.hilt.navigation.compose.hiltViewModel<io.github.petebutty.viewarr.ui.guide.GuideViewModel>()
                     io.github.petebutty.viewarr.ui.launcher.LauncherLifecycle()
+                    // Previewarr on a TV: Play on TV requests from Previewarr Mobile.
+                    io.github.petebutty.viewarr.ui.launcher.PlayOnTvHost(s.session)
                     if (io.github.petebutty.viewarr.ui.launcher.Launcher.enabled && io.github.petebutty.viewarr.ui.launcher.Launcher.home) {
                         io.github.petebutty.viewarr.ui.launcher.LauncherVoice()
                         // (Its Settings: a page of its own over the home screen, not Viewarr's side menu.)
                         if (io.github.petebutty.viewarr.ui.launcher.Launcher.settingsOpen) io.github.petebutty.viewarr.ui.launcher.LauncherSettings(s.session, vm::signOut)
                         // (Its Library pages: every library as a tile, and one library's wall of posters.)
                         else if (io.github.petebutty.viewarr.ui.launcher.LauncherLibrary.open) io.github.petebutty.viewarr.ui.launcher.LauncherLibraryPages()
+                        // (A phone or tablet: its own screens, made for fingers. ui/mobile.)
+                        else if (io.github.petebutty.viewarr.ui.mobile.Mobile.on) io.github.petebutty.viewarr.ui.mobile.MobileRoot(s.session, systemDensity, vm::signOut)
                         else io.github.petebutty.viewarr.ui.launcher.LauncherHome()
                     }
                     else io.github.petebutty.viewarr.ui.launcher.LauncherVeil { HomeScreen(session = s.session, onSignOut = vm::signOut) }
@@ -328,10 +342,11 @@ fun AppRoot(vm: AppViewModel = hiltViewModel()) {
                 // Films, episodes and recordings: above every page, full screen or shrunk to a corner.
                 VodHostLayer()
                 // A film or episode on full screen: Back makes it the mini player, holding Back closes it.
-                if (VodHost.covering) ButtonHint(
+                if (VodHost.covering && !io.github.petebutty.viewarr.ui.mobile.Mobile.on) ButtonHint(
                     "film-full", "Back: mini player  ·  hold Back: close the player")
                 // Music: the Now Playing screen, or the small now-playing bar while you browse.
-                MusicLayer()
+                // (Previewarr Mobile has its own: the bar above its pages and its Now playing page.)
+                if (!io.github.petebutty.viewarr.ui.mobile.Mobile.on) MusicLayer()
                 // Settings → Appearance → Clock.
                 if (!splashShown && AppColors.palette.opt(UiOpts.CLOCK) == 1) Clock(Modifier.align(Alignment.TopEnd))
                 // Over everything: the "update available" pop-up (and the automatic check on start).
@@ -368,6 +383,10 @@ fun AppRoot(vm: AppViewModel = hiltViewModel()) {
         io.github.petebutty.viewarr.ui.report.ReportHost()
         // Settings → Live TV → Live now: its search screen and a pick's Remove pop-up.
         io.github.petebutty.viewarr.ui.settings.LiveNowHost()
+        // Previewarr Mobile: the way back to its own screens from any TV page, over everything but the splash.
+        if (!splashShown) io.github.petebutty.viewarr.ui.mobile.MobileBackHost(systemDensity)
+        // Previewarr Mobile: the arrow that follows a swipe in from the left edge (at the device's own size).
+        androidx.compose.runtime.CompositionLocalProvider(androidx.compose.ui.platform.LocalDensity provides systemDensity) { io.github.petebutty.viewarr.ui.mobile.EdgeBackArrow() }
         if (splashAlpha > 0f) Box(Modifier.fillMaxSize().graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha; alpha = splashAlpha }) {
             ViewarrSplash()
         }

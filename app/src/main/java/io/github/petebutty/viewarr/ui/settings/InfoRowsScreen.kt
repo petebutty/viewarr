@@ -1,5 +1,6 @@
 package io.github.petebutty.viewarr.ui.settings
 
+import io.github.petebutty.viewarr.ui.common.touchFocusable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
@@ -117,7 +118,7 @@ fun InfoRowsScreen(start: String, onClose: () -> Unit) {
 
     io.github.petebutty.viewarr.ui.common.ViewarrPopup(onClose = onClose) {
         Box(
-            Modifier.fillMaxSize().focusRequester(focus).focusable().onPreviewKeyEvent { e ->
+            Modifier.fillMaxSize().focusRequester(focus).touchFocusable().onPreviewKeyEvent { e ->
                 val down = e.type == KeyEventType.KeyDown
                 val repeat = e.nativeKeyEvent.repeatCount
                 when (RemoteKeys.action(e)) {

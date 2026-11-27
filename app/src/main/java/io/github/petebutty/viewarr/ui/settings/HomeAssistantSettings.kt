@@ -1,5 +1,6 @@
 package io.github.petebutty.viewarr.ui.settings
 
+import io.github.petebutty.viewarr.ui.common.touchFocusable
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
@@ -154,7 +155,7 @@ private fun HelpPage(onBack: () -> Unit) {
                         else -> false
                     }
                 }
-                .focusable()
+                .touchFocusable()
                 .then(if (focused) Modifier.border(1.dp, AppColors.Accent.copy(alpha = 0.6f), RoundedCornerShape(10.dp)) else Modifier)
                 .padding(12.dp)
                 .verticalScroll(scroll),

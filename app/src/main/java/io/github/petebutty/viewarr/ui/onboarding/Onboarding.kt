@@ -122,7 +122,7 @@ fun RoleScreen(onAdmin: () -> Unit, onInvited: () -> Unit) {
 
 @Composable
 private fun RoleCard(title: String, text: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    androidx.tv.material3.Surface(
+    io.github.petebutty.viewarr.ui.common.Surface(
         onClick = onClick,
         modifier = modifier.fillMaxWidth().instantFocusScale(1.02f),
         shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),

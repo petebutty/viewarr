@@ -72,13 +72,16 @@ class ServerTimeshift(private val http: HttpJson) {
     private var absentUntil = 0L
     private var broken: String? = null
     private var loop: Job? = null
+    private var readAt = 0L
 
     /** Starts the background loop (once): every second it compares what [want] says with what was last asked. */
     fun attach(scope: CoroutineScope, want: () -> Want?) {
         if (loop?.isActive == true) return
         loop = scope.launch {
             while (isActive) {
-                delay(1_000)
+                // (Four looks a second: leaving a channel is told to the server within a quarter of a second, so its
+                // buffer lets go of the provider's line before the next channel needs it. Nothing is sent unless due.)
+                delay(250)
                 runCatching { step(want()) }.onFailure { if (it is kotlinx.coroutines.CancellationException) throw it; Log.w(TAG, "step failed: ${it.message}") }
             }
         }
@@ -112,7 +115,8 @@ class ServerTimeshift(private val http: HttpJson) {
             if (asked == null) Log.i(TAG, "asked for a buffer of ${want.key}")
             asked = want; askedAt = now
         }
-        if (due || waiting) read(want, firstAsk = asking == null || asking.key != want.key)
+        // (The reply at most once a second, however often this looks.)
+        if (due || (waiting && now - readAt >= 1_000)) { readAt = now; read(want, firstAsk = asking == null || asking.key != want.key) }
     }
 
     private fun appData(s: Session, key: String) = s.serverUrl.trimEnd('/') + "/api/accounts/users/me/app-data/$key/"

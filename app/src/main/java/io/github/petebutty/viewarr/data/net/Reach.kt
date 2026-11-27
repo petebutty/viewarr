@@ -58,9 +58,50 @@ object Reach {
 
     private fun swap(u: HttpUrl, to: HttpUrl): HttpUrl = u.newBuilder().scheme(to.scheme).host(to.host).port(to.port).build()
 
+    // ---- Plex's secure home addresses on networks that won't look them up ----
+    // Plex gives a server a name with its home IP in it (192-168-1-50.<id>.plex.direct = 192.168.1.50). Some routers
+    // (BT's among them) refuse to look up any name that points into the home network ("DNS rebind protection"), so
+    // those names fail outright and everything on that server waited for the slower routes (2026-11-27: Play took
+    // 12-19 s on a phone). There, the server's plain home address is used instead: the same server, on the same port.
+    // Previewarr Mobile only (phones meet these routers; the TV apps keep using the addresses as they are), and only
+    // while that address answers: a failed look-up is trusted for a minute, then checked again.
+    private val PLEX_DIRECT = Regex("^(\\d{1,3})-(\\d{1,3})-(\\d{1,3})-(\\d{1,3})\\.[0-9a-f]+\\.plex\\.direct$")
+    /** Each such name: when this network last failed to look it up and the plain address answered (ms; absent: fine). */
+    private val plexUnresolvable = ConcurrentHashMap<String, Long>()
+    private val plexChecked = ConcurrentHashMap<String, Long>()
+
+    /** [u]'s plain home address when it's a Plex home name this network can't look up; else null. */
+    private fun plexHome(u: HttpUrl, mayLookUp: Boolean): HttpUrl? {
+        if (!io.github.petebutty.viewarr.BuildConfig.MOBILE) return null
+        val m = PLEX_DIRECT.matchEntire(u.host.lowercase()) ?: return null
+        val ip = m.groupValues.drop(1).joinToString(".")
+        if (!io.github.petebutty.viewarr.data.media.isHomeAddress("http://$ip")) return null
+        val now = System.currentTimeMillis()
+        val fresh = (now - (plexChecked[u.host] ?: 0L)) < 60_000
+        if (!fresh) {
+            if (!mayLookUp) return plexUnresolvable[u.host]?.let { plain(u, ip) }
+            plexChecked[u.host] = now
+            val lookedUp = runCatching { java.net.InetAddress.getByName(u.host) }.isSuccess
+            // (Only when the plain home address really answers here: not on someone else's network, or offline.)
+            val plainOk = !lookedUp && runCatching { Socket().use { it.connect(InetSocketAddress(ip, u.port), 1_200) } }.isSuccess
+            if (plainOk) plexUnresolvable[u.host] = now else plexUnresolvable.remove(u.host)
+        }
+        return plexUnresolvable[u.host]?.let { plain(u, ip) }
+    }
+    private fun plain(u: HttpUrl, ip: String) = u.newBuilder().scheme("http").host(ip).port(u.port).build()
+    private fun offMain() = android.os.Looper.myLooper() != android.os.Looper.getMainLooper()
+
     /** [url] as it should be opened now: its away address when its home one can't be reached. */
     fun map(url: String): String {
-        val u = url.toHttpUrlOrNull() ?: return url
+        val u0 = url.toHttpUrlOrNull() ?: return url
+        // (Away from home the original address's away pair applies; at home the plain address is used.)
+        val mapped = mapPlain(u0, url)
+        if (mapped != url) return mapped
+        return plexHome(u0, offMain())?.toString() ?: url
+    }
+
+    private fun mapPlain(u: HttpUrl, original: String = u.toString()): String {
+        val url = original
         val h = baseOf(u)
         val to = pairs[h] ?: return url
         recheck(h)
@@ -90,7 +131,11 @@ object Reach {
 
     object Interceptor : okhttp3.Interceptor {
         override fun intercept(chain: okhttp3.Interceptor.Chain): Response {
-            val req = chain.request()
+            val req0 = chain.request()
+            // (A Plex home name this network won't look up: the server's plain home address. Its away pair, if any, is
+            // looked up by the original address below.)
+            val plexPlain = if (pairs.containsKey(baseOf(req0.url))) null else plexHome(req0.url, mayLookUp = true)
+            val req = plexPlain?.let { req0.newBuilder().url(it).build() } ?: req0
             val h = baseOf(req.url)
             val to = pairs[h] ?: return chain.proceed(req)
             val awayReq = { req.newBuilder().url(swap(req.url, to)).build() }

@@ -192,7 +192,7 @@ Optional. Your Home Assistant's **Address** and an **Access token**, **Test conn
 
 ### Troubleshooting
 
-**Show playback info** (format, decoder and dropped frames while playing) and **Low-memory mode** for boxes with 1–2 GB. See [Troubleshooting](TROUBLESHOOTING.md).
+**Show playback info** (format, decoder and dropped frames while playing) and **Low-memory mode** for boxes with 1–2 GB. **Touch controls** (Automatic, On, Off): on a tablet or phone, tap, long press and swipe work as well as a remote, the players' buttons are finger-sized and the app fills the screen; Automatic turns it on only where there is a touch screen and the device isn't a TV. See [Troubleshooting](TROUBLESHOOTING.md).
 
 **Settings codes** copy your settings from one TV to another:
 

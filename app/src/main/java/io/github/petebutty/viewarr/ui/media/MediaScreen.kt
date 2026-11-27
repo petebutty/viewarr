@@ -1,5 +1,6 @@
 package io.github.petebutty.viewarr.ui.media
 
+import io.github.petebutty.viewarr.ui.common.typeOnTap
 import io.github.petebutty.viewarr.ui.common.followingSetting
 import io.github.petebutty.viewarr.ui.common.cinemaGlide
 import io.github.petebutty.viewarr.ui.theme.appBackground
@@ -102,7 +103,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.petebutty.viewarr.ui.common.Button
 import androidx.tv.material3.ClickableSurfaceDefaults
-import androidx.tv.material3.Surface
+import io.github.petebutty.viewarr.ui.common.Surface
 import androidx.tv.material3.Text
 import io.github.petebutty.viewarr.data.media.MediaItem
 import io.github.petebutty.viewarr.data.media.MediaRow
@@ -356,8 +357,11 @@ fun MediaScreen(
     })) {
         // A library's grid has no hero: the background follows the highlighted title here too (it kept the last
         // page's artwork, e.g. a show's on the films' grid).
-        LaunchedEffect(browse != null) {
-            if (browse == null) return@LaunchedEffect
+        // (Not while a title's own page is up over it: the page underneath put its own highlighted title's artwork
+        // behind the title you'd opened a moment later. Previewarr, 2026-11-26.)
+        val titleUp = Wallpaper.detailPages > 0
+        LaunchedEffect(browse != null, titleUp) {
+            if (browse == null || titleUp) return@LaunchedEffect
             androidx.compose.runtime.snapshotFlow { focused?.backdrop }.collectLatest { art -> delay(HERO_SETTLE_MS); art?.let { Wallpaper.title = it } }
         }
         // As the catalogues' pages: the top-left window (live TV, or the highlighted title's trailer) with its details
@@ -706,7 +710,10 @@ private suspend fun focusCard(
     if (paged || listState.layoutInfo.visibleItemsInfo.none { it.index == rowIndex }) scrollRow(rowIndex)
     val i = row?.items?.indexOfFirst { cardId(row, it) == key } ?: -1
     val along = row?.let { rowStates[it.id] }
-    if (i >= 0 && along != null && along.layoutInfo.visibleItemsInfo.none { it.index == i }) runCatching { along.scrollToItem(i) }
+    // (Wholly in view, not just laid out: a card slid into the row's left margin counts as laid out, and the highlight
+    // went onto it there, off the screen's edge. 2026-11-26.)
+    val inView = along?.layoutInfo?.let { info -> info.visibleItemsInfo.firstOrNull { it.index == i }?.let { it.offset >= 0 && it.offset + it.size <= info.viewportEndOffset } } == true
+    if (i >= 0 && along != null && !inView) runCatching { along.scrollToItem(i) }
     awaitFrame(); awaitFrame()
     runCatching { focus.requestFocus() }
 }
@@ -770,7 +777,9 @@ private fun Hero(
     LaunchedEffect(item?.key, ready) { if (ready) detailsAnim.animateTo(1f, androidx.compose.animation.core.tween(550)) }
     val inLibrary = extras?.inLibrary
     // The Movies / Shows background: the highlighted title's backdrop.
-    LaunchedEffect(item?.backdrop) { item?.backdrop?.let { Wallpaper.title = it } }
+    // (Not while a title's own page is up over the page: see detailPages.)
+    val titleUp = Wallpaper.detailPages > 0
+    LaunchedEffect(item?.backdrop, titleUp) { if (!titleUp) item?.backdrop?.let { Wallpaper.title = it } }
     // On the Movies and Shows pages the artwork fills the whole page (drawn by the page's background), so the
     // hero doesn't draw its own copy (it left a seam where it ended).
     // (Your wallpaper behind Movies / Shows: the hero shows the title's artwork itself, as a panel.)
@@ -1229,7 +1238,7 @@ internal fun LibrarySearchBox(query: String, onQuery: (String) -> Unit, onFocus:
         listening = voice.listening,
         keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = { editing = false; keyboard?.hide(); onDone() }),
         onFocusChanged = { f -> onFocus(f); if (!f) { editing = false; keyboard?.hide() } },
-        modifier = Modifier.padding(end = 8.dp).width(260.dp).height(36.dp)
+        modifier = Modifier.padding(end = 8.dp).width(260.dp).height(36.dp).typeOnTap { editing = true }
             .focusRequester(boxFocus)
             .onPreviewKeyEvent { e ->
                 val ok = e.key == Key.DirectionCenter || e.key == Key.Enter || e.key == Key.NumPadEnter
@@ -1591,15 +1600,27 @@ private fun DetailScreen(
         lastMode = mode
         if (ui.streams != null || !active || ui.episodesOpen || trailerOpen) return@LaunchedEffect
         if (onlyLoaded && pageFocused && !buttonsFocused) return@LaunchedEffect
-        awaitFrame()
-        runCatching { playFocus.requestFocus() }
+        // (Asked for until it has it, for about half a second: asked once, a frame after the page came up, the request
+        // was dropped when the button wasn't placed yet, and nothing was highlighted until a button was pressed.
+        // 2026-11-26.)
+        repeat(30) {
+            awaitFrame()
+            // (On Play, or already moved along to another of the buttons: left there.)
+            if (playFocused || buttonsFocused) return@LaunchedEffect
+            runCatching { playFocus.requestFocus() }
+        }
     }
     Box(Modifier.fillMaxSize().background(AppColors.Background).onFocusChanged { pageFocused = it.hasFocus }
         .then(if (active) Modifier.trapFocus() else Modifier.focusGroup())) {
         if (io.github.petebutty.viewarr.ui.launcher.LauncherLook.on) {
             // Viewarr launcher: the title's artwork in the top-right corner, faded into the page (its one look, as
             // every page there), not across the whole page behind the text (2026-11-25: "messy").
-            LaunchedEffect(item.key) { item.backdrop?.let { io.github.petebutty.viewarr.ui.theme.Wallpaper.title = it } }
+            androidx.compose.runtime.DisposableEffect(Unit) {
+                io.github.petebutty.viewarr.ui.theme.Wallpaper.detailPages++
+                onDispose { io.github.petebutty.viewarr.ui.theme.Wallpaper.detailPages-- }
+            }
+            // (Its artwork, or none at all where it has none: never the last title's left behind.)
+            LaunchedEffect(item.key) { io.github.petebutty.viewarr.ui.theme.Wallpaper.title = item.backdrop }
             Box(Modifier.fillMaxSize().appBackground(titleArt = true))
         } else {
             item.backdrop?.let {
@@ -1729,6 +1750,10 @@ private fun DetailScreen(
                         Button(onClick = { if (ui.copies != null) onSearch() }, modifier = (Modifier.focusRequester(playFocus).onFocusChanged { playFocused = it.isFocused }).free()) {
                             Text(if (ui.copies == null || ui.searching) "Looking…" else "Find a source", maxLines = 1, softWrap = false)
                         }
+                    }
+                    // Opened by a library's Surprise me (Previewarr): another pick, in this one's place.
+                    io.github.petebutty.viewarr.ui.launcher.LauncherLibrary.surprise?.let { pick ->
+                        IconAction(AppIcons.Shuffle, "Another one", { vm.anotherTitle(pick) }, Modifier.free())
                     }
                     // Films on your own server: pick the soundtrack and subtitles before Play (this play only).
                     if (!show && ui.tracks != null) {
@@ -1997,6 +2022,10 @@ private fun PopupSection(text: String) {
 @Composable
 private fun EpisodeActionsFor(ui: DetailUi, vm: MediaViewModel) {
     val ep = ui.episode ?: return
+    // A film or episode has the screen: the episode was picked by the player (the next episode, from its countdown
+    // or its Next button), not by holding OK on it here. Its "play from" menu isn't shown: it flashed up over the
+    // credits for a moment before the next episode took over (2026-11-26).
+    if (VodHost.covering) return
     val plex = ui.plexEpisodes[ep.season to ep.number]
     // IPTV: watched / not watched kept on the box (resume too: "Resume from IPTV").
     val onIptv = (ep.season to ep.number) in ui.providerEpisodes

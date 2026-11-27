@@ -81,9 +81,13 @@ class MainActivity : ComponentActivity() {
             dispatchKeyEvent(android.view.KeyEvent(t, t, android.view.KeyEvent.ACTION_DOWN, code, 0))
             dispatchKeyEvent(android.view.KeyEvent(t, t, android.view.KeyEvent.ACTION_UP, code, 0))
         }
+        // Touch (tablets, phones): swipes and taps on key-driven parts arrive as the remote's keys.
+        io.github.petebutty.viewarr.ui.common.RemoteTouch.send = { dispatchKeyEvent(it) }
+        io.github.petebutty.viewarr.ui.common.TouchScreen.measure(this)
         // (Only a fresh start: Android hands a restored app its original link again, which replayed it on every restart.)
         if (savedInstanceState == null) { DeepLink.handle(intent?.data); voiceRequest(intent) }
         lifecycleScope.launch { themeStore.palette.collect { AppColors.palette = io.github.petebutty.viewarr.ui.launcher.LauncherLook.fix(it) } }
+        hideSystemBars()
         setContent {
             ViewarrTheme { AppRoot() }
         }
@@ -92,10 +96,27 @@ class MainActivity : ComponentActivity() {
         A11yTrim.install(this)
     }
 
+    // On screen or not: Previewarr Mobile's repeating jobs wait while it isn't (AppVisible).
+    override fun onStart() { super.onStart(); AppVisible.visible.value = true }
+    override fun onStop() { AppVisible.visible.value = false; super.onStop() }
+
     // Compose refreshes its accessibility state when its view attaches and the window gains focus: apply again after.
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
-        if (hasFocus) A11yTrim.refresh(this)
+        if (hasFocus) { A11yTrim.refresh(this); hideSystemBars() }
+    }
+
+    /**
+     * Tablets and phones: the whole screen, without Android's status bar and navigation bar (a white strip along the
+     * bottom of a tablet). A swipe in from the edge shows them for a moment. A TV has neither, so nothing changes there.
+     */
+    private fun hideSystemBars() {
+        if (!io.github.petebutty.viewarr.ui.common.TouchScreen.on) return
+        androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, false)
+        androidx.core.view.WindowCompat.getInsetsController(window, window.decorView).apply {
+            systemBarsBehavior = androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            hide(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+        }
     }
 
     /** Viewarr opening one of Android's screens itself isn't leaving: no small window for it (AndroidPip.ownLaunch). */

@@ -111,11 +111,13 @@ internal fun MusicHomePage(
             verticalArrangement = Arrangement.spacedBy(RowGap),
         ) {
             if (!beside) item(key = "hero") { MusicHero(settled, art?.large, vm, mem, page, onOpenMenu) }
-            item(key = "pills") { BrowsePills(vm, entry = home.rows.isEmpty(), focusRequester, onOpenMenu) }
+            // (Previewarr: the page opens with the highlight at its top, on the first of these, not down on the first
+            // row's first card. 2026-11-26.)
+            item(key = "pills") { BrowsePills(vm, entry = home.rows.isEmpty() || io.github.petebutty.viewarr.ui.launcher.LauncherLook.on, focusRequester, onOpenMenu) }
             if (home.loading && home.rows.isEmpty()) items(3, key = { "skeleton$it" }) { SkeletonRow() }
             home.error?.let { e -> item(key = "error") { Text(e, fontSize = 16.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(horizontal = Tokens.Gutter, vertical = 8.dp)) } }
             itemsIndexed(home.rows, key = { _, r -> r.id }) { ri, row ->
-                HomeRow(row, firstRow = ri == 0, vm, page, mem, rowState(row.id), rowPos, focusRequester, onOpenMenu)
+                HomeRow(row, firstRow = ri == 0 && !io.github.petebutty.viewarr.ui.launcher.LauncherLook.on, vm, page, mem, rowState(row.id), rowPos, focusRequester, onOpenMenu)
             }
         }
     }

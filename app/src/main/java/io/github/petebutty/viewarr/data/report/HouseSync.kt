@@ -115,6 +115,7 @@ class HouseSync @Inject constructor(
                         ?.split(',')?.toSet().orEmpty())
                 }
                 while (true) {
+                    io.github.petebutty.viewarr.AppVisible.await()
                     runCatching { fetch(s) }.onFailure { Log.w(TAG, "read failed: ${it.message}") }
                     delay(10 * 60_000L)
                 }

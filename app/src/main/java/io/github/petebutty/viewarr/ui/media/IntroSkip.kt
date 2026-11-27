@@ -134,6 +134,9 @@ class IntroSkip {
         if (here == null) { offered = null; return }
         // The countdown is up: it takes the place of the credits button (OK plays the next episode there too).
         if (here.kind == SkipMarker.Kind.Credits && nextIn != null) { offered = null; return }
+        // The next episode is already on its way (OK on the countdown, or it ran out): nothing more is offered over
+        // these credits. (The "Next episode · OK" pill flashed up in the moment before the next one took over.)
+        if (here.kind == SkipMarker.Kind.Credits && nextDone) { offered = null; return }
         if (mode(here, intro, credits) == SkipMode.Auto && here.startMs !in autoDone) {
             autoDone += here.startMs
             offered = null

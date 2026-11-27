@@ -1,5 +1,6 @@
 package io.github.petebutty.viewarr.ui.home
 
+import io.github.petebutty.viewarr.ui.common.typeOnTap
 import io.github.petebutty.viewarr.ui.common.instantFocusScale
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -47,7 +48,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.tv.material3.ClickableSurfaceDefaults
-import androidx.tv.material3.Surface
+import io.github.petebutty.viewarr.ui.common.Surface
 import androidx.tv.material3.Text
 import io.github.petebutty.viewarr.ui.guide.GuideViewModel
 import io.github.petebutty.viewarr.data.media.MediaType
@@ -187,7 +188,7 @@ internal fun SearchPage(
                     Text("Catch-up", fontSize = 16.sp, color = AppColors.TextPrimary, modifier = Modifier.padding(bottom = 6.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
                     androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp), modifier = Modifier.offset(x = (-10).dp)) {
                         items(catchupHits, key = { (c, p) -> "cu:${c.id}:${p.startTime}" }) { (ch, p) ->
-                            androidx.tv.material3.Surface(
+                            io.github.petebutty.viewarr.ui.common.Surface(
                                 onClick = { onCatchup(ch, p) },
                                 modifier = Modifier.width(300.dp).focusProperties { canFocus = fieldFree && focusEnabled }.instantFocusScale(1.1f),
                                 scale = io.github.petebutty.viewarr.ui.common.focusScale(1.1f),
@@ -233,7 +234,7 @@ internal fun SearchPage(
                     androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp), modifier = Modifier.offset(x = (-10).dp)) {
                         items(onTv, key = { (c, p) -> "${c.id}:${p.rowId}" }) { (ch, p) ->
                             val live = p.startTime <= nowMs
-                            androidx.tv.material3.Surface(
+                            io.github.petebutty.viewarr.ui.common.Surface(
                                 onClick = { if (live) onChannel(ch) else onProgramme(ch, p) },
                                 modifier = Modifier.width(250.dp).focusProperties { canFocus = fieldFree && focusEnabled }.instantFocusScale(1.1f),
                                 scale = io.github.petebutty.viewarr.ui.common.focusScale(1.1f),
@@ -270,7 +271,7 @@ internal fun SearchPage(
                     androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp), modifier = Modifier.offset(x = (-10).dp)) {
                         items(channels, key = { it.id }) { ch ->
                             // The channel's logo, name and number, like the guide.
-                            androidx.tv.material3.Surface(
+                            io.github.petebutty.viewarr.ui.common.Surface(
                                 onClick = { onChannel(ch) },
                                 // Not while a title, its episodes or a player is open over search: focus that fell
                                 // here (e.g. while an episode's source list opened) started a live channel.
@@ -329,7 +330,7 @@ internal fun SearchPage(
                     // Listening: rings pulse out from the mic, swelling with your voice, as Android TV's own search does.
                     Box(contentAlignment = Alignment.Center) {
                     if (voice.listening) MicPulse(voice.level)
-                    androidx.tv.material3.Surface(
+                    io.github.petebutty.viewarr.ui.common.Surface(
                         onClick = ::listen,
                         modifier = Modifier.size(44.dp).focusRequester(micFocus).onFocusChanged { micFocused = it.isFocused }.focusProperties { canFocus = fieldFree && focusEnabled }.instantFocusScale(1.1f),
                         shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(androidx.compose.foundation.shape.CircleShape),
@@ -365,6 +366,7 @@ internal fun SearchPage(
                     modifier = Modifier
                         .fillMaxWidth(0.55f)
                         .height(44.dp)
+                        .typeOnTap { typing = true }
                         .focusRequester(fieldFocus)
                         .focusProperties { canFocus = fieldFree && focusEnabled }
                         .onFocusChanged { fieldFocused = it.isFocused; if (!it.isFocused) { typing = false; keyboard?.hide() } }

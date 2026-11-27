@@ -1,5 +1,6 @@
 package io.github.petebutty.viewarr.ui.media
 
+import io.github.petebutty.viewarr.ui.common.tapIsOk
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.foundation.focusGroup
 import androidx.compose.ui.focus.focusProperties
@@ -90,7 +91,11 @@ object VodHost {
     /** What [show] last brought up. */
     private var shown: VodStream? = null
 
-    fun minimise() { if (active) mini = true }
+    /** To the corner (TV). Previewarr Mobile has no corner window: the player closes instead (Back by button or swipe). */
+    fun minimise() {
+        if (!active) return
+        if (io.github.petebutty.viewarr.ui.mobile.Mobile.on) { close(); afterStop() } else mini = true
+    }
     /** Search (the home screen sets it): the film goes to the corner and search opens over the page. */
     var openSearch: () -> Unit = {}
     /**
@@ -182,7 +187,7 @@ fun VodHostLayer() {
     // Standard video view (a SurfaceView): the display hardware scales the picture, so the window's real place and
     // size are moved (only re-laid out each frame). A scaled graphics layer doesn't apply to a SurfaceView.
     val surfaceView = LocalPlayback.current.videoView == VideoView.Standard
-    androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize()) {
+    androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize().tapIsOk(VodHost.covering && !io.github.petebutty.viewarr.ui.mobile.Mobile.on)) {
         val fullW = maxWidth
         // The top-left window (the guide's preview place), moving with the menu's glass.
         val tx = CornerPicture.inset.first

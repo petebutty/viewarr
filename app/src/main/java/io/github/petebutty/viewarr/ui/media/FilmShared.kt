@@ -145,6 +145,17 @@ fun BoxScope.FilmOverlays(
     skip: IntroSkip, buttons: List<PlayerButton>, thumbs: SeekThumbs?, otherPlayer: String, error: String?, focus: FocusRequester,
     holdOsd: (Boolean) -> Unit, tracks: @Composable BoxScope.() -> Unit,
 ) {
+    // Previewarr Mobile: its own controls, made for a finger (ui/mobile), in place of the TV's info bar and details.
+    if (io.github.petebutty.viewarr.ui.mobile.Mobile.on) {
+        if (!mini) io.github.petebutty.viewarr.ui.mobile.MobileFilmControls(stream, art, f, panels)
+        if (!mini && f.started && !panels.anyOpen) IntroSkipPill(skip, Modifier.align(Alignment.BottomEnd).padding(end = 40.dp, bottom = 120.dp))
+        PlayerLoading(stream.title, art, visible = !mini && !f.started && error == null)
+        if (panels.tracksOpen && !mini) io.github.petebutty.viewarr.ui.mobile.Mobile.Phone { androidx.compose.foundation.layout.Box(Modifier.fillMaxSize()) { tracks() } }
+        error?.let {
+            Text(it, fontSize = 18.sp, color = Color.White, modifier = Modifier.align(Alignment.Center).background(Color.Black.copy(alpha = 0.7f)).padding(20.dp))
+        }
+        return
+    }
     if (!mini && f.started && (panels.detailsOn || (f.paused && panels.pausedLong && !panels.anyOpen && !scrub.active))) PlayerDetails(stream.title, art)
     if (!mini && f.started && f.osdVisible) PlayerOsd(
         stream.title, f.positionMs(), f.durationMs, f.paused, f.buffering, scrub.targetMs, thumbs, Modifier.align(Alignment.BottomCenter), logo = art?.logo,

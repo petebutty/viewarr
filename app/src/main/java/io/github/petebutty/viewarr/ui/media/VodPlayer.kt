@@ -353,7 +353,14 @@ fun VodPlayer(
                     PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED,
                     PlaybackException.ERROR_CODE_AUDIO_TRACK_INIT_FAILED,
                 )
-                if (unplayable && toMpv(e.errorCodeName)) return
+                // Something inside the file tripped this player while reading it (not the network, not the server): e.g. a
+                // styled subtitle track with a value it can't take stopped the whole film (2026-11-26, an "Out of range"
+                // from the subtitles' styling, reported only as a general source error). mpv reads such files.
+                val tripped = generateSequence(e.cause) { it.cause }.take(6).any { c ->
+                    c is androidx.media3.exoplayer.upstream.Loader.UnexpectedLoaderException ||
+                        (c is RuntimeException && c !is java.util.concurrent.CancellationException)
+                }
+                if ((unplayable || tripped) && toMpv(if (tripped && !unplayable) "tripped reading the file: ${e.cause?.cause?.message ?: e.cause?.message}" else e.errorCodeName)) return
                 error = when (e.errorCode) {
                     PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED ->
                         "This file's format isn't supported by the TV. Press Back and choose another source."

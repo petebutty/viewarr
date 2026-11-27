@@ -1,5 +1,9 @@
 package io.github.petebutty.viewarr.ui.guide
 
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import io.github.petebutty.viewarr.ui.common.remoteGestures
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.foundation.Canvas
 import androidx.compose.ui.geometry.CornerRadius
@@ -184,6 +188,8 @@ fun GuideScreen(
             .padding(start = 12.dp, end = 12.dp, top = 20.dp)
             .focusRequester(focusRequester)
             .focusable(enabled = focusEnabled)
+            // By finger: a swipe moves through the guide (the arrows), a tap is OK, a long press is hold OK.
+            .remoteGestures(tap = true)
             .onPreviewKeyEvent { e ->
                 if (e.key == Key.DirectionLeft && nowMenu) {
                     // Tap: back one programme, or the menu when already on what's on now. Hold: back through the guide;
@@ -279,6 +285,23 @@ fun GuideScreen(
             recordedByChannel = recordedByChannel, playingChannelId = playingChannelId, playingCatchupRowId = playingCatchupRowId,
             now = now, sync = sync, serverUrl = serverUrl, textMeasurer = textMeasurer,
             modifier = Modifier.fillMaxWidth().weight(1f),
+            // By finger (tablets, phones). A tap puts the highlight on that channel and programme; a tap on the one
+            // already highlighted is OK (play it, or its options), as a second press would be. A long press is hold
+            // OK on it. Dragging moves the guide itself: the channels up and down, the timeline left and right, half
+            // an hour at a time, following the finger (the highlight isn't walked across the screen). (Read from the view model at the time of the touch, not from this drawing.)
+            onTouch = { row, time, long ->
+                val before = picked()
+                val was = vm.cursor.value
+                vm.touchTo(row, time ?: was.focusTime)
+                val after = picked()
+                val same = before != null && after != null && was.row == vm.cursor.value.row &&
+                    before.second?.rowId == after.second?.rowId
+                if (after != null) {
+                    if (long) onLongSelect(after.first, after.second) else if (same) onSelect(after.first, after.second)
+                }
+            },
+            onDragRows = { vm.moveVertical(it) },
+            onDragTime = { vm.touchShift(it) },
         )
         // Settings → Appearance → News ticker → In the TV guide.
         if (Ticker.inGuide) NewsTicker(Modifier.fillMaxWidth().padding(top = 6.dp))
@@ -384,7 +407,16 @@ private fun GuideGrid(
     serverUrl: String,
     textMeasurer: TextMeasurer,
     modifier: Modifier,
+    /** A finger on a row: its place in the list, the time under the finger (null: on the channel's name), long press. */
+    onTouch: (row: Int, time: Long?, long: Boolean) -> Unit = { _, _, _ -> },
+    /** Dragged a row's height up (1) or down (-1). */
+    onDragRows: (Int) -> Unit = {},
+    /** Dragged left (1: later) or right (-1: earlier), half an hour of the timeline at a time. */
+    onDragTime: (Int) -> Unit = {},
 ) {
+    val touched by androidx.compose.runtime.rememberUpdatedState(onTouch)
+    val draggedRows by androidx.compose.runtime.rememberUpdatedState(onDragRows)
+    val draggedTime by androidx.compose.runtime.rememberUpdatedState(onDragTime)
     // The timeline's start, as its own state: changes only when the guide pages along, not with every Up / Down.
     val windowStartState = remember(cursorState) { derivedStateOf { cursorState.value.windowStart } }
     BoxWithConstraints(modifier) {
@@ -401,6 +433,46 @@ private fun GuideGrid(
             LazyColumn(
                 state = listState, userScrollEnabled = false,
                 modifier = Modifier.fillMaxSize()
+                    .then(if (!io.github.petebutty.viewarr.ui.common.TouchScreen.on) Modifier else Modifier
+                        .pointerInput(Unit) {
+                            fun at(o: Offset): Pair<Int, Long?>? {
+                                val item = listState.layoutInfo.visibleItemsInfo.firstOrNull { o.y >= it.offset && o.y < it.offset + it.size } ?: return null
+                                val col = ChannelColumn.toPx()
+                                val wide = (size.width - col).coerceAtLeast(1f)
+                                val time = if (o.x < col) null else windowStartState.value + ((o.x - col) / wide * GuideViewModel.VISIBLE_MS).toLong()
+                                return item.index to time
+                            }
+                            detectTapGestures(
+                                onTap = { o -> at(o)?.let { (row, time) -> touched(row, time, false) } },
+                                onLongPress = { o -> at(o)?.let { (row, time) -> touched(row, time, true) } },
+                            )
+                        }
+                        .pointerInput(Unit) {
+                            var x = 0f
+                            var y = 0f
+                            var across: Boolean? = null
+                            detectDragGestures(
+                                onDragStart = { x = 0f; y = 0f; across = null },
+                                onDrag = { change, by ->
+                                    change.consume()
+                                    x += by.x; y += by.y
+                                    val rowPx = RowHeight.toPx()
+                                    // Half an hour of the timeline, as wide as it's drawn: the guide moves with the finger.
+                                    val stepPx = ((size.width - ChannelColumn.toPx()) * GuideViewModel.STEP_MS / GuideViewModel.VISIBLE_MS).coerceAtLeast(24.dp.toPx())
+                                    val slop = 12.dp.toPx()
+                                    if (across == null && (kotlin.math.abs(x) >= slop || kotlin.math.abs(y) >= slop)) across = kotlin.math.abs(x) > kotlin.math.abs(y)
+                                    // (The list follows the finger: up brings later channels, left brings later programmes.)
+                                    if (across == false) while (kotlin.math.abs(y) >= rowPx) {
+                                        draggedRows(if (y < 0) 1 else -1)
+                                        y -= if (y > 0) rowPx else -rowPx
+                                    }
+                                    if (across == true) while (kotlin.math.abs(x) >= stepPx) {
+                                        draggedTime(if (x < 0) 1 else -1)
+                                        x -= if (x > 0) stepPx else -stepPx
+                                    }
+                                },
+                            )
+                        })
                     // (No off-screen buffer: inside one, every cell got a buffer of its own from the renderer,
                     // ~150 MB at 4K once the guide had been open. The soft bottom edge is the cut-off last row
                     // drawn fainter instead: see the row's wrapper below. 2026-11-19.)

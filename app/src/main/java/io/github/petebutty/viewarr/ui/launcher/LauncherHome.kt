@@ -123,7 +123,8 @@ internal fun LauncherHome() {
         io.github.petebutty.viewarr.data.media.DeepLink.pending.value = null
         val show = item.type == MediaType.Show
         movies.closeTitlePages(); shows.closeTitlePages()
-        (if (show) shows else movies).open(item)
+        if (io.github.petebutty.viewarr.data.media.DeepLink.takePlay()) (if (show) shows else movies).openAndPlay(item, item.nextSeason, item.nextEpisode)
+        else (if (show) shows else movies).open(item)
         Launcher.openTitle(if (show) Page.Shows else Page.Movies)
     }
     // (Not a search: LauncherVoice opens that over the home screen, so closing it comes back here.)

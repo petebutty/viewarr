@@ -1,6 +1,7 @@
 @file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 package io.github.petebutty.viewarr.ui.home
 
+import io.github.petebutty.viewarr.ui.common.touchFocusable
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import io.github.petebutty.viewarr.ui.common.followingSetting
 import androidx.activity.compose.BackHandler
@@ -48,7 +49,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.tv.material3.ClickableSurfaceDefaults
-import androidx.tv.material3.Surface
+import io.github.petebutty.viewarr.ui.common.Surface
 import androidx.tv.material3.Text
 import io.github.petebutty.viewarr.ui.common.trapFocus
 import io.github.petebutty.viewarr.ui.guide.GuideScreen
@@ -303,7 +304,7 @@ internal fun ChannelPrograms(
         awaitFrame(); awaitFrame()
         runCatching { focusRequester.requestFocus() }
     }
-    val placeholder = Modifier.padding(8.dp).focusRequester(focusRequester).focusable()
+    val placeholder = Modifier.padding(8.dp).focusRequester(focusRequester).touchFocusable()
     val hhmm = Dates.time
     val day = java.time.format.DateTimeFormatter.ofPattern("EEE d")
     val zone = java.time.ZoneId.systemDefault()

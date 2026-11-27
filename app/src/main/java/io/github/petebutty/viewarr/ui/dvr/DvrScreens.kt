@@ -115,6 +115,7 @@ class DvrViewModel @Inject constructor(
         viewModelScope.launch {
             // Keep the red dots and the Recordings page current; Dispatcharr's own UI may change things too.
             while (true) {
+                io.github.petebutty.viewarr.AppVisible.await() // (Previewarr Mobile: not while it's off screen.)
                 runCatching { repo.refresh() }
                 delay(120_000)
             }

@@ -697,7 +697,10 @@ fun HomeScreen(
         HomeButtonHints(hs, remote, session != null, playing != null, guideBack)
         // A film or episode in the corner: Back brings it full screen, holding Back closes it. (Full screen's hint is
         // drawn over the player, in AppRoot.)
-        if (VodHost.active && VodHost.mini && !hs.menuOpen && !hs.quickSearch) ButtonHint("film-mini", "Back: full screen  ·  Hold Back: close the player")
+        if (VodHost.active && VodHost.mini && !hs.menuOpen && !hs.quickSearch) ButtonHint("film-mini",
+            // (Previewarr: Back is the page's own there; the Now playing tile on the home screen brings it full screen.)
+            if (io.github.petebutty.viewarr.ui.launcher.Launcher.enabled) "Hold Back: close the player  ·  Back: home, then Now playing for full screen"
+            else "Back: full screen  ·  Hold Back: close the player")
         // Guide and wallpaper dimming only show on the guide: the panel switches the view as you move to them.
         if (hs.transparencyOpen && hs.page == Page.Tv) TransparencyPanel(
             onClose = { hs.transparencyOpen = false; if (playing != null) hs.fullscreen = true },
@@ -738,7 +741,10 @@ private fun HomeButtonHints(hs: HomeState, remote: RemoteSettings, signedIn: Boo
         hs.page == Page.Tv && !hs.fullscreen && signedIn -> ButtonHint(
             if (playing) "guide-back" else "guide", "OK: watch  ·  Hold OK: more  ·  " + (if (remote.guideLeft == GuideLeft.NowMenu) "‹ menu  ·  Hold ‹ catch-up" else "‹ catch-up") + "  ·  Back: " + (if (playing && io.github.petebutty.viewarr.ui.launcher.Launcher.enabled) "home  ·  Hold Back: close the player" else if (playing) "full screen  ·  Hold Back: close the player" else if (io.github.petebutty.viewarr.ui.launcher.Launcher.enabled) "home" else if (guideBack == GuideBack.NowThenExit) "exit" else "menu"))
         hs.page == Page.Movies || hs.page == Page.Shows -> ButtonHint(
-            "media", "OK: open  ·  Hold OK: options  ·  ‹ menu  ·  Hold Back: " + ButtonMap.action(remote, BtnScreen.Pages, BtnPress.BackHold).label)
+            "media",
+            // (Previewarr has no side menu: Back goes home, and holding Back has nothing to open.)
+            if (io.github.petebutty.viewarr.ui.launcher.Launcher.enabled) "OK: open  ·  Hold OK: options  ·  Back: home"
+            else "OK: open  ·  Hold OK: options  ·  ‹ menu  ·  Hold Back: " + ButtonMap.action(remote, BtnScreen.Pages, BtnPress.BackHold).label)
         else -> Unit
     }
 }
@@ -1577,7 +1583,9 @@ private fun HomeLinkEffects(hs: HomeState) {
         val show = item.type == MediaType.Show
         if (hs.page == Page.Tv) { playback.stop(); hs.fullscreen = false }
         hs.page = if (show) Page.Shows else Page.Movies
-        (if (show) showsVm else moviesVm).open(item)
+        // (Play on TV: started too, not only its page opened.)
+        if (DeepLink.takePlay()) (if (show) showsVm else moviesVm).openAndPlay(item, item.nextSeason, item.nextEpisode)
+        else (if (show) showsVm else moviesVm).open(item)
     }
 
     // The info bars' sleep timer: when it's up, everything playing stops (music has its own timer).

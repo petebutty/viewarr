@@ -1,5 +1,6 @@
 package io.github.petebutty.viewarr.ui.media
 
+import io.github.petebutty.viewarr.ui.common.touchFocusable
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusGroup
@@ -419,7 +420,7 @@ private fun PictureViewer(pics: List<PersonPicture>, start: Int, onClose: () -> 
     ViewarrPopup(onClose = onClose) {
         LaunchedEffect(Unit) { awaitFrame(); runCatching { focus.requestFocus() } }
         Box(
-            Modifier.fillMaxSize().background(Color.Black).focusRequester(focus).focusable()
+            Modifier.fillMaxSize().background(Color.Black).focusRequester(focus).touchFocusable()
                 .onPreviewKeyEvent { e ->
                     if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                     when (e.key) {
