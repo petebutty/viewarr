@@ -65,6 +65,9 @@ import io.github.petebutty.viewarr.ui.theme.Dates
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 
+/** A recording to play as soon as the Recordings page has it (Play on TV, or Take over from another device). */
+internal object MobileRecordingsPending { var id by androidx.compose.runtime.mutableStateOf<Int?>(null) }
+
 /** What the recordings server said about the last thing asked (recorded, cancelled…), as a short message. */
 @Composable
 internal fun DvrToasts(vm: DvrViewModel) {
@@ -113,6 +116,10 @@ internal fun MobileRecordings(session: Session?, modifier: Modifier) {
         else { art.value = RecordingTags.art(ctx.applicationContext, r); flow.value = s; VodHost.show(source) }
     }
     val serverUrl = session?.serverUrl.orEmpty()
+    LaunchedEffect(MobileRecordingsPending.id, recs) {
+        val id = MobileRecordingsPending.id ?: return@LaunchedEffect
+        recs.firstOrNull { it.id == id }?.let { MobileRecordingsPending.id = null; play(it) }
+    }
     val recorded = recs.filter { it.state == DvrState.Recorded || it.state == DvrState.Failed }.sortedByDescending { it.start }
     val coming = recs.filter { it.state == DvrState.Recording || it.state == DvrState.Scheduled }.sortedBy { it.start }
     Column(modifier.background(MobileColors.Background)) {

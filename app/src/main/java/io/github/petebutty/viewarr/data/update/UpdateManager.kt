@@ -100,8 +100,9 @@ class UpdateManager @Inject constructor(
         UpdatePrefs(auto = p[AUTO] ?: true, beta = p[BETA] ?: true)
     }
 
-    // (Previewarr's version name carries "-launcher": the release's own number is what's compared.)
-    val currentVersion: String = BuildConfig.VERSION_NAME.substringBefore("-launcher")
+    // (Previewarr's version name carries "-launcher", Previewarr Mobile's "-mobile": the release's own number is what's
+    // compared. 2026-11-27: "-mobile" was left on, read as a test version, and the same release offered as an update.)
+    val currentVersion: String = BuildConfig.VERSION_NAME.substringBefore("-launcher").substringBefore("-mobile")
 
     suspend fun setAuto(on: Boolean) { context.updateStore.edit { it[AUTO] = on } }
     suspend fun setBeta(on: Boolean) { context.updateStore.edit { it[BETA] = on } }
@@ -219,7 +220,7 @@ class UpdateManager @Inject constructor(
         if (problem != null) {
             Log.w(TAG, "downloaded APK rejected: $problem")
             file.delete()
-            _state.value = UpdateState.Failed("The download wasn't a genuine Viewarr update: $problem.", release)
+            _state.value = UpdateState.Failed("The download wasn't a genuine $APP_NAME update: $problem.", release)
             return
         }
         install(release)
@@ -372,6 +373,13 @@ internal fun compareVersions(a: String, b: String): Int {
 }
 
 internal fun isNewer(candidate: String, current: String) = compareVersions(candidate, current) > 0
+
+/** This app's own name, in update messages: Viewarr, Previewarr or Previewarr Mobile. */
+internal val APP_NAME: String = when {
+    BuildConfig.MOBILE -> "Previewarr Mobile"
+    BuildConfig.LAUNCHER -> "Previewarr"
+    else -> "Viewarr"
+}
 
 /** GitHub release notes as plain text for the TV: no bold markers, links reduced to their text. */
 private fun cleanNotes(md: String): String = md

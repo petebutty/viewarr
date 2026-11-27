@@ -90,6 +90,7 @@ internal fun MobileFullPlayer(pb: PlaybackViewModel, guide: GuideViewModel, ch: 
     var shownUntil by remember { mutableLongStateOf(System.currentTimeMillis() + CONTROLS_MS) }
     var tick by remember { mutableLongStateOf(0L) }
     var moreOpen by remember { mutableStateOf(false) }
+    var sourcesOpen by remember { mutableStateOf(false) }
     LaunchedEffect(shownUntil) { val left = shownUntil - System.currentTimeMillis(); if (left > 0) delay(left); tick++ }
     // (The clock for the times and the picture's details, once a second.)
     LaunchedEffect(Unit) { while (true) { delay(1_000); tick++ } }
@@ -114,6 +115,7 @@ internal fun MobileFullPlayer(pb: PlaybackViewModel, guide: GuideViewModel, ch: 
             is PlaybackState.Error -> Text(s.message, color = Color.White, fontSize = 15.sp, modifier = Modifier.align(Alignment.Center).padding(32.dp))
             else -> Unit
         }
+        if (sourcesOpen) MobileSources(pb) { sourcesOpen = false }
         if (!controls) return@Box
         Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.45f)))
         Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).padding(horizontal = 12.dp, vertical = 8.dp)) {
@@ -131,6 +133,8 @@ internal fun MobileFullPlayer(pb: PlaybackViewModel, guide: GuideViewModel, ch: 
                 PlainIcon(AppIcons.Aspect, "Picture size: ${aspect.label}") {
                     pb.setAspect(AspectMode.entries[(aspect.ordinal + 1) % AspectMode.entries.size]); poke()
                 }
+                // The channel's sources (Dispatcharr's streams for it), as the TV's Source button: tap one to switch.
+                if (session != null && !session.isDirect) PlainIcon(AppIcons.Swap, "Source") { sourcesOpen = true; pb.loadSources(); poke() }
                 PlainIcon(AppIcons.Pip, "Small window") { enterPip(activity) }
                 if (MobilePlayOnTv.key != null) PlainIcon(AppIcons.Tv, "Play on TV") {
                     MobilePlayOnTv.ask(io.github.petebutty.viewarr.data.cast.PlayOnTv.channelLink(ch.uuid)) { pb.stop(); MobileNav.leaveFullscreen(activity) }
@@ -231,4 +235,23 @@ private fun MoreChannels(guide: GuideViewModel, ch: ChannelListItem, serverUrl: 
             }
         }
     }
+}
+
+/** The channel's sources to pick from (current ticked), with what Dispatcharr last saw of each; a note while switching. */
+@Composable
+internal fun MobileSources(pb: PlaybackViewModel, onClose: () -> Unit) {
+    val sources by pb.sources.collectAsStateWithLifecycle()
+    val note by pb.sourceNote.collectAsStateWithLifecycle()
+    val list = sources
+    val options = list?.map { src ->
+        listOfNotNull(src.name, src.provider.takeIf { it.isNotBlank() && it != src.name }, src.quality, src.warning?.let { "⚠ $it" }).joinToString("  ·  ")
+    }
+    Chooser(
+        "Source",
+        note ?: if (list == null) "Loading the sources…" else "Tap a source to switch to it.",
+        options ?: emptyList(),
+        list?.indexOfFirst { it.current }?.takeIf { it >= 0 },
+        onPick = { i -> list?.getOrNull(i)?.let { if (!it.current) pb.switchSource(it) }; onClose() },
+        onDismiss = onClose,
+    )
 }

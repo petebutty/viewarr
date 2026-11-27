@@ -1225,7 +1225,9 @@ private fun BoxScope.SearchLayer(hs: HomeState) {
                 },
                 // Left at the edge stays in search (it used to close it and open the menu); Back is the way out.
                 onOpenMenu = {},
-                onExit = { hs.quickSearch = false; hs.searchStart = null; hs.searchCatchup = false },
+                // (Closed with Back from the search box: nothing picked, so Previewarr goes straight home. It waited a few
+                // seconds on a blank screen for a pick to start, 2026-11-27.)
+                onExit = { hs.quickSearch = false; hs.searchStart = null; hs.searchCatchup = false; io.github.petebutty.viewarr.ui.launcher.Launcher.searchBacked = true },
                 onMusic = { card -> hs.quickSearch = false; hs.searchStart = null; musicVm.openFromSearch(card); hs.openPage(Page.Music) },
                 onChannel = { ch ->
                     hs.quickSearch = false

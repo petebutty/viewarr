@@ -737,6 +737,8 @@ class GuideViewModel @Inject constructor(
     }
 
     suspend fun channelById(id: Int): ChannelListItem? = allChannelsById()[id]
+    /** A channel by its Dispatcharr uuid (Play on TV's links name channels that way). */
+    suspend fun channelByUuid(uuid: String): ChannelListItem? = allChannelsList().firstOrNull { it.uuid == uuid }
 
     /** A channel's programmes: back as far as its catch-up goes (else just earlier today), and the next day ahead. */
     /** [aheadMs]: how far ahead (the TV's panels: 30 hours; Previewarr Mobile's channel page: the whole guide). */

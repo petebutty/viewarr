@@ -1,6 +1,15 @@
 package io.github.petebutty.viewarr.ui.mobile
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.ui.unit.sp
+import io.github.petebutty.viewarr.ui.common.drawViewarrMark
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -46,28 +55,40 @@ import io.github.petebutty.viewarr.ui.setup.titleFor
  * phone itself instead of a code to scan.
  */
 @Composable
-internal fun MobileAccounts(onClose: () -> Unit) {
-    val vm: SetupViewModel = hiltViewModel(key = "setup-mobile")
+internal fun MobileAccounts(onClose: () -> Unit, firstRun: Boolean = false) {
+    val vm: SetupViewModel = hiltViewModel(key = if (firstRun) "setup-first" else "setup-mobile")
     val state by vm.state.collectAsStateWithLifecycle()
     val accounts by vm.accounts.collectAsStateWithLifecycle()
     val session by vm.session.collectAsStateWithLifecycle()
-    LaunchedEffect(Unit) { vm.openManage() }
+    // (First run: the view model starts on the hub in first-run mode, and finishing marks setup done.)
+    LaunchedEffect(Unit) { if (!firstRun) vm.openManage() }
     var service by remember { mutableStateOf<SetupItem?>(null) }
     val svc = service
     when {
         state.step != SetupStep.Choose -> AccountStep(state, accounts, vm)
         svc != null -> ServicePage(svc, accounts, session, vm, onClose = { service = null })
-        else -> AccountsHub(accounts, session, onBack = { vm.finish(onClose) }, onOpen = { item ->
+        else -> AccountsHub(accounts, session, firstRun, onBack = { vm.finish(onClose) }, onOpen = { item ->
             if (statusText(item, accounts, session) != null) service = item else vm.open(item)
         })
     }
 }
 
 @Composable
-private fun AccountsHub(accounts: Accounts, session: Session?, onBack: () -> Unit, onOpen: (SetupItem) -> Unit) {
+private fun AccountsHub(accounts: Accounts, session: Session?, firstRun: Boolean, onBack: () -> Unit, onOpen: (SetupItem) -> Unit) {
     // (Provider films & series come through Dispatcharr: only with a Dispatcharr sign-in.)
     val items = SetupItem.entries.filter { it.available && (it != SetupItem.Vod || (session != null && !session.isDirect)) }
-    PhonePage("Accounts & sources", onBack, subtitle = "Tap a service to connect it, or to change or check it.") {
+    // First run: no way back out (there's nothing behind it), and Start watching once something is connected.
+    val anything = items.any { statusText(it, accounts, session) != null }
+    PhonePage(
+        if (firstRun) "Set up Previewarr" else "Accounts & sources",
+        if (firstRun) null else onBack,
+        subtitle = if (firstRun) "Connect the services you use, one at a time. Live TV works with Dispatcharr, an IPTV login or an M3U playlist. You can add the rest later in Settings."
+            else "Tap a service to connect it, or to change or check it.",
+    ) {
+        if (firstRun) item(key = "start") {
+            Spacer(Modifier.height(8.dp))
+            PhoneButton(if (anything) "Start watching" else "Connect something first", Modifier.fillMaxWidth().padding(horizontal = 16.dp), enabled = anything) { onBack() }
+        }
         item(key = "list") {
             Spacer(Modifier.height(8.dp))
             CardRows(items.map { it0 ->
@@ -350,5 +371,40 @@ private fun MusicForm(state: SetupUiState, accounts: Accounts, vm: SetupViewMode
     ButtonColumn {
         PhoneButton(if (on) "Done" else "Continue without Music", Modifier.fillMaxWidth(), onTap = vm::advance)
         if (on) PhoneButton("No music", Modifier.fillMaxWidth(), primary = false) { vm.skipMusic() }
+    }
+}
+
+/**
+ * Previewarr Mobile's first run: a welcome, then the services to connect (Accounts & sources, laid out for a phone),
+ * then Start watching. (The TV's tour and its 1-2-3 are about the remote and the menu.)
+ */
+@Composable
+internal fun MobileFirstRun() {
+    var started by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    if (started) { MobileAccounts(onClose = {}, firstRun = true); return }
+    androidx.compose.foundation.layout.Box(Modifier.fillMaxSize().background(MobileColors.Background).windowInsetsPadding(androidx.compose.foundation.layout.WindowInsets.safeDrawing)) {
+        androidx.compose.foundation.layout.Column(
+            Modifier.align(androidx.compose.ui.Alignment.Center).widthIn(max = 520.dp).fillMaxWidth().padding(28.dp),
+            horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
+        ) {
+            androidx.compose.foundation.Canvas(Modifier.size(84.dp)) { drawViewarrMark() }
+            Spacer(Modifier.height(20.dp))
+            androidx.compose.material3.Text("Welcome to Previewarr", color = androidx.compose.ui.graphics.Color.White, fontSize = 28.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+            Spacer(Modifier.height(12.dp))
+            androidx.compose.material3.Text(
+                "Live TV with a proper guide, your films and shows, streaming services, music and recordings, on your phone or tablet.",
+                color = io.github.petebutty.viewarr.ui.theme.AppColors.TextSecondary, fontSize = 16.sp, lineHeight = 23.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            )
+            Spacer(Modifier.height(28.dp))
+            PhoneCard {
+                listOf(
+                    "Live TV" to "Dispatcharr (your server's address, username and password), an IPTV login, or an M3U playlist",
+                    "Films and shows" to "Plex, Jellyfin or Emby, and addons such as AIOStreams",
+                    "Extras" to "Trakt, TMDB, music, requests: all optional, and can be added later",
+                ).forEachIndexed { i, (t, d) -> if (i > 0) RowLine(); PhoneRow(t, d) }
+            }
+            Spacer(Modifier.height(28.dp))
+            PhoneButton("Get started", Modifier.fillMaxWidth()) { started = true }
+        }
     }
 }

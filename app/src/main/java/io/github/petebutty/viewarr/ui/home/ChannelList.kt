@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -100,6 +101,13 @@ internal fun ChannelListOverlay(
     var focusedV by remember { mutableStateOf<Int?>(null) }
     var epgFor by remember { mutableStateOf<ChannelListItem?>(null) }
     val epgFocus = remember { FocusRequester() }
+    // Previewarr: with the programmes open the channel list slides away and they take its place, and the highlighted
+    // programme's details slide out beside them (2026-11-27). Viewarr keeps the two side by side.
+    val slide = io.github.petebutty.viewarr.ui.launcher.Launcher.enabled && !embedded
+    var highlighted by remember { mutableStateOf<GuideProgram?>(null) }
+    LaunchedEffect(epgFor?.id) { highlighted = null }
+    val listW by androidx.compose.animation.core.animateDpAsState(
+        if (slide && epgFor != null) 0.dp else channelListWidth(), androidx.compose.animation.core.tween(260), label = "chlist")
     // (In the menu strip: tells it to make room while the programme panel is open.)
     androidx.compose.runtime.SideEffect { if (embedded) ChannelPanelState.programmesOpen = epgFor != null }
     androidx.compose.runtime.DisposableEffect(embedded) { onDispose { if (embedded) ChannelPanelState.programmesOpen = false } }
@@ -161,7 +169,8 @@ internal fun ChannelListOverlay(
     Box(
         Modifier
             .fillMaxHeight()
-            .width(channelListWidth())
+            .width(listW)
+            .clipToBounds()
             // The menu strip's colour (in the strip, the strip draws it once behind every column).
             .then(if (embedded) Modifier else Modifier.background(AppColors.MenuPanel))
             .padding(start = 24.dp, top = 24.dp, bottom = 24.dp, end = 36.dp),
@@ -273,7 +282,16 @@ internal fun ChannelListOverlay(
         }
         }
     }
-    epgFor?.let { ch -> ChannelPrograms(vm, ch, now, epgFocus, onLive = { onPick(ch) }, onCatchup = { onCatchup(ch, it) }, onFuture = { onFuture(ch, it) }, embedded = embedded) }
+    epgFor?.let { ch ->
+        ChannelPrograms(vm, ch, now, epgFocus, onLive = { onPick(ch) }, onCatchup = { onCatchup(ch, it) }, onFuture = { onFuture(ch, it) }, embedded = embedded,
+            onHighlight = if (slide) ({ p -> highlighted = p }) else null)
+        // (Previewarr: the highlighted programme's details, see-through, beside the list.)
+        androidx.compose.animation.AnimatedVisibility(
+            visible = slide && highlighted != null,
+            enter = androidx.compose.animation.slideInHorizontally { -it / 3 } + androidx.compose.animation.fadeIn(),
+            exit = androidx.compose.animation.fadeOut(),
+        ) { highlighted?.let { ProgrammeInfoPanel(ch, it, now) } }
+    }
     }
 }
 
@@ -292,6 +310,8 @@ internal fun ChannelPrograms(
     onFuture: (GuideProgram) -> Unit,
     /** In the menu strip, which already draws the glass behind: no second layer (it doubled, so it barely saw through). */
     embedded: Boolean = false,
+    /** The programme the highlight is on (Previewarr: its details beside the list). */
+    onHighlight: ((GuideProgram) -> Unit)? = null,
 ) {
     val programs by androidx.compose.runtime.produceState<List<GuideProgram>?>(null, ch.id) { value = runCatching { vm.programsFor(ch) }.getOrDefault(emptyList()) }
     val list = programs
@@ -333,7 +353,8 @@ internal fun ChannelPrograms(
                             onClick = { when { live -> onLive(); canCatchup -> onCatchup(p); !past -> onFuture(p) } },
                             // Hold OK: the same menu as holding OK in the guide (record, from the start, go to show…).
                             onLongClick = { onFuture(p) },
-                            modifier = (if (i == nowIndex) Modifier.focusRequester(focusRequester) else Modifier).fillMaxWidth(),
+                            modifier = (if (i == nowIndex) Modifier.focusRequester(focusRequester) else Modifier).fillMaxWidth()
+                                .then(if (onHighlight != null) Modifier.onFocusChanged { if (it.isFocused) onHighlight(p) } else Modifier),
                             scale = NoScale,
                             shape = ClickableSurfaceDefaults.shape(Tokens.RowShape),
                             colors = ClickableSurfaceDefaults.colors(
@@ -356,6 +377,40 @@ internal fun ChannelPrograms(
                     }
                 }
             }
+        }
+    }
+}
+
+/**
+ * Previewarr's programme details beside the channel list's programmes: the channel, the programme's name, its episode,
+ * when it's on (or how long is left), and what it's about. See-through, as the lists are.
+ */
+@Composable
+private fun ProgrammeInfoPanel(ch: ChannelListItem, p: GuideProgram, now: Long) {
+    val live = p.startTime <= now && p.endTime > now
+    val mins = ((p.endTime - p.startTime) / 60_000).toInt()
+    val whenLine = when {
+        live -> "On now  ·  ${((p.endTime - now) / 60_000).toInt().coerceAtLeast(1)} min left"
+        p.endTime <= now -> whenText(p.startTime, now) + "  ·  $mins min"
+        else -> whenText(p.startTime, now) + "–" + java.time.Instant.ofEpochMilli(p.endTime).atZone(java.time.ZoneId.systemDefault()).format(Dates.time) + "  ·  $mins min"
+    }
+    val episode = listOfNotNull(
+        if (p.season != null && p.episode != null) "S${p.season} · E${p.episode}" else null,
+        p.subTitle?.takeIf { it.isNotBlank() && !it.equals(p.title, ignoreCase = true) },
+    ).joinToString("  ·  ")
+    Box(
+        Modifier.fillMaxHeight().width(440.dp).background(AppColors.MenuPanel)
+            .padding(start = 24.dp, top = 28.dp, bottom = 24.dp, end = 28.dp),
+    ) {
+        Column {
+            Text(ch.name, fontSize = 13.sp, color = AppColors.Accent, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Spacer(Modifier.height(10.dp))
+            Text(p.title, fontSize = 22.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, color = AppColors.TextPrimary, maxLines = 3, overflow = TextOverflow.Ellipsis)
+            if (episode.isNotEmpty()) Text(episode, fontSize = 14.sp, color = AppColors.TextPrimary.copy(alpha = 0.85f), maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp))
+            Text(whenLine, fontSize = 13.sp, color = if (live) AppColors.Accent else AppColors.TextSecondary, modifier = Modifier.padding(top = 8.dp))
+            Spacer(Modifier.height(14.dp))
+            Text(p.description?.takeIf { it.isNotBlank() } ?: "No description for this programme.", fontSize = 15.sp, lineHeight = 22.sp,
+                color = AppColors.TextPrimary.copy(alpha = 0.9f), maxLines = 14, overflow = TextOverflow.Ellipsis)
         }
     }
 }

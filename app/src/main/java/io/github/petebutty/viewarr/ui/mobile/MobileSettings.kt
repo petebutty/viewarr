@@ -133,7 +133,7 @@ private fun SettingsMenu(session: Session?, onSignOut: () -> Unit) {
         ),
         "Preferences" to if (!canSettings) emptyList() else listOf(
             MenuRow(AppIcons.Search, "Search settings", "Find any setting by name") { go(Pages.SEARCH) },
-            MenuRow(AppIcons.Style, "Appearance", "Text, dates, posters, title pages, ratings, subtitles") { go(SettingsMap.APPEARANCE) },
+            MenuRow(AppIcons.Style, "Appearance", "Font, dates and times, subtitles") { go(SettingsMap.APPEARANCE) },
             MenuRow(AppIcons.LiveTv, "Live TV", "Channels, groups, the guide, Still watching?") { go(SettingsMap.LIVE) },
             MenuRow(AppIcons.Play, "Playback", "Players, audio, subtitles, streams, play order, episodes") { go(SettingsMap.PLAYBACK) },
             MenuRow(AppIcons.Bell, "Notifications", "What pops up by itself: new episodes, live games…") { go(SettingsMap.NAVIGATION) },
@@ -141,7 +141,7 @@ private fun SettingsMenu(session: Session?, onSignOut: () -> Unit) {
         ),
         "This device" to listOfNotNull(
             if (canSettings) MenuRow(AppIcons.Home, "Home Assistant", "What's playing, and pop-ups like a doorbell camera", when { !ha.ready -> "Not set up"; ha.sendPlaying || ha.popups -> "On"; else -> "Off" }) { go(Pages.HA) } else null,
-            if (canSettings) MenuRow(AppIcons.Tune, "Troubleshooting", "Playback info on screen, Low-memory mode") { go(SettingsMap.SYSTEM) } else null,
+            if (canSettings) MenuRow(AppIcons.Tune, "Troubleshooting", "Send a report or a note, playback info, settings codes") { go(SettingsMap.SYSTEM) } else null,
             if (canSettings) MenuRow(AppIcons.Settings, "Advanced", "Best left alone unless asked to change something") { go(SettingsMap.ADVANCED) } else null,
             MenuRow(AppIcons.Info, "About", "Version, this device, storage, your Live TV sources") { go(Pages.ABOUT) },
             if (canSignOut) MenuRow(AppIcons.Back, "Sign out of everything") { confirmSignOut = true } else null,
@@ -195,7 +195,13 @@ private fun MappedPageMobile(pageId: String, onBack: () -> Unit) {
         SettingsMap.ADVANCED -> ({ advancedReset(playback, opts) })
         else -> null
     }
-    CategoriesPage(SettingsMap.page(pageId).title, SettingsMap.categories(pageId, pool), onBack, onReset = reset)
+    // (Menu & navigation is only Notifications on a phone: named that.)
+    // (The TV's page notes point "on the left" to Customise: on a phone every section is simply listed.)
+    val cats = SettingsMap.categories(pageId, pool).map { c ->
+        val b = c.blurb.replace(" Everything finer is under Customise, on the left.", "")
+        if (b == c.blurb) c else io.github.petebutty.viewarr.ui.settings.SettingCategory(c.name, b, c.items, more = c.more)
+    }
+    CategoriesPage(if (pageId == SettingsMap.NAVIGATION) "Notifications" else SettingsMap.page(pageId).title, cats, onBack, onReset = reset)
 }
 
 /**

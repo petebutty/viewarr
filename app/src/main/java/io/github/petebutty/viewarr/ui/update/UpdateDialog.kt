@@ -139,7 +139,7 @@ private fun UpdateDialog(
                     fontSize = 12.sp, color = AppColors.Accent,
                     maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
-                Text("Viewarr ${release.version}", fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text("${io.github.petebutty.viewarr.data.update.APP_NAME} ${release.version}", fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text("You have $current. Your settings are kept.", fontSize = 12.sp, color = AppColors.TextSecondary)
                 if (release.notes.isNotBlank()) {
                     Box(Modifier.fillMaxWidth().heightIn(max = 140.dp).background(AppColors.PanelAlt, RoundedCornerShape(8.dp)).padding(12.dp)) {
@@ -160,7 +160,7 @@ private fun UpdateDialog(
                     }
                     is UpdateState.NeedsPermission -> {
                         Text(
-                            "One-time step: Android needs your OK for Viewarr to install apps. Open the setting, switch Viewarr on, " +
+                            "One-time step: Android needs your OK for ${io.github.petebutty.viewarr.data.update.APP_NAME} to install apps. Open the setting, switch it on, " +
                                 "then press Back to return here and the update installs.",
                             fontSize = 14.sp, lineHeight = 20.sp, color = AppColors.TextPrimary,
                         )
@@ -171,7 +171,7 @@ private fun UpdateDialog(
                         }
                     }
                     is UpdateState.Installing -> {
-                        Text("Installing… Android will ask you to confirm. Viewarr restarts by itself when it's done.", fontSize = 14.sp, color = AppColors.TextPrimary)
+                        Text("Installing… Android will ask you to confirm. ${io.github.petebutty.viewarr.data.update.APP_NAME} restarts by itself when it's done.", fontSize = 14.sp, color = AppColors.TextPrimary)
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             OutlinedButton(onClick = onInstall, modifier = Modifier.focusRequester(first)) { Text("Show the install screen again") }
                             OutlinedButton(onClick = onLater) { Text("Later") }

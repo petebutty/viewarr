@@ -87,6 +87,15 @@ interface MusicSource {
     suspend fun genres(): List<Pair<String, Int>>
     suspend fun albumsInGenre(genre: String, size: Int, offset: Int = 0): List<Album>
     suspend fun randomSongs(size: Int): List<Song>
+    /** These songs by id ("<source>:<id>"), for Play on TV's music when the server can't hold a queue. */
+    suspend fun songs(ids: List<String>): List<Song> = emptyList()
+    /**
+     * Play on TV's music: [queue] (this source's songs) saved on the server as the queue to carry on with, at [index]
+     * and [positionMs]. Its reference for [loadQueue], or null when the server can't hold one (or it failed).
+     */
+    suspend fun saveQueue(queue: List<Song>, index: Int, positionMs: Long): String? = null
+    /** A queue saved with [saveQueue]: its songs, the one to play, and the position the server kept (null: none). */
+    suspend fun loadQueue(ref: String): Triple<List<Song>, Int, Long?>? = null
     suspend fun search(query: String): MusicSearchResult
     /** [submission] false: now playing; true: listened to (play count, scrobblers). */
     suspend fun scrobble(songId: String, submission: Boolean)
@@ -182,6 +191,28 @@ class MusicLibrary @Inject constructor(
     }
 
     private suspend fun source(id: String) = sources().firstOrNull { it.id == sourceOf(id) }
+
+    /**
+     * The queue saved on its music server for another device to carry on with: the link's "src" and "q", or null when
+     * it can't be (songs from more than one server, or a server without queues: Jellyfin and Emby).
+     */
+    suspend fun saveQueue(queue: List<Song>, index: Int, positionMs: Long): Pair<String, String>? {
+        val src = queue.getOrNull(index)?.let { sourceOf(it.id) } ?: return null
+        if (queue.any { sourceOf(it.id) != src }) return null
+        val ref = runCatching { source(src + ":")?.saveQueue(queue, index, positionMs) }.getOrNull() ?: return null
+        return src to ref
+    }
+    suspend fun loadQueue(src: String, ref: String): Triple<List<Song>, Int, Long?>? =
+        runCatching { source("$src:")?.loadQueue(ref) }.getOrNull()
+
+    /** Songs by id, from whichever of this device's sources each belongs to, in the order asked (missing ones left out). */
+    suspend fun songs(ids: List<String>): List<Song> {
+        val srcs = sources().associateBy { it.id }
+        val found = coroutineScope {
+            ids.groupBy(::sourceOf).map { (src, list) -> async { runCatching { srcs[src]?.songs(list) }.getOrNull().orEmpty() } }.awaitAll()
+        }.flatten().associateBy { it.id }
+        return ids.mapNotNull { found[it] }
+    }
 
     /** One list from every source (or just [only]): merged, one copy of each album. */
     suspend fun albums(list: AlbumList, size: Int, offsets: Map<String, Int> = emptyMap(), only: String? = null): Pair<List<Album>, Map<String, Int>> {

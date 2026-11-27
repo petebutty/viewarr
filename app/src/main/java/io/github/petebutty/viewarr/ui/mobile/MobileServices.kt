@@ -97,13 +97,13 @@ private fun ServiceRows(name: String, rows: List<Pair<MediaRow, MediaType>>, fil
     Column(modifier) {
         BrandBar(name, onBack = onBack) { TopBarIcon(AppIcons.Person, "Settings") { MobileSettingsNav.open = true } }
         BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
-            val tileWidth: Dp = minOf(maxWidth * 0.46f, (maxHeight * 0.5f - 64.dp) / 1.5f).coerceAtLeast(120.dp)
+            val tileWidth: Dp = posterWidth(maxWidth, maxHeight)
             LazyColumn(contentPadding = PaddingValues(bottom = 110.dp)) {
                 items(ordered, key = { it.first.id + it.second.name }) { (row, type) ->
                     Column(Modifier.padding(top = 14.dp)) {
                         val title = RowSets.rowTitle(row) + if (type == MediaType.Show) " · Shows" else " · Films"
                         Text(title, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 16.dp, bottom = 10.dp))
-                        LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             items(row.items, key = { it.key }) { item -> PosterTile(item, tileWidth) { openTitle(if (type == MediaType.Show) shows else films, item, type) } }
                         }
                     }

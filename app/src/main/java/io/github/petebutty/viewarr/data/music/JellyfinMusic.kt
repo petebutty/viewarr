@@ -138,6 +138,8 @@ class JellyfinMusicSource private constructor(
         return items("IncludeItemTypes=MusicAlbum&GenreIds=$g&SortBy=SortName", size, offset).map(::album)
     }
     override suspend fun randomSongs(size: Int) = items("IncludeItemTypes=Audio&SortBy=Random", size, 0).map(::song)
+    override suspend fun songs(ids: List<String>): List<Song> =
+        ids.map(::localId).chunked(50).flatMap { get("$u/Items?Ids=" + it.joinToString(",") { i -> enc(i) }).array("Items").map(::song) }
     override suspend fun search(query: String): MusicSearchResult {
         val q = "SearchTerm=${enc(query)}&Limit=25"
         val artists = if (!first) emptyList() else get("${s.serverUrl}/Artists?$q&UserId=${s.userId}").array("Items").map(::artist)

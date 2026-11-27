@@ -1,6 +1,6 @@
 # Shown once, the first time a new version opens (not on a fresh install). Written by tools/changelog.py
 # from the release notes. Lines starting with "- " are the points; the first other line is the heading.
-Touch screens, faster episodes, and Previewarr Mobile for phones.
-- Touch-screen boxes and tablets answer a finger: Troubleshooting → Touch controls
-- Episodes start straight away from a Plex server in your house
-- New: Previewarr Mobile for phones and tablets (a separate download)
+Viewarr 0.29.9.8: a small update for Viewarr, and a bigger one for Previewarr and Previewarr Mobile: control your TVs from your phone, send music, and phone-sized setup.
+- Viewarr
+- Previewarr (preview)
+- Previewarr Mobile (preview)

@@ -294,7 +294,15 @@ fun AppRoot(vm: AppViewModel = hiltViewModel()) {
                         var stage by androidx.compose.runtime.saveable.rememberSaveable {
                             androidx.compose.runtime.mutableStateOf(if (Tour.done(ctx)) "setup" else "tour")
                         }
-                        when (stage) {
+                        // Previewarr Mobile: its own first run (a welcome, then Accounts & sources laid out for a phone);
+                        // the TV's tour and 1-2-3 are about the remote and the menu (2026-11-27).
+                        if (io.github.petebutty.viewarr.BuildConfig.MOBILE) {
+                            io.github.petebutty.viewarr.ui.mobile.Mobile.density = systemDensity
+                            androidx.compose.runtime.CompositionLocalProvider(androidx.compose.ui.platform.LocalDensity provides systemDensity) {
+                                io.github.petebutty.viewarr.ui.mobile.MobileFirstRun()
+                            }
+                        }
+                        else when (stage) {
                             "tour" -> TourScreen(
                                 onDone = { Tour.markDone(ctx); stage = "prep" },
                                 finishLabel = "Next: setting up  ›",
@@ -311,7 +319,8 @@ fun AppRoot(vm: AppViewModel = hiltViewModel()) {
             is StartState.Ready -> {
                 val ctx = androidx.compose.ui.platform.LocalContext.current
                 var tourNow by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
-                androidx.compose.runtime.LaunchedEffect(vm.sawSetup) { if (vm.sawSetup && !Tour.done(ctx)) tourNow = true }
+                // (Not on a phone: the tour is the TV's, about the remote and the menu.)
+                androidx.compose.runtime.LaunchedEffect(vm.sawSetup) { if (vm.sawSetup && !Tour.done(ctx) && !io.github.petebutty.viewarr.BuildConfig.MOBILE) tourNow = true }
                 val touring = !splashShown && (tourNow || Tour.requested)
                 // Composed straight away, under the splash, so rows and the guide load while it shows. Not while the
                 // tour is up: a channel playing underneath kept the remote (Left / Right there mean skip).
@@ -327,6 +336,7 @@ fun AppRoot(vm: AppViewModel = hiltViewModel()) {
                     io.github.petebutty.viewarr.ui.launcher.LauncherLifecycle()
                     // Previewarr on a TV: Play on TV requests from Previewarr Mobile.
                     io.github.petebutty.viewarr.ui.launcher.PlayOnTvHost(s.session)
+                    io.github.petebutty.viewarr.ui.launcher.NowPlayingWatch()
                     if (io.github.petebutty.viewarr.ui.launcher.Launcher.enabled && io.github.petebutty.viewarr.ui.launcher.Launcher.home) {
                         io.github.petebutty.viewarr.ui.launcher.LauncherVoice()
                         // (Its Settings: a page of its own over the home screen, not Viewarr's side menu.)

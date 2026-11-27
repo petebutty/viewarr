@@ -1,5 +1,8 @@
 package io.github.petebutty.viewarr.data.music
 
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.sync.withPermit
 import io.github.petebutty.viewarr.data.media.FilterGroup
 import io.github.petebutty.viewarr.data.media.FilterValue
 import io.github.petebutty.viewarr.data.media.LibraryQuery
@@ -144,6 +147,29 @@ class NavidromeSource(private val c: SubsonicClient, private val a: NavidromeAut
     override suspend fun albumsInGenre(genre: String, size: Int, offset: Int) =
         c.call(a, "getAlbumList2", "&type=byGenre&genre=${enc(genre)}&size=$size&offset=$offset").child("albumList2").array("album").map(::album)
     override suspend fun randomSongs(size: Int) = c.call(a, "getRandomSongs", "&size=$size").child("randomSongs").array("song").map(::song)
+    override suspend fun songs(ids: List<String>): List<Song> = kotlinx.coroutines.coroutineScope {
+        // (One getSong each, a few at a time.)
+        val gate = kotlinx.coroutines.sync.Semaphore(6)
+        ids.map { id -> async { gate.withPermit { runCatching { c.call(a, "getSong", "&id=${enc(localId(id))}").child("song")?.let(::song) }.getOrNull() } } }
+            .awaitAll().filterNotNull()
+    }
+    // Play on TV: the user's play queue on the server (the Subsonic API's own, which other apps such as Symfonium use too).
+    override suspend fun saveQueue(queue: List<Song>, index: Int, positionMs: Long): String? {
+        // (At most 500 songs, around the one playing.)
+        val from = (index - 50).coerceAtLeast(0)
+        val part = queue.subList(from, minOf(queue.size, from + 500))
+        val ids = part.joinToString("") { "&id=" + enc(localId(it.id)) }
+        val cur = enc(localId(queue[index].id))
+        return c.call(a, "savePlayQueue", "$ids&current=$cur&position=${positionMs.coerceAtLeast(0)}")?.let { "playqueue" }
+    }
+    override suspend fun loadQueue(ref: String): Triple<List<Song>, Int, Long?>? {
+        val q = c.call(a, "getPlayQueue").child("playQueue") ?: return null
+        val songs = q.array("entry").map(::song)
+        if (songs.isEmpty()) return null
+        val cur = q.str("current")?.let { "$id:$it" }
+        val pos = q.str("position")?.toLongOrNull()
+        return Triple(songs, songs.indexOfFirst { it.id == cur }.coerceAtLeast(0), pos)
+    }
     override suspend fun search(query: String): MusicSearchResult {
         val r = c.call(a, "search3", "&query=${enc(query)}&artistCount=12&albumCount=20&songCount=25").child("searchResult3")
         return MusicSearchResult(r.array("artist").map(::artist), r.array("album").map(::album), r.array("song").map(::song))

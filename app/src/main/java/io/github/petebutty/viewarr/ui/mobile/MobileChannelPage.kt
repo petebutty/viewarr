@@ -144,8 +144,12 @@ internal fun MobileChannelPage(ch: ChannelListItem, session: Session?) {
         return
     }
     val favourites by guide.favourites.collectAsStateWithLifecycle()
+    var sourcesOpen by remember { mutableStateOf(false) }
+    if (sourcesOpen) MobileSources(pb) { sourcesOpen = false }
     val topBar: @Composable () -> Unit = {
         BrandBar(ch.name, onBack = { MobileNav.close() }) {
+            // Source: while this channel plays, its sources to switch between (as the TV's Source button).
+            if (playingChannel?.id == ch.id && session != null && !session.isDirect) TopBarIcon(AppIcons.Swap, "Source") { sourcesOpen = true; pb.loadSources() }
             // Play on TV: the channel on Previewarr on a TV; it stops here.
             PlayOnTvButton({ io.github.petebutty.viewarr.data.cast.PlayOnTv.channelLink(ch.uuid) }) { pb.stop() }
             val fav = ch.uuid in favourites

@@ -168,9 +168,12 @@ fun AboutSettingsScreen(onBack: () -> Unit, vm: AboutViewModel = hiltViewModel()
     val i = info ?: AboutInfo(emptyList(), emptyList(), emptyList(), emptyList())
     val loading = info == null
     val categories = listOf(
-        SettingCategory("Viewarr", if (loading) "Gathering details…" else "This version of Viewarr.", rows(i.viewarr) + listOf(
+        SettingCategory("Viewarr", if (loading) "Gathering details…" else "This version of Viewarr.", rows(i.viewarr) + listOfNotNull(
             SettingItem("Changelog", "What changed in each version of Viewarr, newest first.", emptyList(), PlainChoice("OK: read"), action = { io.github.petebutty.viewarr.ui.update.Changelog.open = true }, onSelect = {}),
-            SettingItem("Show the tour", "The tour of how Viewarr works, from the first run.", emptyList(), PlainChoice("OK: show"), action = { Tour.requested = true }, onSelect = {}),
+            // (Previewarr Mobile: its own tips over Live TV instead of the TV's tour.)
+            if (io.github.petebutty.viewarr.BuildConfig.MOBILE) SettingItem("Show the tips", "How to get around Live TV: tapping and swiping channels, going back, your TVs.", emptyList(), PlainChoice("Show"),
+                action = { io.github.petebutty.viewarr.ui.mobile.MobileTips.requested = true; io.github.petebutty.viewarr.ui.mobile.Mobile.tab = "live"; io.github.petebutty.viewarr.ui.mobile.MobileSettingsNav.page = null; io.github.petebutty.viewarr.ui.mobile.MobileSettingsNav.open = false }, onSelect = {})
+            else SettingItem("Show the tour", "The tour of how Viewarr works, from the first run.", emptyList(), PlainChoice("OK: show"), action = { Tour.requested = true }, onSelect = {}),
         )),
         SettingCategory("This TV", if (loading) "Gathering details…" else "The box Viewarr is running on.", rows(i.device)),
         SettingCategory(

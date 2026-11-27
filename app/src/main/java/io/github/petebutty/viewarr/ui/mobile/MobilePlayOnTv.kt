@@ -47,10 +47,17 @@ import kotlinx.coroutines.launch
 internal object MobilePlayOnTv {
     /** PlayOnTv.keyOf this phone's sign-in (null: no Dispatcharr sign-in, so no Play on TV). */
     var key: String? = null
-    /** The link to send, while the TV list is open, and what to do once it's playing on the TV. */
-    var request by mutableStateOf<Pair<String, () -> Unit>?>(null)
+    /** This phone's sign-in (MobileRoot): the TVs kept on the server are read with it. */
+    var session: io.github.petebutty.viewarr.data.session.Session? = null
+    /**
+     * What to send, while the TV list is open (made when a TV is picked: music saves its queue on the server then),
+     * and what to do once it's playing on the TV.
+     */
+    var request by mutableStateOf<Pair<suspend () -> String?, () -> Unit>?>(null)
     /** Opens the TV list for [link]; [onSent]: e.g. stop playing here. */
-    fun ask(link: String, onSent: () -> Unit = {}) { request = link to onSent }
+    fun ask(link: String, onSent: () -> Unit = {}) { val l: suspend () -> String? = { link }; request = l to onSent }
+    /** The same, the link made once a TV is picked. */
+    fun askLater(link: suspend () -> String?, onSent: () -> Unit = {}) { request = link to onSent }
 }
 
 /** The Play on TV button for a page's top bar: opens the list of TVs for [link] (null: nothing to send, no button). */
@@ -63,12 +70,12 @@ internal fun PlayOnTvButton(link: () -> String?, onSent: () -> Unit = {}) {
 /** The list of TVs (Previewarr on the same network), over everything while a Play on TV request is open. */
 @Composable
 internal fun PlayOnTvSheet() {
-    val (link, onSent) = MobilePlayOnTv.request ?: return
+    val (makeLink, onSent) = MobilePlayOnTv.request ?: return
     val context = LocalContext.current
     val tvs by PlayOnTv.tvs.collectAsStateWithLifecycle()
     var sending by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
-    DisposableEffect(Unit) { val stop = PlayOnTv.discover(context); onDispose { stop() } }
+    DisposableEffect(Unit) { val stop = PlayOnTv.discover(context, MobilePlayOnTv.session); onDispose { stop() } }
     fun close() { MobilePlayOnTv.request = null }
     BackHandler { close() }
     Dialog(onDismissRequest = ::close, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
@@ -90,6 +97,8 @@ internal fun PlayOnTvSheet() {
                         val key = MobilePlayOnTv.key ?: return@clickable
                         sending = tv.name
                         scope.launch {
+                            val link = runCatching { makeLink() }.getOrNull()
+                            if (link == null) { Toast.makeText(context, "Couldn't get that ready to send", Toast.LENGTH_LONG).show(); sending = null; return@launch }
                             PlayOnTv.send(tv, link, key).fold(
                                 { Toast.makeText(context, "Playing on ${tv.name}", Toast.LENGTH_SHORT).show(); close(); onSent() },
                                 { e -> Toast.makeText(context, e.message ?: "Couldn't reach ${tv.name}", Toast.LENGTH_LONG).show(); sending = null },

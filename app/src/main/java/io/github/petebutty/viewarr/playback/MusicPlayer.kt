@@ -173,6 +173,7 @@ object MusicPlayer {
     fun toggle() { player?.let { ready(it); if (it.isPlaying) it.pause() else { if (it.playbackState == Player.STATE_ENDED) it.seekTo(0, 0); it.play() } } }
     fun next() { player?.let { if (it.hasNextMediaItem()) { ready(it); it.seekToNextMediaItem(); it.play() } } }
     fun previous() { player?.let { ready(it); if (it.currentPosition > 4_000 || !it.hasPreviousMediaItem()) it.seekTo(0) else it.seekToPreviousMediaItem(); it.play() } }
+    fun seekTo(ms: Long) { player?.seekTo(ms.coerceAtLeast(0)) }
     fun seekBy(ms: Long) { player?.let { it.seekTo((it.currentPosition + ms).coerceIn(0, max(0, it.duration))) } }
     fun jumpTo(i: Int) { player?.let { if (i in queue.indices) { ready(it); it.seekTo(i, 0); it.play() } } }
     fun toggleShuffle() { player?.let { it.shuffleModeEnabled = !it.shuffleModeEnabled } }

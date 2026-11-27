@@ -105,6 +105,7 @@ internal fun MobileRoot(session: Session?, density: Density, onSignOut: () -> Un
     }
     Mobile.density = density
     MobilePlayOnTv.key = remember(session) { io.github.petebutty.viewarr.data.cast.PlayOnTv.keyOf(session) }
+    MobilePlayOnTv.session = session
     CompositionLocalProvider(LocalDensity provides density) {
         Box(Modifier.fillMaxSize().background(MobileColors.Background).windowInsetsPadding(WindowInsets.safeDrawing)) {
             val open = MobileNav.channel
@@ -125,11 +126,17 @@ internal fun MobileRoot(session: Session?, density: Density, onSignOut: () -> Un
                 androidx.activity.compose.BackHandler(enabled = Mobile.tab != "live" && Access.liveTv) { Mobile.tab = "live" }
                 MobileMiniPlayer(Modifier.align(Alignment.BottomCenter))
                 MobileBottomBar(Modifier.align(Alignment.BottomCenter))
+                // The first time Live TV opens: how to get around (MobileTips).
+                if (Mobile.tab == "live" && Access.liveTv) MobileTipsHost()
             }
+            // Devices (Play on TV): over the pages while open.
+            if (MobileDevices.open) MobileDevicesPage()
             // Music's Now playing: over every page while open.
             if (MobileMusic.nowOpen && io.github.petebutty.viewarr.playback.MusicPlayer.active) MobileNowPlaying()
             // Play on TV: the list of TVs, while a request is open (from any page).
             PlayOnTvSheet()
+            // Play on TV's links on this phone or tablet (Take over; a tablet also receives).
+            MobileLinksHost()
         }
     }
 }

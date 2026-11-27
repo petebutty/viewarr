@@ -38,6 +38,8 @@ object HaPlayback {
 
     /** VodHost's progress for [s]: start, pause, carry on, stop (and the regular ticks, which only count if something changed). */
     fun vod(s: VodStream, state: String, positionMs: Long, durationMs: Long, fullScreen: Boolean) {
+        // (What's playing for Play on TV's Devices page too, Home Assistant or not.)
+        io.github.petebutty.viewarr.data.cast.NowPlaying.vod(s, state, positionMs, durationMs)
         val cfg = HaStore.config.value
         if (!cfg.ready || !cfg.sendPlaying) return
         synchronized(lock) {
@@ -93,6 +95,7 @@ object HaPlayback {
 
     /** The music player: a song starts, pauses, carries on; stopped ([song] may be null then). */
     fun music(song: Song?, state: String, positionMs: Long, durationMs: Long) {
+        io.github.petebutty.viewarr.data.cast.NowPlaying.music(song, state, positionMs, durationMs)
         val cfg = HaStore.config.value
         if (!cfg.ready || !cfg.sendPlaying) return
         val title: String

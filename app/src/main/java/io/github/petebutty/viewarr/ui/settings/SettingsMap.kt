@@ -206,6 +206,8 @@ fun settingsPool(
     fun from(source: String, cats: List<SettingCategory>) = cats.flatMap { c -> c.items.map { SettingsMap.Entry(source, c.name, it) } }
         // (Viewarr launcher: no theme or wallpaper choices; its one look, LauncherLook.)
         .filterNot { io.github.petebutty.viewarr.ui.launcher.LauncherLook.hides(it.key) }
+        // (Previewarr Mobile: the TV-only ones too.)
+        .filterNot { io.github.petebutty.viewarr.ui.mobile.MobileSettingsFilter.hides(it.key) }
     return (if ("Appearance" in sources) from("Appearance", appearanceCategories(appearance, opts)) else emptyList()) +
         (if ("Playback" in sources) from("Playback", playbackCategories(playback, opts)) else emptyList()) +
         (if ("Navigation" in sources) from("Navigation", navigationCategories(remote, opts)) else emptyList())

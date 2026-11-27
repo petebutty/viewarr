@@ -65,8 +65,9 @@ import io.github.petebutty.viewarr.ui.theme.AppColors
 
 /** A phone settings page: back arrow and title at the top, then [content] in a scrolling list. Back (the phone's too) runs [onBack]. */
 @Composable
-internal fun PhonePage(title: String, onBack: () -> Unit, subtitle: String? = null, content: LazyListScope.() -> Unit) {
-    BackHandler(onBack = onBack)
+internal fun PhonePage(title: String, onBack: (() -> Unit)?, subtitle: String? = null, content: LazyListScope.() -> Unit) {
+    // (No [onBack]: no back arrow, and Back is the phone's own: the first run, with nothing behind it.)
+    BackHandler(enabled = onBack != null) { onBack?.invoke() }
     Box(Modifier.fillMaxSize().background(MobileColors.Background)) {
         LazyColumn(Modifier.fillMaxSize().imePadding(), contentPadding = PaddingValues(bottom = 48.dp)) {
             item(key = "top") {
@@ -321,6 +322,10 @@ internal fun BrandBar(title: String, onBack: (() -> Unit)? = null, actions: @Com
         }
         Text(title, color = Color.White, fontSize = 21.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis,
             textAlign = TextAlign.Center, modifier = Modifier.align(Alignment.Center).padding(horizontal = 104.dp))
-        Row(Modifier.align(Alignment.CenterEnd), verticalAlignment = Alignment.CenterVertically, content = actions)
+        Row(Modifier.align(Alignment.CenterEnd), verticalAlignment = Alignment.CenterVertically) {
+            // The main pages: Devices (Play on TV's devices, what they're playing, their controls) beside their own buttons.
+            if (onBack == null && MobilePlayOnTv.key != null) TopBarIcon(AppIcons.Tv, "Devices") { MobileDevices.open = true }
+            actions()
+        }
     }
 }

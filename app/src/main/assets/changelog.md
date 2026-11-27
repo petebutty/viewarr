@@ -1,5 +1,32 @@
 # Viewarr changelog (built by tools/changelog.py from the GitHub releases; don't edit by hand)
 
+## 0.29.9.8 · 27 Nov 2026
+
+Viewarr 0.29.9.8: a small update for Viewarr, and a bigger one for Previewarr and Previewarr Mobile: control your TVs from your phone, send music, and phone-sized setup.
+
+### Viewarr
+- Update card: names the app being updated, and no longer offers a version you already have
+- Fixes and tidying under the hood, shared with Previewarr
+
+### Previewarr (preview)
+- **Always ready for your phone**: Previewarr listens for Play on TV from the moment the TV starts, not only while it's open, and comes to the front to play what's sent (allow "Display over other apps" for Previewarr once, in Android's settings)
+- **Live TV channel list**: Right on a channel slides the channel list away and its programmes take its place, with a see-through panel beside them describing the highlighted programme
+- Back from search goes straight home (it showed a blank screen first)
+
+### Previewarr Mobile (preview)
+- **Devices**: the TV button at the top of each page lists your TVs and tablets with Previewarr, what each is playing, and its controls: play / pause, stop, skip or change channel. **Send here** sends what your phone is playing; **Take over** carries on with what a TV is playing, on your phone
+- **Send music**: from Now playing, or with Send here. The queue is saved on your music server (Navidrome's play queue, or a Plex play queue) and the TV carries on from the same song and point
+- **Live TV source**: a Source button in the full-screen player and on a playing channel's page, to switch between a channel's streams (with a Dispatcharr sign-in)
+- **First run made for a phone**: a welcome page, then the services to connect, with phone-sized sign-in forms
+- **Tips** the first time Live TV opens: how tapping and swiping channels works, going back with a swipe from the edge, and your TVs (Settings → About → Show the tips shows them again)
+- **Collections** open as a page of posters
+- Smaller posters, so more fit on screen; on a tablet held sideways, a title's Play button shows without scrolling
+- Settings only lists what a phone uses (the TV-only ones, such as the remote, the menu and the info bar, are left out)
+- A tablet with Previewarr Mobile can be sent things too, and shows up in Devices
+
+Previewarr: Downloader code **6733457**, or https://github.com/petebutty/previewarr/releases
+Previewarr Mobile: Downloader code **9555036** (on a phone, open aftv.news/9555036), or https://github.com/petebutty/previewarr-mobile/releases
+
 ## 0.29.9.7 · 27 Nov 2026
 
 Viewarr 0.29.9.7: touch screens, faster episodes from your own server, and the first preview of **Previewarr Mobile** for phones and tablets.

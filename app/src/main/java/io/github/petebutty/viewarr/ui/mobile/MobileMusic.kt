@@ -345,7 +345,14 @@ internal fun MobileNowPlaying() {
         val upNext = MusicPlayer.upNext(30)
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 40.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             item(key = "top") {
-                BrandBar(if (MusicPlayer.radio) "Radio" else "Now playing", onBack = { MobileMusic.nowOpen = false })
+                BrandBar(if (MusicPlayer.radio) "Radio" else "Now playing", onBack = { MobileMusic.nowOpen = false }) {
+                    // Play on TV: the queue carries on there from this point; it stops here.
+                    // (The queue is saved on the music server when a TV is picked, and the TV loads it from there.)
+                    val links: MusicLinkViewModel = androidx.hilt.navigation.compose.hiltViewModel()
+                    if (MobilePlayOnTv.key != null) TopBarIcon(AppIcons.Tv, "Play on TV") {
+                        MobilePlayOnTv.askLater({ io.github.petebutty.viewarr.data.cast.MusicHandoff.link(links.library) }) { MusicPlayer.stop(); MobileMusic.nowOpen = false }
+                    }
+                }
             }
             item(key = "cover") {
                 Box(Modifier.padding(top = 12.dp).size(cover).clip(RoundedCornerShape(20.dp)).background(MobileColors.Card), contentAlignment = Alignment.Center) {

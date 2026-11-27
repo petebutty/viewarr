@@ -36,6 +36,7 @@ The same accounts and sources as Viewarr: Dispatcharr (or an IPTV login), Plex, 
 - **Swipe a channel left** for its guide, or **right** for the channel groups. Both slide across with your finger.
 - On a channel's schedule, tap a programme still to come to **record** it, every episode or new episodes only. Tap an earlier one with catch-up to watch it from the start.
 - Full screen: tap for the controls (previous and next channel, back and on 10 seconds, pause, picture size, the small window), and **More channels** (tap, or swipe up) to change channel without leaving full screen.
+- **Source** (two arrows, in the full-screen player and on a playing channel's page): the channel's streams from Dispatcharr, with their quality; tap one to switch.
 
 ## Films and shows
 
@@ -56,9 +57,13 @@ Your music home rows, search, album / playlist / artist pages with Play and Shuf
 
 Recorded (tap to play, sideways like films; long press to delete) and Coming up (tap to cancel), with your series recordings.
 
-## Play on TV
+## Play on TV and Devices
 
-The TV button (on a channel's page, the players, a title's page, and a recording's long press) lists the TVs with **Previewarr** open on the same Wi-Fi. Pick one and it plays there: a channel, a recording, or a film or episode. A TV only takes requests from a phone signed in to the same Dispatcharr account.
+The TV button (on a channel's page, the players, a title's page, music's Now playing, and a recording's long press) lists your TVs with **Previewarr** on the same Wi-Fi, and tablets with Previewarr Mobile. Pick one and it plays there: a channel, a recording, a film or episode, or your music. A TV only takes requests from a phone signed in to the same Dispatcharr account.
+
+- Previewarr listens from the moment the TV starts. To let it come to the front by itself, allow **Display over other apps** for Previewarr once, in Android's settings (Apps → Previewarr).
+- **Music** is handed over through your music server: the queue is saved there (Navidrome's play queue, or a Plex play queue) and the TV carries on from the same song and point. Jellyfin and Emby send the songs themselves.
+- **Devices** (the TV button at the top of the main pages): each TV and tablet, what it's playing, and its controls (play / pause, stop, skip or change channel). **Send here** sends what your phone is playing to it; **Take over** carries on with what it's playing, on your phone.
 
 ## Settings
 

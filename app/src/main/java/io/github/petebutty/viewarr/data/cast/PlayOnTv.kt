@@ -14,6 +14,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.launch
 import java.net.HttpURLConnection
 import java.net.ServerSocket
 import java.net.Socket
@@ -29,6 +30,61 @@ import kotlin.concurrent.thread
  */
 object PlayOnTv {
     const val TYPE = "_previewarr._tcp."
+    private const val PORT = 47870
+    /** This user's app data on Dispatcharr: the TVs and where they listen (some boxes don't answer network searches). */
+    private const val APP_DATA = "previewarr_tvs"
+    private val bg = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
+    private val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+
+    private fun appDataUrl(s: Session) = s.serverUrl.trimEnd('/') + "/api/accounts/users/me/app-data/$APP_DATA/"
+    private fun call(method: String, url: String, s: Session, body: String? = null): String? = runCatching {
+        val c = URL(io.github.petebutty.viewarr.data.net.Reach.map(url)).openConnection() as HttpURLConnection
+        try {
+            c.requestMethod = method; c.connectTimeout = 6_000; c.readTimeout = 10_000
+            c.setRequestProperty("X-API-Key", s.apiKey); c.setRequestProperty("Accept", "application/json")
+            if (body != null) { c.doOutput = true; c.setRequestProperty("Content-Type", "application/json"); c.outputStream.use { it.write(body.toByteArray()) } }
+            if (c.responseCode in 200..299) c.inputStream.bufferedReader().readText() else null
+        } finally { c.disconnect() }
+    }.getOrNull()
+
+    /** This TV's address on the home network (Wi-Fi or Ethernet), or null. */
+    private fun localAddress(): String? = runCatching {
+        java.net.NetworkInterface.getNetworkInterfaces().toList().filter { it.isUp && !it.isLoopback }
+            .flatMap { it.inetAddresses.toList() }.filterIsInstance<java.net.Inet4Address>()
+            .map { it.hostAddress.orEmpty() }.firstOrNull { io.github.petebutty.viewarr.data.media.isHomeAddress("http://$it") && !it.startsWith("172.") }
+    }.getOrNull()
+
+    /** The TV side: this TV's name and address kept in the user's app data, beside the other TVs'. */
+    fun register(s: Session?, name: String) {
+        if (s == null || s.isDirect || s.apiKey.isBlank()) return
+        val port = server?.localPort ?: return
+        bg.launch {
+            val host = localAddress() ?: return@launch
+            val now = System.currentTimeMillis() / 1000
+            val old = call("GET", appDataUrl(s), s)?.let { runCatching { json.parseToJsonElement(it) as? kotlinx.serialization.json.JsonObject }.getOrNull() }
+            val tvs = ((old?.get("tvs") as? kotlinx.serialization.json.JsonObject)?.toMutableMap() ?: mutableMapOf())
+            tvs[name] = kotlinx.serialization.json.buildJsonObject { put("host", kotlinx.serialization.json.JsonPrimitive(host)); put("port", kotlinx.serialization.json.JsonPrimitive(port)); put("at", kotlinx.serialization.json.JsonPrimitive(now)) }
+            val body = kotlinx.serialization.json.JsonObject(mapOf("tvs" to kotlinx.serialization.json.JsonObject(tvs)))
+            if (call("PUT", appDataUrl(s), s, body.toString()) == null) Log.w(TAG, "couldn't save this TV's address")
+        }
+    }
+
+    /** The phone side: the TVs kept in the user's app data (seen in the last two weeks). */
+    private fun savedTvs(s: Session?, add: (Tv) -> Unit) {
+        if (s == null || s.isDirect || s.apiKey.isBlank()) return
+        bg.launch {
+            val o = call("GET", appDataUrl(s), s)?.let { runCatching { json.parseToJsonElement(it) as? kotlinx.serialization.json.JsonObject }.getOrNull() } ?: return@launch
+            val now = System.currentTimeMillis() / 1000
+            (o["tvs"] as? kotlinx.serialization.json.JsonObject)?.forEach { (name, v) ->
+                val t = v as? kotlinx.serialization.json.JsonObject ?: return@forEach
+                fun str(k: String) = (t[k] as? kotlinx.serialization.json.JsonPrimitive)?.content
+                val host = str("host") ?: return@forEach
+                val port = str("port")?.toIntOrNull() ?: return@forEach
+                if (now - (str("at")?.toLongOrNull() ?: 0) > 14 * 86_400) return@forEach
+                add(Tv(name, host, port))
+            }
+        }
+    }
     private const val TAG = "PlayOnTv"
 
     /** The shared secret for [s]'s account (null: no Dispatcharr sign-in, so no Play on TV). Never the key itself. */
@@ -53,6 +109,28 @@ object PlayOnTv {
                 if (season != null && episode != null) { appendQueryParameter("season", "$season"); appendQueryParameter("episode", "$episode") }
             }.build().toString()
         }
+    /**
+     * Music: a queue saved on the music server ([src] the source, [q] its reference there), or, from a server that
+     * can't hold queues, the songs' ids from the one playing on; with how far into that song.
+     */
+    fun musicLink(src: String, q: String, positionMs: Long) =
+        "viewarr://music?src=${Uri.encode(src)}&q=${Uri.encode(q)}&t=${positionMs.coerceAtLeast(0)}"
+    fun musicIdsLink(ids: List<String>, positionMs: Long): String? {
+        if (ids.isEmpty()) return null
+        val keep = ArrayList<String>(); var len = 0
+        for (id in ids) { val e = Uri.encode(id).length + 3; if (len + e > 3_200 || keep.size >= 100) break; keep += id; len += e }
+        return "viewarr://music?t=${positionMs.coerceAtLeast(0)}&ids=" + keep.joinToString(",") { Uri.encode(it) }
+    }
+    /** What a music link asks for. */
+    class MusicAsk(val src: String?, val q: String?, val ids: List<String>, val positionMs: Long)
+    fun musicOf(uri: Uri): MusicAsk? {
+        if (uri.host != "music") return null
+        val t = uri.getQueryParameter("t")?.toLongOrNull() ?: 0L
+        val src = uri.getQueryParameter("src"); val q = uri.getQueryParameter("q")
+        if (!src.isNullOrBlank() && !q.isNullOrBlank()) return MusicAsk(src, q, emptyList(), t)
+        val ids = uri.getQueryParameter("ids")?.split(',')?.map { Uri.decode(it) }?.filter { it.contains(':') }.orEmpty()
+        return if (ids.isEmpty()) null else MusicAsk(null, null, ids, t)
+    }
 
     // ---------------------------------------------------------------- The TV side
 
@@ -60,13 +138,31 @@ object PlayOnTv {
     private var registration: NsdManager.RegistrationListener? = null
     /** This TV's own [keyOf] (set as its sign-in changes); null: requests are refused. */
     @Volatile var ownKey: String? = null
-    /** What to do with an accepted link, on the main thread (the launcher clears its own pages first). */
-    @Volatile var onLink: (Uri) -> Unit = { DeepLink.handle(it) }
+    /** This device's name, as announced (the Devices page shows it). */
+    @Volatile var ownName: String = android.os.Build.MODEL
+    /** An accepted link while the app is on screen: its own pages carry it out (PlayOnTvHost / the phone screens). */
+    @Volatile var onScreen: ((Uri) -> Unit)? = null
+    /** Off screen: the app comes forward (PlayOnTvService), then carries out [pending] once it's on screen. */
+    @Volatile var offScreen: (Uri) -> Unit = {}
+    @Volatile var pending: Uri? = null
+    /** Take over: what's playing here as a link (PlayOnTvService: music's queue saved on its server). */
+    @Volatile var onHandoff: (suspend () -> String?)? = null
+    /** Music sent here: played by the service straight away, on screen or not (PlayOnTvService). */
+    @Volatile var onMusic: ((Uri) -> Unit)? = null
+    private fun deliver(uri: Uri) {
+        if (uri.host == "music") { onMusic?.let { it(uri); return } }
+        val here = onScreen
+        if (here != null && io.github.petebutty.viewarr.AppVisible.visible.value) here(uri) else { pending = uri; offScreen(uri) }
+    }
+    /** The app on screen again: the link that brought it forward, if any (once). */
+    fun takePending(): Uri? = pending.also { pending = null }
 
     /** Starts listening and announcing this TV as [name] (once; again after [stop]). */
     fun start(context: Context, name: String) {
+        ownName = name
         if (server != null) return
-        val ss = runCatching { ServerSocket(0) }.getOrElse { Log.w(TAG, "no socket: ${it.message}"); return }
+        // (The same port each time where it's free, so the address kept on the server stays right.)
+        val ss = runCatching { ServerSocket(PORT) }.recoverCatching { ServerSocket(0) }.getOrElse { Log.w(TAG, "no socket: ${it.message}"); return }
         server = ss
         // (Two requests at a time at most, each with its own time limit: a device on the network that opens connections
         // and never finishes them can't tie the TV up.)
@@ -132,17 +228,36 @@ object PlayOnTv {
         val mine = ownKey
         fun reply(code: Int, text: String) {
             val out = s.getOutputStream()
-            out.write("HTTP/1.1 $code ${if (code == 200) "OK" else "Error"}\r\nContent-Type: text/plain\r\nContent-Length: ${text.length}\r\nConnection: close\r\n\r\n$text".toByteArray())
+            // (Content-Length in bytes: counted in letters, a "·" or "é" in a title cut the answer short and the phone
+            // couldn't read it: "Not answering" while music played, 2026-11-27.)
+            val body = text.toByteArray(Charsets.UTF_8)
+            out.write("HTTP/1.1 $code ${if (code == 200) "OK" else "Error"}\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: ${body.size}\r\nConnection: close\r\n\r\n".toByteArray())
+            out.write(body)
             out.flush()
         }
-        if (first.substringBefore(" HTTP/") != "POST /play") return reply(404, "not found")
+        val req = first.substringBefore(" HTTP/")
+        if (req !in setOf("POST /play", "POST /control", "GET /status")) return reply(404, "not found")
         if (mine == null || key == null || !MessageDigest.isEqual(key.toByteArray(), mine.toByteArray())) return reply(403, "not allowed")
+        // What's playing here (the Devices page asks every few seconds).
+        if (req == "GET /status") return reply(200, NowPlaying.json(ownName))
         val buf = ByteArray(length)
         var got = 0
         while (got < length && System.currentTimeMillis() < deadline) { val n = input.read(buf, got, length - got); if (n < 0) break; got += n }
-        val uri = Uri.parse(String(buf, 0, got, Charsets.UTF_8).trim())
-        if (uri.scheme != "viewarr" || uri.host !in setOf("channel", "recording", "title")) return reply(400, "bad link")
-        Handler(Looper.getMainLooper()).post { onLink(uri) }
+        val text = String(buf, 0, got, Charsets.UTF_8).trim()
+        // Play / pause / stop / skip / channel up and down.
+        if (req == "POST /control") {
+            // Take over: what's playing here handed to the phone as a link (music: its queue saved on the server first).
+            if (text == "handoff") {
+                val link = runCatching { kotlinx.coroutines.runBlocking { kotlinx.coroutines.withTimeoutOrNull(6_000) { onHandoff?.invoke() } } }.getOrNull()
+                return reply(200, link.orEmpty())
+            }
+            if (text !in setOf("playpause", "play", "pause", "stop", "next", "previous", "forward", "back")) return reply(400, "bad command")
+            Handler(Looper.getMainLooper()).post { runCatching { PlaybackControl.run(text) } }
+            return reply(200, "ok")
+        }
+        val uri = Uri.parse(text)
+        if (uri.scheme != "viewarr" || uri.host !in setOf("channel", "recording", "title", "music")) return reply(400, "bad link")
+        Handler(Looper.getMainLooper()).post { deliver(uri) }
         reply(200, "ok")
     }
 
@@ -155,9 +270,12 @@ object PlayOnTv {
     val tvs = _tvs.asStateFlow()
 
     /** Looks for TVs while it runs (the TV list is open); the returned function stops looking. */
-    fun discover(context: Context): () -> Unit {
+    fun discover(context: Context, session: Session? = null): () -> Unit {
         val nsd = context.applicationContext.getSystemService(Context.NSD_SERVICE) as NsdManager
         _tvs.value = emptyList()
+        // The TVs kept on the server too: found by name, whether or not they answer the search (one found both ways
+        // is listed once, with the address the search gave).
+        savedTvs(session) { tv -> synchronized(_tvs) { if (_tvs.value.none { it.name == tv.name }) _tvs.value = (_tvs.value + tv).sortedBy { it.name } } }
         // Android resolves one at a time: the ones found wait their turn.
         val queue = ArrayDeque<NsdServiceInfo>()
         var resolving = false
@@ -190,6 +308,51 @@ object PlayOnTv {
         }
         runCatching { nsd.discoverServices(TYPE, NsdManager.PROTOCOL_DNS_SD, listener) }
         return { runCatching { nsd.stopServiceDiscovery(listener) } }
+    }
+
+    /** What [tv] is playing (null: it didn't answer). */
+    suspend fun status(tv: Tv, key: String): NowPlaying.State? = withContext(Dispatchers.IO) {
+        runCatching {
+            val c = URL("http://${tv.host}:${tv.port}/status").openConnection() as HttpURLConnection
+            try {
+                c.connectTimeout = 2_500; c.readTimeout = 3_000
+                c.setRequestProperty("X-Previewarr-Key", key)
+                if (c.responseCode != 200) return@runCatching null
+                val o = json.parseToJsonElement(c.inputStream.bufferedReader().readText()) as kotlinx.serialization.json.JsonObject
+                fun str(k: String) = (o[k] as? kotlinx.serialization.json.JsonPrimitive)?.content
+                val kind = str("kind") ?: return@runCatching Idle
+                NowPlaying.State(kind, str("title").orEmpty(), str("sub"), str("image"), str("position")?.toLongOrNull() ?: 0,
+                    str("duration")?.toLongOrNull() ?: 0, str("paused") == "true", str("link"))
+            } finally { c.disconnect() }
+        }.getOrNull()
+    }
+    /** "Nothing playing" (as opposed to null: no answer). */
+    val Idle = NowPlaying.State("idle", "", null, null, 0, 0, false, null)
+
+    /** Play / pause / stop / skip on [tv]. */
+    suspend fun control(tv: Tv, cmd: String, key: String): Boolean = withContext(Dispatchers.IO) {
+        runCatching {
+            val c = URL("http://${tv.host}:${tv.port}/control").openConnection() as HttpURLConnection
+            try {
+                c.requestMethod = "POST"; c.doOutput = true; c.connectTimeout = 3_000; c.readTimeout = 4_000
+                c.setRequestProperty("X-Previewarr-Key", key)
+                c.outputStream.use { it.write(cmd.toByteArray()) }
+                c.responseCode == 200
+            } finally { c.disconnect() }
+        }.getOrDefault(false)
+    }
+
+    /** Take over: [tv]'s link for what it's playing (null: nothing, or it didn't answer). */
+    suspend fun handoff(tv: Tv, key: String): String? = withContext(Dispatchers.IO) {
+        runCatching {
+            val c = URL("http://${tv.host}:${tv.port}/control").openConnection() as HttpURLConnection
+            try {
+                c.requestMethod = "POST"; c.doOutput = true; c.connectTimeout = 3_000; c.readTimeout = 8_000
+                c.setRequestProperty("X-Previewarr-Key", key)
+                c.outputStream.use { it.write("handoff".toByteArray()) }
+                if (c.responseCode != 200) null else c.inputStream.use { it.readBytes().toString(Charsets.UTF_8).trim() }.takeIf { it.startsWith("viewarr://") }
+            } finally { c.disconnect() }
+        }.getOrNull()
     }
 
     /** Sends [link] to [tv]. A message for people when it didn't work. */

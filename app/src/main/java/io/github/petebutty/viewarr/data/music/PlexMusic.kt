@@ -129,6 +129,23 @@ class PlexMusicSource private constructor(
         return all(9, "genre=${enc(g)}&sort=titleSort", size, offset).map(::album)
     }
     override suspend fun randomSongs(size: Int) = all(10, "sort=random", size, 0).mapNotNull(::song)
+    // Play on TV: a play queue on the Plex server (any device can open it by its id); the position travels in the link.
+    override suspend fun saveQueue(queue: List<Song>, index: Int, positionMs: Long): String? {
+        val from = (index - 50).coerceAtLeast(0)
+        val part = queue.subList(from, minOf(queue.size, from + 500))
+        val uri = "server://${p.machineId}/com.plexapp.plugins.library/library/metadata/" + part.joinToString(",") { localId(it.id) }
+        val url = "${p.serverUrl}/playQueues?type=audio&shuffle=0&repeat=0&continuous=0&uri=${enc(uri)}&key=${enc("/library/metadata/" + localId(queue[index].id))}"
+        val r = runCatching { http.post(url, null, headers) }.getOrNull()?.takeIf { it.ok } ?: return null
+        return r.body.child("MediaContainer").str("playQueueID")
+    }
+    override suspend fun loadQueue(ref: String): Triple<List<Song>, Int, Long?>? {
+        val mc = get("/playQueues/${enc(ref)}") ?: return null
+        val songs = mc.array("Metadata").mapNotNull(::song)
+        if (songs.isEmpty()) return null
+        return Triple(songs, (mc.int("playQueueSelectedItemOffset") ?: 0).coerceIn(0, songs.lastIndex), null)
+    }
+    override suspend fun songs(ids: List<String>): List<Song> =
+        ids.map(::localId).chunked(50).flatMap { get("/library/metadata/" + it.joinToString(",")).array("Metadata").mapNotNull(::song) }
 
     override suspend fun search(query: String): MusicSearchResult {
         val hubs = sections.flatMap { s -> get("/hubs/search?query=${enc(query)}&sectionId=$s&limit=20").array("Hub") }

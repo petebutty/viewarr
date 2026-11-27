@@ -88,15 +88,16 @@ internal fun MobileTitlePage(type: MediaType) {
 
     BoxWithConstraints(Modifier.fillMaxSize().background(MobileColors.Background)) {
         val w = maxWidth
+        val h = maxHeight
         LazyColumn(contentPadding = PaddingValues(bottom = 40.dp)) {
-            item(key = "hero") { Hero(ui, w) { vm.close() } }
+            item(key = "hero") { Hero(ui, w, h) { vm.close() } }
             item(key = "actions") { Actions(ui, vm, show) }
             item(key = "about") { About(ui) }
             if (show) item(key = "episodes") { Episodes(ui, vm, w) }
-            if (ui.detail.collection.size > 1) item(key = "collection") { PosterRow(ui.detail.collectionName ?: "Collection", ui.detail.collection, w) { vm.open(it) } }
+            if (ui.detail.collection.size > 1) item(key = "collection") { PosterRow(ui.detail.collectionName ?: "Collection", ui.detail.collection, w, h) { vm.open(it) } }
             if (ui.detail.cast.isNotEmpty()) item(key = "cast") { Cast(ui) }
             if (ui.detail.reviews.isNotEmpty()) item(key = "reviews") { Reviews(ui.detail.reviews, w) }
-            if (ui.detail.similar.isNotEmpty()) item(key = "similar") { PosterRow("More like this", ui.detail.similar, w) { vm.open(it) } }
+            if (ui.detail.similar.isNotEmpty()) item(key = "similar") { PosterRow("More like this", ui.detail.similar, w, h) { vm.open(it) } }
         }
         // What Play (or a tapped episode) is doing, where it can be seen from anywhere on the page: it used to show only
         // under the Play button, so tapping an episode further down looked like nothing happened (2026-11-27).
@@ -123,9 +124,11 @@ private fun SectionTitle(kicker: String?, title: String) {
 
 /** The picture across the top, fading into the page, with the title on it and Back in the corner. */
 @Composable
-private fun Hero(ui: DetailUi, w: Dp, onBack: () -> Unit) {
+private fun Hero(ui: DetailUi, w: Dp, h: Dp, onBack: () -> Unit) {
     val item = ui.detail.item
-    Box(Modifier.fillMaxWidth().height(w * 0.82f)) {
+    // (Never more than about half the screen's height: on a tablet turned sideways it filled the whole screen and Play
+    // was below it, 2026-11-27.)
+    Box(Modifier.fillMaxWidth().height(minOf(w * 0.82f, h * 0.5f))) {
         (item.backdrop ?: item.poster)?.let { AsyncImage(it, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Black.copy(alpha = 0.25f), 0.45f to Color.Transparent, 1f to MobileColors.Background)))
         Box(Modifier.padding(12.dp).size(44.dp).clip(RoundedCornerShape(22.dp)).background(Color.Black.copy(alpha = 0.45f)).clickable(onClick = onBack), contentAlignment = Alignment.Center) {
@@ -245,7 +248,7 @@ private fun Episodes(ui: DetailUi, vm: MediaViewModel, w: Dp) {
         eps == null -> Text("Loading episodes…", color = AppColors.TextSecondary, fontSize = 15.sp, modifier = Modifier.padding(16.dp))
         eps.isEmpty() -> Text("No episodes listed.", color = AppColors.TextSecondary, fontSize = 15.sp, modifier = Modifier.padding(16.dp))
         else -> LazyRow(contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 10.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-            items(eps, key = { "${it.season}-${it.number}" }) { ep -> EpisodeCard(ep, ui, w * 0.78f) { vm.playBestEpisode(ep.season, ep.number) } }
+            items(eps, key = { "${it.season}-${it.number}" }) { ep -> EpisodeCard(ep, ui, minOf(w * 0.78f, 380.dp)) { vm.playBestEpisode(ep.season, ep.number) } }
         }
     }
 }
@@ -304,7 +307,7 @@ private fun Reviews(reviews: List<Review>, w: Dp) {
     SectionTitle("Audience voices", "Reviews")
     LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
         items(reviews.take(15)) { r ->
-            Column(Modifier.width(w * 0.82f).clip(RoundedCornerShape(20.dp)).background(MobileColors.Card).padding(16.dp)) {
+            Column(Modifier.width(minOf(w * 0.82f, 460.dp)).clip(RoundedCornerShape(20.dp)).background(MobileColors.Card).padding(16.dp)) {
                 r.rating?.let { s -> val n = (s / 2).toInt().coerceIn(0, 5); Text("★".repeat(n) + "☆".repeat(5 - n), color = Color(0xFFF5C518), fontSize = 18.sp) }
                 Text("“${r.text.trim()}”", color = Color.White, fontSize = 16.sp, fontStyle = FontStyle.Italic, lineHeight = 22.sp, maxLines = 7, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 8.dp))
                 Text(r.author, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 12.dp))
@@ -316,11 +319,12 @@ private fun Reviews(reviews: List<Review>, w: Dp) {
 
 /** A row of posters (more like this, the rest of a collection): tap one for its page. */
 @Composable
-private fun PosterRow(title: String, items: List<MediaItem>, w: Dp, onTap: (MediaItem) -> Unit) {
+private fun PosterRow(title: String, items: List<MediaItem>, w: Dp, h: Dp, onTap: (MediaItem) -> Unit) {
     SectionTitle(null, title)
     LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         items(items, key = { it.key }) { it2 ->
-            Column(Modifier.width(w * 0.36f).clickable { onTap(it2) }) {
+            // (The same size as the Films and Shows rows: posterWidth.)
+            Column(Modifier.width(posterWidth(w, h)).clickable { onTap(it2) }) {
                 Box(Modifier.fillMaxWidth().aspectRatio(2f / 3f).clip(RoundedCornerShape(14.dp)).background(MobileColors.Card)) {
                     (it2.poster ?: it2.backdrop)?.let { p -> AsyncImage(p, it2.title, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
                 }
