@@ -38,7 +38,7 @@ Install it with Downloader: enter the code **6733457** (or `https://github.com/p
 
 ### On a phone or tablet: Previewarr Mobile (preview)
 
-**Previewarr Mobile** is Viewarr laid out for fingers: live TV as big channel cards (swipe a channel for its guide), films and shows with search, your streaming services, music that keeps playing with the screen off, recordings, and **Play on TV** to send what you're watching to Previewarr on your TV. Open `https://github.com/petebutty/previewarr-mobile/releases/latest/download/previewarr-mobile.apk` on your phone. See the **[Previewarr Mobile guide](docs/PREVIEWARR-MOBILE.md)**.
+**Previewarr Mobile** is Viewarr laid out for fingers: live TV as big channel cards (swipe a channel for its guide), films and shows with search, your streaming services, music that keeps playing with the screen off, recordings, and **Play on TV** to send what you're watching to Previewarr on your TV. Downloader code **9555036** (or open **aftv.news/9555036** on your phone, or `https://github.com/petebutty/previewarr-mobile/releases/latest/download/previewarr-mobile.apk`). See the **[Previewarr Mobile guide](docs/PREVIEWARR-MOBILE.md)**.
 
 ## Highlights
 

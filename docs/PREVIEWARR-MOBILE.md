@@ -10,7 +10,7 @@ Previewarr Mobile has the same live TV, films and shows, music and recordings as
 
 ## Install
 
-1. On your phone or tablet, open this link (it always gets the newest version):
+1. On your phone or tablet, open **aftv.news/9555036** in your browser (or enter the code **9555036** in the Downloader app), or this link; all of them always get the newest version:
 
    `https://github.com/petebutty/previewarr-mobile/releases/latest/download/previewarr-mobile.apk`
 
